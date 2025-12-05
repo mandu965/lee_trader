@@ -1,0 +1,717 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Stock Analyzer - 공부</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #22c55e;
+      --danger: #ef4444;
+      --warn: #f59e0b;
+      --table-border: #1f2937;
+      --badge-bg: rgba(34,197,94,0.12);
+      --badge-border: rgba(34,197,94,0.5);
+      --badge-text: #bbf7d0;
+      --code-bg: #020617;
+      --shadow-soft: 0 18px 40px rgba(0,0,0,0.45);
+      --radius-lg: 16px;
+      --radius-pill: 999px;
+      --transition-fast: 150ms ease-out;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top, #1e293b 0, #020617 55%);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .page {
+      max-width: 1120px;
+      margin: 32px auto 40px;
+      padding: 24px 20px 40px;
+      background: radial-gradient(circle at top left, rgba(34,197,94,0.04), transparent 45%),
+                  radial-gradient(circle at top right, rgba(59,130,246,0.04), transparent 45%),
+                  linear-gradient(145deg, rgba(15,23,42,0.96), rgba(15,23,42,0.98));
+      border-radius: 24px;
+      box-shadow: var(--shadow-soft);
+      border: 1px solid rgba(148,163,184,0.14);
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      letter-spacing: 0.03em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    h1::after {
+      content: "STUDY";
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.6);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+    }
+
+    .link {
+      color: var(--muted);
+      font-size: 13px;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.35);
+      background: radial-gradient(circle at top, rgba(15,23,42,0.7), rgba(15,23,42,0.96));
+      transition: all var(--transition-fast);
+    }
+
+    .link:hover {
+      color: #e2e8f0;
+      border-color: rgba(148,163,184,0.8);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 20px rgba(15,23,42,0.8);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+      margin-top: 6px;
+    }
+
+    #q {
+      flex: 1 1 260px;
+      padding: 10px 12px;
+      border-radius: var(--radius-pill);
+      border: 1px solid #1f2937;
+      background: rgba(15,23,42,0.95);
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      box-shadow: 0 0 0 1px rgba(15,23,42,0.7);
+      transition: all var(--transition-fast);
+    }
+
+    #q::placeholder {
+      color: var(--muted);
+    }
+
+    #q:focus {
+      border-color: rgba(34,197,94,0.7);
+      box-shadow:
+        0 0 0 1px rgba(34,197,94,0.5),
+        0 0 0 6px rgba(34,197,94,0.12);
+      background: radial-gradient(circle at top left, rgba(34,197,94,0.04), transparent 55%),
+                  rgba(15,23,42,0.98);
+    }
+
+    .count {
+      font-size: 13px;
+      color: var(--muted);
+      padding: 4px 10px;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(148,163,184,0.5);
+      background: rgba(15,23,42,0.9);
+    }
+
+    #glossary {
+      margin-top: 6px;
+    }
+
+    details {
+      margin-bottom: 10px;
+      border-radius: 18px;
+      background: radial-gradient(circle at top left, rgba(15,23,42,0.95), rgba(15,23,42,0.99));
+      border: 1px solid rgba(30,64,175,0.4);
+      overflow: hidden;
+      transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background 200ms ease-out;
+    }
+
+    details[open] {
+      border-color: rgba(34,197,94,0.6);
+      box-shadow: 0 18px 40px rgba(15,23,42,0.95);
+      background:
+        radial-gradient(circle at top left, rgba(34,197,94,0.08), transparent 55%),
+        radial-gradient(circle at top right, rgba(59,130,246,0.06), transparent 55%),
+        rgba(15,23,42,0.99);
+    }
+
+    summary {
+      list-style: none;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #e2e8f0;
+      position: relative;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    summary::before {
+      content: "▸";
+      font-size: 11px;
+      color: var(--muted);
+      transition: transform var(--transition-fast), color var(--transition-fast);
+    }
+
+    details[open] > summary::before {
+      transform: rotate(90deg);
+      color: var(--accent);
+    }
+
+    summary::after {
+      content: "";
+      position: absolute;
+      inset: auto 0 0 0;
+      height: 1px;
+      background: linear-gradient(90deg, rgba(15,23,42,0), rgba(148,163,184,0.35), rgba(15,23,42,0));
+      opacity: 0.7;
+    }
+
+    .terms {
+      padding: 10px 14px 12px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 8px 10px;
+    }
+
+    .term {
+      padding: 8px 9px;
+      border-radius: 14px;
+      border: 1px solid rgba(30,64,175,0.45);
+      background: radial-gradient(circle at top left, rgba(15,23,42,0.96), rgba(15,23,42,0.99));
+      font-size: 13px;
+      line-height: 1.45;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: border-color var(--transition-fast), transform var(--transition-fast),
+                  box-shadow var(--transition-fast), background 180ms ease-out;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .term::before {
+      content: "";
+      position: absolute;
+      inset: -40% 40% auto auto;
+      background: radial-gradient(circle at center, rgba(56,189,248,0.12), transparent 55%);
+      opacity: 0;
+      transition: opacity var(--transition-fast), transform var(--transition-fast);
+      pointer-events: none;
+    }
+
+    .term:hover::before {
+      opacity: 1;
+      transform: translate3d(-8px, 6px, 0);
+    }
+
+    .term:hover {
+      border-color: rgba(56,189,248,0.75);
+      transform: translateY(-1px);
+      box-shadow: 0 12px 28px rgba(15,23,42,0.95);
+      background: radial-gradient(circle at top left, rgba(30,64,175,0.45), rgba(15,23,42,0.97));
+    }
+
+    .term-title {
+      font-weight: 600;
+      color: #e5e7eb;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+
+    .term-desc {
+      color: var(--muted);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 1px 7px 2px;
+      border-radius: 999px;
+      font-size: 11px;
+      border: 1px solid var(--badge-border);
+      background: var(--badge-bg);
+      color: var(--badge-text);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .note {
+      margin-top: 4px;
+      font-size: 12px;
+      color: #e5e7eb;
+      padding: 4px 8px;
+      border-radius: 12px;
+      background: linear-gradient(145deg, rgba(15,23,42,0.8), rgba(22,101,52,0.9));
+      border: 1px solid rgba(34,197,94,0.5);
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      background: var(--code-bg);
+      padding: 1px 5px;
+      border-radius: 6px;
+      border: 1px solid rgba(15,23,42,0.9);
+      font-size: 12px;
+      color: #e5e7eb;
+    }
+
+    .footer {
+      margin-top: 18px;
+      padding-top: 10px;
+      border-top: 1px dashed rgba(148,163,184,0.5);
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .footer .link {
+      font-size: 12px;
+      padding: 4px 10px;
+    }
+
+    @media (max-width: 720px) {
+      .page {
+        margin: 16px 10px 24px;
+        padding: 18px 14px 28px;
+      }
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .footer {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      .terms {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>📘 주식 용어 학습</h1>
+      <a class="link" href="./index.html">← 리스트로</a>
+    </header>
+
+    <div class="toolbar">
+      <input id="q" type="text" placeholder="용어/영문/설명 검색 (예: PER, 이동평균, split)" />
+      <span id="count" class="count">총 0개 용어</span>
+    </div>
+
+    <div id="glossary">
+      <details open>
+        <summary>기본 시세</summary>
+        <div class="terms">
+          <div class="term" data-kw="시가 open 오픈 시작가">
+            <div class="term-title">시가 <span class="badge">Open</span></div>
+            <div class="term-desc">해당 거래일 첫 체결가격. 전일 종가와의 갭은 장 시작 수급을 반영.</div>
+          </div>
+          <div class="term" data-kw="고가 high 하이 최고가">
+            <div class="term-title">고가 <span class="badge">High</span></div>
+            <div class="term-desc">해당 거래일 가장 높은 체결가격.</div>
+          </div>
+          <div class="term" data-kw="저가 low 로우 최저가">
+            <div class="term-title">저가 <span class="badge">Low</span></div>
+            <div class="term-desc">해당 거래일 가장 낮은 체결가격.</div>
+          </div>
+          <div class="term" data-kw="종가 close 클로즈 마감가">
+            <div class="term-title">종가 <span class="badge">Close</span></div>
+            <div class="term-desc">해당 거래일 마지막 체결가격. 차트/지표 계산의 기준으로 자주 사용.</div>
+          </div>
+          <div class="term" data-kw="거래량 volume 볼륨 체결량 거래대금 turnover">
+            <div class="term-title">거래량 <span class="badge">Volume</span></div>
+            <div class="term-desc">해당 기간 동안 체결된 주식 수. 거래대금은 거래량×가격.</div>
+          </div>
+          <div class="term" data-kw="시가총액 시총 market cap 규모">
+            <div class="term-title">시가총액 <span class="badge">Market Cap</span></div>
+            <div class="term-desc">주가 × 발행주식수. 기업 가치를 시장이 평가한 현재 규모.</div>
+          </div>
+          <div class="term" data-kw="52주 최고가 최저가 52week high low">
+            <div class="term-title">52주 고가/저가</div>
+            <div class="term-desc">최근 1년 동안 기록한 최고/최저 주가. 추세와 저항/지지 구간 확인에 활용.</div>
+          </div>
+          <div class="term" data-kw="호가 order book bid ask 매도 매수 잔량">
+            <div class="term-title">호가/잔량</div>
+            <div class="term-desc">매수/매도 주문이 대기 중인 가격과 수량. 단기 유동성과 수급 확인.</div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>재무·가치 지표</summary>
+        <div class="terms">
+          <div class="term" data-kw="PER 주가수익비율 price earnings ratio 밸류에이션">
+            <div class="term-title">PER <span class="badge">Price/Earnings</span></div>
+            <div class="term-desc">주가 / 주당순이익(EPS). 이익 대비 주가 수준. 높을수록 기대/과열, 낮을수록 저평가 가능성.</div>
+          </div>
+          <div class="term" data-kw="PBR 주가순자산비율 price book value BPS">
+            <div class="term-title">PBR <span class="badge">Price/Book</span></div>
+            <div class="term-desc">주가 / 주당순자산(BPS). 1배 미만이면 청산가치 대비 저평가 논의가 자주 나옴.</div>
+          </div>
+          <div class="term" data-kw="ROE 자기자본이익률 return on equity 수익성">
+            <div class="term-title">ROE</div>
+            <div class="term-desc">당기순이익 / 자기자본. 자기자본을 얼마나 효율적으로 굴리는지 보여주는 핵심 수익성 지표.</div>
+          </div>
+          <div class="term" data-kw="EPS 주당순이익 earning per share 이익 규모">
+            <div class="term-title">EPS</div>
+            <div class="term-desc">당기순이익 / 발행주식수. 1주당 벌어들이는 이익.</div>
+          </div>
+          <div class="term" data-kw="BPS 주당순자산 book value per share 자산가치">
+            <div class="term-title">BPS</div>
+            <div class="term-desc">자기자본 / 발행주식수. 1주당 장부가치.</div>
+          </div>
+          <div class="term" data-kw="배당수익률 dividend yield 배당금 인컴 수익">
+            <div class="term-title">배당수익률</div>
+            <div class="term-desc">연간 배당금 / 현재 주가. 배당 중심 인컴 투자에서 핵심 지표.</div>
+          </div>
+          <div class="term" data-kw="부채비율 debt ratio 재무건전성 레버리지">
+            <div class="term-title">부채비율</div>
+            <div class="term-desc">총부채 / 자기자본. 높을수록 재무 레버리지와 위험이 커질 수 있음.</div>
+          </div>
+          <div class="term" data-kw="영업이익 operating profit 손익계산서">
+            <div class="term-title">영업이익</div>
+            <div class="term-desc">본업에서 벌어들인 이익. 일회성 이익/손실을 제거한 사업체 성과.</div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>기술적 지표</summary>
+        <div class="terms">
+          <div class="term" data-kw="이동평균선 moving average MA 추세선">
+            <div class="term-title">이동평균선 <span class="badge">MA</span></div>
+            <div class="term-desc">과거 n일간 종가 평균을 잇는 선. 단기/중기/장기 추세 확인에 사용.</div>
+          </div>
+          <div class="term" data-kw="단기 이평선 장기 데드크로스 골든크로스">
+            <div class="term-title">골든/데드 크로스</div>
+            <div class="term-desc">단기 이평선이 장기 이평선을 상향 돌파(골든)/하향 돌파(데드)하는 지점.</div>
+          </div>
+          <div class="term" data-kw="RSI 상대강도지수 과매수 과매도">
+            <div class="term-title">RSI</div>
+            <div class="term-desc">최근 상승/하락 폭을 비교해 과열/침체 구간을 파악하는 모멘텀 지표.</div>
+          </div>
+          <div class="term" data-kw="MACD 이동평균 수렴 발산 추세 전환">
+            <div class="term-title">MACD</div>
+            <div class="term-desc">단기/장기 이동평균선 차이를 활용한 추세 추종 지표. 시그널선과의 교차로 매매 시점 탐색.</div>
+          </div>
+          <div class="term" data-kw="볼린저 밴드 Bollinger Band 변동성 밴드">
+            <div class="term-title">볼린저 밴드</div>
+            <div class="term-desc">이동평균선을 중심으로 표준편차 범위를 띠로 표시. 변동성이 커질수록 밴드가 확대.</div>
+          </div>
+          <div class="term" data-kw="스토캐스틱 stochastic oscillator">
+            <div class="term-title">스토캐스틱</div>
+            <div class="term-desc">현재가가 일정 기간 고가/저가 범위에서 어느 위치에 있는지 나타내는 모멘텀 지표.</div>
+          </div>
+          <div class="term" data-kw="OBV 거래량 이동 on balance volume">
+            <div class="term-title">OBV</div>
+            <div class="term-desc">상승/하락일 거래량을 누적해 추세와 거래량을 함께 보는 지표.</div>
+          </div>
+          <div class="term" data-kw="ADX 추세 강도 average directional index">
+            <div class="term-title">ADX</div>
+            <div class="term-desc">추세의 ‘강도’를 측정하는 지표. 방향보다 추세의 존재 여부를 파악하는 데 사용.</div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>트레이딩·실전 용어</summary>
+        <div class="terms">
+          <div class="term" data-kw="손절 stop loss 손실 제한">
+            <div class="term-title">손절 <span class="badge">Stop Loss</span></div>
+            <div class="term-desc">손실이 일정 수준을 넘기기 전에 미리 청산해 손실을 제한하는 것.</div>
+          </div>
+          <div class="term" data-kw="익절 take profit 목표 수익 실현">
+            <div class="term-title">익절</div>
+            <div class="term-desc">목표 수익 실현을 위한 청산.</div>
+          </div>
+          <div class="term" data-kw="슬리피지 slippage 체결 가격 차이 유동성">
+            <div class="term-title">슬리피지</div>
+            <div class="term-desc">호가/체결 간격으로 인한 기대가격 대비 체결가격 차이.</div>
+          </div>
+          <div class="term" data-kw="스프레드 spread 매수호가 매도호가 호가차">
+            <div class="term-title">스프레드</div>
+            <div class="term-desc">매수/매도호가 차이. 유동성/거래비용 지표.</div>
+          </div>
+          <div class="term" data-kw="체결강도 tick uptick downtick">
+            <div class="term-title">체결강도</div>
+            <div class="term-desc">매수/매도 우위 체결 비율. 단기 수급 판단에 활용.</div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>시장/지수</summary>
+        <div class="terms">
+          <div class="term" data-kw="코스피 KOSPI 유가증권시장">
+            <div class="term-title">KOSPI</div>
+            <div class="term-desc">유가증권시장(메인보드) 지수. 대형주 중심.</div>
+          </div>
+          <div class="term" data-kw="코스닥 KOSDAQ 성장주 중소형주">
+            <div class="term-title">KOSDAQ</div>
+            <div class="term-desc">기술주/성장주 중심 중소형주 시장 지수.</div>
+          </div>
+          <div class="term" data-kw="코스피200 선물 옵션 파생 지수">
+            <div class="term-title">KOSPI200</div>
+            <div class="term-desc">대표 파생기초지수. 선물/옵션 시장의 핵심.</div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>기업행위</summary>
+        <div class="terms">
+          <div class="term" data-kw="액면분할 split 병합 reverse split 조정주가 adjusted price">
+            <div class="term-title">액면분할/병합</div>
+            <div class="term-desc">주식 수/액면가 조정. 가격 레벨이 단절되므로 조정주가를 사용해 연속성 확보.</div>
+          </div>
+          <div class="term" data-kw="유상증자 rights issue 신주발행 희석">
+            <div class="term-title">유상증자</div>
+            <div class="term-desc">신주 발행으로 자금 조달. 주당 가치 희석 가능.</div>
+          </div>
+          <div class="term" data-kw="무상증자 bonus issue 주식배당">
+            <div class="term-title">무상증자</div>
+            <div class="term-desc">자본잉여금 등으로 주식수 증가. 실질가치 변화는 제한적.</div>
+          </div>
+          <div class="term" data-kw="배당락 권리락 ex-dividend date">
+            <div class="term-title">배당락/권리락</div>
+            <div class="term-desc">배당/권리 기준일 이후 주가가 권리분을 반영해 갭 조정되는 현상.</div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>수익률·위험·성과 지표</summary>
+        <div class="terms">
+          <div class="term" data-kw="수익률 return 단리 복리 수익률 계산">
+            <div class="term-title">수익률 <span class="badge">Return</span></div>
+            <div class="term-desc">
+              (현재가 / 기준가) − 1 로 계산되는 비율. 예: 0.10 = 10% 수익.
+              단일 기간 수익률과 여러 기간을 복리로 연결한 누적 수익률을 구분해서 해석해야 한다.
+            </div>
+          </div>
+          <div class="term" data-kw="기대수익률 expected return 평균 수익률">
+            <div class="term-title">기대수익률 <span class="badge">Expected Return</span></div>
+            <div class="term-desc">
+              여러 과거 수익률의 평균값으로 보는 ‘평균적으로 기대되는’ 수익률.
+              개별 결과는 크게 달라질 수 있으므로 확률적인 개념으로 이해해야 한다.
+            </div>
+          </div>
+          <div class="term" data-kw="표준편차 standard deviation 변동성 risk 리스크">
+            <div class="term-title">표준편차/변동성</div>
+            <div class="term-desc">
+              수익률이 평균에서 얼마나 흔들리는지를 나타내는 값.
+              변동성이 클수록 수익 기회도 크지만 손실 위험도 같이 커진다고 해석한다.
+            </div>
+          </div>
+          <div class="term" data-kw="최대낙폭 MDD maximum drawdown 손실 구간">
+            <div class="term-title">최대낙폭 <span class="badge">MDD</span></div>
+            <div class="term-desc">
+              투자 기간 중 고점 대비 얼마나 많이 떨어졌는지(%)의 최댓값.
+              ‘이 전략을 쓰면 마음 편하게 버틸 수 있는가’를 보여주는 대표 리스크 지표.
+            </div>
+          </div>
+          <div class="term" data-kw="샤프지수 sharpe ratio 위험 대비 수익 risk adjusted return">
+            <div class="term-title">샤프지수 <span class="badge">Sharpe Ratio</span></div>
+            <div class="term-desc">
+              (수익률 − 무위험수익률) / 변동성 으로 계산되는 지표.
+              같은 수익률이라도 변동성이 낮을수록(덜 요동칠수록) 더 높은 샤프지수를 가진다.
+            </div>
+            <div class="note">단순 수익률만 보는 것보다 전략의 ‘안정성’을 함께 평가할 수 있게 해준다.</div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>AI 예측 모델·데이터</summary>
+        <div class="terms">
+          <div class="term" data-kw="피처 feature 입력 변수 기술적 지표 재무 지표">
+            <div class="term-title">피처 <span class="badge">Feature</span></div>
+            <div class="term-desc">
+              모델이 입력으로 사용하는 변수들. 예: 최근 수익률, 이동평균, 거래량, 재무지표 등.
+              어떤 피처를 쓰느냐에 따라 모델이 ‘무엇을 패턴으로 본다’가 달라진다.
+            </div>
+          </div>
+          <div class="term" data-kw="라벨 label 타깃 target 미래 수익률 예측값 정답 데이터">
+            <div class="term-title">라벨/타깃</div>
+            <div class="term-desc">
+              모델이 맞추려고 학습하는 정답값. 이 서비스에서는 특정 시점에서 앞으로
+              60일·90일 후 수익률이 라벨이 된다. 라벨을 어떻게 정의하느냐가 모델 성격을 결정짓는다.
+            </div>
+          </div>
+          <div class="term" data-kw="학습 training train 데이터 fitting">
+            <div class="term-title">학습(Training)</div>
+            <div class="term-desc">
+              과거 피처와 라벨를 이용해, 모델이 ‘입력 → 출력’ 패턴을 익히도록 하는 과정.
+              학습 데이터에 너무 딱 맞추면 과거에는 잘 맞지만 미래에는 성능이 떨어질 수 있다.
+            </div>
+          </div>
+          <div class="term" data-kw="검증 validation 검증 데이터 성능 테스트 시계열">
+            <div class="term-title">검증(Validation)</div>
+            <div class="term-desc">
+              학습에 쓰지 않은 데이터로 모델 성능을 확인하는 단계.
+              시계열 데이터에서는 과거→미래 순서를 지키는 <b>Time Series Split</b> 방식이 중요하다.
+            </div>
+          </div>
+          <div class="term" data-kw="오버피팅 overfitting 과적합 백테스트 성과만 좋은 모델">
+            <div class="term-title">오버피팅 <span class="badge">Overfitting</span></div>
+            <div class="term-desc">
+              모델이 노이즈까지 외워버려서 과거 데이터에는 잘 맞지만,
+              실제 미래 데이터에서는 성능이 급격히 나빠지는 현상.
+              지나치게 많은 파라미터나, 검증을 반복하다가 우연히 잘 맞는 모델만 고를 때 자주 발생한다.
+            </div>
+            <div class="note">예측이 너무 좋아 보인다면 오버피팅 가능성을 먼저 의심해 보는 것이 좋다.</div>
+          </div>
+          <div class="term" data-kw="백테스트 backtest 과거 데이터 테스트 전략 시뮬레이션">
+            <div class="term-title">백테스트</div>
+            <div class="term-desc">
+              과거 데이터로 전략을 그대로 적용해 봤을 때의 성과를 계산하는 작업.
+              진입/청산 규칙, 거래비용, 슬리피지 등을 최대한 현실적으로 반영해야 의미가 있다.
+            </div>
+          </div>
+          <div class="term" data-kw="예측수익률 prediction 예측 expected return 시나리오 확률">
+            <div class="term-title">예측수익률</div>
+            <div class="term-desc">
+              모델이 추정한 향후 수익률의 ‘기대값’에 가까운 개념.
+              어떤 결과도 보장하지 않으며, 실제 수익률은 이 값을 중심으로 크게 위아래로 흔들릴 수 있다.
+            </div>
+            <div class="note">숫자를 ‘확실한 결과’가 아니라 ‘방향성과 대략적인 크기’를 참고하는 용도로 보는 것이 안전하다.</div>
+          </div>
+          <div class="term" data-kw="점수 score 종합점수 composite ranking">
+            <div class="term-title">점수/종합점수</div>
+            <div class="term-desc">
+              여러 지표(예: 예측수익률, 변동성, 재무 안정성 등)를 하나의 숫자로 합산한 내부 평가값.
+              절대적인 수치라기보다, 같은 날짜/시장 안에서 종목 간 상대적인 순위를 비교하는 데 적합하다.
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>포트폴리오·분산투자</summary>
+        <div class="terms">
+          <div class="term" data-kw="포트폴리오 portfolio 종목 묶음 전략 단위 계좌 전체">
+            <div class="term-title">포트폴리오</div>
+            <div class="term-desc">
+              여러 종목·자산을 묶어 놓은 전체 투자 구성.
+              개별 종목이 아니라 포트폴리오 단위로 수익과 리스크를 관리하는 것이 중요하다.
+            </div>
+          </div>
+          <div class="term" data-kw="분산투자 diversification 몰빵 방지 상관관계 낮추기">
+            <div class="term-title">분산투자 <span class="badge">Diversification</span></div>
+            <div class="term-desc">
+              서로 다른 업종·자산에 나누어 투자해,
+              개별 종목의 큰 손실이 전체 계좌에 미치는 영향을 줄이는 전략.
+            </div>
+          </div>
+          <div class="term" data-kw="상관관계 correlation 코릴레이션 동조화">
+            <div class="term-title">상관관계</div>
+            <div class="term-desc">
+              두 종목/자산의 수익률이 얼마나 같이 움직이는지를 나타내는 지표(-1~+1).
+              상관관계가 낮을수록 분산투자 효과가 커진다.
+            </div>
+          </div>
+          <div class="term" data-kw="포지션 사이즈 position size 비중 position sizing">
+            <div class="term-title">포지션 사이즈</div>
+            <div class="term-desc">
+              한 종목에 계좌 중 얼마나 투자할지(%)를 정하는 것.
+              예측이 좋아 보여도, 종목당 비중을 제한하는 것이 리스크 관리의 핵심이다.
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <div class="footer">
+      <div>Tip: 검색창에 한글/영문/별칭을 입력하면 즉시 필터링됩니다.</div>
+      <div><a class="link" href="./index.html">← 리스트로 돌아가기</a></div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+    function updateCount() {
+      const total = $$(".term").length;
+      const visible = $$(".term").filter(t => t.style.display !== "none").length;
+      $("#count").textContent = `총 ${visible}/${total}개 용어`;
+    }
+
+    function filterTerms() {
+      const q = $("#q").value.trim().toLowerCase();
+      const terms = $$(".term");
+
+      if (!q) {
+        terms.forEach(t => t.style.display = "");
+        $$("details").forEach(d => {
+          d.style.display = "";
+        });
+        updateCount();
+        return;
+      }
+
+      terms.forEach(t => {
+        const kw = t.dataset.kw?.toLowerCase() || "";
+        const text = t.textContent.toLowerCase();
+        const hit = kw.includes(q) || text.includes(q);
+        t.style.display = hit ? "" : "none";
+      });
+
+      $$("details").forEach(d => {
+        const visibleInside = Array.from(d.querySelectorAll(".term")).some(el => el.style.display !== "none");
+        d.style.display = visibleInside ? "" : "none";
+        if (visibleInside && !d.open) d.open = true;
+      });
+      updateCount();
+    }
+
+    $("#q").addEventListener("input", filterTerms);
+
+    // 초기 카운트
+    updateCount();
+  </script>
+</body>
+</html>

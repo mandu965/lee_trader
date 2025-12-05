@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AI Stock Analyzer - 상세</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-soft: #0b1020;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #22c55e;
+      --danger: #ef4444;
+      --warn: #facc15;
+      --table-border: #1f2937;
+      --grid: #1f2937;
+      --ma5: #60a5fa;
+      --ma20: #f59e0b;
+      --ma60: #22c55e;
+      --close: #e5e7eb;
+      --ret: #2f81f7;
+      --prob: #14b8a6;
+      --qual: #65c466;
+      --tech: #8b5cf6;
+      --model: #38bdf8;
+      --rp: #f97373;
+    }
+    html, body { margin:0; padding:0; background: var(--bg); color: var(--text); font-family: "Noto Sans KR", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    a { color:#60a5fa; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .container { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
+    header { display:flex; align-items:center; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+    header h1 { font-size:20px; margin:0; }
+    .badge { padding:4px 10px; border-radius:999px; border:1px solid var(--table-border); background: #0b1020; color: var(--muted); font-size:12px; }
+    .layout { display:grid; grid-template-columns: 420px 1fr; gap:16px; align-items:start; }
+    .detail-left { display:flex; flex-direction:column; gap:16px; }
+    .cards { display:flex; flex-direction:column; gap:16px; }
+    .card { background:#070f1f; border-radius:14px; padding:16px 20px; box-shadow:0 14px 30px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03); border: none; }
+    .detail-card-title { font-size:0.9rem; font-weight:600; margin:0 0 8px; letter-spacing:0.03em; opacity:0.9; display:flex; align-items:center; gap:8px; }
+    .sub { color: var(--muted); font-size:12px; }
+    .row { display:flex; flex-wrap:wrap; gap:10px 16px; }
+    .info-item { flex:1 1 48%; min-width:150px; }
+    .info-item .label { color: var(--muted); font-size:12px; }
+    .info-item .value { font-weight:600; margin-top:2px; }
+    .detail-row { display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:4px; }
+    .detail-row-label { opacity:0.7; }
+    .detail-row-value { font-variant-numeric: tabular-nums; }
+    .summary-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:12px; }
+    .summary-name { font-size:1rem; font-weight:600; }
+    .summary-code { font-size:0.8rem; opacity:0.7; }
+    .summary-market { font-size:0.8rem; opacity:0.8; margin-top:2px; }
+    .summary-trend { display:inline-flex; align-items:center; gap:4px; padding:4px 8px; border-radius:999px; font-size:0.75rem; font-weight:500; }
+    .summary-trend.up { color:#4ade80; background:rgba(34,197,94,0.12); }
+    .summary-trend.strong-up { color:#22c55e; background:rgba(34,197,94,0.18); }
+    .summary-trend.down { color:#f97373; background:rgba(248,113,113,0.14); }
+    .summary-trend.neutral { color:#e5e7eb; background:rgba(148,163,184,0.16); }
+    .trend-icon { font-size:0.8rem; }
+    .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+    .chip { padding:4px 8px; border-radius:8px; background: #0b1020; border:1px solid var(--table-border); font-size:12px; }
+    .score-row { display:flex; align-items:center; gap:10px; margin:6px 0; }
+    .score-label { width:110px; color: var(--muted); font-size:13px; }
+    .score-bar { flex:1; height:8px; border-radius:999px; background: rgba(255,255,255,0.08); overflow:hidden; position:relative; }
+    .score-fill { position:absolute; top:0; left:0; bottom:0; border-radius:999px; }
+    .score-val { width:55px; text-align:right; font-weight:600; }
+    .pos { color:#22c55e; }
+    .neg { color:#ef4444; }
+    .warn { color: var(--warn); }
+    .pill { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.06); font-size:12px; }
+    .tech-sparkline-wrap { margin-top:10px; }
+    #sparklineCanvas { width:100%; height:40px; }
+    .sparkline-label { font-size:0.75rem; opacity:0.7; margin-top:2px; }
+    .risk-comment { margin-top:8px; padding-top:6px; border-top:1px solid rgba(148,163,184,0.2); font-size:0.8rem; opacity:0.9; line-height:1.4; }
+    canvas { width:100%; height:360px; border: 1px solid var(--table-border); background:#0b1020; border-radius:8px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { padding:6px 4px; border-bottom:1px solid var(--table-border); }
+    th { color: var(--muted); text-align:left; }
+    .status { color: var(--muted); font-size:12px; margin-top:6px; }
+    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1><a href="./">예측 리스트</a> · 상세 리포트</h1>
+      <div id="title" class="badge">종목코드: -</div>
+    </header>
+
+    <div class="layout">
+      <!-- 왼쪽: AI 리포트 카드 -->
+      <div class="cards detail-left">
+        <div class="card detail-card" id="card-summary">
+          <div class="detail-card-title">종목 요약</div>
+          <div class="summary-header">
+            <div>
+              <div class="summary-name" id="summaryName">-</div>
+              <div class="summary-code" id="summaryCode">-</div>
+              <div class="summary-market" id="summaryMeta">-</div>
+            </div>
+            <div class="summary-trend neutral" id="summaryTrend">
+              <span class="trend-icon">■</span>
+              <span class="trend-label">중립</span>
+            </div>
+          </div>
+          <div class="chips" id="summaryChips"></div>
+          <div class="sub" id="aiComment" style="margin-top:8px;">예측 수익률과 리스크를 종합한 결과입니다.</div>
+        </div>
+
+        <div class="card detail-card" id="card-tech">
+          <h3 class="detail-card-title">📊 기술 요약</h3>
+          <div class="row">
+            <div class="info-item"><div class="label">종가</div><div class="value" id="vClose">-</div></div>
+            <div class="info-item"><div class="label">MA5 / MA20 / MA60</div><div class="value" id="vMA">-</div></div>
+            <div class="info-item"><div class="label">RSI(14)</div><div class="value" id="vRSI">-</div><div class="sub" id="vRSIText"></div></div>
+            <div class="info-item"><div class="label">변동성(20)</div><div class="value" id="vVol">-</div><div class="sub" id="vVolText"></div></div>
+          </div>
+          <div class="tech-sparkline-wrap">
+            <canvas id="sparklineCanvas" width="160" height="40"></canvas>
+            <div class="sparkline-label">최근 30일 종가 추이</div>
+          </div>
+        </div>
+
+        <div class="card detail-card" id="card-score">
+          <h3 class="detail-card-title">🔍 점수 분해</h3>
+          <div class="score-row"><div class="score-label">RET (수익률)</div><div class="score-bar"><div class="score-fill" id="barRet"></div></div><div class="score-val" id="valRet">-</div></div>
+          <div class="score-row"><div class="score-label">PROB (확률)</div><div class="score-bar"><div class="score-fill" id="barProb"></div></div><div class="score-val" id="valProb">-</div></div>
+          <div class="score-row"><div class="score-label">QUAL (재무)</div><div class="score-bar"><div class="score-fill" id="barQual"></div></div><div class="score-val" id="valQual">-</div></div>
+          <div class="score-row"><div class="score-label">TECH (기술)</div><div class="score-bar"><div class="score-fill" id="barTech"></div></div><div class="score-val" id="valTech">-</div></div>
+          <div class="score-row"><div class="score-label">MODEL (예측)</div><div class="score-bar"><div class="score-fill" id="barModel"></div></div><div class="score-val" id="valModel">-</div></div>
+          <div class="score-row"><div class="score-label">RISK PENALTY</div><div class="score-bar"><div class="score-fill" id="barRP"></div></div><div class="score-val" id="valRP">-</div></div>
+        </div>
+
+        <div class="card detail-card" id="card-risk">
+          <h3 class="detail-card-title">⚠ 리스크 분석</h3>
+          <div class="row">
+            <div class="info-item"><div class="label">예상 MDD(60d)</div><div class="value" id="vMdd">-</div></div>
+            <div class="info-item"><div class="label">변동성(20)</div><div class="value" id="vVolRisk">-</div></div>
+            <div class="info-item"><div class="label">리스크 감점</div><div class="value" id="vRP">-</div></div>
+          </div>
+          <div class="risk-comment" id="riskComment"></div>
+        </div>
+
+        <div class="card detail-card" id="card-predict">
+          <h3 class="detail-card-title">📈 AI 예측 요약</h3>
+          <div class="row">
+            <div class="info-item"><div class="label">예측수익률(60d)</div><div class="value" id="vPred60">-</div></div>
+            <div class="info-item"><div class="label">예측수익률(90d)</div><div class="value" id="vPred90">-</div></div>
+            <div class="info-item"><div class="label">Top20 확률(60d)</div><div class="value" id="vProb60">-</div></div>
+            <div class="info-item"><div class="label">Top20 확률(90d)</div><div class="value" id="vProb90">-</div></div>
+          </div>
+          <div class="sub" id="predText" style="margin-top:6px;"></div>
+        </div>
+      </div>
+
+      <!-- 오른쪽 차트/테이블 영역 -->
+      <div style="flex:1; min-width: 320px;">
+        <canvas id="chart" width="900" height="360"></canvas>
+        <div class="legend" style="color:var(--muted); margin-top:8px;">
+          <span><span class="dot" style="background: var(--close)"></span>Close</span>
+          <span><span class="dot" style="background: var(--ma5)"></span>MA5</span>
+          <span><span class="dot" style="background: var(--ma20)"></span>MA20</span>
+          <span><span class="dot" style="background: var(--ma60)"></span>MA60</span>
+        </div>
+        <div style="margin-top:6px; color:#94a3b8; font-size:12px; line-height:1.5;">
+          <div><b>MA5/MA20/MA60</b>: 최근 5/20/60일 종가를 기준으로 한 이동평균</div>
+          <div><b>RSI(14)</b>: 14일 상대강도지수(과매수/과매도 지표, 0~100)</div>
+          <div><b>변동성(20)</b>: 최근 20일 수익률의 표준편차(일별)</div>
+          <div><b>예측 수익률</b>: 모델이 추정한 향후 수익률(60/90일)</div>
+        </div>
+        <div id="status" class="status">/api/stocks/:code 불러오는 중...</div>
+
+        <div style="margin-top: 12px; max-height: 260px; overflow-y: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th style="text-align:left;">날짜</th>
+                <th style="text-align:right;">종가</th>
+              </tr>
+            </thead>
+            <tbody id="priceTable"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+
+    function getQuery(name) {
+      const p = new URLSearchParams(location.search);
+      return p.get(name);
+    }
+    const fmtNum = (x) => (x == null || Number.isNaN(x) ? "-" : Number(x).toLocaleString());
+    const fmt2 = (x) => (x == null || Number.isNaN(x) ? "-" : Number(x).toFixed(2));
+    const fmtPct = (x) => (x == null || Number.isNaN(x) ? "-" : (Number(x) * 100).toFixed(2) + "%");
+
+    function scaleY(values, h, pad=20) {
+      const arr = values.filter(v => v != null && !Number.isNaN(v));
+      const min = Math.min(...arr);
+      const max = Math.max(...arr);
+      const range = max - min || 1;
+      return (v) => {
+        if (v == null || Number.isNaN(v)) return null;
+        return Math.round((1 - (v - min) / range) * (h - pad*2) + pad);
+      };
+    }
+
+    function drawSeries(ctx, xs, ys, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < xs.length; i++) {
+        const x = xs[i], y = ys[i];
+        if (y == null) { started = false; continue; }
+        if (!started) { ctx.moveTo(x, y); started = true; }
+        else { ctx.lineTo(x, y); }
+      }
+      ctx.stroke();
+    }
+
+    function drawGrid(ctx, w, h) {
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--grid').trim();
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i <= 6; i++) {
+        const y = Math.round((h / 6) * i);
+        ctx.moveTo(0, y); ctx.lineTo(w, y);
+      }
+      ctx.stroke();
+    }
+
+    function renderSparkline(canvasId, prices){
+      const canvas = document.getElementById(canvasId);
+      if(!canvas || !prices || !prices.length) return;
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0,0,w,h);
+      const min = Math.min(...prices);
+      const max = Math.max(...prices);
+      const span = max - min || 1;
+      const stepX = prices.length>1 ? w / (prices.length - 1) : w;
+      ctx.beginPath();
+      prices.forEach((p,i)=>{
+        const x = i * stepX;
+        const y = h - ((p - min) / span) * (h - 4) - 2;
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      });
+      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#38bdf8';
+      ctx.stroke();
+      const lastX = (prices.length - 1) * stepX;
+      const lastY = h - ((prices[prices.length - 1] - min) / span) * (h - 4) - 2;
+      ctx.beginPath();
+      ctx.arc(lastX,lastY,2.2,0,Math.PI*2);
+      ctx.fillStyle = '#facc15';
+      ctx.fill();
+    }
+
+    async function fetchDetail(code) {
+      $("#status").textContent = "불러오는 중...";
+      try {
+        const res = await fetch(`/api/stocks/${encodeURIComponent(code)}?limit=90`);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        $("#status").textContent = `최근 ${data.count}개 수신`;
+        return data;
+      } catch (e) {
+        $("#status").textContent = "오류: " + e.message;
+        return null;
+      }
+    }
+
+    function bandProbability(prob){
+      if (!Number.isFinite(prob)) return "정보 부족";
+      if (prob >= 70) return "높음";
+      if (prob >= 40) return "중간";
+      return "낮음";
+    }
+    function bandVol(vol, mdd){
+      if (Number.isFinite(mdd) && mdd <= -0.2) return "높음";
+      if (Number.isFinite(vol) && vol >= 0.03) return "높음";
+      if (Number.isFinite(vol) && vol <= 0.01) return "낮음";
+      return "보통";
+    }
+    function bandRSI(rsi){
+      if (!Number.isFinite(rsi)) return "-";
+      if (rsi < 30) return "과매도";
+      if (rsi > 70) return "과매수";
+      return "중립";
+    }
+    function aiComment(pred60, qual, riskPenalty){
+      if (!Number.isFinite(pred60)) return "모델 예측 정보를 불러오지 못했습니다.";
+      if (pred60 >= 0.25 && riskPenalty < 5) return "상승 가능성이 높고 리스크는 낮은 편입니다.";
+      if (pred60 >= 0.25 && riskPenalty >= 5) return "상승 가능성은 높지만 리스크도 큰 편입니다.";
+      if (pred60 < 0.1 && qual >= 60) return "수익 모멘텀은 약하지만, 재무 상태는 양호한 편입니다.";
+      return "예측 수익률과 리스크를 균형 있게 확인하세요.";
+    }
+
+    // 상승/하락 판단 + 툴팁
+    function setupSummaryTrend(pred60, pred90, rp){
+      const el = document.getElementById('summaryTrend');
+      if (!el) return;
+      const iconEl = el.querySelector('.trend-icon');
+      const labelEl = el.querySelector('.trend-label');
+      const avgPred = ((Number(pred60)||0) + (Number(pred90)||0)) / 2;
+      rp = Number(rp)||0;
+      let dir='neutral', label='중립', icon='■', desc='예측이 중립 구간입니다.';
+      let rule='평균 예측수익률 -3%~8%';
+      if (avgPred > 0.25 && rp < 10) {
+        dir='strong-up'; label='상승 강세'; icon='▲'; desc='예측 수익률이 높고 리스크 감점은 낮은 편입니다.'; rule='평균 예측수익률>25% & RP<10';
+      } else if (avgPred > 0.08) {
+        dir='up'; label='상승 우위'; icon='▲'; desc='예측 수익률이 우위이며 리스크는 보통 수준입니다.'; rule='평균 예측수익률>8%';
+      } else if (avgPred < -0.03) {
+        dir='down'; label='하락 주의'; icon='▼'; desc='예측 하락 가능성이 있어 주의가 필요합니다.'; rule='평균 예측수익률<-3%';
+      }
+      const avgPct = (avgPred*100).toFixed(2)+'%';
+      const rpText = rp.toFixed(1);
+      el.classList.remove('up','strong-up','down','neutral');
+      el.classList.add(dir);
+      if(iconEl) iconEl.textContent = icon;
+      if(labelEl) labelEl.textContent = label;
+      el.title = `${label}\n${desc}\n조건: ${rule}\n현재: 평균 예측수익률 ${avgPct}, 리스크감점 ${rpText}`;
+    }
+
+    function renderDetail(data) {
+      if (!data || !Array.isArray(data.rows) || !data.rows.length) {
+        $("#status").textContent = "표시할 데이터가 없습니다";
+        return;
+      }
+      const rows = data.rows;
+      const latest = data.latest || rows[rows.length - 1];
+      const name = (data.name || "");
+      $("#title").textContent = name ? `종목코드: ${data.code} (${name})` : `종목코드: ${data.code}`;
+
+      // 요약 카드 + 트렌드
+      $("#summaryName").textContent = name || data.code;
+      $("#summaryCode").textContent = `(${data.code})`;
+      $("#summaryMeta").textContent = `${(data.market||"").toUpperCase()} · ${data.sector||"-"}`;
+      const chips = [];
+      if (Number.isFinite(+data.final_score_rank)) chips.push(`최종 점수: ${Number(data.final_score_rank).toFixed(1)}점`);
+      const probBand = bandProbability(Number(data.prob_score));
+      chips.push(`모델 신뢰도: ${probBand}`);
+      const volBand = bandVol(Number(data.volatility_20), Number(data.pred_mdd_60d));
+      chips.push(`변동성: ${volBand}`);
+      $("#summaryChips").innerHTML = chips.map(c=>`<span class="chip">${c}</span>`).join("");
+      $("#aiComment").textContent = aiComment(Number(data.pred_return_60d), Number(data.qual_score), Number(data.risk_penalty));
+      setupSummaryTrend(data.pred_return_60d, data.pred_return_90d, data.risk_penalty);
+
+      // 기술 요약
+      $("#vClose").textContent = fmtNum(latest.close);
+      $("#vMA").textContent = `${fmtNum(latest.ma_5)} / ${fmtNum(latest.ma_20)} / ${fmtNum(latest.ma_60)}`;
+      $("#vRSI").textContent = fmt2(latest.rsi_14);
+      $("#vRSIText").textContent = `(${bandRSI(Number(latest.rsi_14))})`;
+      $("#vVol").textContent = fmt2(latest.vol_20);
+      $("#vVolText").textContent = `(${bandVol(Number(latest.vol_20))})`;
+
+      // 점수 막대
+      const setBar = (idBar, idVal, val, color) => {
+        const v = Number(val);
+        document.querySelector(idVal).textContent = Number.isFinite(v)? v.toFixed(1)+"점" : "-";
+        const el = document.querySelector(idBar);
+        if(el) { el.style.width = (Number.isFinite(v)? Math.max(5,v)/100*100 : 0)+'%'; el.style.background = color; }
+      };
+      setBar("#barRet","#valRet", data.ret_score, "var(--ret)");
+      setBar("#barProb","#valProb", data.prob_score, "var(--prob)");
+      setBar("#barQual","#valQual", data.qual_score, "var(--qual)");
+      setBar("#barTech","#valTech", data.tech_score, "var(--tech)");
+      setBar("#barModel","#valModel", data.pred_score, "var(--model)");
+      setBar("#barRP","#valRP", data.risk_penalty, "var(--rp)");
+
+      // 리스크 카드
+      $("#vMdd").textContent = fmtPct(data.pred_mdd_60d);
+      $("#vVolRisk").textContent = fmt2(data.volatility_20);
+      $("#vRP").textContent = Number.isFinite(+data.risk_penalty)? Number(data.risk_penalty).toFixed(1)+"점" : "-";
+      const mdd = Number(data.pred_mdd_60d);
+      const vol = Number(data.volatility_20);
+      const rp = Number(data.risk_penalty)||0;
+      let mddText;
+      if (Number.isFinite(mdd)) {
+        if (mdd <= -0.2)       mddText = "예상 최대 하락폭이 매우 큰 편입니다";
+        else if (mdd <= -0.12) mddText = "예상 최대 하락폭이 다소 큰 편입니다";
+        else if (mdd <= -0.07) mddText = "예상 최대 하락폭이 보통 수준입니다";
+        else                   mddText = "예상 최대 하락폭이 비교적 낮은 편입니다";
+      } else {
+        mddText = "예상 하락폭 정보를 확인할 수 없습니다";
+      }
+      let volText;
+      if (Number.isFinite(vol)) {
+        if (vol >= 0.04)       volText = "단기 변동성도 높은 편입니다";
+        else if (vol >= 0.025) volText = "단기 변동성은 보통 수준입니다";
+        else                   volText = "단기 변동성은 낮은 편입니다";
+      } else {
+        volText = "단기 변동성 정보를 확인할 수 없습니다";
+      }
+      let rpText;
+      if (rp >= 15)          rpText = "리스크 감점이 커서 보수적인 접근이 필요합니다";
+      else if (rp >= 5)      rpText = "리스크 감점이 일부 반영된 상태입니다";
+      else                   rpText = "점수에 반영된 리스크는 크지 않습니다";
+      $("#riskComment").textContent = `${mddText}. ${volText}. ${rpText}.`;
+
+      // 예측 카드
+      $("#vPred60").textContent = fmtPct(data.pred_return_60d);
+      $("#vPred90").textContent = fmtPct(data.pred_return_90d);
+      $("#vProb60").textContent = Number.isFinite(+data.prob_top20_60d)? (Number(data.prob_top20_60d)*100).toFixed(1)+"%" : "-";
+      $("#vProb90").textContent = Number.isFinite(+data.prob_top20_90d)? (Number(data.prob_top20_90d)*100).toFixed(1)+"%" : "-";
+      $("#predText").textContent = "60일/90일 예측 수익률과 Top20 확률을 함께 확인하세요.";
+
+      // 차트 렌더
+      const close = rows.map(r => Number(r.close));
+      const ma5 = rows.map(r => Number(r.ma_5));
+      const ma20 = rows.map(r => Number(r.ma_20));
+      const ma60 = rows.map(r => Number(r.ma_60));
+      const canvas = $("#chart");
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      drawGrid(ctx, w, h);
+      const allVals = [];
+      close.forEach(v => Number.isFinite(v) && allVals.push(v));
+      ma5.forEach(v => Number.isFinite(v) && allVals.push(v));
+      ma20.forEach(v => Number.isFinite(v) && allVals.push(v));
+      ma60.forEach(v => Number.isFinite(v) && allVals.push(v));
+      const toY = scaleY(allVals, h);
+      const n = rows.length;
+      const padX = 40;
+      const step = (w - padX*2) / Math.max(1, n - 1);
+      const xs = Array.from({length:n}, (_, i) => Math.round(padX + i * step));
+      const ysClose = close.map(v => Number.isFinite(v) ? toY(v) : null);
+      const ys5 = ma5.map(v => Number.isFinite(v) ? toY(v) : null);
+      const ys20 = ma20.map(v => Number.isFinite(v) ? toY(v) : null);
+      const ys60 = ma60.map(v => Number.isFinite(v) ? toY(v) : null);
+      drawSeries(ctx, xs, ys60, getComputedStyle(document.documentElement).getPropertyValue('--ma60').trim());
+      drawSeries(ctx, xs, ys20, getComputedStyle(document.documentElement).getPropertyValue('--ma20').trim());
+      drawSeries(ctx, xs, ys5, getComputedStyle(document.documentElement).getPropertyValue('--ma5').trim());
+      drawSeries(ctx, xs, ysClose, getComputedStyle(document.documentElement).getPropertyValue('--close').trim());
+
+      // 미니 스파크라인(최근 30개)
+      const closes = rows.map(r => Number(r.close)).filter(v=>Number.isFinite(v));
+      const last30 = closes.slice(-30);
+      renderSparkline('sparklineCanvas', last30);
+
+      const tbl = document.getElementById("priceTable");
+      tbl.innerHTML = rows.slice().reverse().map(r => `
+        <tr>
+          <td>${r.date}</td>
+          <td style="text-align:right;">${Number.isFinite(+r.close) ? Number(r.close).toLocaleString() : "-"}</td>
+        </tr>
+      `).join("");
+    }
+
+    (async function init() {
+      const code = getQuery("code") || "005930";
+      const data = await fetchDetail(code);
+      renderDetail(data);
+    })();
+  </script>
+</body>
+</html>

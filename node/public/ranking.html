@@ -1,0 +1,265 @@
+<!-- ranking.html -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>오늘의 시그널 / Top20 랭킹</title>
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #020817;
+      --panel-soft: #020c1f;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --danger: #f97373;
+      --warn: #facc15;
+      --border: #1e293b;
+      --table-header: #020b1b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #020617 0, #000 45%, #020617 100%);
+      color: var(--text);
+    }
+    .page-container {
+      max-width: 1200px;
+      margin: 24px auto 48px;
+      padding: 0 20px;
+    }
+    .page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+      gap: 12px;
+    }
+    .page-subtitle {
+      margin: 4px 0 0;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    h1 { margin: 0; font-size: 20px; letter-spacing: .03em; }
+    h2 { margin: 0; font-size: 16px; }
+    h3 { margin: 0 0 8px; font-size: 14px; }
+
+    .btn-outline {
+      border-radius: 999px;
+      border: 1px solid #4b5563;
+      background: rgba(15,23,42,0.8);
+      color: var(--text);
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .btn-outline:hover { border-color: var(--accent); }
+    .btn-sm {
+      border-radius: 999px;
+      border: 1px solid #4b5563;
+      background: rgba(15,23,42,0.8);
+      color: var(--text);
+      padding: 4px 10px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .card {
+      background: rgba(15,23,42,0.9);
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      padding: 16px 18px;
+      margin-bottom: 16px;
+    }
+    .card-lg { padding: 18px 20px; }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+    .card-subtitle {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid #4b5563;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .action-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0,1fr));
+      gap: 12px;
+    }
+    @media (max-width: 900px) {
+      .action-summary { grid-template-columns: 1fr; }
+    }
+    .action-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 13px;
+    }
+    .action-item {
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(15,23,42,0.9);
+      border: 1px solid rgba(31,41,55,0.9);
+      margin-bottom: 6px;
+      cursor: pointer;
+    }
+    .action-item:hover { border-color: var(--accent); }
+    .action-name { font-weight: 600; margin-right: 4px; }
+    .action-code { font-size: 11px; color: var(--muted); }
+    .action-meta { margin-top: 4px; font-size: 11px; display:flex; gap:6px; }
+    .action-meta .pos { color: var(--accent); }
+    .action-meta .neg { color: var(--danger); }
+    .action-meta .prob { color: var(--muted); }
+    .action-reason { margin-top: 4px; font-size: 11px; color: var(--muted); }
+    .empty { font-size: 12px; color: var(--muted); }
+
+    .card-header-right {
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+    .input-date {
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #4b5563;
+      background: #020617;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    thead tr {
+      background: var(--table-header);
+    }
+    th, td {
+      padding: 6px 8px;
+      border-bottom: 1px solid rgba(15,23,42,0.9);
+      text-align: left;
+    }
+    th.num, td.num { text-align: right; }
+    tbody tr:hover { background: rgba(15,23,42,0.8); }
+    .row-holding { background: rgba(30,64,175,0.3); }
+
+    .cell-name .name { font-weight: 600; }
+    .cell-name .code {
+      display:block;
+      font-size:11px;
+      color: var(--muted);
+    }
+    .cell-market .sector {
+      display:block;
+      font-size:11px;
+      color: var(--muted);
+    }
+
+    .badge-holding {
+      display:inline-flex;
+      align-items:center;
+      padding:2px 8px;
+      border-radius:999px;
+      font-size:11px;
+      background: rgba(34,197,94,0.1);
+      color: var(--accent);
+      border: 1px solid rgba(34,197,94,0.6);
+    }
+  </style>
+</head>
+
+<body class="page-dark">
+  <div class="page-container">
+
+    <header class="page-header">
+      <div>
+        <h1>오늘의 시그널</h1>
+        <p class="page-subtitle">
+          모델이 제안하는 신규 매수 / 증액 / 감축 후보를 한눈에 볼 수 있습니다.
+        </p>
+      </div>
+      <div class="header-actions">
+        <button class="btn-outline" onclick="location.href='holdings.html'">
+          ← 보유 종목
+        </button>
+      </div>
+    </header>
+
+    <!-- 오늘의 액션 요약 카드 -->
+    <section class="card card-lg" id="todayActionCard">
+      <div class="card-header">
+        <h2>오늘의 액션 요약</h2>
+        <span id="todayDate" class="tag">-</span>
+      </div>
+      <div class="card-body action-summary">
+        <div class="action-column">
+          <h3>신규 매수 후보</h3>
+          <ul id="buyList" class="action-list"></ul>
+        </div>
+        <div class="action-column">
+          <h3>증액 고려 종목</h3>
+          <ul id="addList" class="action-list"></ul>
+        </div>
+        <div class="action-column">
+          <h3>감축 / 청산 후보</h3>
+          <ul id="trimList" class="action-list"></ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Top20 테이블 -->
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>Top20 랭킹 (60일 기준)</h2>
+          <p class="card-subtitle">예측 수익률 상위 20개 종목</p>
+        </div>
+        <div class="card-header-right">
+          <input type="date" id="signalDate" class="input-date" />
+          <button id="reloadBtn" class="btn-sm">새로고침</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <table class="table table-dark">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>종목</th>
+              <th>시장/섹터</th>
+              <th class="num">현재가</th>
+              <th class="num">예측 수익률</th>
+              <th class="num">예상 MDD</th>
+              <th class="num">Top20 확률</th>
+              <th class="num">최종 점수</th>
+              <th>보유</th>
+            </tr>
+          </thead>
+          <tbody id="signalTbody">
+            <!-- JS로 채움 -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="ranking.js"></script>
+</body>
+</html>

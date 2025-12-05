@@ -1,0 +1,6 @@
+# Exclude local dependencies and bulky artifacts from the Node build context
+node_modules
+npm-debug.log
+logs
+data
+../data

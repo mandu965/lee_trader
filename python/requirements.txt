@@ -1,0 +1,10 @@
+requests
+pandas
+numpy
+scikit-learn
+xgboost
+python-dotenv
+pykrx
+lightgbm
+finance-datareader
+optuna

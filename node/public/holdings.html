@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>보유 종목 현황 - Lee Trader</title>
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #020817;
+      --panel-soft: #020c1f;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --danger: #f97373;
+      --warn: #facc15;
+      --border: #1f2937;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #0b1120, #020617 55%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px 16px 40px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0.03em;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(34, 197, 94, 0.08);
+      border: 1px solid rgba(34, 197, 94, 0.4);
+      color: var(--accent);
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+    }
+    button {
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      background: #111827;
+      color: var(--text);
+      border: 1px solid #1f2937;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #0b1120;
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+    button:hover {
+      filter: brightness(1.1);
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .summary-card {
+      background: var(--panel);
+      border-radius: 10px;
+      padding: 10px 12px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    .summary-title {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .summary-value {
+      font-size: 18px;
+      font-weight: 600;
+    }
+    .summary-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: rgba(15, 23, 42, 0.9);
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      font-size: 12px;
+    }
+    thead {
+      background: #020817;
+    }
+    th, td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #111827;
+      text-align: right;
+    }
+    th:first-child, td:first-child {
+      text-align: left;
+    }
+    th {
+      font-weight: 500;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    tbody tr:nth-child(odd) {
+      background: rgba(15, 23, 42, 0.7);
+    }
+    tbody tr:hover {
+      background: #1f2937;
+    }
+
+    .pos { color: #4ade80; }
+    .neg { color: #f97373; }
+    .center {
+      text-align: center;
+      padding: 16px;
+      color: var(--muted);
+    }
+
+    .prog-wrap {
+      position: relative;
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: #020617;
+      overflow: hidden;
+    }
+    .prog-bar {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #22c55e, #a3e635);
+      transition: width 0.4s ease;
+    }
+    .prog-label {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .badge-target-hit {
+      display: inline-block;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid rgba(34, 197, 94, 0.5);
+      color: var(--accent);
+      font-size: 10px;
+      margin-left: 4px;
+    }
+
+    
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>보유 종목 현황</h1>
+        <div class="summary-sub">실매매 입력 기준 현재 보유 중인 종목의 수익률과 20% 목표 진행률을 보여줍니다.</div>
+      </div>
+      <div class="toolbar">
+        <span class="badge">
+          <span>●</span> Live 포트폴리오
+        </span>
+        <button onclick="location.href='index.html'">← 랭킹 보기</button>
+      </div>
+    </header>
+
+    <section class="summary">
+      <div class="summary-card">
+        <div class="summary-title">총 평가금액</div>
+        <div class="summary-value" id="sumValue">-</div>
+        <div class="summary-sub" id="sumCount">보유 종목 0개</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-title">총 평가손익</div>
+        <div class="summary-value" id="sumPnl">-</div>
+        <div class="summary-sub" id="sumPnlPct">-</div>
+      </div>
+    </section>
+
+    <section>
+      <table>
+<thead>
+  <tr>
+    <th>종목</th>
+    <th>보유수량</th>
+    <th>평단가</th>
+    <th>현재가</th>
+    <th>평가금액</th>
+    <th>평가손익</th>
+    <th>수익률</th>
+    <th>실현손익</th>
+    <th>목표가(20%)</th>
+    <th>목표 달성률</th>
+    <th>모델 점수</th>
+  </tr>
+</thead>
+
+        <tbody id="holdBody">
+          <tr><td colspan="10" class="center">로딩 중...</td></tr>
+        </tbody>
+      </table>
+    </section>
+  </div>
+
+<script>
+  function fmtNumber(v) {
+    if (!Number.isFinite(v)) return "-";
+    return v.toLocaleString();
+  }
+  function fmtPrice(v) {
+    if (!Number.isFinite(v)) return "-";
+    return v.toLocaleString();
+  }
+  function fmtPct(v) {
+    if (!Number.isFinite(v)) return "-";
+    const fix = Math.abs(v) >= 10 ? 1 : 2;
+    const s = v.toFixed(fix);
+    return (v > 0 ? "+" : "") + s + "%";
+  }
+
+  async function loadHoldings() {
+    const body = document.getElementById("holdBody");
+    try {
+      const res = await fetch("/api/holdings");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const payload = await res.json();
+      const items = Array.isArray(payload.items) ? payload.items : [];
+
+      // 상단 요약 카드 채우기
+      document.getElementById("sumValue").textContent = fmtNumber(payload.total_value);
+      const pnl = Number(payload.total_pnl);
+      const pnlPct = Number(payload.total_pnl_pct);
+      const pnlEl = document.getElementById("sumPnl");
+      const pnlPctEl = document.getElementById("sumPnlPct");
+
+      if (Number.isFinite(pnl)) {
+        pnlEl.textContent = (pnl > 0 ? "+" : "") + pnl.toLocaleString();
+        pnlEl.className = pnl > 0 ? "summary-value pos"
+                     : pnl < 0 ? "summary-value neg"
+                               : "summary-value";
+      } else {
+        pnlEl.textContent = "-";
+        pnlEl.className = "summary-value";
+      }
+
+      if (Number.isFinite(pnlPct)) {
+        pnlPctEl.textContent = fmtPct(pnlPct);
+        pnlPctEl.className = pnlPct > 0 ? "summary-sub pos"
+                        : pnlPct < 0 ? "summary-sub neg"
+                                     : "summary-sub";
+      } else {
+        pnlPctEl.textContent = "-";
+        pnlPctEl.className = "summary-sub";
+      }
+
+      document.getElementById("sumCount").textContent =
+        `보유 종목 ${items.length}개`;
+
+      // 보유 종목 없을 때
+      if (!items.length) {
+        body.innerHTML =
+          '<tr><td colspan="10" class="center">보유 중인 종목이 없습니다. 랭킹 화면에서 매수/매도 입력 후 확인할 수 있습니다.</td></tr>';
+        return;
+      }
+
+      // 🔥 여기서부터 각 행 렌더링 + holdingsDetail.html로 이동
+      const rowsHtml = items.map((h) => {
+        const url = `holdingsDetail.html?code=${encodeURIComponent(h.code)}`;
+        const pnlClass =
+          h.unrealized_pnl_pct > 0 ? "pos"
+          : h.unrealized_pnl_pct < 0 ? "neg"
+          : "";
+        const realizedClass =
+          h.realized_pnl > 0 ? "pos"
+          : h.realized_pnl < 0 ? "neg"
+          : "";
+        const progress = Number.isFinite(h.progress_to_target)
+          ? h.progress_to_target
+          : 0;
+        const hit = progress >= 100;
+
+        return `
+          <tr onclick="location.href='${url}'" style="cursor:pointer">
+            <td>${h.name || h.code}<br/>
+              <span style="font-size:11px;color:#9ca3af">${h.code}</span>
+            </td>
+            <td>${fmtNumber(h.current_qty)}</td>
+            <td>${fmtPrice(h.avg_buy_price)}</td>
+            <td>${fmtPrice(h.current_price)}</td>
+            <td>${fmtNumber(h.current_value)}</td>
+            <td class="${pnlClass}">${fmtNumber(h.unrealized_pnl)}</td>
+            <td class="${pnlClass}">${fmtPct(h.unrealized_pnl_pct)}</td>
+            <td class="${realizedClass}">${fmtNumber(h.realized_pnl)}</td>
+            <td>${fmtPrice(h.target_price)}${
+              hit ? '<span class="badge-target-hit">목표 달성</span>' : ""
+            }</td>
+            <td>
+              <div class="prog-wrap">
+                <div class="prog-bar" style="width:${progress}%"></div>
+              </div>
+              <div class="prog-label">
+                ${Number.isFinite(progress) ? progress.toFixed(0) + "%" : "-"}
+              </div>
+            </td>
+            <td>${Number.isFinite(h.final_score)
+              ? h.final_score.toFixed(1)
+              : "-"}</td>
+          </tr>
+        `;
+      }).join("");
+
+      body.innerHTML = rowsHtml;
+    } catch (e) {
+      console.error(e);
+      body.innerHTML =
+        '<tr><td colspan="10" class="center">/api/holdings 호출 실패: ' +
+        e.message +
+        "</td></tr>";
+    }
+  }
+
+  loadHoldings();
+</script>
+
+</body>
+</html>
