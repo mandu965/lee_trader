@@ -4,6 +4,9 @@ FROM node:18
 # 앱 루트 폴더 설정
 WORKDIR /app
 
+# Ensure data directory exists so SQLite DB can be created at runtime
+RUN mkdir -p /app/data
+
 # node 폴더의 package.json만 먼저 복사 (캐시 최적화)
 COPY node/package*.json ./node/
 
