@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  python-pipeline:
+    build:
+      context: .
+      dockerfile: ./python/Dockerfile
+    container_name: lee_trader_pipeline
+    working_dir: /app
+    command: ["python", "python/run_pipeline.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    env_file:
+      - .env
+
+  node-api:
+    build: ./node
+    container_name: lee_trader_api
+    working_dir: /app
+    command: ["npm", "run", "start"]
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env

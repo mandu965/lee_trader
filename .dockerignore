@@ -1,0 +1,7 @@
+# Ignore local dependencies and bulky data when building images
+node_modules
+node/node_modules
+npm-debug.log
+data
+logs
+tmp_doc
