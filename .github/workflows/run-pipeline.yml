@@ -34,10 +34,10 @@ jobs:
           
       - name: Debug counts
         env:
-        DATABASE_URL: ${{ secrets.External_Database_URL }}
+          DATABASE_URL: ${{ secrets.External_Database_URL }}
         run: |
-        psql "$DATABASE_URL" -c "select count(*) from features"
-        psql "$DATABASE_URL" -c "select count(*) from predictions"
-        psql "$DATABASE_URL" -c "select count(*) from daily_ranking"
-        psql "$DATABASE_URL" -c "select distinct code from daily_ranking where code in ('005930','000660','035420');"
+          psql "$DATABASE_URL" -c "select count(*) from features"
+          psql "$DATABASE_URL" -c "select count(*) from predictions"
+          psql "$DATABASE_URL" -c "select count(*) from daily_ranking"
+          psql "$DATABASE_URL" -c "select distinct code from daily_ranking where code in ('005930','000660','035420');"
           
