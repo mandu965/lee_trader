@@ -30,6 +30,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import sqlite3
+try:
+    from db import get_engine
+except Exception:
+    get_engine = None
 
 DATA_DIR = Path("data")
 
@@ -172,7 +176,7 @@ def build_ranking() -> pd.DataFrame:
     # 1. 원본 CSV 로드
     # ---------------------------------------------
     preds = _load_csv(PREDICTIONS_CSV, required=True)
-    scores = _load_csv(SCORES_CSV, required=True)
+    scores = _load_csv(SCORES_CSV, required=False)
     feats = _load_csv(FEATURES_CSV, required=True)
     universe = _load_csv(UNIVERSE_CSV, required=False)
 
@@ -184,11 +188,16 @@ def build_ranking() -> pd.DataFrame:
     # 기본 sanity check
     for df, name in [
         (preds, "predictions"),
-        (scores, "scores_final"),
         (feats, "features"),
     ]:
         if df.empty:
             raise RuntimeError(f"{name} is empty – cannot build ranking.")
+
+    # scores_final 없으면 tech_score=0 기본값으로 대체
+    if scores.empty:
+        logging.warning("scores_final.csv missing/empty -> tech_score set to 0")
+        scores = preds[["date", "code"]].copy()
+        scores["score"] = 0.0
 
     # code를 모두 문자열/6자리로 통일
     for df in [preds, scores, feats, universe]:
@@ -447,74 +456,25 @@ def save_ranking(df: pd.DataFrame) -> None:
     df_out.to_csv(OUT_CSV, index=False, encoding="utf-8")
     logging.info("Saved ranking: %s (rows=%d)", OUT_CSV.resolve(), len(df_out))
 
-    # DB upsert
+    # DB upsert (prefer Postgres via SQLAlchemy)
+    try:
+        if get_engine:
+            eng = get_engine()
+            df_out.to_sql("daily_ranking", eng, if_exists="replace", index=False)
+            logging.info("Saved ranking to Postgres via SQLAlchemy (rows=%d)", len(df_out))
+            return
+    except Exception:
+        logging.exception("SQLAlchemy save failed, fallback to sqlite")
+
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS daily_ranking (
-                date                 DATE NOT NULL,
-                code                 TEXT NOT NULL,
-                close                REAL,
-                pred_return_60d      REAL,
-                pred_return_90d      REAL,
-                pred_mdd_60d         REAL,
-                pred_mdd_90d         REAL,
-                prob_top20_60d       REAL,
-                prob_top20_90d       REAL,
-                score                REAL,
-                score_score          REAL,
-                composite            REAL,
-                quality_score        REAL,
-                name                 TEXT,
-                market               TEXT,
-                sector               TEXT,
-                tech_score           REAL,
-                pred_score           REAL,
-                ret_score            REAL,
-                prob_score           REAL,
-                qual_score           REAL,
-                safety_score         REAL,
-                liquidity_score      REAL,
-                final_score          REAL,
-                risk_penalty         REAL,
-                market_up            INTEGER,
-                market_status_date   DATE,
-                market_kospi_close   REAL,
-                market_kospi_ma20    REAL,
-                market_vol_5d        REAL,
-                market_foreign_5d    REAL,
-                generated_at         TEXT,
-                model_version        TEXT,
-                PRIMARY KEY (date, code)
-            );
-            """
-        )
-        records = df_out.to_dict(orient="records")
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO daily_ranking
-            (date, code, close, pred_return_60d, pred_return_90d, pred_mdd_60d, pred_mdd_90d,
-             prob_top20_60d, prob_top20_90d, score, score_score, composite, quality_score,
-             name, market, sector, tech_score, pred_score, ret_score, prob_score, qual_score,
-             safety_score, liquidity_score, final_score, risk_penalty, market_up,
-             market_status_date, market_kospi_close, market_kospi_ma20, market_vol_5d, market_foreign_5d,
-             generated_at, model_version)
-            VALUES (:date, :code, :close, :pred_return_60d, :pred_return_90d, :pred_mdd_60d, :pred_mdd_90d,
-                    :prob_top20_60d, :prob_top20_90d, :score, :score_score, :composite, :quality_score,
-                    :name, :market, :sector, :tech_score, :pred_score, :ret_score, :prob_score, :qual_score,
-                    :safety_score, :liquidity_score, :final_score, :risk_penalty, :market_up,
-                    :market_status_date, :market_kospi_close, :market_kospi_ma20, :market_vol_5d, :market_foreign_5d,
-                    :generated_at, :model_version)
-            """,
-            records,
-        )
+        df_out.to_sql("daily_ranking", conn, if_exists="replace", index=False)
         conn.commit()
-        logging.info("Saved ranking to DB: %s (rows=%d)", DB_PATH.resolve(), len(df_out))
+        logging.info("Saved ranking to sqlite DB: %s (rows=%d)", DB_PATH.resolve(), len(df_out))
     except Exception:
-        logging.exception("Failed to save ranking to DB")
+        logging.exception("Failed to save ranking to sqlite DB")
     finally:
         try:
             if conn:

@@ -5,6 +5,10 @@ from typing import List
 
 import numpy as np
 import pandas as pd
+try:
+    from db import get_engine
+except Exception:
+    get_engine = None
 
 DATA_DIR = Path("data")
 ADJ_CSV = DATA_DIR / "prices_daily_adjusted.csv"
@@ -167,6 +171,16 @@ def save_labels_csv(labels: pd.DataFrame) -> None:
 
 
 def save_labels_db(labels: pd.DataFrame) -> None:
+    # Prefer Postgres via SQLAlchemy
+    try:
+        if get_engine:
+            eng = get_engine()
+            labels.to_sql("labels", eng, if_exists="replace", index=False)
+            logging.info("Saved labels to Postgres via SQLAlchemy (rows=%d)", len(labels))
+            return
+    except Exception:
+        logging.exception("SQLAlchemy save failed, fallback to sqlite")
+
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)

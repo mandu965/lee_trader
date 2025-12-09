@@ -7,6 +7,10 @@ DATA_DIR = Path("data")
 INPUT = DATA_DIR / "prices_daily_clean.csv"
 OUTPUT = DATA_DIR / "prices_daily_adjusted.csv"
 DB_PATH = DATA_DIR / "lee_trader.db"
+try:
+    from db import get_engine
+except Exception:
+    get_engine = None
 
 def detect_split_ratios(df):
     """
@@ -62,46 +66,47 @@ def main():
 
     final = pd.concat(out_list).reset_index(drop=True)
 
-    # 출력 컬럼 정리
-    cols = ["date", "code", "adj_open", "adj_high", "adj_low", "adj_close", "volume"]
-    final = final[cols]
+    # CSV 출력(조정가)
+    csv_cols = ["date", "code", "adj_open", "adj_high", "adj_low", "adj_close", "volume"]
+    csv_out = final[csv_cols].copy()
+    csv_out["date"] = csv_out["date"].dt.strftime("%Y-%m-%d")
+    csv_out.to_csv(OUTPUT, index=False, encoding="utf-8")
+    print(f"Adjusted prices saved: {OUTPUT}, rows={len(csv_out)}")
 
-    final["date"] = final["date"].dt.strftime("%Y-%m-%d")
-    final.to_csv(OUTPUT, index=False, encoding="utf-8")
-    print(f"Adjusted prices saved: {OUTPUT}, rows={len(final)}")
+    # fact_price_daily 적재용 (raw + adj_close)
+    fact_cols = ["date", "code", "open", "high", "low", "close", "adj_close", "volume"]
+    fact_df = final[fact_cols].copy()
+    fact_df["date"] = fact_df["date"].dt.strftime("%Y-%m-%d")
+    fact_df["value"] = pd.NA
+    fact_df["market_cap"] = pd.NA
+    fact_df["listed_shares"] = pd.NA
+    fact_df = fact_df[
+        ["date", "code", "open", "high", "low", "close", "adj_close", "volume", "value", "market_cap", "listed_shares"]
+    ]
 
-    # DB upsert
+    # DB upsert (prefer Postgres via SQLAlchemy)
+    try:
+        if get_engine:
+            eng = get_engine()
+            csv_out.to_sql("prices_adjusted", eng, if_exists="replace", index=False)
+            fact_df.to_sql("fact_price_daily", eng, if_exists="replace", index=False)
+            print(f"Adjusted prices saved to Postgres via SQLAlchemy, rows={len(csv_out)}")
+            print(f"fact_price_daily saved to Postgres via SQLAlchemy, rows={len(fact_df)}")
+            return
+    except Exception as e:
+        print(f"[WARN] SQLAlchemy save failed, fallback to sqlite: {e}")
+
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS prices_adjusted (
-                date      DATE NOT NULL,
-                code      TEXT NOT NULL,
-                adj_open  REAL,
-                adj_high  REAL,
-                adj_low   REAL,
-                adj_close REAL,
-                volume    REAL,
-                PRIMARY KEY (date, code)
-            );
-            """
-        )
-        records = final.to_dict(orient="records")
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO prices_adjusted
-            (date, code, adj_open, adj_high, adj_low, adj_close, volume)
-            VALUES (:date, :code, :adj_open, :adj_high, :adj_low, :adj_close, :volume)
-            """,
-            records,
-        )
+        csv_out.to_sql("prices_adjusted", conn, if_exists="replace", index=False)
+        fact_df.to_sql("fact_price_daily", conn, if_exists="replace", index=False)
         conn.commit()
-        print(f"Adjusted prices saved to DB: {DB_PATH}, rows={len(final)}")
+        print(f"Adjusted prices saved to sqlite DB: {DB_PATH}, rows={len(csv_out)}")
+        print(f"fact_price_daily saved to sqlite DB: {DB_PATH}, rows={len(fact_df)}")
     except Exception as e:
-        print(f"[ERROR] Failed to save adjusted prices to DB: {e}")
+        print(f"[ERROR] Failed to save adjusted prices to sqlite DB: {e}")
     finally:
         try:
             if conn:

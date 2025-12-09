@@ -4,6 +4,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+try:
+    from db import get_engine, copy_df
+except Exception:
+    get_engine = None
+    copy_df = None
 
 DATA_DIR = Path("data")
 DB_PATH = DATA_DIR / "lee_trader.db"
@@ -22,27 +27,55 @@ def ensure_data_dir():
 
 def load_prices() -> pd.DataFrame:
     """
-    가격 로드 우선순위: DB fact_price_daily -> adjusted CSV -> clean CSV.
-    fact_price_daily가 있으면 adj_close를 close로 사용.
+    ???? ????: DB fact_price_daily -> adjusted CSV -> clean CSV.
+    fact_price_daily? ??? adj_close? close? ??.
     """
-    # 1) DB fact_price_daily
+    # DB ??? ??, ?? ????? adjusted CSV? ??
+    # 1) DB fact_price_daily (Postgres ??, fallback sqlite)
     try:
-        if DB_PATH.exists():
+        df_db = None
+        if get_engine:
+            eng = get_engine()
+            df_db = pd.read_sql(
+                "SELECT date, code, open, high, low, close, adj_close, volume FROM fact_price_daily",
+                eng,
+                dtype={"code": str},
+            )
+        elif DB_PATH.exists():
             with sqlite3.connect(DB_PATH) as conn:
                 df_db = pd.read_sql(
                     "SELECT date, code, open, high, low, close, adj_close, volume FROM fact_price_daily",
                     conn,
                     dtype={"code": str},
                 )
-            if not df_db.empty:
-                df_db["date"] = pd.to_datetime(df_db["date"])
-                if "adj_close" in df_db.columns:
-                    df_db["close"] = pd.to_numeric(df_db["adj_close"], errors="coerce").fillna(df_db["close"])
-                for col in ["open", "high", "low", "close", "volume"]:
-                    if col in df_db.columns:
-                        df_db[col] = pd.to_numeric(df_db[col], errors="coerce")
-                df_db = df_db.dropna(subset=["close"])
-                df_db = df_db.sort_values(["code", "date"]).reset_index(drop=True)
+
+        if df_db is not None and not df_db.empty:
+            df_db["code"] = df_db["code"].astype(str).str.zfill(6)
+            df_db["date"] = pd.to_datetime(df_db["date"])
+            if "adj_close" in df_db.columns:
+                df_db["close"] = pd.to_numeric(df_db["adj_close"], errors="coerce").fillna(df_db["close"])
+            for col in ["open", "high", "low", "close", "volume"]:
+                if col in df_db.columns:
+                    df_db[col] = pd.to_numeric(df_db[col], errors="coerce")
+            df_db = df_db.dropna(subset=["close"])
+            df_db = df_db.sort_values(["code", "date"]).reset_index(drop=True)
+            fallback_to_adjusted = False
+            if ADJ_CSV.exists():
+                try:
+                    adj_codes = pd.read_csv(ADJ_CSV, dtype={"code": str})["code"].astype(str).str.zfill(6).unique()
+                    db_codes = df_db["code"].unique()
+                    missing_codes = set(adj_codes) - set(db_codes)
+                    if missing_codes:
+                        sample = sorted(list(missing_codes))[:5]
+                        logging.warning(
+                            "DB fact_price_daily missing %d codes vs adjusted CSV (sample=%s); fallback to adjusted CSV",
+                            len(missing_codes),
+                            sample,
+                        )
+                        fallback_to_adjusted = True
+                except Exception:
+                    logging.exception("code coverage check failed; keeping DB data")
+            if not fallback_to_adjusted:
                 return df_db[["date", "code", "open", "high", "low", "close", "volume"]]
     except Exception:
         logging.exception("Failed to load fact_price_daily from DB; falling back to CSV")
@@ -186,50 +219,32 @@ def save_features(df_feat: pd.DataFrame):
     out.to_csv(FEATURE_CSV, index=False, encoding="utf-8")
     logging.info(f"Saved features: {FEATURE_CSV.resolve()} (rows={len(out)})")
 
+    # Save to DB (prefer Postgres via copy_expert, then SQLAlchemy)
+    try:
+        if copy_df:
+            try:
+                copy_df("features", out, columns=list(out.columns), truncate=True)
+                logging.info("Saved features to Postgres via copy_expert (rows=%d)", len(out))
+                return
+            except Exception:
+                logging.exception("copy_expert failed, trying SQLAlchemy")
+        if get_engine:
+            eng = get_engine()
+            out.to_sql("features", eng, if_exists="replace", index=False, method="multi")
+            logging.info("Saved features to Postgres via SQLAlchemy (rows=%d)", len(out))
+            return
+    except Exception:
+        logging.exception("SQLAlchemy save failed, fallback to sqlite")
+
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS features (
-                date            DATE NOT NULL,
-                code            TEXT NOT NULL,
-                close           REAL,
-                ret_1d          REAL,
-                ret_5d          REAL,
-                ret_10d         REAL,
-                mom_20          REAL,
-                ma_5            REAL,
-                ma_20           REAL,
-                ma_60           REAL,
-                close_over_ma20 REAL,
-                vol_20          REAL,
-                vol_60          REAL,
-                rsi_14          REAL,
-                volume          REAL,
-                vol_ma_20       REAL,
-                vol_ratio_20    REAL,
-                quality_score   REAL,
-                PRIMARY KEY (date, code)
-            );
-            """
-        )
-        records = out.to_dict(orient="records")
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO features
-            (date, code, close, ret_1d, ret_5d, ret_10d, mom_20, ma_5, ma_20, ma_60,
-             close_over_ma20, vol_20, vol_60, rsi_14, volume, vol_ma_20, vol_ratio_20, quality_score)
-            VALUES (:date, :code, :close, :ret_1d, :ret_5d, :ret_10d, :mom_20, :ma_5, :ma_20, :ma_60,
-                    :close_over_ma20, :vol_20, :vol_60, :rsi_14, :volume, :vol_ma_20, :vol_ratio_20, :quality_score)
-            """,
-            records,
-        )
+        out.to_sql("features", conn, if_exists="replace", index=False)
         conn.commit()
-        logging.info("Saved features to DB: %s (rows=%d)", DB_PATH.resolve(), len(out))
+        logging.info("Saved features to sqlite DB: %s (rows=%d)", DB_PATH.resolve(), len(out))
     except Exception:
-        logging.exception("Failed to save features to DB")
+        logging.exception("Failed to save features to sqlite DB")
     finally:
         try:
             if conn:

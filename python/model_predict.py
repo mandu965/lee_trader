@@ -7,6 +7,11 @@ from typing import Dict, Any
 import numpy as np
 import pandas as pd
 import sqlite3
+try:
+    from db import get_engine, copy_df
+except Exception:
+    get_engine = None
+    copy_df = None
 
 DATA_DIR = Path("data")
 FEATURES_CSV = DATA_DIR / "features.csv"
@@ -154,41 +159,32 @@ def save_predictions(df: pd.DataFrame) -> None:
     df.to_csv(PREDICTIONS_CSV, index=False, encoding="utf-8")
     logging.info("Saved predictions: %s (rows=%d)", PREDICTIONS_CSV.resolve(), len(df))
 
+    # Save to DB (prefer Postgres via SQLAlchemy)
+    try:
+        if copy_df:
+            try:
+                copy_df("predictions", df, columns=list(df.columns), truncate=True)
+                logging.info("Saved predictions to Postgres via copy_expert (rows=%d)", len(df))
+                return
+            except Exception:
+                logging.exception("copy_expert failed, trying SQLAlchemy")
+        if get_engine:
+            eng = get_engine()
+            df.to_sql("predictions", eng, if_exists="replace", index=False, method="multi")
+            logging.info("Saved predictions to Postgres via SQLAlchemy (rows=%d)", len(df))
+            return
+    except Exception:
+        logging.exception("SQLAlchemy save failed, fallback to sqlite")
+
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS predictions (
-                date             DATE NOT NULL,
-                code             TEXT NOT NULL,
-                pred_return_60d  REAL,
-                pred_return_90d  REAL,
-                pred_mdd_60d     REAL,
-                pred_mdd_90d     REAL,
-                prob_top20_60d   REAL,
-                prob_top20_90d   REAL,
-                score            REAL,
-                PRIMARY KEY (date, code)
-            );
-            """
-        )
-        records = df.to_dict(orient="records")
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO predictions
-            (date, code, pred_return_60d, pred_return_90d, pred_mdd_60d, pred_mdd_90d,
-             prob_top20_60d, prob_top20_90d, score)
-            VALUES (:date, :code, :pred_return_60d, :pred_return_90d, :pred_mdd_60d, :pred_mdd_90d,
-                    :prob_top20_60d, :prob_top20_90d, :score)
-            """,
-            records,
-        )
+        df.to_sql("predictions", conn, if_exists="replace", index=False)
         conn.commit()
-        logging.info("Saved predictions to DB: %s (rows=%d)", DB_PATH.resolve(), len(df))
+        logging.info("Saved predictions to sqlite DB: %s (rows=%d)", DB_PATH.resolve(), len(df))
     except Exception:
-        logging.exception("Failed to save predictions to DB")
+        logging.exception("Failed to save predictions to sqlite DB")
     finally:
         try:
             if conn:

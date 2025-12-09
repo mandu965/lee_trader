@@ -5,6 +5,10 @@ from typing import Dict, List
 import numpy as np
 import pandas as pd
 import sqlite3
+try:
+    from db import get_engine
+except Exception:
+    get_engine = None
 
 DATA_DIR = Path("data")
 FUND_CSV = DATA_DIR / "fundamentals.csv"
@@ -42,7 +46,8 @@ def _zscore(series: pd.Series) -> pd.Series:
 
 def load_fundamentals() -> pd.DataFrame:
     if not FUND_CSV.exists():
-        raise FileNotFoundError(f"fundamentals.csv not found: {FUND_CSV.resolve()}")
+        logging.warning("fundamentals.csv not found (%s) -> skipping quality build", FUND_CSV.resolve())
+        return pd.DataFrame(columns=["date", "code"])
 
     df = pd.read_csv(FUND_CSV, dtype={"code": str})
     # 기본 컬럼 정규화
@@ -74,7 +79,8 @@ def load_fundamentals() -> pd.DataFrame:
             col_map[std_name] = col
 
     if not col_map:
-        raise ValueError("fundamentals.csv does not contain any known financial columns (roe/op_margin/debt_ratio/ocf_to_assets/net_margin)")
+        logging.warning("fundamentals.csv has no known financial columns -> skipping quality build")
+        return pd.DataFrame(columns=["date", "code"])
 
     # 표준 명칭으로 복사(존재하는 컬럼만)
     work = df[["date", "code"] + list(col_map.values())].copy()
@@ -123,7 +129,8 @@ def build_quality(df: pd.DataFrame) -> pd.DataFrame:
     # 실제 사용 가능한 키만 추림
     use_keys = [k for k in weights.keys() if k in z]
     if not use_keys:
-        raise ValueError("No valid financial columns available to build quality_score")
+        logging.warning("No valid financial columns available to build quality_score -> returning empty")
+        return pd.DataFrame(columns=["date", "code", "quality_score"])
 
     # 가중치 재정규화(가용 키만 합=1)
     w_sum = sum(weights[k] for k in use_keys)
@@ -151,33 +158,25 @@ def save_quality(df: pd.DataFrame) -> None:
     out.to_csv(OUT_CSV, index=False, encoding="utf-8")
     logging.info("Saved quality: %s (rows=%d)", OUT_CSV.resolve(), len(out))
 
-    # DB upsert
+    # DB upsert (prefer Postgres via SQLAlchemy)
+    try:
+        if get_engine:
+            eng = get_engine()
+            out.to_sql("quality", eng, if_exists="replace", index=False)
+            logging.info("Saved quality to Postgres via SQLAlchemy (rows=%d)", len(out))
+            return
+    except Exception:
+        logging.exception("SQLAlchemy save failed, fallback to sqlite")
+
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS quality (
-                date          DATE NOT NULL,
-                code          TEXT NOT NULL,
-                quality_score REAL,
-                PRIMARY KEY (date, code)
-            );
-            """
-        )
-        records = out.to_dict(orient="records")
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO quality (date, code, quality_score)
-            VALUES (:date, :code, :quality_score)
-            """,
-            records,
-        )
+        out.to_sql("quality", conn, if_exists="replace", index=False)
         conn.commit()
-        logging.info("Saved quality to DB: %s (rows=%d)", DB_PATH.resolve(), len(out))
+        logging.info("Saved quality to sqlite DB: %s (rows=%d)", DB_PATH.resolve(), len(out))
     except Exception:
-        logging.exception("Failed to save quality to DB")
+        logging.exception("Failed to save quality to sqlite DB")
     finally:
         try:
             if conn:
@@ -190,7 +189,11 @@ def main() -> None:
     setup_logging()
     ensure_data_dir()
     fund = load_fundamentals()
-    qual = build_quality(fund)
+    if fund.empty:
+        logging.warning("No fundamentals data -> quality.csv will be empty with headers only")
+        qual = pd.DataFrame(columns=["date", "code", "quality_score"])
+    else:
+        qual = build_quality(fund)
     save_quality(qual)
 
 

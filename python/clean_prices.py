@@ -4,6 +4,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import sqlite3
+try:
+    from db import get_engine
+except Exception:
+    get_engine = None
 
 DATA_DIR = Path("data")
 RAW_CSV = DATA_DIR / "prices_daily_raw.csv"
@@ -80,38 +84,25 @@ def save_clean(df: pd.DataFrame):
     df_out.to_csv(CLEAN_CSV, index=False, encoding="utf-8")
     logging.info(f"Saved clean prices: {CLEAN_CSV.resolve()} (rows={len(df_out)})")
 
-    # DB upsert
+    # DB upsert (prefer Postgres via SQLAlchemy)
+    try:
+        if get_engine:
+            eng = get_engine()
+            df_out.to_sql("prices_clean", eng, if_exists="replace", index=False)
+            logging.info("Saved clean prices to Postgres via SQLAlchemy (rows=%d)", len(df_out))
+            return
+    except Exception:
+        logging.exception("SQLAlchemy save failed, fallback to sqlite")
+
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS prices_clean (
-                date    DATE NOT NULL,
-                code    TEXT NOT NULL,
-                open    REAL,
-                high    REAL,
-                low     REAL,
-                close   REAL,
-                volume  REAL,
-                PRIMARY KEY (date, code)
-            );
-            """
-        )
-        records = df_out.to_dict(orient="records")
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO prices_clean
-            (date, code, open, high, low, close, volume)
-            VALUES (:date, :code, :open, :high, :low, :close, :volume)
-            """,
-            records,
-        )
+        df_out.to_sql("prices_clean", conn, if_exists="replace", index=False)
         conn.commit()
-        logging.info("Saved clean prices to DB: %s (rows=%d)", DB_PATH.resolve(), len(df_out))
+        logging.info("Saved clean prices to sqlite DB: %s (rows=%d)", DB_PATH.resolve(), len(df_out))
     except Exception:
-        logging.exception("Failed to save clean prices to DB")
+        logging.exception("Failed to save clean prices to sqlite DB")
     finally:
         try:
             if conn:

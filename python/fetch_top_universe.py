@@ -12,6 +12,10 @@ DATA_DIR = Path("data")
 UNIVERSE_CSV = DATA_DIR / "universe.csv"
 SECTORS_CSV = DATA_DIR / "sectors.csv"
 DB_PATH = DATA_DIR / "lee_trader.db"
+try:
+    from db import get_engine
+except Exception:
+    get_engine = None
 
 # pykrx is required (added in requirements.txt)
 try:
@@ -36,23 +40,57 @@ def ensure_data_dir():
 
 def last_trading_date(max_back_days: int = 10) -> str:
     """
-    pykrx가 비영업일에 빈 DF를 반환하는 경우가 있어, 최근 영업일을 탐색한다.
+    pykrx가 비영업일이거나 장 시작 전에는 '시가총액=0'인 DF를 돌려줄 수 있어서,
+    실제로 시가총액 값이 존재하는 날짜만 거래일로 인정한다.
     반환 형식: YYYYMMDD
     """
     base = datetime.today()
     for i in range(max_back_days):
-        
         dt = base - timedelta(days=i)
         ymd = dt.strftime("%Y%m%d")
         try:
-            # 간단 체크: KOSPI 시총 데이터가 비어있지 않으면 사용
             df = stock.get_market_cap_by_ticker(ymd, market="KOSPI")
-            if df is not None and len(df) > 0:
-                return ymd
+            if df is None or df.empty:
+                continue
+
+            # 시가총액 컬럼 탐색 (top_by_market와 동일한 로직 일부 재사용)
+            mcap_col = None
+            cols = list(df.columns)
+
+            if "시가총액" in cols:
+                mcap_col = "시가총액"
+            else:
+                for c in cols:
+                    if "시가총" in str(c):
+                        mcap_col = c
+                        break
+
+            if mcap_col is None:
+                # numeric 컬럼 중 '상장주식수'는 제외하고 사용
+                num_cols = df.select_dtypes(include="number")
+                num_cols = num_cols[[c for c in num_cols.columns if "상장주" not in str(c)]]
+                if not num_cols.empty:
+                    mcap_col = num_cols.sum().idxmax()
+
+            # 시가총액 후보 컬럼이 없거나, 해당 컬럼이 전부 0이면 이 날짜는 패스
+            if mcap_col is None:
+                continue
+
+            mcap_series = df[mcap_col]
+            # 상장주식수만 살아있고, 다른 값이 전부 0인 케이스를 필터링
+            if (mcap_series.fillna(0) == 0).all():
+                # logging.debug(f"{ymd}: mcap_col '{mcap_col}' is all zero, skip")
+                continue
+
+            # 여기까지 왔으면 유효한 거래일
+            return ymd
+
         except Exception:
             continue
-    # 실패 시 오늘 날짜라도 반환
+
+    # 실패 시 오늘 날짜라도 반환 (fallback)
     return base.strftime("%Y%m%d")
+
 
 
 def top_by_market(ymd: str, market: str, top_n: int) -> pd.DataFrame:
@@ -383,11 +421,20 @@ def main():
     logging.info(f"Saved universe: {UNIVERSE_CSV.resolve()} (rows={len(uni)})")
 
     # DB upsert
+    # Save to DB (prefer Postgres via SQLAlchemy engine)
+    try:
+        if get_engine:
+            eng = get_engine()
+            uni.to_sql("stocks", eng, if_exists="replace", index=False)
+            logging.info("Saved universe to Postgres via SQLAlchemy (rows=%d)", len(uni))
+            return
+    except Exception:
+        logging.exception("SQLAlchemy save failed, fallback to sqlite")
+
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
-        # ensure table exists
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS stocks (
@@ -400,21 +447,15 @@ def main():
             );
             """
         )
-        records = uni.to_dict(orient="records")
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO stocks (code, name, market, sector, listed_at, delisted_at)
-            VALUES (:code, :name, :market, :sector, NULL, NULL)
-            """,
-            records,
-        )
+        uni.to_sql("stocks", conn, if_exists="replace", index=False)
         conn.commit()
-        logging.info("Saved universe to DB: %s (rows=%d)", DB_PATH.resolve(), len(uni))
+        logging.info("Saved universe to sqlite DB: %s (rows=%d)", DB_PATH.resolve(), len(uni))
     except Exception:
-        logging.exception("Failed to save universe to DB")
+        logging.exception("Failed to save universe to sqlite DB")
     finally:
         try:
-            conn.close()
+            if conn:
+                conn.close()
         except Exception:
             pass
 

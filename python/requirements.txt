@@ -8,3 +8,5 @@ pykrx
 lightgbm
 finance-datareader
 optuna
+sqlalchemy
+psycopg2-binary
