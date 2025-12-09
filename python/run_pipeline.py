@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import List, Tuple
-
+from sqlalchemy import text   # 파일 상단에 추가
 import pandas as pd
 try:
     from db import get_engine, log_pipeline_history
@@ -26,7 +26,7 @@ STEPS: List[Tuple[str, str]] = [
     ("download_prices_kis", "python/download_prices_kis.py"),
     ("clean_prices", "python/clean_prices.py"),
     ("create_adjusted_prices", "python/create_adjusted_prices.py"),
-    # ("fetch_fundamentals_dart", "python/fetch_fundamentals_dart.py"),
+    ("fetch_fundamentals_dart", "python/fetch_fundamentals_dart.py"),
     ("quality_builder", "python/quality_builder.py"),
     ("feature_builder", "python/feature_builder.py"),
     ("scoring", "python/scoring.py"),
@@ -82,20 +82,30 @@ def _load_codes_from_db(table: str) -> set:
         try:
             eng = get_engine()
             with eng.connect() as conn:
-                rows = conn.execute(f"SELECT DISTINCT code FROM {table}").fetchall()
-            return set(str(r[0]).zfill(6) for r in rows if r and r[0] is not None)
-        except Exception:
-            pass
+                stmt = text(f"SELECT DISTINCT code FROM {table}")
+                rows = conn.execute(stmt).fetchall()
+
+            codes = {str(r[0]).zfill(6) for r in rows if r and r[0] is not None}
+            logging.info("Loaded %d codes from Postgres table '%s'", len(codes), table)
+            return codes
+        except Exception as e:
+            logging.warning("Postgres load failed for table '%s': %s", table, e)
 
     if not DB_PATH.exists():
+        logging.info("No sqlite DB at %s – skip DB check for table '%s'", DB_PATH, table)
         return set()
+
     try:
         with sqlite3.connect(DB_PATH) as conn:
             cur = conn.cursor()
             rows = cur.execute(f"SELECT DISTINCT code FROM {table}").fetchall()
-            return set(str(r[0]).zfill(6) for r in rows if r and r[0] is not None)
-    except Exception:
+            codes = {str(r[0]).zfill(6) for r in rows if r and r[0] is not None}
+            logging.info("Loaded %d codes from sqlite table '%s'", len(codes), table)
+            return codes
+    except Exception as e:
+        logging.warning("sqlite load failed for table '%s': %s", table, e)
         return set()
+
 
 
 def verify_core_codes(codes: list[str]) -> None:

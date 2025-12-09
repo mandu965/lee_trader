@@ -420,6 +420,23 @@ function buildHoldings(trades, latestRankByCode) {
         ? (currentValue / costBasis - 1) * 100
         : null;
 
+    // 20% 목표가 및 진행률
+    const targetPrice = Number.isFinite(avgBuyPrice) ? avgBuyPrice * 1.2 : null;
+    let progressToTarget = null;
+    let targetHit = false;
+    if (
+      Number.isFinite(currentPrice) &&
+      Number.isFinite(avgBuyPrice) &&
+      Number.isFinite(targetPrice) &&
+      targetPrice > avgBuyPrice
+    ) {
+      // 진행률은 매입가를 0%로, 목표가를 100%로 보는 방식
+      const span = targetPrice - avgBuyPrice;
+      progressToTarget = ((currentPrice - avgBuyPrice) / span) * 100;
+      progressToTarget = Math.min(100, Math.max(0, progressToTarget));
+      targetHit = currentPrice >= targetPrice;
+    }
+
     const realizedPct = st.totalBuy > 0 ? (st.realizedAcc / st.totalBuy) * 100 : null;
 
     holdings.push({
@@ -437,6 +454,9 @@ function buildHoldings(trades, latestRankByCode) {
       unrealized_pnl: unrealized,
       unrealized_pnl_pct: unrealizedPct,
       final_score: rankRow.final_score || rankRow.score || null,
+      target_price: targetPrice,
+      progress_to_target: progressToTarget,
+      target_hit: targetHit,
     });
   }
 
