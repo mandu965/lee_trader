@@ -1,0 +1,24 @@
+name: Run pipeline daily
+
+on:
+  schedule:
+    - cron: "0 7 * * *"   # UTC 07:00 = KST 16:00
+  workflow_dispatch:      # 필요 시 수동 실행 버튼
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r python/requirements.txt
+      - name: Run pipeline
+        env:
+          DATABASE_URL: ${{ secrets.External_Database_URL }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          # 필요 시 추가 env 여기에
+        run: |
+          python python/run_pipeline.py
