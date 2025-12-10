@@ -25,6 +25,7 @@ jobs:
       - run: pip install -r python/requirements.txt
       - name: Run pipeline
         env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
           DATABASE_URL: ${{ secrets.External_Database_URL }}
           KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
