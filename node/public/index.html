@@ -4,91 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI Stock Analyzer - 예측 리스트</title>
-  <style>
-    :root {
-      --bg: #020617;
-      --panel: #020817;
-      --panel-soft: #0b1020;
-      --text: #e5e7eb;
-      --muted: #9ca3af;
-      --accent: #22c55e;
-      --danger: #e85c5c;
-      --warn: #facc15;
-      --border: #1e293b;
-      --link: #60a5fa;
-    }
-    * { box-sizing: border-box; }
-    body { margin:0; padding:0; background: radial-gradient(circle at top, #0b1120 0, #020617 55%); color:var(--text); font-family: "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif; }
-    a { color: var(--link); text-decoration: none; }
-    .container { max-width: 1800px; margin: 0 auto; padding: 18px; }
-    header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; }
-    header h1 { margin:0; font-size:22px; display:flex; gap:8px; align-items:center; }
-    .badge { padding:3px 10px; border-radius:999px; border:1px solid var(--border); color:var(--muted); }
-    .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-    input, select, button { padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:#0b1020; color:var(--text); font-size:13px; }
-    button { background:#1f2937; cursor:pointer; font-weight:500; }
-    button:hover { background:#273549; }
-    .panel { background: linear-gradient(135deg, var(--panel) 0, var(--panel-soft) 100%); border:1px solid #111827; border-radius:14px; overflow:hidden; box-shadow:0 18px 45px rgba(15,23,42,0.7); }
-    table { width:100%; border-collapse:collapse; font-size:13px; min-width:1100px; }
-    thead th { position:sticky; top:0; z-index:2; background:#020617; text-align:left; padding:10px 12px; border-bottom:1px solid var(--border); color:var(--muted); font-weight:600; }
-    th.sortable { cursor:pointer; }
-    tbody td { padding:9px 12px; border-bottom:1px solid rgba(15,23,42,0.9); }
-    tbody tr:nth-child(odd) { background: rgba(15,23,42,0.55); }
-    tbody tr:nth-child(even){ background: rgba(15,23,42,0.85); }
-    tbody tr:hover { background:#1f2937; }
-    .right { text-align:right; }
-    .center { text-align:center; color: var(--muted); }
-    .pos { color: #45b26b; }
-    .neg { color: var(--danger); }
-    .warn { color: var(--warn); }
-    .pill { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; border:1px solid rgba(255,255,255,0.2); background:rgba(255,255,255,0.06); font-size:12px; }
-    .pill.pos { border-color:#45b26b; color:#45b26b; background:rgba(69,178,107,0.12); }
-    .pill.neg { border-color:var(--danger); color:var(--danger); background:rgba(232,92,92,0.12); }
-    .pill.warn{ border-color:var(--warn); color:var(--warn); background:rgba(250,204,21,0.12); }
-    .score-cell { display:flex; flex-direction:column; gap:4px; min-width:220px; }
-    .score-val { font-weight:600; font-size:13px; white-space:nowrap; }
-    .score-strip { display:flex; height:6px; border-radius:999px; overflow:hidden; background:rgba(255,255,255,0.08); }
-    .seg { height:100%; }
-    .seg-R { background:#2f81f7; }
-    .seg-P { background:#14b8a6; }
-    .seg-Q { background:#65c466; }
-    .seg-T { background:#8b5cf6; }
-    .seg-M { background:#38bdf8; }
-    .seg-RP{ background:#f97373; }
-    .cell-name .name { font-weight:600; }
-    .cell-name .code { font-size:12px; opacity:0.7; }
-    .cell-market .sector { font-size:12px; opacity:0.7; margin-left:4px; }
-    th.score-col { text-align:center; }
-    .status { color: var(--muted); font-size:12px; padding: 8px 12px; }
-    /* Market alert ribbon */
-    .market-alert { display:flex; align-items:flex-start; gap:10px; margin:12px 0 14px; padding:10px 12px; border-radius:12px; border:1px solid var(--border); background:#0b1020; line-height:1.4; transition: opacity 0.2s ease, visibility 0.2s ease; }
-    .market-alert.hidden { opacity:0; visibility:hidden; pointer-events:none; }
-    .market-alert .tag { display:inline-block; padding:2px 8px; border-radius:999px; font-weight:600; flex-shrink:0; }
-    .market-alert .tag.good { background:rgba(34,197,94,0.12); color:#4ade80; border:1px solid rgba(34,197,94,0.3); }
-    .market-alert .tag.bad { background:rgba(248,113,113,0.12); color:#f87171; border:1px solid rgba(248,113,113,0.3); }
-    .market-alert .lines { margin-top:2px; color:var(--muted); font-size:13px; }
-    .toolbar .btn-sm { padding:6px 8px; }
-    /* Overlay */
-    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 30; }
-    .modal { background:#0f172a; border:1px solid #1f2937; border-radius:12px; max-width:720px; width:90%; max-height:80vh; overflow:auto; box-shadow:0 16px 40px rgba(0,0,0,0.5); padding:18px; }
-    .modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-    .modal-body { font-size:13px; line-height:1.5; }
-    .modal-close { border:1px solid var(--border); background:#1f2937; color:var(--text); padding:6px 10px; border-radius:6px; cursor:pointer; }
-    .trade-modal { background:#0f172a; border:1px solid #1f2937; border-radius:12px; padding:16px; width:360px; max-width:90%; box-shadow:0 16px 40px rgba(0,0,0,0.5); }
-    .trade-modal-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-    .trade-modal-title { font-weight:700; font-size:16px; }
-    .trade-field { margin-bottom:10px; }
-    .trade-label { font-size:12px; color: var(--muted); margin-bottom:4px; }
-    .trade-input { width:100%; padding:8px 10px; border-radius:6px; border:1px solid var(--border); background:#0b1020; color:var(--text); }
-    .trade-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:10px; }
-  </style>
+  <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>AI Stock Analyzer 예측 리스트 <span id="envBadge" class="badge">상태 확인 중...</span></h1>
+      <h1>AI Stock Analyzer 예측 리스트<span id="envBadge" class="badge">상태 확인 중...</span></h1>
       <div class="toolbar">
-        <input id="q" type="text" placeholder="종목코드/이름 검색 (예: 005930, 삼성전자)">
+        <input id="q" type="text" placeholder="종목코드/이름 검색(예: 005930, 삼성전자)">
         <select id="market">
           <option value="ALL">전체시장</option>
           <option value="KOSPI">KOSPI</option>
@@ -97,16 +20,18 @@
         <select id="sector">
           <option value="ALL">전체분야</option>
         </select>
-        <button id="recoBtn">추천종목</button>
-        <button id="holdingsBtn">보유종목</button>
-        <button id="tradeHistoryBtn" class="btn-sm">매매 이력</button>
-        <button id="alertToggleBtn" class="btn-sm">알림 숨기기</button>
+        <div class="nav-tabs">
+          <button id="recoBtn" class="nav-tab">추천종목</button>
+          <button id="holdingsBtn" class="nav-tab">보유종목</button>
+          <button id="tradeHistoryBtn" class="nav-tab">매매 기록</button>
+          <button id="alertToggleBtn" class="nav-tab">알림 숨기기</button>
+        </div>
       </div>
     </header>
     <div id="marketAlert" class="market-alert hidden"></div>
 
-    <div class="panel">
-      <table>
+    <div class="panel table-panel">
+      <table class="stock-table">
         <thead>
           <tr>
             <th class="sortable" data-sort="rank">순위</th>
@@ -118,16 +43,20 @@
             <th class="right sortable" data-sort="pred90">예측수익률(90d)</th>
             <th class="right sortable" data-sort="mdd60">예상 MDD(60d)</th>
             <th class="sortable score-col" data-sort="score">
-              <span class="tooltip" title="R(파랑): 모멘텀/수익률&#10;P(청록): Top20 확률&#10;Q(연두): 재무/기초체력&#10;T(보라): 기술지표&#10;M(하늘): 예측 수익률&#10;RP(빨강): 낙폭 감점&#10;길이 비중으로 스트립 표시">점수·스트립</span>
+              <span class="tooltip" title="R(수익): 모멘텀/수익률&#10;P(확률): Top20 포함&#10;Q(퀄리티): 실적/기초체력&#10;T(기술): 기술적 지표&#10;M(모델): 예측 수익률&#10;RP(리스크): 변동성 패널티&#10;길이 비중으로 스코어 표시">지표·스코어</span>
             </th>
             <th>액션</th>
           </tr>
         </thead>
         <tbody id="tbody">
-          <tr><td colspan="10" class="center">불러오는 중...</td></tr>
+          <!-- 반복: rows 데이터를 데스크톱 테이블 행으로 렌더링 -->
+          <tr><td colspan="10" class="center">표시할 데이터가 없습니다.</td></tr>
         </tbody>
       </table>
       <div class="status" id="status"></div>
+    </div>
+    <div class="mobile-list" id="mobileList">
+      <!-- 반복: rows 데이터를 모바일 카드(.stock-card)로 렌더링 -->
     </div>
   </div>
 
@@ -231,31 +160,36 @@
       const seg=(val,cls,label,desc)=>{
         const pct=Math.max((val/total)*100,minPct);
         const tooltip = `${label}: ${val.toFixed(1)}점\n${desc}`;
-        return `<div class="seg ${cls}" style="flex-basis:${pct}%;" title="${tooltip}"></div>`;
+        return `<div class="seg ${cls}" style="flex-basis:${pct}%" title="${tooltip}"></div>`;
       };
       return `
         <div class="score-cell">
           <span class="score-val">${Number.isFinite(+r.final_score)?(+r.final_score).toFixed(1)+'점':'-'}</span>
           <div class="score-strip">
             ${seg(R,'seg-R','R (Return Score)','최근 모멘텀/수익률 기반')}
-            ${seg(P,'seg-P','P (Probability Score)','모델이 예측한 Top20 확률')}
-            ${seg(Q,'seg-Q','Q (Quality Score)','재무/기초체력 점수')}
+            ${seg(P,'seg-P','P (Probability Score)','모델의 예측 상위 Top20 포함')}
+            ${seg(Q,'seg-Q','Q (Quality Score)','실적/기초체력 지표')}
             ${seg(T,'seg-T','T (Tech Score)','기술적 지표 기반')}
             ${seg(M,'seg-M','M (Model Score)','예측 수익률 기반')}
-            ${seg(RP,'seg-RP','RP (Risk Penalty)','예상 낙폭 감점')}
+            ${seg(RP,'seg-RP','RP (Risk Penalty)','변동성 및 리스크 패널티')}
           </div>
         </div>`;
     }
 
     function render(){
-      const q = ($("#q").value||"").trim().toLowerCase();
+      const q = (($("#q")?.value)||"").trim().toLowerCase();
       let rows = universe.slice();
-      const mktFilter = ($("#market").value||"ALL").toUpperCase();
-      const sectorFilter = ($("#sector").value||"ALL");
+      const mktFilter = (($("#market")?.value)||"ALL").toUpperCase();
+      const sectorFilter = (($("#sector")?.value)||"ALL");
+      const mobileList = $("#mobileList");
       if(mktFilter!=="ALL") rows = rows.filter(r => (r.market||"").toUpperCase()===mktFilter);
       if(sectorFilter!=="ALL") rows = rows.filter(r => (r.sector||"")===sectorFilter);
       if(q) rows = rows.filter(r => (r.code||"").toLowerCase().includes(q) || (r.name||"").toLowerCase().includes(q));
-      if(!rows.length){ $("#tbody").innerHTML='<tr><td colspan="10" class="center">표시할 데이터가 없습니다</td></tr>'; return; }
+      if(!rows.length){
+        $("#tbody").innerHTML='<tr><td colspan="10" class="center">표시할 데이터가 없습니다.</td></tr>';
+        if(mobileList) mobileList.innerHTML='<div class="stock-card"><div class="stock-card-sub">표시할 데이터가 없습니다.</div></div>';
+        return;
+      }
       rows = applySort(rows);
       const html = rows.map(r=>{
         const pred60=toNum(r.pred_return_60d); const pred90=toNum(r.pred_return_90d);
@@ -278,7 +212,52 @@
             </td>
           </tr>`;
       }).join("");
+      const mobileHtml = rows.map(r=>{
+        const link = `./detail.html?code=${encodeURIComponent(r.code)}`;
+        const pred60=toNum(r.pred_return_60d); const pred90=toNum(r.pred_return_90d);
+        const ret3 = toNum(r.ret_3m); const mdd=toNum(r.pred_mdd_60d);
+        const close = Number.isFinite(+r.close)?Number(r.close).toLocaleString():"-";
+        const score = Number.isFinite(+r.final_score)?(+r.final_score).toFixed(1)+"점":"-";
+        return `
+          <article class="stock-card" onclick="location.href='${link}'">
+            <div class="stock-card-header">
+              <span class="rank-badge">${rankMap.get(r.code)??"-"}위</span>
+              <span class="market-tag">${(r.market||"").toUpperCase()}</span>
+            </div>
+            <div class="stock-name">${r.name||r.code}</div>
+            <div class="stock-code">${r.code}</div>
+            <div class="stock-card-sub">${r.sector||"-"}</div>
+            <div class="card-metrics">
+              <div class="metric">
+                <div class="metric-label">현재가</div>
+                <div class="metric-val">${close}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">3개월 수익률</div>
+                <div class="metric-val ${ret3>=0?'pos':'neg'}">${fmtPct(ret3)}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">예측(60d)</div>
+                <div class="metric-val ${pred60>=0?'pos':'neg'}">${fmtPct(pred60)}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">예측(90d)</div>
+                <div class="metric-val ${pred90>=0?'pos':'neg'}">${fmtPct(pred90)}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">예상 MDD</div>
+                <div class="metric-val">${Number.isFinite(mdd)?`<span class="pill ${getRiskClass(mdd)}">${(mdd*100).toFixed(2)}%</span>`:"-"}</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">종합 스코어</div>
+                <div class="metric-val">${score}</div>
+                <div class="score-mini">${buildStrip(r)}</div>
+              </div>
+            </div>
+          </article>`;
+      }).join("");
       $("#tbody").innerHTML = html;
+      if(mobileList) mobileList.innerHTML = mobileHtml;
     }
 
     async function fetchEnv(){
@@ -342,7 +321,7 @@
       const qty = Number($("#tradeQty")?.value);
       const price = Number($("#tradePrice")?.value);
       if(!date || !Number.isFinite(qty) || qty<=0 || !Number.isFinite(price) || price<=0){
-        alert("날짜/수량/가격을 올바르게 입력하세요.");
+        alert("날짜/수량/가격을 올바르게 입력해주세요");
         return;
       }
       const payload = { side: tradeCtx.side, code: tradeCtx.code, date, qty, price };
@@ -380,14 +359,14 @@
           lines.push(`KOSPI ${Number(m.kospi_close).toLocaleString()} / MA20 ${Number(m.kospi_ma20).toLocaleString()}`);
         }
         if(Number.isFinite(m.vol_5d)){
-          lines.push(`5일 변동성 ${(m.vol_5d*100).toFixed(2)}% (기준: 3% 미만)`);
+          lines.push(`5일변동성 ${(m.vol_5d*100).toFixed(2)}% (기준: 3% 미만)`);
         }
         if(Number.isFinite(m.foreign_5d)){
-          lines.push(`최근 5영업일 외국인 순매수 ${Number(m.foreign_5d).toLocaleString()}`);
+          lines.push(`최근 5일간 외국인 순매수 ${Number(m.foreign_5d).toLocaleString()}`);
         }
         const tag = isUp
-          ? '<span class="tag good">상승 추세</span>'
-          : '<span class="tag bad">⚠️ 매수 주의</span>';
+          ? '<span class="tag good">위험 축소 국면</span>'
+          : '<span class="tag bad">신중 매수 구간</span>';
         box.innerHTML = `${tag}<div class="lines">${lines.join("<br>")}</div>`;
         box.classList.toggle("hidden", alertHidden);
       }catch(e){
@@ -396,15 +375,14 @@
       }
     }
 
-    // init
     (async function(){
       await fetchEnv();
       await fetchMarketStatus();
       await fetchRanking();
       setAlertHidden(false);
-      $("#q").addEventListener("input", render);
-      $("#market").addEventListener("change", render);
-      $("#sector").addEventListener("change", render);
+      $("#q")?.addEventListener("input", render);
+      $("#market")?.addEventListener("change", render);
+      $("#sector")?.addEventListener("change", render);
       document.querySelectorAll("th[data-sort]").forEach(th=>{
         th.addEventListener("click", ()=>{
           const key=th.dataset.sort;
@@ -413,10 +391,16 @@
           render();
         });
       });
-      if($("#recoBtn")) $("#recoBtn").addEventListener("click", (e)=>{e.preventDefault(); window.location.href='./ranking.html';});
-      if($("#holdingsBtn")) $("#holdingsBtn").addEventListener("click", (e)=>{e.preventDefault(); window.location.href='./holdings.html';});
-      if($("#tradeHistoryBtn")) $("#tradeHistoryBtn").addEventListener("click", (e)=>{e.preventDefault(); window.location.href='./trade-history.html';});
-      if($("#alertToggleBtn")) $("#alertToggleBtn").addEventListener("click", (e)=>{e.preventDefault(); setAlertHidden(!alertHidden);});
+      $("#recoBtn")?.addEventListener("click", (e)=>{e.preventDefault(); window.location.href='./ranking.html';});
+      $("#holdingsBtn")?.addEventListener("click", (e)=>{e.preventDefault(); window.location.href='./holdings.html';});
+      $("#tradeHistoryBtn")?.addEventListener("click", (e)=>{e.preventDefault(); window.location.href='./trade-history.html';});
+      $("#alertToggleBtn")?.addEventListener("click", (e)=>{e.preventDefault(); setAlertHidden(!alertHidden);});
+      const path = (location.pathname||"").toLowerCase();
+      const setActive = (id)=>{ document.querySelectorAll(".nav-tab").forEach(btn=>btn.classList.toggle("active", btn.id===id)); };
+      if(path.includes("ranking")) setActive("recoBtn");
+      else if(path.includes("holdings")) setActive("holdingsBtn");
+      else if(path.includes("trade-history")) setActive("tradeHistoryBtn");
+      else setActive("");
     })();
   </script>
 </body>
