@@ -138,6 +138,14 @@ async function loadAll() {
 
     renderTodayActions(actions);
     renderTop20(top20);
+
+    // 사용자가 날짜를 지정하지 않았다면 응답 날짜를 입력에 반영
+    if (!dateValue) {
+      const inferredDate = actions?.date || top20?.date;
+      if (inferredDate) {
+        document.getElementById("signalDate").value = inferredDate;
+      }
+    }
   } catch (e) {
     console.error(e);
     alert("데이터를 불러오는데 실패했습니다.");
@@ -148,12 +156,8 @@ document.addEventListener("DOMContentLoaded", () => {
   const dateInput = document.getElementById("signalDate");
   const reloadBtn = document.getElementById("reloadBtn");
 
-  // 오늘 날짜 기본값 세팅
-  const today = new Date().toISOString().slice(0, 10);
-  dateInput.value = today;
-
   reloadBtn.addEventListener("click", loadAll);
   dateInput.addEventListener("change", loadAll);
 
-  loadAll();
+  loadAll().catch(() => {});
 });

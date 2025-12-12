@@ -16,16 +16,15 @@ date, kospi_close, kospi_ma20, volatility_5d, foreign_net_5d, market_up
 """
 import logging
 from pathlib import Path
-import sqlite3
 from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
 from pykrx import stock
+from db import raw_psycopg2_conn
 
 DATA_DIR = Path("data")
 OUT_CSV = DATA_DIR / "market_status.csv"
-DB_PATH = DATA_DIR / "lee_trader.db"
 
 
 def setup_logging() -> None:
@@ -154,38 +153,54 @@ def save_market_status(df: pd.DataFrame) -> None:
 
 
 def save_market_status_db(df: pd.DataFrame) -> None:
-    """Persist market_status to SQLite (append/replace by date)."""
+    """
+    Persist market_status to Postgres (upsert by date) using DATABASE_URL.
+    """
+    import psycopg2
+    from psycopg2.extras import execute_batch
+
     conn = None
     try:
-        DATA_DIR.mkdir(exist_ok=True, parents=True)
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("PRAGMA foreign_keys = ON;")
-        # Ensure table exists (idempotent)
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS market_status (
-                date             DATE PRIMARY KEY,
-                kospi_close      REAL,
-                kospi_ma20       REAL,
-                volatility_5d    REAL,
-                foreign_net_5d   REAL,
-                market_up        INTEGER
-            );
-            """
-        )
-        records = df.to_dict(orient="records")
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO market_status
-            (date, kospi_close, kospi_ma20, volatility_5d, foreign_net_5d, market_up)
-            VALUES (:date, :kospi_close, :kospi_ma20, :volatility_5d, :foreign_net_5d, :market_up)
-            """,
-            records,
-        )
-        conn.commit()
-        logging.info("Saved market status to DB: %s (rows=%d)", DB_PATH.resolve(), len(df))
+        conn = raw_psycopg2_conn()
     except Exception:
-        logging.exception("Failed to save market status to DB")
+        logging.exception("Failed to connect to Postgres (DATABASE_URL)")
+        return
+
+    try:
+        with conn, conn.cursor() as cur:
+            # Ensure table/index exist (idempotent)
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS market_status (
+                    date            DATE PRIMARY KEY,
+                    kospi_close     NUMERIC,
+                    kospi_ma20      NUMERIC,
+                    volatility_5d   NUMERIC,
+                    foreign_net_5d  NUMERIC,
+                    market_up       BOOLEAN
+                );
+                """
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_market_status_date_desc ON market_status(date DESC);"
+            )
+
+            records = df.to_dict(orient="records")
+            sql = """
+                INSERT INTO market_status
+                (date, kospi_close, kospi_ma20, volatility_5d, foreign_net_5d, market_up)
+                VALUES (%(date)s, %(kospi_close)s, %(kospi_ma20)s, %(volatility_5d)s, %(foreign_net_5d)s, %(market_up)s)
+                ON CONFLICT (date) DO UPDATE SET
+                    kospi_close = EXCLUDED.kospi_close,
+                    kospi_ma20 = EXCLUDED.kospi_ma20,
+                    volatility_5d = EXCLUDED.volatility_5d,
+                    foreign_net_5d = EXCLUDED.foreign_net_5d,
+                    market_up = EXCLUDED.market_up
+            """
+            execute_batch(cur, sql, records, page_size=200)
+            logging.info("Saved market status to Postgres (rows=%d)", len(records))
+    except Exception:
+        logging.exception("Failed to save market status to Postgres")
     finally:
         try:
             conn.close()
