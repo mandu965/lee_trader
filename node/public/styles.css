@@ -173,4 +173,7 @@ th.score-col { text-align: center; }
   .toolbar-actions { width: 100%; }
   .table-panel { display: none; }
   .mobile-list { display: flex; flex-direction: column; }
+  .card-metrics { grid-template-columns: 1fr; }
+  .score-strip { height: 10px; }
+  .score-cell { min-width: 0; }
 }

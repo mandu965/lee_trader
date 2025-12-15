@@ -472,6 +472,17 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+// Admin page/API (protected by adminAuth; allow if ADMIN_TOKEN unset)
+try {
+  const adminDbPage = require("./routes/adminDbPage");
+  const adminDbApi = require("./routes/adminDbApi");
+  app.use(adminDbPage);
+  // Admin API는 /api/admin 아래로만 매핑해 다른 엔드포인트에 영향 주지 않도록 범위를 제한
+  app.use("/api/admin", adminDbApi);
+} catch (e) {
+  console.warn("admin routes load failed", e.message);
+}
+
 // Health
 app.get("/api/health", (req, res) => {
   const demo = fs.existsSync(path.join(DATA_DIR, ".demo"));
@@ -1090,7 +1101,8 @@ app.get("/api/holdings", async (req, res) => {
 
     const totalUnrealized = totalValue - totalCost;
     const totalUnrealizedPct = totalCost > 0 ? (totalUnrealized / totalCost) * 100 : null;
-    const totalPnl = totalRealized + totalUnrealized;
+    // 화면 요구에 맞춰 총 평가손익은 현재 평가손익(미실현 기준)으로 계산
+    const totalPnl = totalUnrealized;
     const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : null;
 
     res.json({
