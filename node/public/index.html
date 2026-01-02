@@ -92,6 +92,8 @@
   <script>
     const $ = (sel) => document.querySelector(sel);
     const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+    const API_BASE = window.__API_BASE__ || "";
+    const api = (path) => `${API_BASE}${path}`;
     let universe = [];
     let rankMap = new Map();
     const sortState = { key: "score", dir: "desc" };
@@ -182,12 +184,14 @@
       const mktFilter = (($("#market")?.value)||"ALL").toUpperCase();
       const sectorFilter = (($("#sector")?.value)||"ALL");
       const mobileList = $("#mobileList");
+      const isMobile = window.matchMedia("(max-width: 768px)")?.matches === true;
       if(mktFilter!=="ALL") rows = rows.filter(r => (r.market||"").toUpperCase()===mktFilter);
       if(sectorFilter!=="ALL") rows = rows.filter(r => (r.sector||"")===sectorFilter);
       if(q) rows = rows.filter(r => (r.code||"").toLowerCase().includes(q) || (r.name||"").toLowerCase().includes(q));
       if(!rows.length){
         $("#tbody").innerHTML='<tr><td colspan="10" class="center">표시할 데이터가 없습니다.</td></tr>';
-        if(mobileList) mobileList.innerHTML='<div class="stock-card"><div class="stock-card-sub">표시할 데이터가 없습니다.</div></div>';
+        if(mobileList && isMobile) mobileList.innerHTML='<div class="stock-card"><div class="stock-card-sub">표시할 데이터가 없습니다.</div></div>';
+        if(mobileList && !isMobile) mobileList.innerHTML="";
         return;
       }
       rows = applySort(rows);
@@ -195,6 +199,7 @@
         const pred60=toNum(r.pred_return_60d); const pred90=toNum(r.pred_return_90d);
         const ret3 = toNum(r.ret_3m); const mdd=toNum(r.pred_mdd_60d);
         const link = `./detail.html?code=${encodeURIComponent(r.code)}`;
+        const strip = buildStrip(r);
         return `
           <tr onclick="location.href='${link}'" style="cursor:pointer">
             <td class="rank">${rankMap.get(r.code)??"-"}</td>
@@ -205,19 +210,19 @@
             <td class="right ${pred60>=0?'pos':'neg'}">${fmtPct(pred60)}</td>
             <td class="right ${pred90>=0?'pos':'neg'}">${fmtPct(pred90)}</td>
             <td class="right">${Number.isFinite(mdd)?`<span class="pill ${getRiskClass(mdd)}">${(mdd*100).toFixed(2)}%</span>`:"-"}</td>
-            <td class="right">${buildStrip(r)}</td>
+            <td class="right">${strip}</td>
             <td>
               <button onclick="openTradeModal('BUY','${r.code}','${r.name||r.code}', event)">매수</button>
               <button onclick="openTradeModal('SELL','${r.code}','${r.name||r.code}', event)">매도</button>
             </td>
           </tr>`;
       }).join("");
-      const mobileHtml = rows.map(r=>{
+      const mobileHtml = !isMobile ? "" : rows.map(r=>{
         const link = `./detail.html?code=${encodeURIComponent(r.code)}`;
         const pred60=toNum(r.pred_return_60d); const pred90=toNum(r.pred_return_90d);
         const ret3 = toNum(r.ret_3m); const mdd=toNum(r.pred_mdd_60d);
         const close = Number.isFinite(+r.close)?Number(r.close).toLocaleString():"-";
-        const score = Number.isFinite(+r.final_score)?(+r.final_score).toFixed(1)+"점":"-";
+        const strip = buildStrip(r);
         return `
           <article class="stock-card" onclick="location.href='${link}'">
             <div class="stock-card-header">
@@ -250,8 +255,7 @@
               </div>
               <div class="metric">
                 <div class="metric-label">종합 스코어</div>
-                <div class="metric-val">${score}</div>
-                <div class="score-mini">${buildStrip(r)}</div>
+                <div class="score-mini">${strip}</div>
               </div>
             </div>
           </article>`;
@@ -262,7 +266,7 @@
 
     async function fetchEnv(){
       try{
-        const res=await fetch("/api/health");
+        const res=await fetch(api("/api/health"));
         const info=await res.json();
         $("#envBadge").textContent = info?.status==="ok" ? (info.demo ? "DEMO":"LIVE") : "상태 불명";
       }catch{ $("#envBadge").textContent="상태 불명"; }
@@ -278,7 +282,7 @@
     async function fetchRanking(){
       $("#status").textContent="불러오는 중...";
       try{
-        const res=await fetch("/api/ranking");
+        const res=await fetch(api("/api/ranking"));
         if(!res.ok) throw new Error("HTTP "+res.status);
         const data=await res.json();
         universe=Array.isArray(data)?data:(Array.isArray(data?.data)?data.data:[]);
@@ -326,7 +330,7 @@
       }
       const payload = { side: tradeCtx.side, code: tradeCtx.code, date, qty, price };
       try{
-        const res = await fetch("/api/trades", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
+        const res = await fetch(api("/api/trades"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
         if(!res.ok) throw new Error("HTTP "+res.status);
         alert("저장되었습니다.");
         closeTradeModal();
@@ -348,7 +352,7 @@
       const box=$("#marketAlert");
       if(!box) return;
       try{
-        const res=await fetch("/api/market/status");
+        const res=await fetch(api("/api/market/status"));
         if(!res.ok) throw new Error("HTTP "+res.status);
         const m=await res.json();
         const isUp = m.market_up === true;
@@ -401,6 +405,9 @@
       else if(path.includes("holdings")) setActive("holdingsBtn");
       else if(path.includes("trade-history")) setActive("tradeHistoryBtn");
       else setActive("");
+      const mq = window.matchMedia("(max-width: 768px)");
+      if(mq?.addEventListener) mq.addEventListener("change", render);
+      else if(mq?.addListener) mq.addListener(render);
     })();
   </script>
 </body>

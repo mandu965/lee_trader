@@ -1,0 +1,22 @@
+[
+  {
+    "file": "outputs\\research_plan_2025-12-16\\00_gate_run4_q1\\summary.csv",
+    "model_version": "v1",
+    "horizon_days": 60,
+    "pred_mae": 0.1366484043523398,
+    "pred_rmse": 0.2069139055988432,
+    "pred_corr": 0.710022809530579,
+    "pred_n": 2208,
+    "strat_avg_return": 0.1194391700498872,
+    "strat_hit_rate": 1.0,
+    "strat_sharpe_like": 2.78526596038278,
+    "strat_num_periods": 12
+  },
+  {
+    "file": "outputs\\research_plan_2025-12-16\\00_gate_run4_q1\\portfolio_v1.csv",
+    "avg_return": 0.11943917004988724,
+    "hit_rate": 1.0,
+    "num_periods": 12,
+    "mdd": 0.0
+  }
+]

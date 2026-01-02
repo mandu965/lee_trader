@@ -250,3 +250,81 @@ CREATE TABLE IF NOT EXISTS pipeline_history (
 );
 CREATE INDEX IF NOT EXISTS idx_pipeline_history_run_step ON pipeline_history(run_id, step);
 CREATE INDEX IF NOT EXISTS idx_pipeline_history_created ON pipeline_history(created_at DESC);
+
+-- ============================
+-- Research / Backtest layer
+-- ============================
+CREATE SCHEMA IF NOT EXISTS research;
+
+CREATE TABLE IF NOT EXISTS research.dim_model_run (
+    run_id           BIGSERIAL PRIMARY KEY,
+    run_type         VARCHAR(32)  NOT NULL, -- 'daily_pipeline', 'backtest_offline', 'grid_search', ...
+    model_version    VARCHAR(50)  NOT NULL,
+    horizon_days     INTEGER      NOT NULL,
+    top_n            INTEGER      DEFAULT 20,
+    train_start_date DATE,
+    train_end_date   DATE,
+    config_json      JSONB,
+    created_at       TIMESTAMPTZ  DEFAULT now(),
+    comment          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_dim_model_run_type ON research.dim_model_run(run_type);
+
+CREATE TABLE IF NOT EXISTS research.prediction_history (
+    run_id             BIGINT       REFERENCES research.dim_model_run(run_id),
+    as_of_date         DATE         NOT NULL,
+    code               VARCHAR(10)  NOT NULL,
+    model_version      VARCHAR(50)  NOT NULL,
+    horizon_days       INTEGER      NOT NULL,
+    pred_return_60d    NUMERIC,
+    pred_return_90d    NUMERIC,
+    pred_mdd_60d       NUMERIC,
+    pred_mdd_90d       NUMERIC,
+    prob_top20_60d     NUMERIC,
+    prob_top20_90d     NUMERIC,
+    ret_score          NUMERIC,
+    prob_score         NUMERIC,
+    qual_score         NUMERIC,
+    tech_score         NUMERIC,
+    risk_penalty       NUMERIC,
+    final_score        NUMERIC,
+    final_score_custom NUMERIC,
+    created_at         TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (run_id, as_of_date, code, horizon_days)
+);
+CREATE INDEX IF NOT EXISTS idx_pred_hist_asof_model ON research.prediction_history(as_of_date, model_version);
+CREATE INDEX IF NOT EXISTS idx_pred_hist_code_model ON research.prediction_history(code, model_version);
+
+CREATE TABLE IF NOT EXISTS research.ranking_history (
+    run_id        BIGINT       REFERENCES research.dim_model_run(run_id),
+    as_of_date    DATE         NOT NULL,
+    code          VARCHAR(10)  NOT NULL,
+    model_version VARCHAR(50)  NOT NULL,
+    horizon_days  INTEGER      NOT NULL,
+    rank          INTEGER      NOT NULL,
+    final_score   NUMERIC      NOT NULL,
+    ret_score     NUMERIC,
+    prob_score    NUMERIC,
+    qual_score    NUMERIC,
+    tech_score    NUMERIC,
+    risk_penalty  NUMERIC,
+    in_top_n      BOOLEAN      NOT NULL DEFAULT false,
+    top_n         INTEGER      NOT NULL,
+    created_at    TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (run_id, as_of_date, code)
+);
+CREATE INDEX IF NOT EXISTS idx_rank_hist_run_asof ON research.ranking_history(run_id, as_of_date, rank);
+CREATE INDEX IF NOT EXISTS idx_rank_hist_asof_model ON research.ranking_history(as_of_date, model_version);
+
+-- Optional: realized outcomes per pick (can be derived on the fly)
+CREATE TABLE IF NOT EXISTS research.backtest_outcome (
+    run_id          BIGINT       REFERENCES research.dim_model_run(run_id),
+    as_of_date      DATE         NOT NULL,
+    code            VARCHAR(10)  NOT NULL,
+    horizon_days    INTEGER      NOT NULL,
+    realized_return NUMERIC,
+    realized_mdd    NUMERIC,
+    label_source    VARCHAR(32), -- 'from_labels', 'from_price'
+    created_at      TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (run_id, as_of_date, code, horizon_days)
+);

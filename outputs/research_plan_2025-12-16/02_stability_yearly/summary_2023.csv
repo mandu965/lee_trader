@@ -1,0 +1,3 @@
+file,model_version,horizon_days,pred_mae,pred_rmse,pred_corr,pred_n,strat_avg_return,strat_hit_rate,strat_sharpe_like,strat_num_periods,avg_return,hit_rate,num_periods,mdd
+outputs\research_plan_2025-12-16\02_stability_yearly\run4_2023\summary.csv,v1,60.0,0.1083007430613635,0.1800145701183737,0.7925311738741079,20096.0,0.0655415175100884,0.7747747747747747,0.7285354445231785,111.0,,,,
+outputs\research_plan_2025-12-16\02_stability_yearly\run4_2023\portfolio_v1.csv,,,,,,,,,,,0.0655415175100884,0.7747747747747747,111.0,-0.757146243540459

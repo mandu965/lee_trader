@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import sqlite3
+from scoring import compute_final_score_v5
 try:
     from db import get_engine
 except Exception:
@@ -111,6 +112,20 @@ def _percentile_by_date(df: pd.DataFrame, col: str) -> pd.Series:
 
     ranked = df.groupby("date", group_keys=False)[col].transform(_rank)
     return ranked
+
+
+def _percentile01_by_date(df: pd.DataFrame, col: str) -> pd.Series:
+    """
+    Compute 0~1 percentile (rank) of `col` within each date group.
+    Higher values -> higher percentile.
+    """
+    if col not in df.columns:
+        return pd.Series(np.nan, index=df.index)
+
+    def _rank(s: pd.Series) -> pd.Series:
+        return s.rank(pct=True, ascending=True)
+
+    return df.groupby("date", group_keys=False)[col].transform(_rank)
 
 
 def _normalize_date(df: pd.DataFrame) -> pd.DataFrame:
@@ -222,7 +237,7 @@ def build_ranking() -> pd.DataFrame:
         feat_cols.append("quality_score")
 
     # 변동성 / 유동성 관련 피처 (있을 때만 사용)
-    for col in ["vol_20", "vol_60", "vol_ma_20", "volume"]:
+    for col in ["vol_20", "vol_60", "vol_ma_20", "volume", "mom_60d", "rsi_14", "turnover_20d", "vol_20d"]:
         if col in feats.columns:
             feat_cols.append(col)
 
@@ -254,155 +269,34 @@ def build_ranking() -> pd.DataFrame:
             "No rows after merging predictions/scores/features – cannot build ranking."
         )
     # ---------------------------------------------
-    # 3. 점수 계산 (V2)
+    # 3. scoring (scoring.py based)
     # ---------------------------------------------
-
-    # 3-1) tech_score: scores_final.score를 0~100으로 clip
-    # if "score" in base.columns:
-    #     base["tech_score"] = _clip01(base["score"].fillna(0.0), 0.0, 100.0)
-    # else:
-    #     logging.warning("'score' column not found; tech_score will be NaN.")
-    #     base["tech_score"] = np.nan
-
-    # 3-1) tech_score: scores_final.csv에서 온 기술 점수 사용
-    #   - score_score: 과거 scoring.py에서 만든 기술 점수
-    #   - composite:   추가로 만든 종합 기술 점수라면 이쪽을 우선 사용해도 됨
-
-    if "composite" in base.columns:
-        # composite이 더 종합적인 기술점수라면 이걸 쓰자
-        base["tech_score"] = _percentile_by_date(base, "composite")
-    elif "score_score" in base.columns:
-        # 아니면 score_score를 날짜별 percentile로 변환 (0~100)
-        base["tech_score"] = _percentile_by_date(base, "score_score")
-    else:
-        logging.warning(
-            "No 'composite' or 'score_score' column found; tech_score will be NaN."
-        )
-        base["tech_score"] = np.nan
-    
-
-    # 3-2) pred_score (return_score):
-    #   pred_return_60d와 pred_return_90d 둘 다 있으면 0.6 : 0.4 가중 평균
-    pred_60 = None
-    pred_90 = None
-
-    if "pred_return_60d" in base.columns:
-        base["pred_score_60"] = _percentile_by_date(base, "pred_return_60d")
-        pred_60 = base["pred_score_60"]
-    if "pred_return_90d" in base.columns:
-        base["pred_score_90"] = _percentile_by_date(base, "pred_return_90d")
-        pred_90 = base["pred_score_90"]
-
-    if (pred_60 is not None) and (pred_90 is not None):
-        base["pred_score"] = 0.6 * pred_60 + 0.4 * pred_90
-    elif pred_60 is not None:
-        base["pred_score"] = pred_60
-    elif pred_90 is not None:
-        base["pred_score"] = pred_90
-    else:
-        logging.warning(
-            "No 'pred_return_60d' or 'pred_return_90d' columns; pred_score will be NaN."
-        )
-        base["pred_score"] = np.nan
-
-    # 🔥 Node /api/top20 에서 사용하는 이름(ret_score)은 pred_score와 동일하게 유지
-    base["ret_score"] = base["pred_score"]
-
-    # 3-3) prob_score: prob_top20_60d * 100  (분류 모델 확률 활용)
-    if "prob_top20_60d" in base.columns:
-        base["prob_score"] = _clip01(
-            base["prob_top20_60d"].fillna(0.0) * 100.0,
-            0.0,
-            100.0,
-        )
-    else:
-        logging.warning("'prob_top20_60d' column not found; prob_score will be NaN.")
-        base["prob_score"] = np.nan
-
-    # 3-4) qual_score: quality_score의 날짜별 percentile (0~100)
-    if "quality_score" in base.columns:
-        base["qual_score"] = _percentile_by_date(base, "quality_score")
-    else:
-        logging.warning("'quality_score' column not found; qual_score will be NaN.")
-        base["qual_score"] = np.nan
-
-    # 3-5) safety_score: 변동성(vol_20, vol_60)이 낮을수록 높은 점수
-    safety_parts = []
-
-    if "vol_20" in base.columns:
-        base["vol_20_pct"] = _percentile_by_date(base, "vol_20")
-        # 변동성 낮을수록 좋으므로 100 - percentile
-        safety_parts.append(100.0 - base["vol_20_pct"])
-
-    if "vol_60" in base.columns:
-        base["vol_60_pct"] = _percentile_by_date(base, "vol_60")
-        safety_parts.append(100.0 - base["vol_60_pct"])
-
-    if safety_parts:
-        # 여러 개가 있으면 단순 평균 (0~100)
-        base["safety_score"] = sum(safety_parts) / len(safety_parts)
-    else:
-        logging.info("No vol_20 / vol_60 columns; safety_score will be NaN.")
-        base["safety_score"] = np.nan
-
-    # 3-6) liquidity_score: 최근 20일 평균 거래량 기준 (vol_ma_20 우선)
-    if "vol_ma_20" in base.columns:
-        base["liquidity_score"] = _percentile_by_date(base, "vol_ma_20")
-    elif "volume" in base.columns:
-        base["liquidity_score"] = _percentile_by_date(base, "volume")
-    else:
-        logging.info(
-            "No vol_ma_20 / volume columns; liquidity_score will be NaN."
-        )
-        base["liquidity_score"] = np.nan
-
-    # NaN component scores -> 0 (점수 계산에서 결측치는 0점 처리)
-    for col in [
-        "tech_score",
-        "pred_score",
-        "prob_score",
-        "qual_score",
-        "safety_score",
-        "liquidity_score",
-    ]:
-        base[col] = base[col].fillna(0.0)
+    for col in ["mom_60d", "rsi_14", "turnover_20d", "vol_20"]:
+        if col not in base.columns:
+            base[col] = 0.0
+    if "vol_20d" not in base.columns and "vol_20" in base.columns:
+        base["vol_20d"] = base["vol_20"]
 
 
-    # ---------------------------------------------
-    # 4. 기본 종합 점수 (회귀 + 분류 + 기술 + 퀄리티 + 리스크 + 유동성)
-    # ---------------------------------------------
-    base["final_score"] = (
-        WEIGHT_TECH * base["tech_score"]
-        + WEIGHT_PRED * base["pred_score"]
-        + WEIGHT_PROB * base["prob_score"]
-        + WEIGHT_QUAL * base["qual_score"]
-        + WEIGHT_SAFETY * base["safety_score"]
-        + WEIGHT_LIQUIDITY * base["liquidity_score"]
+    base["pred_return_60d_pct01"] = _percentile01_by_date(base, "pred_return_60d") if "pred_return_60d" in base.columns else np.nan
+    base["pred_return_90d_pct01"] = _percentile01_by_date(base, "pred_return_90d") if "pred_return_90d" in base.columns else np.nan
+    base["ret_score_v11"] = 100.0 * (
+        0.7 * base["pred_return_60d_pct01"].fillna(0)
+        + 0.3 * base["pred_return_90d_pct01"].fillna(0)
     )
 
+    market_up, mkt_info = _load_market_status()
+    market_row = {
+        "market_regime": "bull" if market_up else "bear",
+        "foreign_5d": mkt_info.get("foreign_net_5d", 0),
+        "market_foreign_5d": mkt_info.get("foreign_net_5d", 0),
+    }
+    base = compute_final_score_v5(base, market_row)
+    base["final_score"] = base["final_score_v5"]
 
-    # ---------------------------------------------
-    # 5. 리스크(예측 MDD) 기반 감점 적용
-    #    pred_mdd_60d가 클수록(낙폭이 깊을수록) final_score를 깎음
-    # ---------------------------------------------
-    if "pred_mdd_60d" in base.columns:
-        # pred_mdd_60d: 음수(예: -0.25 = -25% 최대 낙폭 예상)
-        dd = pd.to_numeric(base["pred_mdd_60d"], errors="coerce")
-
-        # threshold(예: 0.15 = -15%)까지는 감점 없음,
-        # 그 아래부터 penalty_raw 증가
-        #   penalty_raw = max(0, -dd - RISK_MDD_THRESHOLD)
-        penalty_raw = (-dd) - RISK_MDD_THRESHOLD
-        penalty_raw = penalty_raw.clip(lower=0)  # 음수는 0으로
-
-        # 스케일(예: 100 * 0.3 = 30점 감점 등) 곱해서 최종 감점값 계산
-        base["risk_penalty"] = penalty_raw * RISK_PENALTY_SCALE
-
-        # final_score에서 감점 적용
-        base["final_score"] = base["final_score"] - base["risk_penalty"]
-    else:
-        # pred_mdd_60d가 없으면 감점 없이 0
-        base["risk_penalty"] = 0.0
+    # Rescale final_score to date-wise percentile (0~100) for more meaningful ranking spread.
+    base["final_score_raw"] = base["final_score"]
+    base["final_score"] = _percentile_by_date(base, "final_score_raw").fillna(0)
 
     # ---------------------------------------------
     # 6. 정렬 (최신 날짜 + 높은 점수 순)

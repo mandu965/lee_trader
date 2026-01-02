@@ -1,0 +1,98 @@
+[
+  {
+    "w_ret": 0.45,
+    "w_prob": 0.35,
+    "w_qual": 0.1,
+    "w_tech": 0.1,
+    "w_risk": 1.0,
+    "name": "w0_base"
+  },
+  {
+    "w_ret": 0.5,
+    "w_prob": 0.3,
+    "w_qual": 0.1,
+    "w_tech": 0.1,
+    "w_risk": 1.0,
+    "name": "w1_ret_up"
+  },
+  {
+    "w_ret": 0.4,
+    "w_prob": 0.39999999999999997,
+    "w_qual": 0.1,
+    "w_tech": 0.1,
+    "w_risk": 1.0,
+    "name": "w2_prob_up"
+  },
+  {
+    "w_ret": 0.4,
+    "w_prob": 0.35,
+    "w_qual": 0.15000000000000002,
+    "w_tech": 0.1,
+    "w_risk": 1.0,
+    "name": "w3_qual_up"
+  },
+  {
+    "w_ret": 0.45,
+    "w_prob": 0.3,
+    "w_qual": 0.1,
+    "w_tech": 0.15000000000000002,
+    "w_risk": 1.0,
+    "name": "w4_tech_up"
+  },
+  {
+    "w_ret": 0.55,
+    "w_prob": 0.24999999999999997,
+    "w_qual": 0.1,
+    "w_tech": 0.1,
+    "w_risk": 1.0,
+    "name": "w5_ret_high"
+  },
+  {
+    "w_ret": 0.35,
+    "w_prob": 0.44999999999999996,
+    "w_qual": 0.1,
+    "w_tech": 0.1,
+    "w_risk": 1.0,
+    "name": "w6_prob_high"
+  },
+  {
+    "w_ret": 0.4,
+    "w_prob": 0.3,
+    "w_qual": 0.2,
+    "w_tech": 0.1,
+    "w_risk": 1.0,
+    "name": "w7_qual_high"
+  },
+  {
+    "w_ret": 0.4,
+    "w_prob": 0.3,
+    "w_qual": 0.1,
+    "w_tech": 0.2,
+    "w_risk": 1.0,
+    "name": "w8_tech_high"
+  },
+  {
+    "w_ret": 0.45,
+    "w_prob": 0.35,
+    "w_qual": 0.1,
+    "w_tech": 0.1,
+    "w_risk": 0.8,
+    "name": "w9_risk_low"
+  },
+  {
+    "w_ret": 0.45,
+    "w_prob": 0.35,
+    "w_qual": 0.1,
+    "w_tech": 0.1,
+    "w_risk": 1.2,
+    "name": "w10_risk_high"
+  },
+  {
+    "w_ret": 0.5,
+    "w_prob": 0.39999999999999997,
+    "w_qual": 0.05,
+    "w_tech": 0.05,
+    "w_risk": 1.0,
+    "name": "w11_balanced_plus"
+  }
+]

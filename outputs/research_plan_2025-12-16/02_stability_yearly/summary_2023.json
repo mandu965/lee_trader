@@ -1,0 +1,22 @@
+[
+  {
+    "file": "outputs\\research_plan_2025-12-16\\02_stability_yearly\\run4_2023\\summary.csv",
+    "model_version": "v1",
+    "horizon_days": 60,
+    "pred_mae": 0.1083007430613635,
+    "pred_rmse": 0.1800145701183737,
+    "pred_corr": 0.7925311738741079,
+    "pred_n": 20096,
+    "strat_avg_return": 0.0655415175100884,
+    "strat_hit_rate": 0.7747747747747747,
+    "strat_sharpe_like": 0.7285354445231785,
+    "strat_num_periods": 111
+  },
+  {
+    "file": "outputs\\research_plan_2025-12-16\\02_stability_yearly\\run4_2023\\portfolio_v1.csv",
+    "avg_return": 0.0655415175100884,
+    "hit_rate": 0.7747747747747747,
+    "num_periods": 111,
+    "mdd": -0.757146243540459
+  }
+]

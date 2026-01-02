@@ -59,7 +59,7 @@ def compute_tech_score(
     return clip(tech, 0, 100)
 
 
-def compute_risk_penalty(df: pd.DataFrame, beta: float = 0.5, mdd_ref: float = 0.4) -> pd.Series:
+def compute_risk_penalty(df: pd.DataFrame, beta: float = 0.7, mdd_ref: float = 0.3) -> pd.Series:
     """
     리스크 패널티 (0.5~1.0).
     risk_mdd = |pred_mdd_comb| / mdd_ref (clipped 0~1)
@@ -111,6 +111,7 @@ def compute_final_score_v5(
     df: pd.DataFrame,
     market_row: dict | pd.Series,
     pred_score_default: float = 60.0,
+    regime_bonus_scale: float = 20.0,
 ) -> pd.DataFrame:
     """
     최종 V5 점수 계산 후 컬럼 추가.
@@ -128,7 +129,8 @@ def compute_final_score_v5(
     df["risk_penalty"] = compute_risk_penalty(df)
     df["market_regime_score"] = compute_market_regime_score(market_row)
 
-    w_ret, w_prob, w_qual, w_tech, w_pred = 0.40, 0.25, 0.15, 0.10, 0.10
+    # Balanced weights: RET 0.28, PROB 0.25, QUAL 0.20, TECH 0.17, MODEL 0.10
+    w_ret, w_prob, w_qual, w_tech, w_pred = 0.28, 0.25, 0.20, 0.17, 0.10
     base_score = (
         w_ret * df["ret_score"]
         + w_prob * df["prob_score"]
@@ -137,7 +139,10 @@ def compute_final_score_v5(
         + w_pred * df["pred_score"]
     )
     risk_adjusted = base_score * df["risk_penalty"]
-    final_score = risk_adjusted * df["market_regime_score"]
+    # Apply market regime as additive bonus/penalty instead of global multiplier.
+    # Neutral regime is 0.9; scale to +/- points with regime_bonus_scale.
+    regime_bonus = (df["market_regime_score"] - 0.9) * regime_bonus_scale
+    final_score = risk_adjusted + regime_bonus
     df["final_score_v5"] = clip(final_score, 0, 100)
 
     fill_cols = [

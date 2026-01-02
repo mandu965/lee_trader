@@ -338,6 +338,10 @@ def build_fundamentals_from_dart(
         logging.info("Saved fetch raw log: %s", csv_path.resolve())
 
     elapsed = time.perf_counter() - start_ts
+    # format elapsed as h:m:s to avoid missing-argument logging errors
+    total_sec = int(elapsed)
+    h, rem = divmod(total_sec, 3600)
+    m, s = divmod(rem, 60)
     logging.info(
         "Summary: codes=%d years=%d total=%d calls=%d ok=%d empty=%d fail=%d unmapped=%d elapsed=%02d:%02d:%02d",
         len(codes),
@@ -348,7 +352,9 @@ def build_fundamentals_from_dart(
         empty_count,
         fail_count,
         len(unmapped_codes),
-        *divmod(divmod(int(elapsed), 60)[0], 60),
+        h,
+        m,
+        s,
     )
 
     if not rows:

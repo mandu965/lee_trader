@@ -1,6 +1,7 @@
+import argparse
 import logging
 import pickle
-import json          # ⬅ 이거 추가
+import json  # 튜닝 파라미터 로딩용
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -23,19 +24,8 @@ MODEL_PKL = DATA_DIR / "model.pkl"
 MODELS_DIR = Path("models")
 LGBM_REG_PARAMS_JSON = MODELS_DIR / "lgbm_reg_params.json"
 
-# 회귀 타깃: 로그 수익률 + MDD (옵션 B)
-REG_TARGETS = [
-    "target_log_60d",
-    "target_log_90d",
-    "target_mdd_60d",
-    "target_mdd_90d",
-]
-
-# 분류 타깃: Top20 여부 (기존 구조 유지)
-CLS_TARGETS = [
-    "target_60d_top20",
-    "target_90d_top20",
-]
+# 기본 horizon: 60d/90d (필요 시 30d 포함)
+DEFAULT_HORIZONS = [60, 90]
 
 N_SPLITS = 3  # TimeSeriesSplit fold 수 (너무 크지 않게)
 
@@ -50,6 +40,37 @@ def setup_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Train LightGBM models and package into model.pkl")
+    p.add_argument(
+        "--horizons",
+        type=int,
+        nargs="+",
+        default=DEFAULT_HORIZONS,
+        help="Horizons to train (e.g., 30 60 90). Defaults to 60 90.",
+    )
+    p.add_argument(
+        "--output-pkl",
+        type=Path,
+        default=MODEL_PKL,
+        help="Output model package path. Defaults to data/model.pkl",
+    )
+    p.add_argument(
+        "--features-csv",
+        type=Path,
+        default=FEATURES_CSV,
+        help="Features CSV path. Defaults to data/features.csv",
+    )
+    p.add_argument(
+        "--labels-csv",
+        type=Path,
+        default=LABELS_CSV,
+        help="Labels CSV path. Defaults to data/labels.csv",
+    )
+    return p.parse_args()
+
 
 def load_tuned_reg_params() -> Dict[str, float]:
     """
@@ -70,33 +91,48 @@ def load_tuned_reg_params() -> Dict[str, float]:
         return {}
 
 
-def load_features() -> pd.DataFrame:
-    if not FEATURES_CSV.exists():
-        raise FileNotFoundError(f"features.csv not found at {FEATURES_CSV.resolve()}")
-    df = pd.read_csv(FEATURES_CSV, dtype={"code": str})
+def load_features(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(f"features.csv not found at {path.resolve()}")
+    df = pd.read_csv(path, dtype={"code": str})
     if "date" not in df.columns or "code" not in df.columns:
         raise ValueError("features.csv must contain 'date' and 'code' columns.")
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values(["code", "date"]).reset_index(drop=True)
-    logging.info("Loaded features.csv: %s (rows=%d)", FEATURES_CSV, len(df))
+    logging.info("Loaded features.csv: %s (rows=%d)", path, len(df))
     return df
 
 
-def load_labels() -> pd.DataFrame:
-    if not LABELS_CSV.exists():
-        raise FileNotFoundError(f"labels.csv not found at {LABELS_CSV.resolve()}")
-    df = pd.read_csv(LABELS_CSV, dtype={"code": str})
+def load_labels(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(f"labels.csv not found at {path.resolve()}")
+    df = pd.read_csv(path, dtype={"code": str})
     if "date" not in df.columns or "code" not in df.columns:
         raise ValueError("labels.csv must contain 'date' and 'code' columns.")
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values(["code", "date"]).reset_index(drop=True)
-    logging.info("Loaded labels.csv: %s (rows=%d)", LABELS_CSV, len(df))
+    logging.info("Loaded labels.csv: %s (rows=%d)", path, len(df))
     return df
 
 
-def make_merged() -> pd.DataFrame:
-    feats = load_features()
-    labels = load_labels()
+def build_targets(horizons: List[int]) -> Tuple[List[str], List[str]]:
+    """
+    horizons: list like [30, 60, 90]
+    returns: (reg_targets, cls_targets)
+    """
+    uniq = sorted({int(h) for h in horizons})
+    reg_targets = []
+    cls_targets = []
+    for h in uniq:
+        reg_targets.append(f"target_log_{h}d")
+        reg_targets.append(f"target_mdd_{h}d")
+        cls_targets.append(f"target_{h}d_top20")
+    return reg_targets, cls_targets
+
+
+def make_merged(reg_targets: List[str], cls_targets: List[str], features_path: Path, labels_path: Path) -> Tuple[pd.DataFrame, List[str]]:
+    feats = load_features(features_path)
+    labels = load_labels(labels_path)
 
     merged = pd.merge(
         feats,
@@ -109,8 +145,8 @@ def make_merged() -> pd.DataFrame:
 
     # feature 컬럼 선정: date, code, target 계열, *_top20 제외
     exclude_cols = {"date", "code"}
-    exclude_cols.update(REG_TARGETS)
-    exclude_cols.update(CLS_TARGETS)
+    exclude_cols.update(reg_targets)
+    exclude_cols.update(cls_targets)
 
     feature_cols = [
         c
@@ -156,10 +192,10 @@ def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 # ---------------------------------------------------------------------
 
 
-def train_regressors(df: pd.DataFrame, feature_cols: List[str]) -> Dict[str, LGBMRegressor]:
+def train_regressors(df: pd.DataFrame, feature_cols: List[str], reg_targets: List[str]) -> Dict[str, LGBMRegressor]:
     reg_models: Dict[str, LGBMRegressor] = {}
 
-    for target in REG_TARGETS:
+    for target in reg_targets:
         if target not in df.columns:
             logging.warning("Regression target %s not found in merged data; skipping.", target)
             continue
@@ -176,7 +212,6 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str]) -> Dict[str, LGB
         logging.info("Training regressor for %s (rows=%d)", target, len(df_t))
 
         # 기본 파라미터 (과적합 방지용으로 비교적 보수적)
-        # --- 기본 파라미터 (지금 쓰던 값) ---
         base_params = dict(
             n_estimators=400,
             learning_rate=0.03,
@@ -189,7 +224,7 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str]) -> Dict[str, LGB
             n_jobs=-1,
         )
 
-        # --- Optuna 튜닝 결과가 있으면 덮어쓰기 ---
+        # Optuna 튜닝 결과가 있으면 덮어쓰기
         tuned = load_tuned_reg_params()
         if tuned:
             base_params.update(tuned)
@@ -198,12 +233,10 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str]) -> Dict[str, LGB
 
         folds = time_series_folds(dates, N_SPLITS)
         if not folds:
-            # CV 생략, 전체로 학습
             reg.fit(X, y)
             reg_models[target] = reg
             logging.info("  [%s] trained on full data (no CV).", target)
         else:
-            # 간단한 time-series CV (조기 종료는 사용 X; 평균 성능 모니터)
             rmses: List[float] = []
             maes: List[float] = []
             for i, (tr_dates, va_dates) in enumerate(folds, start=1):
@@ -214,7 +247,6 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str]) -> Dict[str, LGB
                 if len(X_va) == 0 or len(X_tr) == 0:
                     continue
 
-                #reg_i = reg.__class__(**reg.get_params())
                 reg_i = LGBMRegressor(**reg.get_params())
                 reg_i.fit(X_tr, y_tr)
                 pred_va = reg_i.predict(X_va)
@@ -233,7 +265,6 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str]) -> Dict[str, LGB
                     len(X_va),
                 )
 
-            # 전체 데이터로 최종 재학습
             reg.fit(X, y)
             reg_models[target] = reg
             if rmses:
@@ -254,10 +285,10 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str]) -> Dict[str, LGB
 # ---------------------------------------------------------------------
 
 
-def train_classifiers(df: pd.DataFrame, feature_cols: List[str]) -> Dict[str, LGBMClassifier]:
+def train_classifiers(df: pd.DataFrame, feature_cols: List[str], cls_targets: List[str]) -> Dict[str, LGBMClassifier]:
     cls_models: Dict[str, LGBMClassifier] = {}
 
-    for target in CLS_TARGETS:
+    for target in cls_targets:
         if target not in df.columns:
             logging.warning("Classification target %s not found; skipping.", target)
             continue
@@ -350,13 +381,17 @@ def train_classifiers(df: pd.DataFrame, feature_cols: List[str]) -> Dict[str, LG
 
 def main() -> None:
     setup_logging()
-    df, feature_cols = make_merged()
+    args = parse_args()
+    reg_targets, cls_targets = build_targets(args.horizons)
+
+    logging.info("Training horizons: %s", reg_targets)
+    df, feature_cols = make_merged(reg_targets, cls_targets, args.features_csv, args.labels_csv)
 
     logging.info("Start training regressors (log-return + MDD)...")
-    reg_models = train_regressors(df, feature_cols)
+    reg_models = train_regressors(df, feature_cols, reg_targets)
 
     logging.info("Start training classifiers (Top20 flags)...")
-    cls_models = train_classifiers(df, feature_cols)
+    cls_models = train_classifiers(df, feature_cols, cls_targets)
 
     pack = {
         "features": feature_cols,
@@ -366,12 +401,12 @@ def main() -> None:
         "cls_targets": list(cls_models.keys()),
     }
 
-    with open(MODEL_PKL, "wb") as f:
+    with open(args.output_pkl, "wb") as f:
         pickle.dump(pack, f)
 
     logging.info(
         "Saved model package to %s (reg_targets=%s, cls_targets=%s)",
-        MODEL_PKL.resolve(),
+        args.output_pkl.resolve(),
         list(reg_models.keys()),
         list(cls_models.keys()),
     )

@@ -1,0 +1,14 @@
+[
+  {
+    "n_rows": 123931,
+    "n_dates": 660,
+    "pred_field": "pred_return_60d",
+    "spearman_ic": 0.9009513343673101,
+    "pearson_ic": 0.9306490380558968,
+    "topn_hit_rate_mean": 0.7871969696969696,
+    "topn_return_mean": 0.8040123663954639,
+    "topn_return_spread_vs_all": 0.6858292780512834,
+    "quantile_spread_top_minus_bottom": 0.7453840810620683,
+    "group": "overall"
+  }
+]

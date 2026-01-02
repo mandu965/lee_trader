@@ -36,6 +36,7 @@ services:
     env_file:
       - .env
     environment:
+      TZ: Asia/Seoul
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
 
   node-api:
@@ -53,4 +54,5 @@ services:
     env_file:
       - .env
     environment:
+      TZ: Asia/Seoul
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}

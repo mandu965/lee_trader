@@ -1,0 +1,2 @@
+model_version,horizon_days,pred_mae,pred_rmse,pred_corr,pred_n,strat_avg_return,strat_hit_rate,strat_sharpe_like,strat_num_periods
+v1,60,0.1366484043523398,0.2069139055988432,0.710022809530579,2208,0.11943917004988729,1.0,2.78526596038278,12

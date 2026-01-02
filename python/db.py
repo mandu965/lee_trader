@@ -5,6 +5,7 @@ Provides SQLAlchemy engine/session helpers and a psycopg2 raw connector
 using DATABASE_URL environment variable.
 """
 import os
+from pathlib import Path
 from functools import lru_cache
 from io import StringIO
 from datetime import datetime
@@ -16,6 +17,24 @@ from sqlalchemy.orm import sessionmaker
 @lru_cache(maxsize=1)
 def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL")
+    if not url:
+        # fallback: try loading from .env in repo root
+        env_path = Path(".env")
+        if env_path.exists():
+            try:
+                for line in env_path.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip("\"'")
+                    if k and v and k not in os.environ:
+                        os.environ[k] = v
+                url = os.environ.get("DATABASE_URL")
+            except Exception:
+                # silent fallback to raise below
+                url = None
     if not url:
         raise RuntimeError("DATABASE_URL not set")
     return url
