@@ -6,9 +6,12 @@ from typing import List
 import numpy as np
 import pandas as pd
 try:
-    from db import get_engine
+    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite
 except Exception:
     get_engine = None
+    ensure_unique_keys = None
+    replace_table_rows_pg = None
+    replace_table_rows_sqlite = None
 
 DATA_DIR = Path("data")
 ADJ_CSV = DATA_DIR / "prices_daily_adjusted.csv"
@@ -16,6 +19,26 @@ LABELS_CSV = DATA_DIR / "labels.csv"
 DB_PATH = DATA_DIR / "lee_trader.db"
 
 HORIZONS: List[int] = [30, 60, 90]
+LABELS_DB_COLUMNS = [
+    "date",
+    "code",
+    "target_30d",
+    "target_60d",
+    "target_90d",
+    "target_log_30d",
+    "target_log_60d",
+    "target_log_90d",
+    "target_mdd_30d",
+    "target_mdd_60d",
+    "target_mdd_90d",
+    "target_30d_top20",
+    "target_60d_top20",
+    "target_90d_top20",
+    "realized_return_30d",
+    "realized_return_60d",
+    "realized_return_90d",
+]
+LABELS_PK = ["date", "code"]
 
 
 def setup_logging() -> None:
@@ -171,15 +194,23 @@ def save_labels_csv(labels: pd.DataFrame) -> None:
 
 
 def save_labels_db(labels: pd.DataFrame) -> None:
-    # Prefer Postgres via SQLAlchemy
+    out = labels.copy()
+    out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y-%m-%d")
+    for col in LABELS_DB_COLUMNS:
+        if col not in out.columns:
+            out[col] = pd.NA
+    out = out[LABELS_DB_COLUMNS]
+    if ensure_unique_keys:
+        ensure_unique_keys(out, LABELS_PK, "labels")
+
+    # Prefer Postgres row replacement.
     try:
-        if get_engine:
-            eng = get_engine()
-            labels.to_sql("labels", eng, if_exists="replace", index=False)
-            logging.info("Saved labels to Postgres via SQLAlchemy (rows=%d)", len(labels))
+        if replace_table_rows_pg:
+            replace_table_rows_pg("labels", out, columns=LABELS_DB_COLUMNS)
+            logging.info("Replaced labels rows in Postgres (rows=%d)", len(out))
             return
     except Exception:
-        logging.exception("SQLAlchemy save failed, fallback to sqlite")
+        logging.exception("Postgres save failed, fallback to sqlite")
 
     conn = None
     try:
@@ -232,29 +263,10 @@ def save_labels_db(labels: pd.DataFrame) -> None:
         for col in required_cols:
             if col not in existing:
                 conn.execute(f"ALTER TABLE labels ADD COLUMN {col} REAL;")
-        labels_copy = labels.copy()
-        labels_copy["date"] = pd.to_datetime(labels_copy["date"]).dt.strftime("%Y-%m-%d")
-        records = labels_copy.to_dict(orient="records")
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO labels
-            (date, code,
-             target_30d, target_60d, target_90d,
-             target_log_30d, target_log_60d, target_log_90d,
-             target_mdd_30d, target_mdd_60d, target_mdd_90d,
-             target_30d_top20, target_60d_top20, target_90d_top20,
-             realized_return_30d, realized_return_60d, realized_return_90d)
-            VALUES (:date, :code,
-                    :target_30d, :target_60d, :target_90d,
-                    :target_log_30d, :target_log_60d, :target_log_90d,
-                    :target_mdd_30d, :target_mdd_60d, :target_mdd_90d,
-                    :target_30d_top20, :target_60d_top20, :target_90d_top20,
-                    :realized_return_30d, :realized_return_60d, :realized_return_90d)
-            """,
-            records,
-        )
+        if replace_table_rows_sqlite:
+            replace_table_rows_sqlite(conn, "labels", out)
         conn.commit()
-        logging.info("Saved labels to DB: %s (rows=%d)", DB_PATH.resolve(), len(labels))
+        logging.info("Saved labels to DB: %s (rows=%d)", DB_PATH.resolve(), len(out))
     except Exception:
         logging.exception("Failed to save labels to DB")
     finally:

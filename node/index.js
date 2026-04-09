@@ -2,11 +2,15 @@ const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
+const vm = require("vm");
+const crypto = require("crypto");
 require("dotenv").config();
 const { Pool } = require("pg");
+const operatorAccess = require("./operatorAccess");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const SITE_BASE_URL = (process.env.SITE_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
 
 // ---------------------
 // Env / Postgres Pool
@@ -28,6 +32,40 @@ function resolveDataDir() {
 const DATA_DIR = resolveDataDir();
 console.log("[DATA_DIR]", DATA_DIR);
 
+function resolveOutputsDir() {
+  const candidates = [
+    "/app/outputs",
+    path.join(__dirname, "outputs"),
+    path.join(__dirname, "..", "outputs"),
+    path.join(process.cwd(), "outputs"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return path.join(__dirname, "outputs");
+}
+const OUTPUTS_DIR = resolveOutputsDir();
+console.log("[OUTPUTS_DIR]", OUTPUTS_DIR);
+
+function resolveServingDir() {
+  const candidates = [
+    "/app/serving",
+    path.join(__dirname, "serving"),
+    path.join(__dirname, "..", "serving"),
+    path.join(process.cwd(), "serving"),
+  ];
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) return p;
+    } catch {}
+  }
+  return path.join(__dirname, "serving");
+}
+const SERVING_DIR = resolveServingDir();
+console.log("[SERVING_DIR]", SERVING_DIR);
+
 const { DATABASE_URL } = process.env;
 if (!DATABASE_URL) {
   console.error("DATABASE_URL not set. API will fail to reach Postgres.");
@@ -39,30 +77,320 @@ const pool = new Pool({
   idleTimeoutMillis: 0,
   connectionTimeoutMillis: 5000,
 });
+const VISITOR_COOKIE_NAME = "lt_visitor_id";
+const VISITOR_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 365;
+const ANALYTICS_ROUTE_EXCLUDE_PREFIXES = ["/api", "/assets"];
+const ANALYTICS_EXTENSIONS_EXCLUDE = new Set([
+  ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".map", ".txt", ".xml", ".json", ".woff", ".woff2",
+]);
+let pageViewSchemaReady = null;
 
 // ---------------------
 // Helpers
 // ---------------------
+const csvCache = new Map();
+const jsonCache = new Map();
+let siteLibraryCache = { cacheKey: null, items: [] };
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (m) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[m]));
+}
+
+function stripHtml(value) {
+  return String(value ?? "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function readSiteLibrary() {
+  const filePath = path.join(__dirname, "public", "site-library.js");
+  if (!fs.existsSync(filePath)) return [];
+  const stat = fs.statSync(filePath);
+  const cacheKey = `${stat.mtimeMs}:${stat.size}`;
+  if (siteLibraryCache.cacheKey === cacheKey) return siteLibraryCache.items;
+
+  const code = fs.readFileSync(filePath, "utf-8");
+  const sandbox = { window: {} };
+  vm.createContext(sandbox);
+  vm.runInContext(code, sandbox, { filename: "site-library.js" });
+  const items = Array.isArray(sandbox.window.SiteLibrary) ? sandbox.window.SiteLibrary : [];
+  siteLibraryCache = { cacheKey, items };
+  return items;
+}
+
+function buildAbsoluteUrl(pathname) {
+  return `${SITE_BASE_URL}${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
+}
+
+function renderArticlePage(item, section) {
+  const related = readSiteLibrary()
+    .filter((entry) => entry.slug !== item.slug && entry.section === item.section)
+    .slice(0, 4);
+  const canonicalPath = `/${section}/${item.slug}`;
+  const title = `${item.title} | Lee Trader Lab`;
+  const description = stripHtml(item.excerpt || item.body).slice(0, 160);
+  const canonicalUrl = buildAbsoluteUrl(canonicalPath);
+
+  return `<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  <meta name="description" content="${escapeHtml(description)}">
+  <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  <meta property="og:type" content="article">
+  <meta property="og:title" content="${escapeHtml(item.title)}">
+  <meta property="og:description" content="${escapeHtml(description)}">
+  <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="${escapeHtml(item.title)}">
+  <meta name="twitter:description" content="${escapeHtml(description)}">
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body class="site-body">
+  <header class="site-header">
+    <div class="site-container site-header__inner">
+      <a class="site-brand" href="/">
+        <div class="site-brand__mark">LT</div>
+        <div>
+          <p class="site-brand__title">Lee Trader Lab</p>
+          <p class="site-brand__subtitle">국내 주식 운영 해석과 리포트</p>
+        </div>
+      </a>
+      <nav class="site-nav">
+        <a href="/">홈</a>
+        <a href="/about">소개</a>
+        <a href="/methodology">방법론</a>
+        <a class="${section === "reports" ? "is-active" : ""}" href="/reports">리포트</a>
+        <a class="${section === "blog" ? "is-active" : ""}" href="/blog">블로그</a>
+        <a href="/contact">문의</a>
+        <a class="site-nav__app" href="/app">운영 앱</a>
+      </nav>
+    </div>
+  </header>
+  <main class="site-main">
+    <div class="site-container">
+      <div class="content-layout">
+        <div>
+          <article class="article-shell">
+            <div class="article-meta">
+              <span>${escapeHtml(item.category || "-")}</span>
+              <span>${escapeHtml(item.date || "-")}</span>
+              <span>${escapeHtml(item.readingTime || "-")}</span>
+            </div>
+            <h1>${escapeHtml(item.title)}</h1>
+            <p class="article-shell__excerpt">${escapeHtml(item.excerpt || "")}</p>
+            <div class="article-body">${item.body || ""}</div>
+          </article>
+        </div>
+        <aside>
+          <section class="side-panel">
+            <h3>글 정보</h3>
+            <ul>
+              <li>분류: ${escapeHtml(item.category || "-")}</li>
+              <li>발행일: ${escapeHtml(item.date || "-")}</li>
+              <li>읽기 시간: ${escapeHtml(item.readingTime || "-")}</li>
+            </ul>
+          </section>
+          <section class="side-panel">
+            <h3>같이 읽을 글</h3>
+            <ul>
+              ${related.length ? related.map((entry) => `<li><a class="text-link" href="/${entry.section === "report" ? "reports" : "blog"}/${entry.slug}">${escapeHtml(entry.title)}</a></li>`).join("") : "<li>같은 섹션의 글이 아직 많지 않습니다.</li>"}
+            </ul>
+          </section>
+          <section class="side-panel">
+            <h3>운영 앱</h3>
+            <ul>
+              <li><a class="text-link" href="/app">추천 화면 열기</a></li>
+              <li><a class="text-link" href="/ops-readiness.html">운영자 페이지</a></li>
+              <li><a class="text-link" href="/paper-trading.html">모의투자 화면</a></li>
+            </ul>
+          </section>
+        </aside>
+      </div>
+    </div>
+  </main>
+</body>
+</html>`;
+}
+
 function readCsv(filePath) {
   try {
     if (!fs.existsSync(filePath)) return null;
+    const stat = fs.statSync(filePath);
+    const cacheKey = `${stat.mtimeMs}:${stat.size}`;
+    const cached = csvCache.get(filePath);
+    if (cached && cached.cacheKey === cacheKey) {
+      return cached.rows;
+    }
     const content = fs.readFileSync(filePath, "utf-8");
-    const lines = content.trim().split(/\r?\n/);
-    if (!lines.length) return [];
-    const headers = lines.shift().split(",");
-    return lines
-      .filter((l) => l)
-      .map((line) => {
-        const row = {};
-        line.split(",").forEach((v, idx) => {
-          row[headers[idx]] = v;
-        });
-        return row;
+    const normalized = content.replace(/^\uFEFF/, "");
+    const records = [];
+    let field = "";
+    let record = [];
+    let inQuotes = false;
+
+    for (let i = 0; i < normalized.length; i += 1) {
+      const ch = normalized[i];
+      const next = normalized[i + 1];
+
+      if (ch === '"') {
+        if (inQuotes && next === '"') {
+          field += '"';
+          i += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+        continue;
+      }
+
+      if (ch === "," && !inQuotes) {
+        record.push(field);
+        field = "";
+        continue;
+      }
+
+      if ((ch === "\n" || ch === "\r") && !inQuotes) {
+        if (ch === "\r" && next === "\n") i += 1;
+        record.push(field);
+        field = "";
+        if (record.some((value) => String(value || "").length > 0)) {
+          records.push(record);
+        }
+        record = [];
+        continue;
+      }
+
+      field += ch;
+    }
+
+    if (field.length || record.length) {
+      record.push(field);
+      if (record.some((value) => String(value || "").length > 0)) {
+        records.push(record);
+      }
+    }
+
+    if (!records.length) return [];
+    const headers = records.shift().map((value) => String(value || "").trim());
+    const rows = records.map((values) => {
+      const row = {};
+      headers.forEach((header, idx) => {
+        row[header] = values[idx] ?? "";
       });
+      return row;
+    });
+    csvCache.set(filePath, { cacheKey, rows });
+    return rows;
   } catch (e) {
     console.warn("readCsv error", e.message);
     return null;
   }
+}
+
+function readJson(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const stat = fs.statSync(filePath);
+    const cacheKey = `${stat.mtimeMs}:${stat.size}`;
+    const cached = jsonCache.get(filePath);
+    if (cached && cached.cacheKey === cacheKey) {
+      return cached.value;
+    }
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const normalized = raw.replace(/\bNaN\b/g, "null").replace(/\bInfinity\b/g, "null").replace(/\b-Infinity\b/g, "null");
+    const value = JSON.parse(normalized);
+    jsonCache.set(filePath, { cacheKey, value });
+    return value;
+  } catch (e) {
+    console.warn("readJson error", e.message);
+    return null;
+  }
+}
+
+function readText(filePath) {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    return fs.readFileSync(filePath, "utf-8");
+  } catch (e) {
+    console.warn("readText error", e.message);
+    return null;
+  }
+}
+
+function writeJson(filePath, value) {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(value, null, 2), "utf-8");
+    jsonCache.delete(filePath);
+    return true;
+  } catch (e) {
+    console.warn("writeJson error", e.message);
+    return false;
+  }
+}
+
+function parseCookieHeader(headerValue) {
+  const out = {};
+  const raw = String(headerValue || "").trim();
+  if (!raw) return out;
+  raw.split(";").forEach((part) => {
+    const idx = part.indexOf("=");
+    if (idx <= 0) return;
+    const key = part.slice(0, idx).trim();
+    const value = part.slice(idx + 1).trim();
+    if (!key) return;
+    out[key] = decodeURIComponent(value);
+  });
+  return out;
+}
+
+function shouldTrackPageView(req) {
+  if (!req || String(req.method || "").toUpperCase() !== "GET") return false;
+  const pathname = String(req.path || req.originalUrl || "").split("?")[0] || "";
+  if (!pathname) return false;
+  if (ANALYTICS_ROUTE_EXCLUDE_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return false;
+  const ext = path.extname(pathname).toLowerCase();
+  if (ext && ANALYTICS_EXTENSIONS_EXCLUDE.has(ext)) return false;
+  const ua = String(req.headers["user-agent"] || "");
+  if (/bot|spider|crawl|slurp|facebookexternalhit|kakaotalk-scrap|discordbot|whatsapp|telegrambot|bingpreview/i.test(ua)) {
+    return false;
+  }
+  return true;
+}
+
+function ensureVisitorId(req, res) {
+  const cookies = parseCookieHeader(req.headers?.cookie || "");
+  let visitorId = String(cookies[VISITOR_COOKIE_NAME] || "").trim();
+  if (!visitorId) {
+    visitorId = crypto.randomUUID();
+    res.append(
+      "Set-Cookie",
+      [
+        `${VISITOR_COOKIE_NAME}=${encodeURIComponent(visitorId)}`,
+        "Path=/",
+        `Max-Age=${VISITOR_COOKIE_MAX_AGE_SEC}`,
+        "SameSite=Lax",
+        "HttpOnly",
+      ].join("; ")
+    );
+  }
+  return visitorId;
+}
+
+function hashIp(ipValue) {
+  const raw = String(ipValue || "").trim();
+  if (!raw) return null;
+  const salt = String(process.env.OPERATOR_AUTH_SECRET || process.env.DATABASE_URL || "lt-analytics").slice(0, 64);
+  return crypto.createHash("sha256").update(`${salt}:${raw}`).digest("hex");
 }
 
 function toNum(v) {
@@ -74,20 +402,78 @@ function toNum(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function formatPct(value, digits = 1) {
+  const n = toNum(value);
+  if (!Number.isFinite(n)) return "-";
+  return `${(n * 100).toFixed(digits)}%`;
+}
+
+function getLiveScore(row) {
+  if (!row) return null;
+  return toNum(row.live_score ?? row.final_score ?? row.score);
+}
+
+function getLiveRank(row) {
+  if (!row) return null;
+  return toNum(row.live_rank ?? row.rank_final ?? row.rank);
+}
+
+function getLiveScoreSource(row) {
+  if (!row) return null;
+  const source = String(row.live_score_source || "").trim();
+  return source || "final_score";
+}
+
+function getQualityRiskGuardShadowScore(row) {
+  if (!row) return null;
+  return toNum(row.shadow_final_score_quality_risk_guard);
+}
+
+function getQualityRiskGuardShadowRank(row) {
+  if (!row) return null;
+  return toNum(row.shadow_rank_quality_risk_guard);
+}
+
+function getQualityRiskGuardPenalty(row) {
+  if (!row) return null;
+  return toNum(row.shadow_quality_risk_guard_penalty);
+}
+
 function toIsoDate(v) {
   if (v === null || v === undefined) return "";
+  const formatLocalDate = (date) => {
+    if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
   if (v instanceof Date) {
-    if (Number.isNaN(v.getTime())) return "";
-    return v.toISOString().slice(0, 10);
+    return formatLocalDate(v);
   }
   const s = String(v).trim();
   if (!s) return "";
   // yyyy-mm-dd string
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
   const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  if (!Number.isNaN(d.getTime())) return formatLocalDate(d);
   // fallback: first 10 chars
   return s.slice(0, 10);
+}
+
+function parseTimestampMs(v) {
+  if (v === null || v === undefined) return NaN;
+  const s = String(v).trim();
+  if (!s) return NaN;
+  let ts = Date.parse(s);
+  if (Number.isFinite(ts)) return ts;
+  ts = Date.parse(s.replace(" ", "T"));
+  if (Number.isFinite(ts)) return ts;
+  return NaN;
+}
+
+function isIsoDateString(v) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(v || "").trim());
 }
 
 function boolify(v) {
@@ -97,14 +483,1381 @@ function boolify(v) {
   return null;
 }
 
+function getManualTradingTone(gateStatus, acceptanceStatus) {
+  const gate = String(gateStatus || "").toUpperCase();
+  const acceptance = String(acceptanceStatus || "").toUpperCase();
+  if (gate === "BUY_ALLOWED" && acceptance === "ACCEPTED") {
+    return {
+      label: "공격 가능",
+      note: "Gate와 walk-forward가 모두 허용 상태라면, 신규 진입 후보를 적극적으로 검토할 수 있습니다.",
+    };
+  }
+  if (gate === "WATCH") {
+    return {
+      label: "선별 관찰",
+      note: "상위 후보는 볼 수 있지만 시장과 gate 조건이 완전히 열리지 않아 선별적으로만 접근해야 합니다.",
+    };
+  }
+  return {
+    label: "관찰 중심",
+    note: "운영 Gate가 보수 단계이므로 신규 매수보다 관찰과 검증이 우선입니다.",
+  };
+}
+
+function translateBuyEligibilityReason(reason) {
+  const key = String(reason || "").trim();
+  const map = {
+    "confidence_score below 55": "신뢰도 55 미만입니다.",
+    "confidence_score below preferred 70": "신뢰도는 통과했지만 70 미만입니다.",
+    "pred_return_60d below 4%": "60일 기대수익이 4% 미만입니다.",
+    "pred_return_60d below preferred 8%": "60일 기대수익이 선호 구간 8%에 못 미칩니다.",
+    "prob_top20_60d below 10%": "상위권 진입 확률이 10% 미만입니다.",
+    "prob_top20_60d below preferred 18%": "상위권 진입 확률이 선호 구간 18%에 못 미칩니다.",
+    "pred_mdd_60d worse than -30%": "예상 MDD가 -30%보다 나쁩니다.",
+    "pred_mdd_60d worse than preferred -20%": "예상 MDD가 선호 구간 -20%보다 나쁩니다.",
+    "market regime defensive": "시장 레짐이 defensive입니다.",
+    "market regime neutral": "시장 레짐이 neutral입니다.",
+    "portfolio gate hold": "포트폴리오 gate가 HOLD입니다.",
+    "portfolio gate block": "포트폴리오 gate가 BLOCK입니다.",
+  };
+  return map[key] || key || null;
+}
+
+function translateBuyEligibilityReasons(reasons) {
+  return (Array.isArray(reasons) ? reasons : [])
+    .map(translateBuyEligibilityReason)
+    .filter(Boolean);
+}
+
+async function getDailyRecommendationItem(code) {
+  const target = String(code || "").trim();
+  if (!target) return null;
+  const daily = await readJsonPayloadDbFirst("daily_recommendations", [
+    path.join(SERVING_DIR, "daily_recommendations.json"),
+  ]);
+  const items = Array.isArray(daily.items) ? daily.items : [];
+  return items.find((item) => String(item?.security?.code || "").trim() === target) || null;
+}
+
+function summarizeIntradayChanges({ intraday, activeIntraday, dailyPriorityCandidates, dailyCautionCandidates }) {
+  const dailyPriority = Array.isArray(dailyPriorityCandidates) ? dailyPriorityCandidates : [];
+  const dailyCaution = Array.isArray(dailyCautionCandidates) ? dailyCautionCandidates : [];
+  const intradayPriority = Array.isArray(intraday?.priority_candidates) ? intraday.priority_candidates : [];
+  const intradayCaution = Array.isArray(intraday?.caution_candidates) ? intraday.caution_candidates : [];
+
+  const dailyPriorityMap = new Map(dailyPriority.map((item) => [String(item?.code || "").trim(), item]));
+  const dailyCautionMap = new Map(dailyCaution.map((item) => [String(item?.code || "").trim(), item]));
+  const intradayPriorityMap = new Map(intradayPriority.map((item) => [String(item?.code || "").trim(), item]));
+  const intradayCautionMap = new Map(intradayCaution.map((item) => [String(item?.code || "").trim(), item]));
+
+  const promotedToPriority = intradayPriority
+    .filter((item) => !dailyPriorityMap.has(String(item?.code || "").trim()))
+    .slice(0, 6);
+  const droppedFromPriority = dailyPriority
+    .filter((item) => !intradayPriorityMap.has(String(item?.code || "").trim()))
+    .map((item) => intradayCautionMap.get(String(item?.code || "").trim()) || item)
+    .slice(0, 6);
+  const cautionEscalations = intradayCaution
+    .filter((item) => {
+      const code = String(item?.code || "").trim();
+      return !dailyCautionMap.has(code) || dailyPriorityMap.has(code);
+    })
+    .slice(0, 6);
+  const holdingReview = intradayCaution
+    .filter((item) => String(item?.intraday_verdict || "").toUpperCase() === "HOLDING_REVIEW")
+    .slice(0, 6);
+  const missingQuotes = intradayCaution
+    .filter((item) => !Number.isFinite(toNum(item?.intraday_quote?.current_price)))
+    .slice(0, 6);
+
+  const priorityCount = intradayPriority.length;
+  const cautionCount = intradayCaution.length;
+  let headline = "장중 변화 정보가 아직 없습니다.";
+  if (activeIntraday) {
+    if (priorityCount > 0) {
+      headline = `오후장 우선 검토 ${priorityCount}개, 보수 검토 ${cautionCount}개로 다시 정리했습니다.`;
+    } else if (cautionCount > 0) {
+      headline = `오후장 즉시 진입 후보 없이 보수 검토 ${cautionCount}개만 남았습니다.`;
+    } else {
+      headline = "오후장 기준 재선별을 돌렸지만 유효 후보가 남지 않았습니다.";
+    }
+  } else if (intraday?.entity === "intraday_recommendations") {
+    headline = "장중 스케줄 산출물은 있지만 현재 추천 기준으로 채택되지는 않았습니다.";
+  }
+
+  return {
+    is_active: Boolean(activeIntraday),
+    status: intraday?.status || null,
+    session_date: intraday?.session_date || null,
+    source_daily_asof_date: intraday?.source_daily_asof_date || intraday?.asof_date || null,
+    basis_label: intraday?.basis_label || null,
+    quote_success_count: toNum(intraday?.counts?.quote_success) ?? 0,
+    quote_failure_count: toNum(intraday?.counts?.quote_failure) ?? 0,
+    priority_count: priorityCount,
+    caution_count: cautionCount,
+    promoted_to_priority_count: promotedToPriority.length,
+    dropped_from_priority_count: droppedFromPriority.length,
+    caution_escalation_count: cautionEscalations.length,
+    holding_review_count: holdingReview.length,
+    missing_quote_count: missingQuotes.length,
+    headline,
+    action_guide:
+      intraday?.summary?.action_guide ||
+      "장중 우선 검토는 오후장 실행 후보, 보수 검토는 관찰 또는 보유 관리 대상으로 읽으면 됩니다.",
+    promoted_to_priority: promotedToPriority,
+    dropped_from_priority: droppedFromPriority,
+    caution_escalations: cautionEscalations,
+    holding_review: holdingReview,
+    missing_quotes: missingQuotes,
+  };
+}
+
+function normalizeManualCandidate(item, rankingByCode) {
+  const selection = item.selection || {};
+  const scores = item.scores || {};
+  const security = item.security || {};
+  const buyEligibility = item.buy_eligibility || {};
+  const marketSignals = item.market_signals || {};
+  const rankRow = rankingByCode.get(String(security.code || "").trim()) || null;
+  const liveRank = rankRow ? getLiveRank(rankRow) : null;
+  const shadowRank = rankRow ? getQualityRiskGuardShadowRank(rankRow) : null;
+  return {
+    code: String(security.code || "").trim(),
+    name: security.name || null,
+    sector: security.sector || null,
+    dominant_theme: security.dominant_theme || null,
+    buy_rank: toNum(item.buy_rank),
+    buyability_status: selection.buyability_status || null,
+    watchlist_tier: selection.buyability_watchlist_tier || null,
+    promotion_readiness_score: toNum(selection.buyability_promotion_readiness_score),
+    expected_action: selection.buyability_expected_action || null,
+    supporting_reasons: Array.isArray(selection.buyability_supporting_reasons) ? selection.buyability_supporting_reasons : [],
+    blocking_reasons: Array.isArray(selection.buyability_blocking_reasons) ? selection.buyability_blocking_reasons : [],
+    confidence_state_v2: scores.confidence_state_v2 || null,
+    raw_confidence_v2: toNum(scores.raw_confidence_v2),
+    live_score: toNum(scores.live_score ?? scores.final_score),
+    live_rank: liveRank,
+    final_score: toNum(scores.final_score),
+    shadow_quality_risk_guard_score: rankRow ? getQualityRiskGuardShadowScore(rankRow) : null,
+    shadow_quality_risk_guard_rank: shadowRank,
+    shadow_quality_risk_guard_penalty: rankRow ? getQualityRiskGuardPenalty(rankRow) : null,
+    shadow_quality_risk_guard_rank_delta:
+      Number.isFinite(liveRank) && Number.isFinite(shadowRank) ? liveRank - shadowRank : null,
+    buy_eligibility_status: buyEligibility.status || null,
+    buy_eligibility_score: toNum(buyEligibility.score),
+    buy_eligibility_hard_block_reasons: translateBuyEligibilityReasons(buyEligibility.hard_block_reasons),
+    buy_eligibility_caution_reasons: translateBuyEligibilityReasons(buyEligibility.caution_reasons),
+    pred_return_60d: toNum(marketSignals.pred_return_60d),
+    prob_top20_60d: toNum(marketSignals.prob_top20_60d),
+    pred_mdd_60d: toNum(marketSignals.pred_mdd_60d),
+    regime: marketSignals.regime || null,
+    recent_surge_soft_flag: Boolean(selection.recent_surge_soft_flag),
+    entry_rule_pass: Boolean(selection.entry_rule_pass),
+  };
+}
+
+function isPriorityManualCandidate(item) {
+  if (item.buy_eligibility_status === "BUY_ALLOWED") return true;
+  if (item.buy_eligibility_status === "BLOCK") return false;
+  if (item.buyability_status === "BUY_NOW") return true;
+  if (item.watchlist_tier === "PROMOTION_READY") return true;
+  if (item.buyability_status !== "WATCHLIST") return false;
+  if (item.confidence_state_v2 === "BLOCKED") return false;
+  return item.entry_rule_pass !== false;
+}
+
+function isCautionManualCandidate(item) {
+  if (item.buy_eligibility_status === "BLOCK") return true;
+  if (item.buyability_status === "BLOCK") return true;
+  if (item.recent_surge_soft_flag) return true;
+  if (item.confidence_state_v2 === "BLOCKED" || item.confidence_state_v2 === "WEAK") return true;
+  if (item.entry_rule_pass === false) return true;
+
+  const blockingReasons = Array.isArray(item.blocking_reasons) ? item.blocking_reasons : [];
+  const cautionReasons = blockingReasons.filter(
+    (reason) => !["gate_hold", "walkforward_conditional"].includes(String(reason || "").trim())
+  );
+  return cautionReasons.length > 0;
+}
+
+async function buildManualTradingSummary(options = {}) {
+  const daily =
+    options.daily ||
+    await readJsonPayloadDbFirst("daily_recommendations", [path.join(SERVING_DIR, "daily_recommendations.json")]);
+  const intraday =
+    options.intraday ||
+    await readJsonPayloadDbFirst("intraday_recommendations", [path.join(SERVING_DIR, "intraday_recommendations.json")]);
+  const gate =
+    options.gate ||
+    await readJsonPayloadDbFirst("operational_buy_gate", [path.join(OUTPUTS_DIR, "operational_buy_gate.json")]);
+  const walkforwardAcceptance =
+    options.walkforwardAcceptance ||
+    await readJsonPayloadDbFirst("walkforward_acceptance", [path.join(OUTPUTS_DIR, "walkforward_acceptance.json")]);
+  const rankingContext = options.rankingRows
+    ? {
+        rankingRows: options.rankingRows || [],
+        rankingLatestDate: options.rankingLatestDate || null,
+      }
+    : await getLatestRankingContext();
+  const rankingRows = rankingContext.rankingRows || [];
+  const rankingDates = rankingRows
+    .map((row) => String(row.date || "").trim())
+    .filter((value) => isIsoDateString(value));
+  const rankingLatestDate =
+    options.rankingLatestDate ||
+    rankingContext.rankingLatestDate ||
+    (rankingDates.length ? rankingDates.sort().pop() : null) ||
+    null;
+  const recommendationsDate = isIsoDateString(daily.asof_date) ? daily.asof_date : null;
+  const recommendationsStale =
+    Boolean(recommendationsDate) &&
+    Boolean(rankingLatestDate) &&
+    recommendationsDate < rankingLatestDate;
+  const items = Array.isArray(daily.items) ? daily.items : [];
+  const rankingLatestRows = rankingLatestDate
+    ? rankingRows.filter((row) => String(row.date || "").trim() === rankingLatestDate)
+    : rankingRows;
+  const rankingByCode = new Map(
+    rankingLatestRows.map((row) => [String(row.code || "").trim(), row])
+  );
+  const gateStatus = daily.gate_overall_status || gate.overall_status || null;
+  const acceptanceStatus = daily.walkforward_acceptance_status || null;
+  const tone = getManualTradingTone(gateStatus, acceptanceStatus);
+  const staleChecklistLine = recommendationsStale && recommendationsDate && rankingLatestDate
+    ? `daily_recommendations 기준일(${recommendationsDate})이 ranking_final 최신일(${rankingLatestDate})보다 오래되어 후보 목록을 숨깁니다. refresh 완료 후 다시 확인하세요.`
+    : null;
+  const intradaySessionDate = isIsoDateString(intraday.session_date) ? intraday.session_date : null;
+  const intradaySourceDailyDate = isIsoDateString(intraday.source_daily_asof_date)
+    ? intraday.source_daily_asof_date
+    : (isIsoDateString(intraday.asof_date) ? intraday.asof_date : null);
+  const baselineCandidates = items.map((item) => normalizeManualCandidate(item, rankingByCode));
+  const baselinePriorityCandidates = baselineCandidates
+    .filter(isPriorityManualCandidate)
+    .sort((a, b) => {
+      const aReady = toNum(a.promotion_readiness_score) ?? -1;
+      const bReady = toNum(b.promotion_readiness_score) ?? -1;
+      if (bReady !== aReady) return bReady - aReady;
+      const aScore = toNum(a.live_score ?? a.final_score) ?? -1;
+      const bScore = toNum(b.live_score ?? b.final_score) ?? -1;
+      return bScore - aScore;
+    })
+    .slice(0, 8);
+  const baselinePriorityCodes = new Set(baselinePriorityCandidates.map((item) => item.code));
+  const baselineCautionCandidates = baselineCandidates
+    .filter((item) => !baselinePriorityCodes.has(item.code))
+    .filter(isCautionManualCandidate)
+    .sort((a, b) => {
+      const aPenalty =
+        (a.buyability_status === "BLOCK" ? 3 : 0) +
+        (a.confidence_state_v2 === "BLOCKED" ? 2 : a.confidence_state_v2 === "WEAK" ? 1 : 0) +
+        (a.entry_rule_pass === false ? 1 : 0) +
+        (a.recent_surge_soft_flag ? 1 : 0);
+      const bPenalty =
+        (b.buyability_status === "BLOCK" ? 3 : 0) +
+        (b.confidence_state_v2 === "BLOCKED" ? 2 : b.confidence_state_v2 === "WEAK" ? 1 : 0) +
+        (b.entry_rule_pass === false ? 1 : 0) +
+        (b.recent_surge_soft_flag ? 1 : 0);
+      if (bPenalty !== aPenalty) return bPenalty - aPenalty;
+      const aScore = toNum(a.live_score ?? a.final_score) ?? -1;
+      const bScore = toNum(b.live_score ?? b.final_score) ?? -1;
+      return bScore - aScore;
+    })
+    .slice(0, 8);
+  const activeIntraday =
+    intraday.entity === "intraday_recommendations" &&
+    ["current", "fallback"].includes(String(intraday.status || "").toLowerCase()) &&
+    intradaySessionDate &&
+    Array.isArray(intraday.priority_candidates) &&
+    (!rankingLatestDate || intradaySourceDailyDate === rankingLatestDate);
+  const intradaySummary = summarizeIntradayChanges({
+    intraday,
+    activeIntraday,
+    dailyPriorityCandidates: baselinePriorityCandidates,
+    dailyCautionCandidates: baselineCautionCandidates,
+  });
+
+  if (activeIntraday) {
+    return {
+      generated_at: intraday.generated_at || null,
+      asof_date: intraday.asof_date || null,
+      gate_status: intraday.gate_overall_status || gateStatus,
+      walkforward_acceptance_status: intraday.walkforward_acceptance_status || acceptanceStatus,
+      market_regime: gate.market_regime || null,
+      manual_mode: {
+        label: "오후장 대응",
+        note: intraday.summary?.reason || "12시 장중 시세와 거래대금 기준으로 오후장 대응 후보를 다시 선별합니다.",
+      },
+      source_status: intraday.status || "current",
+      ranking_latest_date: rankingLatestDate,
+      recommendations_stale: false,
+      execution_basis: {
+        label: intraday.basis_label || "장중 기준",
+        note: "장중 시세를 반영한 오후장 대응용 후보입니다.",
+      },
+      intraday_summary: intradaySummary,
+      checklist: Array.isArray(intraday.checklist) ? intraday.checklist : [],
+      priority_candidates: Array.isArray(intraday.priority_candidates) ? intraday.priority_candidates : [],
+      caution_candidates: Array.isArray(intraday.caution_candidates) ? intraday.caution_candidates : [],
+      daily_priority_candidates: baselinePriorityCandidates,
+      daily_caution_candidates: baselineCautionCandidates,
+    };
+  }
+
+  const normalized = baselineCandidates;
+
+  const priorityCandidates = normalized
+    .filter(isPriorityManualCandidate)
+    .sort((a, b) => {
+      const aReady = toNum(a.promotion_readiness_score) ?? -1;
+      const bReady = toNum(b.promotion_readiness_score) ?? -1;
+      if (bReady !== aReady) return bReady - aReady;
+      const aScore = toNum(a.live_score ?? a.final_score) ?? -1;
+      const bScore = toNum(b.live_score ?? b.final_score) ?? -1;
+      return bScore - aScore;
+    })
+    .slice(0, 8);
+
+  const priorityCodes = new Set(priorityCandidates.map((item) => item.code));
+
+  const cautionCandidates = normalized
+    .filter((item) => !priorityCodes.has(item.code))
+    .filter(isCautionManualCandidate)
+    .sort((a, b) => {
+      const aPenalty =
+        (a.buyability_status === "BLOCK" ? 3 : 0) +
+        (a.confidence_state_v2 === "BLOCKED" ? 2 : a.confidence_state_v2 === "WEAK" ? 1 : 0) +
+        (a.entry_rule_pass === false ? 1 : 0) +
+        (a.recent_surge_soft_flag ? 1 : 0);
+      const bPenalty =
+        (b.buyability_status === "BLOCK" ? 3 : 0) +
+        (b.confidence_state_v2 === "BLOCKED" ? 2 : b.confidence_state_v2 === "WEAK" ? 1 : 0) +
+        (b.entry_rule_pass === false ? 1 : 0) +
+        (b.recent_surge_soft_flag ? 1 : 0);
+      if (bPenalty !== aPenalty) return bPenalty - aPenalty;
+      const aScore = toNum(a.live_score ?? a.final_score) ?? -1;
+      const bScore = toNum(b.live_score ?? b.final_score) ?? -1;
+      return bScore - aScore;
+    })
+    .slice(0, 8);
+
+  return {
+    generated_at: daily.generated_at || null,
+    asof_date: daily.asof_date || null,
+    gate_status: gateStatus,
+    walkforward_acceptance_status: acceptanceStatus,
+    market_regime: gate.market_regime || null,
+    manual_mode: recommendationsStale
+      ? {
+          label: "추천 대기",
+          note: `추천 데이터 기준일(${recommendationsDate})이 최신 랭킹(${rankingLatestDate})보다 오래되어 신규 후보 사용을 보류합니다.`,
+        }
+      : tone,
+      source_status: recommendationsStale ? "stale" : (daily.source_status || null),
+      execution_basis: {
+        label: "마감 기준",
+        note: "전일 마감 기준 후보입니다. 장중 payload가 없으면 이 기준으로 읽습니다.",
+      },
+      ranking_latest_date: rankingLatestDate,
+    recommendations_stale: recommendationsStale,
+    intraday_summary: intradaySummary,
+    checklist: [
+      ...(staleChecklistLine ? [staleChecklistLine] : []),
+      "run_operational_refresh.py 실행 후 gate 상태와 기준일을 먼저 확인합니다.",
+      "PROMOTION_READY 또는 WATCHLIST 후보만 보고 final_score, confidence_state_v2, buyability 사유를 확인합니다.",
+      "실제 주문 전에는 HTS/MTS에서 실시간 가격, 기존 보유 중복, 주문 수량을 직접 확인합니다.",
+      "장 초반 과열이 있거나 gate가 HOLD면 신규 진입보다 관찰을 우선합니다.",
+      "실제 체결이 발생하면 가격, 시간, 수량, 메모를 거래 기록에 바로 남깁니다.",
+    ],
+    priority_candidates: recommendationsStale ? [] : priorityCandidates,
+    caution_candidates: recommendationsStale ? [] : cautionCandidates,
+  };
+}
+
+async function buildTradingPolicySummary() {
+  const manual = await buildManualTradingSummary();
+  const recommendationsStale = Boolean(manual.recommendations_stale);
+  const gateStatus = String(manual.gate_status || "").toUpperCase();
+  const walkforwardStatus = String(manual.walkforward_acceptance_status || "").toUpperCase();
+  const modeTone =
+    recommendationsStale ? "bad" :
+    gateStatus === "BUY_ALLOWED" && walkforwardStatus === "ACCEPTED" ? "good" :
+    gateStatus === "WATCH" ? "watch" :
+    "info";
+
+  return {
+    asof_date: manual.asof_date || null,
+    recommendations_stale: recommendationsStale,
+    mode: {
+      label: manual.manual_mode?.label || "관찰 중심",
+      note: manual.manual_mode?.note || "신규 진입보다 관찰과 검증이 우선입니다.",
+      tone: modeTone,
+    },
+    banner: [
+      {
+        title: "오늘 전략 모드",
+        value: manual.manual_mode?.label || "관찰 중심",
+        detail: manual.manual_mode?.note || "신규 진입보다 관찰과 검증이 우선입니다.",
+        tone: modeTone,
+      },
+      {
+        title: "신규 매수",
+        value: recommendationsStale ? "보류" : (gateStatus === "BUY_ALLOWED" ? "허용" : gateStatus === "WATCH" ? "선별 허용" : "보수 접근"),
+        detail: recommendationsStale
+          ? "추천 기준일이 최신 랭킹보다 오래되면 신규 후보를 숨기고 refresh 이후에만 재개합니다."
+          : "PROMOTION_READY 또는 상위 WATCHLIST만 보고 실시간 가격과 기존 보유 중복을 직접 확인합니다.",
+        tone: recommendationsStale ? "bad" : (gateStatus === "BUY_ALLOWED" ? "good" : "watch"),
+      },
+      {
+        title: "추가 매수",
+        value: "기본 보수",
+        detail: "신규 진입 후 3일은 유예 구간으로 보고, 초기 진입 근거가 안정되기 전까지 추가 매수는 보수적으로 봅니다.",
+        tone: "watch",
+      },
+      {
+        title: "보유 점검",
+        value: "20일 / +15% / -8%",
+        detail: "20일 도달, 수익률 +15% 이상, 손실 -8% 이하에서 보유 또는 축소/매도 근거를 다시 점검합니다.",
+        tone: "info",
+      },
+      {
+        title: "포트폴리오 한도",
+        value: "5종목 / 24%",
+        detail: "최대 5종목, 종목당 최대 비중 24%, 섹터 35%, 테마 35%, 재진입 쿨다운 10영업일 기준입니다.",
+        tone: "info",
+      },
+    ],
+    page_rules: {
+      manual: [
+        {
+          title: "신규 진입 대상",
+          value: "PROMOTION_READY / WATCHLIST",
+          detail: "추천 후보 중에서도 buyability, confidence_state_v2, entry_rule_pass를 통과한 종목만 우선 검토합니다.",
+          tone: "good",
+        },
+        {
+          title: "Gate 우선 확인",
+          value: gateStatus || "HOLD",
+          detail: "gate가 HOLD면 관찰 중심, WATCH면 선별 진입, BUY_ALLOWED면 신규 진입 검토 강도를 높입니다.",
+          tone: gateStatus === "BUY_ALLOWED" ? "good" : gateStatus === "WATCH" ? "watch" : "info",
+        },
+        {
+          title: "추천 신선도",
+          value: recommendationsStale ? "stale" : "current",
+          detail: recommendationsStale
+            ? "daily_recommendations와 ranking_final 기준일이 어긋나면 신규 후보 사용을 보류합니다."
+            : "추천 기준일과 최신 랭킹이 맞는 상태에서만 후보를 사용합니다.",
+          tone: recommendationsStale ? "bad" : "good",
+        },
+        {
+          title: "실행 체크",
+          value: "가격 / 중복 / 수량",
+          detail: "HTS/MTS에서 실시간 가격, 기존 보유 섹터 중복, 주문 수량을 최종 확인한 뒤 체결합니다.",
+          tone: "info",
+        },
+      ],
+      holdings: [
+        {
+          title: "신규 3일 유예",
+          value: "추가매수 보수",
+          detail: "신규 포지션은 3일 동안 REVIEW를 완화하고, 초기 진입 근거 유지 여부를 우선 확인합니다.",
+          tone: "watch",
+        },
+        {
+          title: "수익 구간 점검",
+          value: "+15% 이상",
+          detail: "수익률 +15% 이상이면 이익 보호와 분할 축소 여부를 먼저 검토합니다.",
+          tone: "good",
+        },
+        {
+          title: "보유 기간 점검",
+          value: "20일 도달",
+          detail: "보유 20일 시점에는 ret/prob/confidence 지지와 점수 유지 여부를 다시 봅니다.",
+          tone: "info",
+        },
+        {
+          title: "손실 관리",
+          value: "-8% 이하",
+          detail: "손실 -8% 이하 또는 종합 점수 급약화 시에는 매도검토 우선순위를 높입니다.",
+          tone: "bad",
+        },
+      ],
+      ranking: [
+        {
+          title: "추천 해석",
+          value: "아이디어 + 집행 분리",
+          detail: "랭킹 상위라는 이유만으로 매수하지 않고, 왜 지금인지와 어떤 조건에서 틀렸는지를 함께 봅니다.",
+          tone: "info",
+        },
+        {
+          title: "우선 판단 축",
+          value: "ret / prob / confidence",
+          detail: "상방 기대, 확률, 신뢰도 축이 동시에 버텨주는지 먼저 확인합니다.",
+          tone: "good",
+        },
+        {
+          title: "리스크 확인",
+          value: "risk_penalty / invalidation",
+          detail: "risk drag가 높거나 무효화 조건이 약하면 즉시 매수보다 관찰이 우선입니다.",
+          tone: "watch",
+        },
+        {
+          title: "포지션 연결",
+          value: "신규 vs 교체",
+          detail: "기존 보유와 섹터 중복이 크면 신규 진입보다 교체 또는 관찰 우선으로 해석합니다.",
+          tone: "info",
+        },
+      ],
+      portfolio: [
+        {
+          title: "최대 보유 종목",
+          value: "5개",
+          detail: "포트폴리오 집중도를 유지하기 위한 기본 상한입니다.",
+          tone: "info",
+        },
+        {
+          title: "종목당 최대 비중",
+          value: "24%",
+          detail: "한 종목 비중을 과도하게 키우지 않도록 제한합니다.",
+          tone: "info",
+        },
+        {
+          title: "섹터 / 테마 캡",
+          value: "각 35%",
+          detail: "같은 축에 포지션이 몰리지 않도록 섹터와 테마 노출을 제한합니다.",
+          tone: "info",
+        },
+        {
+          title: "재진입 쿨다운",
+          value: "10영업일",
+          detail: "방금 나온 종목을 즉시 다시 추격하지 않도록 재진입 간격을 둡니다.",
+          tone: "watch",
+        },
+      ],
+    },
+  };
+}
+
+function parseKeyValueMarkdown(filePath) {
+  const raw = readText(filePath);
+  return parseKeyValueMarkdownText(raw);
+}
+
+function parseKeyValueMarkdownText(raw) {
+  if (!raw) return null;
+  const out = {};
+  String(raw).split(/\r?\n/).forEach((line) => {
+    const trimmed = String(line || "").trim();
+    const match = trimmed.match(/^- ([^:]+):\s*(.*)$/);
+    if (!match) return;
+    out[String(match[1] || "").trim()] = String(match[2] || "").trim();
+  });
+  return out;
+}
+
+function mapWalkforwardReasonCode(code, acceptance) {
+  const top20 = acceptance?.selection_summary?.top20 || {};
+  const top50 = acceptance?.selection_summary?.top50 || {};
+  const universe = acceptance?.selection_summary?.universe || {};
+  switch (String(code || "").trim()) {
+    case "top20_excess_return_positive":
+      return Number.isFinite(toNum(top20.excess_return))
+        ? `top20 60일 초과수익은 플러스입니다 (${formatPct(top20.excess_return, 1)}).`
+        : "top20 60일 초과수익은 플러스입니다.";
+    case "ordering_not_stable":
+      return Number.isFinite(toNum(top20.avg_return)) && Number.isFinite(toNum(top50.avg_return)) && Number.isFinite(toNum(universe.avg_return))
+        ? `정렬력이 약합니다. 60일 평균수익이 top20 ${formatPct(top20.avg_return, 1)}, top50 ${formatPct(top50.avg_return, 1)}, universe ${formatPct(universe.avg_return, 1)}입니다.`
+        : "정렬력이 약합니다. top20 > top50 > universe 구조가 유지되지 않았습니다.";
+    case "drawdown_too_deep":
+      return Number.isFinite(toNum(top20.avg_mdd))
+        ? `top20 60일 평균 MDD가 ${formatPct(top20.avg_mdd, 1)}로 깊습니다.`
+        : "top20 60일 평균 MDD가 기준보다 깊습니다.";
+    case "confidence_monotonicity_missing":
+      return "confidence 구간이 높을수록 성과가 좋아지는 단조성이 아직 확인되지 않았습니다.";
+    case "execution_evidence_ok_or_unavailable":
+      return "체결 증거는 차단 사유는 아니지만 아직 판정을 강화할 만큼 충분하지 않습니다.";
+    default:
+      return code ? `walkforward 사유: ${code}` : null;
+  }
+}
+
+function formatOpsMetricReason(item) {
+  if (!item || !item.metric) return null;
+  const metric = String(item.metric || "");
+  const valueText = item.value_display || (Number.isFinite(Number(item.value)) ? String(item.value) : null);
+  const lookup = {
+    overlap_final_ret_top20: `final score 상위 20개와 ret_score 상위 20개의 겹침이 낮습니다 (${valueText || "-"})`,
+    overlap_final_prob_top20: `final score 상위 20개와 prob_score 상위 20개의 겹침이 낮습니다 (${valueText || "-"})`,
+    overlap_final_tech_top20: `final score 상위 20개와 tech_score 상위 20개의 겹침이 낮습니다 (${valueText || "-"})`,
+    corr_final_risk_penalty_abs: `final score가 risk penalty 영향에 과하게 끌리고 있습니다 (${valueText || "-"})`,
+    corr_final_safety_abs: `final score가 safety 계열 보정에 과하게 끌리고 있습니다 (${valueText || "-"})`,
+    corr_final_tech_score: `tech_score와 final score의 정렬 관계가 약합니다 (${valueText || "-"})`,
+    top20_top_driver_share: `top20이 일부 driver에 몰려 있습니다 (${valueText || "-"})`,
+  };
+  return lookup[metric] || `${metric} 상태가 ${item.status || "-"} 입니다 (${valueText || "-"})`;
+}
+
+function buildMarketRegimeInterpretation(regimeInput) {
+  const regime = regimeInput || {};
+  const regimeName = String(regime.regime || "").toLowerCase();
+  const trueCount = toNum(regime.true_count);
+  const breadth = toNum(regime.breadth_20d);
+  const recentReturn = toNum(regime.recent_20d_return);
+  const vol5d = toNum(regime.volatility_5d);
+  const summary =
+    regimeName === "bull"
+      ? "시장 레짐은 bull입니다. 신규 진입을 전면 확대할 단계는 아니어도 추세 확인 종목은 적극 검토할 수 있습니다."
+      : regimeName === "defensive"
+      ? "시장 레짐은 defensive입니다. 신규 진입보다 보유 방어와 현금 비중 관리가 우선입니다."
+      : "시장 레짐은 neutral입니다. 추세는 일부 살아 있지만 확산과 변동성 구조가 아직 공격적으로 열리지는 않았습니다.";
+  const stance =
+    regimeName === "bull"
+      ? "상위 후보 중 entry rule을 통과한 종목은 후보군으로 유지하되, 섹터 쏠림만 별도로 점검합니다."
+      : regimeName === "defensive"
+      ? "신규 진입은 최소화하고, watchlist 중심으로만 보면서 손실 확대 구간을 먼저 방어합니다."
+      : "신규 진입은 보수적으로 보고, watchlist와 수동 검토 위주로 운영하는 편이 맞습니다.";
+  const actionItems = [];
+  if (Number.isFinite(trueCount)) {
+    actionItems.push(`5개 레짐 조건 중 ${trueCount}개만 충족했습니다.`);
+  }
+  if (regime.close_gt_ma20 === false) {
+    actionItems.push("코스피 종가가 MA20 아래라 추세 확인이 덜 됐습니다.");
+  }
+  if (regime.breadth_20d_gt_0_55 === false) {
+    actionItems.push(`시장 breadth가 낮습니다 (${Number.isFinite(breadth) ? breadth.toFixed(3) : "-" }).`);
+  }
+  if (regime.volatility_risk_flag === true) {
+    actionItems.push(`단기 변동성 부담이 있습니다 (${Number.isFinite(vol5d) ? vol5d.toFixed(4) : "-"}).`);
+  }
+  if (regime.recent_20d_return_gt_0_03 === true && regimeName !== "defensive") {
+    actionItems.push(`최근 20일 수익률은 아직 플러스입니다 (${Number.isFinite(recentReturn) ? formatPct(recentReturn, 1) : "-"}).`);
+  }
+  const tone = regimeName === "bull" ? "GOOD" : regimeName === "defensive" ? "ALERT" : "WATCH";
+  return {
+    summary,
+    stance,
+    action_items: actionItems.slice(0, 4),
+    tone,
+  };
+}
+
+async function buildOpsReadinessSummary() {
+  const opsNotesPath = path.join(OUTPUTS_DIR, "ops_operator_notes.json");
+  const schedulerStatus = await readJsonPayloadDbFirst("auto_ops_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_scheduler_status.json")]);
+  const schedulerRecoveryStatus = await readJsonPayloadDbFirst("auto_ops_recovery_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_recovery_scheduler_status.json")]);
+  const gate = await readJsonPayloadDbFirst("operational_buy_gate", [path.join(OUTPUTS_DIR, "operational_buy_gate.json")]);
+  const walkforwardAcceptance = await readJsonPayloadDbFirst("walkforward_acceptance", [path.join(OUTPUTS_DIR, "walkforward_acceptance.json")]);
+  const shadowRepeatability =
+    await readJsonPayloadDbFirst("shadow_quality_risk_guard_repeatability_report", [path.join(OUTPUTS_DIR, "shadow_quality_risk_guard_repeatability_report.json")]);
+  const kpi = await readJsonPayloadDbFirst("score_kpi_monitor", [
+    path.join(DATA_DIR, "score_kpi_monitor.json"),
+    path.join(OUTPUTS_DIR, "score_kpi_monitor.json"),
+  ]);
+  const inventoryPayload = await readJsonPayloadDbFirst("ranking_snapshot_inventory");
+  const inventory = inventoryPayload.summary || parseKeyValueMarkdown(path.join(DATA_DIR, "history", "ranking_snapshot_inventory.md")) || {};
+  const inventoryRows = Array.isArray(inventoryPayload.rows) ? inventoryPayload.rows : (readCsv(path.join(DATA_DIR, "history", "ranking_snapshot_inventory.csv")) || []);
+  const gateHistoryPayload = await readJsonPayloadDbFirst("operational_buy_gate_history");
+  const gateHistoryRows = Array.isArray(gateHistoryPayload.rows) ? gateHistoryPayload.rows : (readCsv(path.join(DATA_DIR, "history", "operational_buy_gate_history.csv")) || []);
+  const kpiHistoryPayload = await readJsonPayloadDbFirst("score_kpi_monitor_history");
+  const kpiHistoryRows = Array.isArray(kpiHistoryPayload.rows) ? kpiHistoryPayload.rows : (readCsv(path.join(DATA_DIR, "history", "score_kpi_monitor_history.csv")) || []);
+  const daily = await readJsonPayloadDbFirst("daily_recommendations", [path.join(SERVING_DIR, "daily_recommendations.json")]);
+  const dailyCycle = await readJsonPayloadDbFirst("operational_daily_cycle_status", [path.join(OUTPUTS_DIR, "operational_daily_cycle_status.json")]);
+  const opsNotes = await readJsonPayloadDbFirst("ops_operator_notes", [opsNotesPath]);
+  const visitorAnalytics = await buildVisitorAnalyticsSummary();
+  const rankingContext = await getLatestRankingContext();
+  const rankingRows = rankingContext.rankingRows || [];
+  const rankingDates = rankingRows
+    .map((row) => String(row.date || "").trim())
+    .filter((value) => isIsoDateString(value));
+  const rankingLatestDate =
+    rankingContext.rankingLatestDate ||
+    (rankingDates.length ? rankingDates.sort().pop() : null) ||
+    (isIsoDateString(daily.asof_date) ? daily.asof_date : null) ||
+    (isIsoDateString(gate.asof_date) ? gate.asof_date : null) ||
+    (isIsoDateString(inventory["latest snapshot date"]) ? inventory["latest snapshot date"] : null);
+  const latestRanking = rankingLatestDate
+    ? rankingRows.filter((row) => String(row.date || "").trim() === rankingLatestDate)
+    : rankingRows;
+  const manual = await buildManualTradingSummary({ rankingLatestDate, rankingRows, daily, gate, walkforwardAcceptance });
+  const shadowCandidates = latestRanking
+    .map((row) => {
+      const liveRank = getLiveRank(row);
+      const shadowRank = getQualityRiskGuardShadowRank(row);
+      const rankDelta =
+        Number.isFinite(liveRank) && Number.isFinite(shadowRank)
+          ? liveRank - shadowRank
+          : null;
+      return {
+        code: String(row.code || "").trim(),
+        name: row.name || getName(row.code) || null,
+        sector: row.sector || getSector(row.code) || null,
+        market: row.market || getMarket(row.code) || null,
+        live_score: getLiveScore(row),
+        live_rank: liveRank,
+        final_score: toNum(row.final_score),
+        shadow_quality_risk_guard_score: getQualityRiskGuardShadowScore(row),
+        shadow_quality_risk_guard_rank: shadowRank,
+        shadow_quality_risk_guard_penalty: getQualityRiskGuardPenalty(row),
+        shadow_quality_risk_guard_rank_delta: rankDelta,
+        confidence_score: toNum(row.confidence_score),
+        risk_penalty: toNum(row.risk_penalty),
+        qual_score: toNum(row.qual_score),
+        dominant_theme: row.dominant_theme || null,
+      };
+    })
+    .filter((item) => item.code)
+    .filter((item) => Number.isFinite(item.shadow_quality_risk_guard_rank_delta) && item.shadow_quality_risk_guard_rank_delta > 0)
+    .sort((a, b) => {
+      const deltaDiff = (b.shadow_quality_risk_guard_rank_delta || 0) - (a.shadow_quality_risk_guard_rank_delta || 0);
+      if (deltaDiff !== 0) return deltaDiff;
+      const aPenalty = Number.isFinite(a.shadow_quality_risk_guard_penalty) ? a.shadow_quality_risk_guard_penalty : 999;
+      const bPenalty = Number.isFinite(b.shadow_quality_risk_guard_penalty) ? b.shadow_quality_risk_guard_penalty : 999;
+      if (aPenalty !== bPenalty) return aPenalty - bPenalty;
+      return (b.live_score || 0) - (a.live_score || 0);
+    })
+    .slice(0, 5);
+
+  const snapshotCount = toNum(inventory["total snapshot count"]);
+  const matured20 = toNum(inventory["matured snapshot count 20d"]);
+  const matured60 = toNum(inventory["matured snapshot count 60d"]);
+  const matured90 = toNum(inventory["matured snapshot count 90d"]);
+  const readiness60 = inventory["confidence calibration readiness 60d"] || null;
+
+  const gateDecision = Array.isArray(gate.decisions) && gate.decisions.length ? gate.decisions[0] : {};
+  const trustedRatio = toNum(gateDecision.confidence_v2?.trusted_ratio_top20);
+  const maturedBenchmarkDates = toNum(gateDecision.benchmark?.matured_dates_max);
+  const walkforwardStatus = gateDecision.walkforward_acceptance?.status || null;
+  const buyability = gateDecision.buyability || {};
+
+  const kpiSummary = kpi.summary || {};
+  const kpiMetadata = kpi.metadata || {};
+  const kpiRows = Array.isArray(kpi.kpi_snapshot) ? kpi.kpi_snapshot : (Array.isArray(kpi.kpis) ? kpi.kpis : []);
+  const alertMetrics = kpiRows.filter((item) => String(item.status || "").toUpperCase() === "ALERT");
+  const watchMetrics = kpiRows.filter((item) => String(item.status || "").toUpperCase() === "WATCH");
+  const topConfidenceMetric = kpiRows.find((item) => item.metric === "top20_mean_confidence_score");
+  const wfMetric = kpiRows.find((item) => item.metric === "walkforward_top20_avg_return_60d");
+  const walkforwardReasons = Array.isArray(gateDecision.walkforward_acceptance?.reason_codes) && gateDecision.walkforward_acceptance.reason_codes.length
+    ? gateDecision.walkforward_acceptance.reason_codes
+    : (Array.isArray(walkforwardAcceptance.reason_codes) ? walkforwardAcceptance.reason_codes : []);
+  const marketRegimeInterpretation = buildMarketRegimeInterpretation(gate.market_regime || gateDecision.market_regime || {});
+
+  const trendRows = inventoryRows
+    .map((row, idx) => ({
+      as_of_date: row.as_of_date || null,
+      row_count: toNum(row.row_count),
+      has_top20: String(row.has_top20 || "").toLowerCase() === "true",
+      matured_20d: String(row.matured_20d || "").toLowerCase() === "true",
+      matured_60d: String(row.matured_60d || "").toLowerCase() === "true",
+      matured_90d: String(row.matured_90d || "").toLowerCase() === "true",
+      snapshot_index: idx + 1,
+    }))
+    .filter((row) => row.as_of_date);
+  let matured60Running = 0;
+  const readinessTrend = trendRows.map((row) => {
+    matured60Running += row.matured_60d ? 1 : 0;
+    return {
+      ...row,
+      matured_60d_cumulative: matured60Running,
+    };
+  });
+  const recentReadinessTrend = readinessTrend.slice(-12);
+  const recentStateBadges = readinessTrend.slice(-7).map((row) => ({
+    date: row.as_of_date,
+    label: row.as_of_date ? String(row.as_of_date).slice(5) : "-",
+    kind: row.matured_60d ? "good" : (row.has_top20 ? "info" : "bad"),
+    detail: row.matured_60d ? "60d 성숙 표본 포함" : (row.has_top20 ? "snapshot 누적 중" : "snapshot 이상"),
+  }));
+
+  const gateTrend = gateHistoryRows
+    .map((row) => ({
+      as_of_date: row.as_of_date || null,
+      overall_status: row.overall_status || null,
+      daily_cycle_status: row.daily_cycle_status || null,
+      matured_benchmark_dates: toNum(row.matured_benchmark_dates),
+      trusted_ratio_top20: toNum(row.trusted_ratio_top20),
+      buy_now_count: toNum(row.buy_now_count),
+      watchlist_count: toNum(row.watchlist_count),
+      blocked_count: toNum(row.blocked_count),
+    }))
+    .filter((row) => row.as_of_date)
+    .slice(-7);
+  const kpiTrend = kpiHistoryRows
+    .map((row) => ({
+      as_of_date: row.as_of_date || null,
+      overall_status: row.overall_status || null,
+      alert_metric_count: toNum(row.alert_metric_count),
+      watch_metric_count: toNum(row.watch_metric_count),
+      top20_mean_confidence_score: toNum(row.top20_mean_confidence_score),
+      walkforward_top20_avg_return_60d: toNum(row.walkforward_top20_avg_return_60d),
+      confidence_high_bucket_hit_rate_60d: toNum(row.confidence_high_bucket_hit_rate_60d),
+      confidence_calibration_usable_bucket_count: toNum(row.confidence_calibration_usable_bucket_count),
+    }))
+    .filter((row) => row.as_of_date)
+    .slice(-7);
+
+  const cycleSteps = Array.isArray(dailyCycle.steps) ? dailyCycle.steps : [];
+  const cycleWaitCount = cycleSteps.filter((step) => String(step.status || "").toUpperCase() === "WAIT").length;
+  const cycleSuccessCount = cycleSteps.filter((step) => String(step.status || "").toUpperCase() === "SUCCESS").length;
+  const expectedPrimaryTime = process.env.SCHEDULER_DAILY_TIME || "16:00";
+  const expectedIntradayTime = process.env.SCHEDULER_RECOVERY_DAILY_TIME || "12:00";
+
+  const normalizeScheduler = (status, role, expectedTime) => {
+    const configuredDailyTime = status.configured_daily_time || null;
+    return {
+      role,
+      mode: status.scheduler_mode || null,
+      status: status.status || null,
+      timezone: status.timezone || null,
+      configured_daily_time: configuredDailyTime,
+      expected_daily_time: expectedTime,
+      schedule_matches_expected:
+        configuredDailyTime && expectedTime ? configuredDailyTime === expectedTime : null,
+      run_policy: status.run_policy || null,
+      skip_catchup_on_start: boolify(status.skip_catchup_on_start),
+      bootstrap_skip_until_date: status.bootstrap_skip_until_date || null,
+      last_attempt_at: status.last_attempt_at || null,
+      last_success_at: status.last_success_at || null,
+      last_success_date: status.last_success_date || null,
+      last_failure_at: status.last_failure_at || null,
+      last_error: status.last_error || null,
+      status_note: status.status_note || null,
+    };
+  };
+
+  const primaryScheduler = normalizeScheduler(schedulerStatus, "close", expectedPrimaryTime);
+  const intradayScheduler = normalizeScheduler(schedulerRecoveryStatus, "intraday", expectedIntradayTime);
+  const primarySuccessTs = primaryScheduler.last_success_at ? Date.parse(primaryScheduler.last_success_at) : NaN;
+  const intradaySuccessTs = intradayScheduler.last_success_at ? Date.parse(intradayScheduler.last_success_at) : NaN;
+  const hasPrimarySuccess = Number.isFinite(primarySuccessTs);
+  const hasIntradaySuccess = Number.isFinite(intradaySuccessTs);
+  const latestScheduler =
+    hasPrimarySuccess && hasIntradaySuccess
+      ? (primarySuccessTs >= intradaySuccessTs ? primaryScheduler : intradayScheduler)
+      : hasPrimarySuccess
+      ? primaryScheduler
+      : hasIntradaySuccess
+      ? intradayScheduler
+      : primaryScheduler;
+  const artifactRefreshCandidates = [
+    daily && daily.generated_at,
+    gate && gate.generated_at,
+    kpiMetadata && kpiMetadata.generated_at,
+    dailyCycle && dailyCycle.generated_at,
+  ]
+    .map((value) => {
+      const ts = parseTimestampMs(value);
+      return Number.isFinite(ts) ? { value, ts } : null;
+    })
+    .filter(Boolean);
+  const latestArtifactRefresh = artifactRefreshCandidates.length
+    ? artifactRefreshCandidates.sort((a, b) => b.ts - a.ts)[0].value
+    : null;
+  const executionBasis = {
+    current_basis: latestScheduler.role || "close",
+    label: latestScheduler.role === "intraday" ? "장중 기준" : "마감 기준",
+    description:
+      latestScheduler.role === "intraday"
+        ? "12:00 장중 refresh 결과입니다. 오후장 대응용 판단으로 읽어야 합니다."
+        : "16:00 마감 배치 결과입니다. 다음 영업일 기준본으로 읽습니다.",
+    source_scheduler: latestScheduler.role === "intraday" ? "scheduler-recovery" : "scheduler",
+    expected_daily_time: latestScheduler.expected_daily_time || null,
+    last_refresh_at: latestArtifactRefresh || latestScheduler.last_success_at || null,
+    last_auto_success_at: latestScheduler.last_success_at || null,
+    last_artifact_refresh_at: latestArtifactRefresh || null,
+    status_file_time: latestScheduler.configured_daily_time || null,
+    status_time_matches_expected: latestScheduler.schedule_matches_expected,
+  };
+  const schedulerConfigWarnings = [primaryScheduler, intradayScheduler]
+    .filter((item) => item.configured_daily_time && item.expected_daily_time && item.configured_daily_time !== item.expected_daily_time)
+    .map((item) => {
+      const schedulerName = item.role === "intraday" ? "scheduler-recovery" : "scheduler";
+      return `${schedulerName} 상태 파일이 아직 ${item.configured_daily_time} 기준입니다. 기대값은 ${item.expected_daily_time}이며 컨테이너 재시작 후 갱신됩니다.`;
+    });
+
+  const goReasons = [];
+  let goDecision = "WAIT";
+  if ((readiness60 || "").toUpperCase() !== "READY") goReasons.push("60d confidence calibration readiness가 아직 READY가 아닙니다.");
+  if (!Number.isFinite(maturedBenchmarkDates) || maturedBenchmarkDates < 3) goReasons.push("matured benchmark dates가 3 미만입니다.");
+  if ((String(gate.overall_status || "").toUpperCase() || "HOLD") === "HOLD") goReasons.push("buy gate overall_status가 아직 HOLD입니다.");
+  if (!Number.isFinite(trustedRatio) || trustedRatio < 0.30) goReasons.push("confidence_v2 trusted ratio가 아직 낮습니다.");
+  if ((String(walkforwardStatus || "").toUpperCase() || "CONDITIONAL") === "CONDITIONAL") goReasons.push("walkforward acceptance가 아직 CONDITIONAL 단계입니다.");
+  if (!goReasons.length) goDecision = "GO_CHECK";
+
+  const transitionChecklist = [
+    {
+      id: "live_score_unified",
+      label: "운영 해석은 live_score 기준으로 통일",
+      passed: true,
+      detail: "API/대시보드 계산에서 live_score, live_rank, live_score_source를 우선 사용합니다.",
+    },
+    {
+      id: "snapshot_ready_60d",
+      label: "60d confidence calibration readiness가 READY인지",
+      passed: String(readiness60 || "").toUpperCase() === "READY",
+      detail: `현재 값: ${readiness60 || "WAIT"}`,
+    },
+    {
+      id: "matured_benchmark_dates",
+      label: "matured benchmark dates가 3 이상인지",
+      passed: Number.isFinite(maturedBenchmarkDates) && maturedBenchmarkDates >= 3,
+      detail: `현재 값: ${Number.isFinite(maturedBenchmarkDates) ? maturedBenchmarkDates : "-"}`,
+    },
+    {
+      id: "buy_gate_not_hold",
+      label: "buy gate overall_status가 HOLD를 벗어났는지",
+      passed: !["", "HOLD"].includes(String(gate.overall_status || "").toUpperCase()),
+      detail: `현재 값: ${gate.overall_status || "-"}`,
+    },
+    {
+      id: "trusted_ratio",
+      label: "confidence_v2 trusted ratio가 0.30 이상인지",
+      passed: Number.isFinite(trustedRatio) && trustedRatio >= 0.30,
+      detail: `현재 값: ${Number.isFinite(trustedRatio) ? trustedRatio.toFixed(2) : "-"}`,
+    },
+    {
+      id: "walkforward_acceptance",
+      label: "walkforward acceptance가 CONDITIONAL 이상인지",
+      passed: ["ACCEPTED", "PASS", "READY"].includes(String(walkforwardStatus || "").toUpperCase()),
+      detail: `현재 값: ${walkforwardStatus || "-"}`,
+    },
+  ];
+
+  const summaryDecision =
+    goDecision === "GO_CHECK"
+      ? "운영 전환 재검토 가능"
+      : gate.overall_status === "BLOCK"
+      ? "오늘은 매수보다 관찰 중심"
+      : "아직 운영 전환 대기";
+  const summaryReason =
+    !Number.isFinite(matured60) || matured60 <= 0
+      ? "snapshot은 누적되고 있지만 60일 성숙 표본이 아직 없어 운영 근거가 부족합니다."
+      : (readiness60 || "").toUpperCase() !== "READY"
+      ? "성숙 표본은 생기기 시작했지만 confidence calibration이 아직 READY가 아닙니다."
+      : !Number.isFinite(trustedRatio) || trustedRatio < 0.30
+      ? "상위 후보 trusted ratio가 아직 낮아 적극 운영 신뢰도가 부족합니다."
+      : "핵심 readiness 조건은 대체로 충족했지만 남은 경고 항목을 함께 확인해야 합니다.";
+  const actionGuide =
+    gate.overall_status === "BLOCK"
+      ? "추천 종목은 watchlist 위주로만 보고, 실제 매수는 소액 테스트 또는 보류가 맞습니다."
+      : gate.overall_status === "WATCH" || goDecision !== "GO_CHECK"
+      ? "상위 후보를 수동 검토하되, 체결 전 갭 상승과 거래대금, 기존 보유 중복을 먼저 확인하십시오."
+      : "운영 전환 체크를 다시 검토하고, 하루 이상 shadow 비교 결과와 함께 승격 여부를 결정하십시오.";
+  const cardInterpretations = {
+    readiness:
+      !Number.isFinite(matured60) || matured60 <= 0
+        ? "snapshot 적재는 정상입니다. 다만 60일이 지나 결과를 검증할 수 있는 표본은 아직 없습니다."
+        : `60일 성숙 표본 ${matured60}개가 쌓였습니다. 이제 calibration readiness를 함께 해석하면 됩니다.`,
+    transition: `운영 전환 체크 ${transitionChecklist.filter((item) => item.passed).length}/${transitionChecklist.length}개가 통과 상태입니다.`,
+    gate:
+      gate.overall_status === "BLOCK"
+        ? "오늘 gate는 BLOCK입니다. 적극 매수보다 관찰과 선별이 우선입니다."
+        : gate.overall_status === "WATCH"
+        ? "오늘 gate는 WATCH입니다. 상위 후보는 보되 기계적 매수는 아직 이릅니다."
+        : "오늘 gate는 상대적으로 양호하지만, 아래 조건을 함께 보고 판단해야 합니다.",
+    kpi:
+      alertMetrics.length > 0
+        ? `KPI 경고가 ${alertMetrics.length}개 남아 있습니다. 일부 숫자가 좋아 보여도 아직 구조적 안정성은 미완입니다.`
+        : "현재 KPI 경고는 크지 않습니다. 다만 walkforward와 confidence 추이를 함께 봐야 합니다.",
+  };
+  const criticalReasons = [];
+  if ((String(gate.overall_status || "").toUpperCase() || "WAIT") === "BLOCK") {
+    criticalReasons.push(
+      gateDecision.reason_summary
+        ? `BUY GATE is BLOCK. ${gateDecision.reason_summary}`
+        : "BUY GATE is BLOCK, so observation is prioritized over new entries today."
+    );
+  }
+  if ((String(walkforwardStatus || "").toUpperCase() || "-") === "REJECTED") {
+    walkforwardReasons
+      .map((code) => mapWalkforwardReasonCode(code, walkforwardAcceptance))
+      .filter(Boolean)
+      .forEach((reason) => criticalReasons.push(`Walkforward REJECTED: ${reason}`));
+  }
+  if ((String(readiness60 || "").toUpperCase() || "WAIT") !== "READY") {
+    criticalReasons.push(
+      Number.isFinite(matured60) && matured60 > 0
+        ? `60일 성숙 표본 ${matured60}개가 있지만 calibration readiness는 아직 ${readiness60 || "WAIT"}입니다.`
+        : "60일 성숙 표본이 아직 없어 calibration readiness를 READY로 볼 수 없습니다."
+    );
+  }
+  alertMetrics
+    .slice(0, 3)
+    .map((item) => formatOpsMetricReason(item))
+    .filter(Boolean)
+    .forEach((reason) => criticalReasons.push(`KPI ALERT: ${reason}`));
+  if (watchMetrics.length && criticalReasons.length < 6) {
+    const watchReason = formatOpsMetricReason(watchMetrics[0]);
+    if (watchReason) criticalReasons.push(`KPI WATCH: ${watchReason}`);
+  }
+
+
+  const gateAsOfDate = isIsoDateString(gate.asof_date) ? gate.asof_date : null;
+  const manualAsOfDate = isIsoDateString(manual.asof_date) ? manual.asof_date : null;
+  const effectiveAsOfDate = rankingLatestDate || gateAsOfDate || manualAsOfDate || null;
+
+  return {
+    generated_at: new Date().toISOString(),
+    asof_date: effectiveAsOfDate,
+    readiness: {
+      snapshot_count: snapshotCount,
+      matured_snapshot_count_20d: matured20,
+      matured_snapshot_count_60d: matured60,
+      matured_snapshot_count_90d: matured90,
+      oldest_snapshot_date: inventory["oldest snapshot date"] || null,
+      latest_snapshot_date: inventory["latest snapshot date"] || null,
+      confidence_calibration_readiness_60d: readiness60,
+      note: inventory.note || null,
+    },
+    gate: {
+      asof_date: gateAsOfDate,
+      overall_status: gate.overall_status || null,
+      primary_bucket: gate.primary_bucket ?? null,
+      daily_cycle_status: gate.daily_cycle_status || null,
+      reason_summary: gateDecision.reason_summary || null,
+      market_regime: gate.market_regime || gateDecision.market_regime || null,
+      market_regime_interpretation: marketRegimeInterpretation,
+      matured_benchmark_dates: maturedBenchmarkDates,
+      trusted_ratio_top20: trustedRatio,
+      walkforward_acceptance: walkforwardStatus,
+      buy_now_count: toNum(buyability.buy_now_count),
+      watchlist_count: toNum(buyability.watchlist_count),
+      blocked_count: toNum(buyability.blocked_count),
+      paper_only_count: toNum(buyability.paper_only_count),
+    },
+    kpi: {
+      overall_status: kpiSummary.overall_status || kpi.overall_status || null,
+      latest_date: kpiSummary.latest_date || kpi.latest_date || null,
+      score_formula_version: kpiMetadata.score_formula_version || kpi.score_formula_version || null,
+      alert_metric_count: alertMetrics.length,
+      watch_metric_count: watchMetrics.length,
+      top20_mean_confidence_score: toNum(topConfidenceMetric?.value),
+      walkforward_top20_avg_return_60d: toNum(wfMetric?.value),
+      alert_metrics: alertMetrics.slice(0, 6),
+      watch_metrics: watchMetrics.slice(0, 6),
+    },
+    outputs: {
+      ranking_latest_date: rankingLatestDate,
+      ranking_row_count: latestRanking.length,
+      daily_recommendations_date: manualAsOfDate,
+      gate_asof_date: gateAsOfDate,
+      priority_candidate_count: Array.isArray(manual.priority_candidates) ? manual.priority_candidates.length : 0,
+      caution_candidate_count: Array.isArray(manual.caution_candidates) ? manual.caution_candidates.length : 0,
+      daily_cycle_status: dailyCycle.overall_status || null,
+      daily_cycle_wait_count: cycleWaitCount,
+      daily_cycle_success_count: cycleSuccessCount,
+    },
+    execution_basis: executionBasis,
+    scheduler: {
+      mode: latestScheduler.mode || null,
+      status: latestScheduler.status || null,
+      timezone: latestScheduler.timezone || null,
+      configured_daily_time: latestScheduler.configured_daily_time || null,
+      expected_daily_time: latestScheduler.expected_daily_time || null,
+      skip_catchup_on_start: latestScheduler.skip_catchup_on_start,
+      bootstrap_skip_until_date: latestScheduler.bootstrap_skip_until_date || null,
+      last_attempt_at: latestScheduler.last_attempt_at || null,
+      last_success_at: latestScheduler.last_success_at || null,
+      last_success_date: latestScheduler.last_success_date || null,
+      last_failure_at: latestScheduler.last_failure_at || null,
+      last_error: latestScheduler.last_error || null,
+      status_note: latestScheduler.status_note || null,
+      current_role: latestScheduler.role || null,
+      current_label: executionBasis.label,
+      config_warning_count: schedulerConfigWarnings.length,
+      config_warnings: schedulerConfigWarnings,
+    },
+    schedulers: {
+      primary: primaryScheduler,
+      intraday: intradayScheduler,
+    },
+    go_no_go: {
+      decision: goDecision,
+      reasons: goReasons,
+    },
+    interpretation: {
+      summary_decision: summaryDecision,
+      summary_reason: summaryReason,
+      action_guide: actionGuide,
+      critical_reasons: criticalReasons.slice(0, 6),
+      cards: cardInterpretations,
+    },
+    trends: {
+      readiness: recentReadinessTrend,
+      recent_state_badges: recentStateBadges,
+      gate: gateTrend,
+      kpi: kpiTrend,
+    },
+    transition_checklist: transitionChecklist,
+    visitor_analytics: visitorAnalytics,
+    notes: {
+      operator_memo: typeof opsNotes.operator_memo === "string" ? opsNotes.operator_memo : "",
+      last_updated_at: opsNotes.last_updated_at || null,
+      last_updated_by: opsNotes.last_updated_by || null,
+    },
+    manual: {
+      gate_status: manual.gate_status || null,
+      walkforward_acceptance_status: manual.walkforward_acceptance_status || null,
+      intraday_summary: manual.intraday_summary || null,
+      priority_candidates: manual.priority_candidates || [],
+      caution_candidates: manual.caution_candidates || [],
+      checklist: manual.checklist || [],
+    },
+    shadow: {
+      quality_risk_guard_candidates: shadowCandidates,
+      repeatability: {
+        summary: shadowRepeatability.summary || {},
+        usable_dates: Array.isArray(shadowRepeatability.usable_dates) ? shadowRepeatability.usable_dates : [],
+        top_repeaters: Array.isArray(shadowRepeatability.top_repeaters)
+          ? shadowRepeatability.top_repeaters.slice(0, 5)
+          : [],
+      },
+    },
+  };
+}
+
 async function queryRows(sql, params = []) {
   const { rows } = await pool.query(sql, params);
   return rows;
 }
 
+async function ensurePageViewSchema() {
+  if (pageViewSchemaReady) return pageViewSchemaReady;
+  pageViewSchemaReady = (async () => {
+    await queryRows(`
+      CREATE TABLE IF NOT EXISTS public.page_view_events (
+        id BIGSERIAL PRIMARY KEY,
+        visitor_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        referrer TEXT NULL,
+        user_agent TEXT NULL,
+        ip_hash TEXT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await queryRows("CREATE INDEX IF NOT EXISTS idx_page_view_events_created_at ON public.page_view_events(created_at DESC)");
+    await queryRows("CREATE INDEX IF NOT EXISTS idx_page_view_events_visitor_created_at ON public.page_view_events(visitor_id, created_at DESC)");
+    await queryRows("CREATE INDEX IF NOT EXISTS idx_page_view_events_path_created_at ON public.page_view_events(path, created_at DESC)");
+  })().catch((error) => {
+    pageViewSchemaReady = null;
+    throw error;
+  });
+  return pageViewSchemaReady;
+}
+
+async function recordPageView(req, res) {
+  if (!shouldTrackPageView(req)) return;
+  try {
+    const visitorId = ensureVisitorId(req, res);
+    await ensurePageViewSchema();
+    const pathname = String(req.path || req.originalUrl || "").split("?")[0] || "/";
+    const referrer = String(req.get("referer") || "").slice(0, 500) || null;
+    const userAgent = String(req.get("user-agent") || "").slice(0, 500) || null;
+    const ipHash = hashIp(req.ip || req.headers["x-forwarded-for"] || "");
+    await queryRows(
+      `
+      INSERT INTO public.page_view_events (visitor_id, path, referrer, user_agent, ip_hash)
+      VALUES ($1, $2, $3, $4, $5)
+      `,
+      [visitorId, pathname, referrer, userAgent, ipHash]
+    );
+  } catch (error) {
+    console.warn("recordPageView error", error.message);
+  }
+}
+
+async function buildVisitorAnalyticsSummary() {
+  try {
+    await ensurePageViewSchema();
+    const [todayRows, recentRows, trendRows, topPagesRows] = await Promise.all([
+      queryRows(
+        `
+        SELECT COUNT(*)::int AS pageviews,
+               COUNT(DISTINCT visitor_id)::int AS unique_visitors
+        FROM public.page_view_events
+        WHERE created_at >= date_trunc('day', now())
+        `
+      ),
+      queryRows(
+        `
+        SELECT COUNT(*)::int AS pageviews,
+               COUNT(DISTINCT visitor_id)::int AS unique_visitors
+        FROM public.page_view_events
+        WHERE created_at >= date_trunc('day', now()) - interval '6 day'
+        `
+      ),
+      queryRows(
+        `
+        SELECT to_char(day_bucket, 'YYYY-MM-DD') AS as_of_date,
+               pageviews,
+               unique_visitors
+        FROM (
+          SELECT date_trunc('day', created_at) AS day_bucket,
+                 COUNT(*)::int AS pageviews,
+                 COUNT(DISTINCT visitor_id)::int AS unique_visitors
+          FROM public.page_view_events
+          WHERE created_at >= date_trunc('day', now()) - interval '6 day'
+          GROUP BY 1
+        ) ranked
+        ORDER BY day_bucket ASC
+        `
+      ),
+      queryRows(
+        `
+        SELECT path,
+               COUNT(*)::int AS pageviews,
+               COUNT(DISTINCT visitor_id)::int AS unique_visitors
+        FROM public.page_view_events
+        WHERE created_at >= date_trunc('day', now()) - interval '6 day'
+        GROUP BY path
+        ORDER BY pageviews DESC, unique_visitors DESC, path ASC
+        LIMIT 5
+        `
+      ),
+    ]);
+    const today = todayRows[0] || {};
+    const recent = recentRows[0] || {};
+    return {
+      available: true,
+      today_pageviews: toNum(today.pageviews) || 0,
+      today_unique_visitors: toNum(today.unique_visitors) || 0,
+      last_7d_pageviews: toNum(recent.pageviews) || 0,
+      last_7d_unique_visitors: toNum(recent.unique_visitors) || 0,
+      trend_7d: trendRows.map((row) => ({
+        as_of_date: toIsoDate(row.as_of_date),
+        pageviews: toNum(row.pageviews) || 0,
+        unique_visitors: toNum(row.unique_visitors) || 0,
+      })),
+      top_pages_7d: topPagesRows.map((row) => ({
+        path: row.path || "/",
+        pageviews: toNum(row.pageviews) || 0,
+        unique_visitors: toNum(row.unique_visitors) || 0,
+      })),
+    };
+  } catch (error) {
+    console.warn("buildVisitorAnalyticsSummary error", error.message);
+    return {
+      available: false,
+      today_pageviews: 0,
+      today_unique_visitors: 0,
+      last_7d_pageviews: 0,
+      last_7d_unique_visitors: 0,
+      trend_7d: [],
+      top_pages_7d: [],
+      error: error.message,
+    };
+  }
+}
+
+async function readPayloadFromDb(payloadKey) {
+  if (!payloadKey) return null;
+  try {
+    const rows = await queryRows(
+      `
+      SELECT payload_json, asof_date, generated_at, source_path, updated_at
+      FROM research.app_payload_store
+      WHERE payload_key = $1
+      LIMIT 1
+      `,
+      [payloadKey]
+    );
+    return rows[0]?.payload_json || null;
+  } catch (e) {
+    console.warn("readPayloadFromDb error", payloadKey, e.message);
+    return null;
+  }
+}
+
+async function readJsonPayloadDbFirst(payloadKey, fallbackPaths = []) {
+  const dbPayload = await readPayloadFromDb(payloadKey);
+  if (dbPayload && typeof dbPayload === "object") return dbPayload;
+  for (const filePath of fallbackPaths) {
+    const value = readJson(filePath);
+    if (value && typeof value === "object") return value;
+  }
+  return {};
+}
+
+async function getLatestRankingContext() {
+  try {
+    const latestRows = await queryRows("SELECT MAX(date) AS latest_date FROM daily_ranking");
+    const rankingLatestDate = toIsoDate(latestRows[0]?.latest_date);
+    if (!rankingLatestDate) {
+      throw new Error("daily_ranking latest date missing");
+    }
+    const rankingRows = await queryRows(
+      `
+      SELECT *
+      FROM daily_ranking
+      WHERE date = $1
+      ORDER BY final_score DESC NULLS LAST, code ASC
+      `,
+      [rankingLatestDate]
+    );
+    return { rankingLatestDate, rankingRows };
+  } catch (e) {
+    const rankingRows = readCsv(path.join(DATA_DIR, "ranking_final.csv")) || [];
+    const rankingDates = rankingRows
+      .map((row) => String(row.date || "").trim())
+      .filter((value) => isIsoDateString(value));
+    return {
+      rankingLatestDate: rankingDates.length ? rankingDates.sort().pop() : null,
+      rankingRows,
+    };
+  }
+}
+
+function normalizePaperRun(row) {
+  if (!row) return null;
+  return {
+    paper_run_id: toNum(row.paper_run_id),
+    run_tag: row.run_tag || null,
+    source_mode: row.source_mode || null,
+    asof_date: toIsoDate(row.asof_date),
+    hold_days: toNum(row.hold_days),
+    initial_nav: toNum(row.initial_nav),
+    entry_fee_bps: toNum(row.entry_fee_bps),
+    exit_fee_bps: toNum(row.exit_fee_bps),
+    entry_slippage_bps: toNum(row.entry_slippage_bps),
+    exit_slippage_bps: toNum(row.exit_slippage_bps),
+    positions_row_count: toNum(row.positions_row_count),
+    nav_row_count: toNum(row.nav_row_count),
+    source_positions_csv: row.source_positions_csv || null,
+    source_nav_csv: row.source_nav_csv || null,
+    source_report_md: row.source_report_md || null,
+    comment: row.comment || null,
+    created_at: row.created_at || null,
+    updated_at: row.updated_at || null,
+  };
+}
+
 async function getLatestDate(table) {
   const rows = await queryRows(`SELECT MAX(date) AS d FROM ${table}`);
   return rows[0]?.d || null;
+}
+
+async function getLatestPaperTradingRun() {
+  const rows = await queryRows(
+    `
+    SELECT *
+    FROM research.paper_trading_run
+    ORDER BY asof_date DESC NULLS LAST, paper_run_id DESC
+    LIMIT 1
+    `
+  );
+  return rows[0] || null;
+}
+
+async function getPaperTradingRunById(paperRunId) {
+  if (!Number.isFinite(paperRunId) || paperRunId <= 0) return null;
+  const rows = await queryRows(
+    `
+    SELECT *
+    FROM research.paper_trading_run
+    WHERE paper_run_id = $1
+    LIMIT 1
+    `,
+    [paperRunId]
+  );
+  return rows[0] || null;
 }
 
 // ---------------------
@@ -214,7 +1967,7 @@ async function getRanking(targetDate) {
     const date = targetDate || (await getLatestDate("daily_ranking"));
     if (!date) return null;
     const rows = await queryRows(
-      "SELECT * FROM daily_ranking WHERE date = $1 ORDER BY final_score DESC NULLS LAST",
+      "SELECT * FROM daily_ranking WHERE date = $1 ORDER BY COALESCE(live_score, final_score) DESC NULLS LAST",
       [date]
     );
     return { date, rows };
@@ -239,12 +1992,52 @@ async function getRankingLatestByCode() {
 
 async function getFeatureStatsForCodes(codes) {
   if (!codes || !codes.length) return { latestClose: new Map(), ret3m: new Map() };
-  const feats = await getFeatures("WHERE code = ANY($1) ORDER BY code, date", [codes]);
   const latestClose = new Map();
   const ret3m = new Map();
 
+  try {
+    const rows = await queryRows(
+      `
+      WITH ranked AS (
+        SELECT
+          code,
+          close,
+          ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
+        FROM features
+        WHERE code = ANY($1)
+      )
+      SELECT
+        code,
+        MAX(CASE WHEN rn = 1 THEN close END) AS latest_close,
+        MAX(CASE WHEN rn = 60 THEN close END) AS close_60
+      FROM ranked
+      WHERE rn IN (1, 60)
+      GROUP BY code
+      `,
+      [codes]
+    );
+
+    for (const row of rows) {
+      const code = row.code;
+      const lastClose = toNum(row.latest_close);
+      const prevClose = toNum(row.close_60);
+      if (code) latestClose.set(code, lastClose);
+      if (Number.isFinite(prevClose) && Number.isFinite(lastClose) && prevClose !== 0) {
+        ret3m.set(code, lastClose / prevClose - 1);
+      } else if (code) {
+        ret3m.set(code, null);
+      }
+    }
+    return { latestClose, ret3m };
+  } catch (e) {
+    console.warn("[feature-stats] DB load fail:", e.message);
+  }
+
+  const feats = readCsv(path.join(DATA_DIR, "features.csv")) || [];
+  const codeSet = new Set(codes);
   let current = null;
   let buffer = [];
+
   const flush = () => {
     if (!buffer.length || !current) return;
     const last = buffer[buffer.length - 1];
@@ -258,14 +2051,18 @@ async function getFeatureStatsForCodes(codes) {
       } else {
         ret3m.set(current, null);
       }
+    } else {
+      ret3m.set(current, null);
     }
     buffer = [];
   };
 
   for (const row of feats) {
-    if (current !== row.code) {
+    const code = row.code;
+    if (!codeSet.has(code)) continue;
+    if (current !== code) {
       flush();
-      current = row.code;
+      current = code;
     }
     buffer.push(row);
   }
@@ -296,6 +2093,17 @@ async function ensureTradesTable() {
     );
     CREATE INDEX IF NOT EXISTS idx_trades_code_date ON trades(code, date);
     CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(date);
+
+    CREATE TABLE IF NOT EXISTS trade_audit_log (
+      audit_id      BIGSERIAL PRIMARY KEY,
+      trade_id      BIGINT,
+      action        TEXT NOT NULL,
+      trade_snapshot JSONB NOT NULL,
+      actor         TEXT,
+      reason        TEXT,
+      created_at    TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_trade_audit_trade_id_created ON trade_audit_log(trade_id, created_at DESC);
     `
   );
 }
@@ -349,6 +2157,59 @@ async function insertTrade(payload) {
   return rows[0];
 }
 
+function buildTradeAuditSnapshot(trade) {
+  return {
+    trade_id: trade.trade_id ?? null,
+    date: trade.date ?? null,
+    side: trade.side ?? null,
+    code: trade.code ?? null,
+    name: trade.name ?? null,
+    market: trade.market ?? null,
+    sector: trade.sector ?? null,
+    qty: trade.qty ?? null,
+    price: trade.price ?? null,
+    amount: trade.amount ?? null,
+    fee: trade.fee ?? null,
+    memo: trade.memo ?? null,
+    created_at: trade.created_at ?? null,
+  };
+}
+
+async function insertTradeAuditLog({ tradeId = null, action, tradeSnapshot, actor = null, reason = null }) {
+  await ensureTradesTable();
+  await pool.query(
+    `
+    INSERT INTO trade_audit_log (trade_id, action, trade_snapshot, actor, reason)
+    VALUES ($1, $2, $3::jsonb, $4, $5)
+    `,
+    [
+      tradeId,
+      action,
+      JSON.stringify(tradeSnapshot || {}),
+      actor,
+      reason,
+    ]
+  );
+}
+
+async function getTradeById(tradeId) {
+  await ensureTradesTable();
+  const rows = await queryRows(
+    "SELECT * FROM trades WHERE trade_id = $1 LIMIT 1",
+    [tradeId]
+  );
+  return rows.length ? rows[0] : null;
+}
+
+async function deleteTradeById(tradeId) {
+  await ensureTradesTable();
+  const { rowCount } = await pool.query(
+    "DELETE FROM trades WHERE trade_id = $1",
+    [tradeId]
+  );
+  return rowCount > 0;
+}
+
 // ---------------------
 // Holdings helper
 // ---------------------
@@ -399,17 +2260,195 @@ function computePositions(trades) {
 function buildHoldings(trades, latestRankByCode) {
   const stateByCode = computePositions(trades);
   const holdings = [];
+  const tradeMetaByCode = new Map();
+  const classifyHoldingReview = ({
+    holdingDays,
+    unrealizedPct,
+    finalScore,
+    scoreDelta,
+    retScore,
+    probScore,
+    riskPenalty,
+    confidenceScore,
+    currentPrice,
+    latestRankDate,
+  }) => {
+    const reasons = [];
+    const pushUniqueReason = (code) => {
+      if (!code || reasons.includes(code)) return;
+      reasons.push(code);
+    };
+    const inGracePeriod = Number.isFinite(holdingDays) && holdingDays <= 3;
+    const setReview = (reason) => {
+      if (priority < 2) {
+        status = "REVIEW";
+        label = "점검필요";
+        priority = 2;
+      }
+      pushUniqueReason(reason);
+    };
+    let status = "KEEP";
+    let label = "계속보유";
+    let priority = 1;
+
+    if (!Number.isFinite(currentPrice) || !latestRankDate) {
+      setReview("latest_price_missing");
+    }
+
+    if (Number.isFinite(unrealizedPct) && unrealizedPct <= -8) {
+      status = "EXIT_REVIEW";
+      label = "매도검토";
+      priority = 3;
+      pushUniqueReason("loss_below_minus_8pct");
+    }
+
+    if (!inGracePeriod && Number.isFinite(finalScore) && finalScore < 45) {
+      status = "EXIT_REVIEW";
+      label = "매도검토";
+      priority = 3;
+      pushUniqueReason("final_score_weak");
+    }
+
+    if (!inGracePeriod && Number.isFinite(scoreDelta) && scoreDelta <= -5) {
+      setReview("score_delta_down");
+    }
+
+    if (!inGracePeriod && Number.isFinite(retScore) && retScore < 55) {
+      setReview("ret_score_weak");
+    }
+
+    if (!inGracePeriod && Number.isFinite(probScore) && probScore < 55) {
+      setReview("prob_score_weak");
+    }
+
+    if (!inGracePeriod && Number.isFinite(confidenceScore) && confidenceScore < 70) {
+      setReview("confidence_low");
+    }
+
+    if (!inGracePeriod && Number.isFinite(riskPenalty) && riskPenalty >= 3) {
+      setReview("risk_penalty_high");
+    }
+
+    if (Number.isFinite(holdingDays) && holdingDays >= 20 && priority < 3) {
+      setReview("hold_day_20_reached");
+    }
+
+    if (Number.isFinite(unrealizedPct) && unrealizedPct >= 15 && priority < 3) {
+      setReview("profit_above_15pct");
+    }
+
+    if (inGracePeriod && priority < 2) {
+      pushUniqueReason("new_position");
+    }
+
+    if (!reasons.length) {
+      pushUniqueReason("holding_support_maintained");
+    }
+
+    let sellPriorityScore = 22;
+    if (status === "REVIEW") sellPriorityScore = 58;
+    if (status === "EXIT_REVIEW") sellPriorityScore = 82;
+    if (Number.isFinite(holdingDays) && holdingDays >= 20) sellPriorityScore += 8;
+    if (Number.isFinite(unrealizedPct) && unrealizedPct >= 15) sellPriorityScore += 6;
+    if (Number.isFinite(unrealizedPct) && unrealizedPct <= -8) sellPriorityScore += 10;
+    if (!inGracePeriod && Number.isFinite(finalScore) && finalScore < 45) sellPriorityScore += 10;
+    if (!Number.isFinite(currentPrice) || !latestRankDate) sellPriorityScore += 6;
+    if (!inGracePeriod && Number.isFinite(confidenceScore) && confidenceScore < 70) sellPriorityScore += 5;
+    if (!inGracePeriod && Number.isFinite(retScore) && retScore < 55) sellPriorityScore += 4;
+    if (!inGracePeriod && Number.isFinite(probScore) && probScore < 55) sellPriorityScore += 4;
+    if (!inGracePeriod && Number.isFinite(riskPenalty) && riskPenalty >= 3) sellPriorityScore += 4;
+    if (!inGracePeriod && Number.isFinite(scoreDelta) && scoreDelta <= -5) sellPriorityScore += 4;
+    sellPriorityScore = Math.max(0, Math.min(99, sellPriorityScore));
+
+    const hasReason = (code) => reasons.includes(code);
+    let actionNote = "보유 근거가 유지되고 있습니다. 비중 확대보다 현재 보유 논리가 살아있는지 확인하는 것이 우선입니다.";
+    if (status === "EXIT_REVIEW") {
+      if (hasReason("loss_below_minus_8pct")) {
+        actionNote = "손실 관리 기준을 이탈했습니다. 추가 보유 전에 매수 근거를 다시 점검해야 합니다.";
+      } else if (hasReason("final_score_weak")) {
+        actionNote = "종합 점수가 크게 약화되었습니다. 계속 보유보다 매도 검토 우선순위가 높습니다.";
+      } else {
+        actionNote = "리스크 신호가 겹쳤습니다. 이 포지션에 자금을 계속 둘지 다시 판단해야 합니다.";
+      }
+    } else if (status === "REVIEW") {
+      if (hasReason("profit_above_15pct")) {
+        actionNote = "수익 구간 점검 대상입니다. 추가 매수보다 이익 보호 여부를 먼저 검토합니다.";
+      } else if (hasReason("hold_day_20_reached")) {
+        actionNote = "보유 20일 점검 시점입니다. ret/prob/confidence 지지가 유지되는지 다시 확인합니다.";
+      } else if (hasReason("confidence_low") || hasReason("ret_score_weak") || hasReason("prob_score_weak")) {
+        actionNote = "지지 점수가 약해졌습니다. 다른 행동보다 보유 근거 재확인이 우선입니다.";
+      } else if (hasReason("risk_penalty_high")) {
+        actionNote = "리스크 패널티가 높습니다. 비중 확대 전에 변동성 확대 여부를 먼저 봐야 합니다.";
+      } else {
+        actionNote = "관찰 구간입니다. 새 행동에 앞서 현재 보유 근거를 다시 확인합니다.";
+      }
+    } else if (hasReason("new_position")) {
+      actionNote = "신규 포지션 유예 구간입니다. 초기 진입 근거가 안정될 때까지 추가 매수는 보수적으로 봅니다.";
+    }
+
+    return {
+      system_review_status: status,
+      system_review_label: label,
+      system_review_priority: priority,
+      sell_priority_score: sellPriorityScore,
+      system_review_reasons: reasons,
+      system_action_note: actionNote,
+    };
+  };
+  const sortedTrades = [...trades].sort((a, b) => {
+    const da = toIsoDate(a.date || "");
+    const db = toIsoDate(b.date || "");
+    if (da !== db) return da < db ? -1 : 1;
+    return (Number(a.trade_id) || 0) - (Number(b.trade_id) || 0);
+  });
+
+  for (const trade of sortedTrades) {
+    const code = String(trade.code || "").trim();
+    if (!code) continue;
+
+    const side = String(trade.side || "").toUpperCase();
+    const tradeDate = toIsoDate(trade.date || "");
+    if (!tradeMetaByCode.has(code)) {
+      tradeMetaByCode.set(code, {
+        firstBuyDate: null,
+        lastBuyDate: null,
+        lastTradeDate: null,
+        buyCount: 0,
+      });
+    }
+    const meta = tradeMetaByCode.get(code);
+
+    if (tradeDate) {
+      if (!meta.lastTradeDate || tradeDate > meta.lastTradeDate) {
+        meta.lastTradeDate = tradeDate;
+      }
+    }
+
+    if (side === "BUY") {
+      meta.buyCount += 1;
+      if (tradeDate) {
+        if (!meta.firstBuyDate || tradeDate < meta.firstBuyDate) {
+          meta.firstBuyDate = tradeDate;
+        }
+        if (!meta.lastBuyDate || tradeDate > meta.lastBuyDate) {
+          meta.lastBuyDate = tradeDate;
+        }
+      }
+    }
+  }
 
   for (const [code, st] of stateByCode.entries()) {
     const qty = st.qty;
     if (qty <= 0) continue;
 
     const rankRow = latestRankByCode.get(code) || {};
+    const tradeMeta = tradeMetaByCode.get(code) || {};
     const name = rankRow.name || getName(code) || code;
     const market = rankRow.market || getMarket(code) || null;
     const sector = rankRow.sector || getSector(code) || null;
     const currentPrice = toNum(rankRow.close);
     const currentValue = Number.isFinite(currentPrice) ? currentPrice * qty : null;
+    const latestRankDate = toIsoDate(rankRow.date || "") || null;
 
     const avgBuyPrice = st.avgPrice > 0 ? st.avgPrice : null;
     const costBasis = avgBuyPrice && qty ? avgBuyPrice * qty : null;
@@ -438,6 +2477,38 @@ function buildHoldings(trades, latestRankByCode) {
     }
 
     const realizedPct = st.totalBuy > 0 ? (st.realizedAcc / st.totalBuy) * 100 : null;
+    let holdingDays = null;
+    if (tradeMeta.firstBuyDate && latestRankDate) {
+      const start = new Date(`${tradeMeta.firstBuyDate}T00:00:00Z`);
+      const end = new Date(`${latestRankDate}T00:00:00Z`);
+      if (Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && end >= start) {
+        holdingDays = Math.floor((end - start) / 86400000) + 1;
+      }
+    }
+    const finalScore = getLiveScore(rankRow);
+    const scoreDelta =
+      toNum(rankRow.score_delta) ??
+      toNum(rankRow.final_score_delta) ??
+      null;
+    const retScore = toNum(rankRow.ret_score);
+    const probScore = toNum(rankRow.prob_score);
+    const riskPenalty = toNum(rankRow.risk_penalty);
+    const confidenceScore =
+      toNum(rankRow.confidence_score) ??
+      toNum(rankRow.raw_confidence_v2) ??
+      toNum(rankRow.confidence_score_operational);
+    const reviewMeta = classifyHoldingReview({
+      holdingDays,
+      unrealizedPct,
+      finalScore,
+      scoreDelta,
+      retScore,
+      probScore,
+      riskPenalty,
+      confidenceScore,
+      currentPrice,
+      latestRankDate,
+    });
 
     holdings.push({
       code,
@@ -453,14 +2524,57 @@ function buildHoldings(trades, latestRankByCode) {
       realized_pnl_pct: realizedPct,
       unrealized_pnl: unrealized,
       unrealized_pnl_pct: unrealizedPct,
-      final_score: rankRow.final_score || rankRow.score || null,
+      final_score: finalScore,
+      score_delta: scoreDelta,
+      ret_score: retScore,
+      prob_score: probScore,
+      risk_penalty: riskPenalty,
+      confidence_score: confidenceScore,
       target_price: targetPrice,
       progress_to_target: progressToTarget,
       target_hit: targetHit,
+      first_buy_date: tradeMeta.firstBuyDate || null,
+      last_buy_date: tradeMeta.lastBuyDate || null,
+      last_trade_date: tradeMeta.lastTradeDate || null,
+      holding_days: holdingDays,
+      buy_count: tradeMeta.buyCount || 0,
+      latest_rank_date: latestRankDate,
+      live_score_source: getLiveScoreSource(rankRow),
+      ...reviewMeta,
     });
   }
 
-  holdings.sort((a, b) => a.code.localeCompare(b.code));
+  holdings.sort((a, b) => {
+    const spa = Number(a.sell_priority_score);
+    const spb = Number(b.sell_priority_score);
+    const hasSpa = Number.isFinite(spa);
+    const hasSpb = Number.isFinite(spb);
+    if (hasSpa || hasSpb) {
+      if (!hasSpa) return 1;
+      if (!hasSpb) return -1;
+      if (spb !== spa) return spb - spa;
+    }
+
+    const pa = Number(a.system_review_priority) || 0;
+    const pb = Number(b.system_review_priority) || 0;
+    if (pb !== pa) return pb - pa;
+
+    const la = toNum(a.unrealized_pnl_pct);
+    const lb = toNum(b.unrealized_pnl_pct);
+    const hasLa = Number.isFinite(la);
+    const hasLb = Number.isFinite(lb);
+    if (hasLa || hasLb) {
+      if (!hasLa) return 1;
+      if (!hasLb) return -1;
+      if (la !== lb) return la - lb;
+    }
+
+    const ua = Math.abs(toNum(a.unrealized_pnl_pct) || 0);
+    const ub = Math.abs(toNum(b.unrealized_pnl_pct) || 0);
+    if (ub !== ua) return ub - ua;
+
+    return a.code.localeCompare(b.code);
+  });
 
   return holdings;
 }
@@ -470,7 +2584,68 @@ function buildHoldings(trades, latestRankByCode) {
 // ---------------------
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
+app.use((req, res, next) => {
+  void recordPageView(req, res);
+  next();
+});
+const PUBLIC_DIR = path.join(__dirname, "public");
+
+function sendPublicPage(res, fileName) {
+  return res.sendFile(path.join(PUBLIC_DIR, fileName));
+}
+
+app.get("/operator-login", (req, res) => sendPublicPage(res, "operator-login.html"));
+app.get("/ops-readiness.html", operatorAccess.pageGuard, (req, res) => sendPublicPage(res, "ops-readiness.html"));
+app.get("/holdings.html", (req, res) => sendPublicPage(res, "holdings.html"));
+app.get("/trade-history.html", (req, res) => sendPublicPage(res, "trade-history.html"));
+
+app.get("/", (req, res) => sendPublicPage(res, "landing.html"));
+app.get("/app", (req, res) => sendPublicPage(res, "index.html"));
+app.get("/about", (req, res) => sendPublicPage(res, "about.html"));
+app.get("/methodology", (req, res) => sendPublicPage(res, "methodology.html"));
+app.get("/contact", (req, res) => sendPublicPage(res, "contact.html"));
+app.get("/privacy", (req, res) => sendPublicPage(res, "privacy.html"));
+app.get("/terms", (req, res) => sendPublicPage(res, "terms.html"));
+app.get("/disclaimer", (req, res) => sendPublicPage(res, "disclaimer.html"));
+app.get("/reports", (req, res) => sendPublicPage(res, "content-list.html"));
+app.get("/blog", (req, res) => sendPublicPage(res, "content-list.html"));
+app.get("/robots.txt", (req, res) => {
+  res.type("text/plain").send(`User-agent: *\nAllow: /\n\nSitemap: ${buildAbsoluteUrl("/sitemap.xml")}\n`);
+});
+app.get("/sitemap.xml", (req, res) => {
+  const items = readSiteLibrary();
+  const urls = [
+    "/",
+    "/about",
+    "/methodology",
+    "/contact",
+    "/privacy",
+    "/terms",
+    "/disclaimer",
+    "/reports",
+    "/blog",
+    ...items.map((item) => `/${item.section === "report" ? "reports" : "blog"}/${item.slug}`),
+  ];
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((url) => `  <url>\n    <loc>${escapeHtml(buildAbsoluteUrl(url))}</loc>\n  </url>`).join("\n")}\n</urlset>\n`;
+  res.type("application/xml").send(xml);
+});
+app.get("/api/site-library", (req, res) => {
+  res.json({ items: readSiteLibrary() });
+});
+app.get("/api/operator-auth/status", operatorAccess.status);
+app.post("/api/operator-auth/login", operatorAccess.login);
+app.post("/api/operator-auth/logout", operatorAccess.logout);
+app.get("/reports/:slug", (req, res) => {
+  const item = readSiteLibrary().find((entry) => entry.section === "report" && entry.slug === req.params.slug);
+  if (!item) return res.status(404).sendFile(path.join(PUBLIC_DIR, "content-detail.html"));
+  return res.type("html").send(renderArticlePage(item, "reports"));
+});
+app.get("/blog/:slug", (req, res) => {
+  const item = readSiteLibrary().find((entry) => entry.section === "blog" && entry.slug === req.params.slug);
+  if (!item) return res.status(404).sendFile(path.join(PUBLIC_DIR, "content-detail.html"));
+  return res.type("html").send(renderArticlePage(item, "blog"));
+});
+app.use(express.static(PUBLIC_DIR));
 
 // Admin page/API (protected by adminAuth; allow if ADMIN_TOKEN unset)
 try {
@@ -487,6 +2662,84 @@ try {
 app.get("/api/health", (req, res) => {
   const demo = fs.existsSync(path.join(DATA_DIR, ".demo"));
   res.json({ status: "ok", message: "API running", demo });
+});
+
+app.get("/api/confidence-calibration", (req, res) => {
+  try {
+    const filePath = path.join(DATA_DIR, "confidence_calibration_map.json");
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "confidence calibration not found" });
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const normalized = raw.replace(/\bNaN\b/g, "null").replace(/\b-Infinity\b/g, "null").replace(/\bInfinity\b/g, "null");
+    res.type("application/json").send(normalized);
+  } catch (e) {
+    console.error("GET /api/confidence-calibration error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.post("/api/ops-readiness/notes", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    const memo = typeof req.body?.operator_memo === "string" ? req.body.operator_memo.trim() : "";
+    const updatedBy = typeof req.body?.updated_by === "string" ? req.body.updated_by.trim() : "";
+    const payload = {
+      operator_memo: memo,
+      last_updated_at: new Date().toISOString(),
+      last_updated_by: updatedBy || "local_operator",
+    };
+    const outPath = path.join(OUTPUTS_DIR, "ops_operator_notes.json");
+    const ok = writeJson(outPath, payload);
+    if (!ok) return res.status(500).json({ error: "failed to save notes" });
+    await queryRows(
+      `
+      INSERT INTO research.app_payload_store
+        (payload_key, payload_json, asof_date, generated_at, source_path, updated_at)
+      VALUES
+        ($1, $2::jsonb, NULL, $3, $4, now())
+      ON CONFLICT (payload_key) DO UPDATE
+      SET payload_json = EXCLUDED.payload_json,
+          generated_at = EXCLUDED.generated_at,
+          source_path = EXCLUDED.source_path,
+          updated_at = now()
+      `,
+      ["ops_operator_notes", JSON.stringify(payload), payload.last_updated_at, outPath]
+    );
+    res.json({ ok: true, notes: payload });
+  } catch (e) {
+    console.error("POST /api/ops-readiness/notes error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/score-kpi-monitor", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("score_kpi_monitor", [
+      path.join(DATA_DIR, "score_kpi_monitor.json"),
+      path.join(OUTPUTS_DIR, "score_kpi_monitor.json"),
+    ]);
+    if (!payload || !Object.keys(payload).length) {
+      return res.status(404).json({ error: "score kpi monitor not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/score-kpi-monitor error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/top20-meaningfulness", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("top20_meaningfulness_report", [
+      path.join(DATA_DIR, "top20_meaningfulness_report.json"),
+      path.join(OUTPUTS_DIR, "top20_meaningfulness_report.json"),
+    ]);
+    if (!payload || !Object.keys(payload).length) {
+      return res.status(404).json({ error: "top20 meaningfulness report not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/top20-meaningfulness error", e);
+    res.status(500).json({ error: "internal error" });
+  }
 });
 
 // Market status
@@ -583,7 +2836,6 @@ app.get("/api/stocks", async (req, res) => {
         ret_3m: ret3mMap.get(code) ?? null,
         pred_return_60d: toNum(r.pred_return_60d),
         pred_return_90d: r.pred_return_90d !== undefined && r.pred_return_90d !== "" ? toNum(r.pred_return_90d) : null,
-        score: r.score !== undefined && r.score !== "" ? toNum(r.score) : null,
       };
     });
 
@@ -636,12 +2888,18 @@ app.get("/api/stocks/:code", async (req, res) => {
         [code]
       )
     )[0];
+    const dailyRecommendation = await getDailyRecommendationItem(code);
+    const buyEligibility = dailyRecommendation?.buy_eligibility || {};
+    const selection = dailyRecommendation?.selection || {};
 
     res.json({
       code,
       name: getName(code),
+      market: rank ? (rank.market || getMarket(code) || null) : (getMarket(code) || null),
+      sector: rank ? (rank.sector || getSector(code) || null) : (getSector(code) || null),
       count: rows.length,
       latest,
+      volatility_20: latest ? toNum(latest.vol_20) : null,
       pred_return_60d: pred ? toNum(pred.pred_return_60d) : null,
       pred_return_90d: pred ? toNum(pred.pred_return_90d) : null,
       ret_score: rank ? toNum(rank.ret_score) : null,
@@ -651,9 +2909,47 @@ app.get("/api/stocks/:code", async (req, res) => {
       pred_score: rank ? toNum(rank.pred_score) : null,
       risk_penalty: rank ? toNum(rank.risk_penalty) : null,
       pred_mdd_60d: rank ? toNum(rank.pred_mdd_60d) : null,
+      pred_mdd_90d: rank ? toNum(rank.pred_mdd_90d) : null,
+      pred_mdd_mix: rank ? toNum(rank.pred_mdd_mix) : null,
       prob_top20_60d: rank ? toNum(rank.prob_top20_60d) : null,
       prob_top20_90d: rank ? toNum(rank.prob_top20_90d) : null,
+      regime: rank ? (rank.regime || null) : null,
+      live_rank: rank ? getLiveRank(rank) : null,
+      live_score: rank ? getLiveScore(rank) : null,
+      live_score_source: rank ? getLiveScoreSource(rank) : null,
       final_score_rank: rank ? toNum(rank.final_score) : null,
+      final_score_raw: rank ? toNum(rank.final_score_raw) : null,
+      shadow_quality_risk_guard_score: rank ? getQualityRiskGuardShadowScore(rank) : null,
+      shadow_quality_risk_guard_rank: rank ? getQualityRiskGuardShadowRank(rank) : null,
+      shadow_quality_risk_guard_penalty: rank ? getQualityRiskGuardPenalty(rank) : null,
+      shadow_quality_risk_guard_rank_delta:
+        rank && Number.isFinite(getLiveRank(rank)) && Number.isFinite(getQualityRiskGuardShadowRank(rank))
+          ? getLiveRank(rank) - getQualityRiskGuardShadowRank(rank)
+          : null,
+      confidence_score: rank ? toNum(rank.confidence_score) : null,
+      confidence_grade: rank ? (rank.confidence_grade || null) : null,
+      explain_text: rank ? (rank.explain_text || null) : null,
+      confidence_explain_text: rank ? (rank.confidence_explain_text || null) : null,
+      contrib_ret: rank ? toNum(rank.contrib_ret) : null,
+      contrib_prob: rank ? toNum(rank.contrib_prob) : null,
+      contrib_qual: rank ? toNum(rank.contrib_qual) : null,
+      contrib_tech: rank ? toNum(rank.contrib_tech) : null,
+      contrib_safety: rank ? toNum(rank.contrib_safety) : null,
+      contrib_liquidity: rank ? toNum(rank.contrib_liquidity) : null,
+      contrib_penalty: rank ? toNum(rank.contrib_penalty) : null,
+      top_positive_factor: rank ? (rank.top_positive_factor || null) : null,
+      top_positive_value: rank ? toNum(rank.top_positive_value) : null,
+      top_negative_factor: rank ? (rank.top_negative_factor || null) : null,
+      top_negative_value: rank ? toNum(rank.top_negative_value) : null,
+      buy_eligibility_status: buyEligibility.status || null,
+      buy_eligibility_score: toNum(buyEligibility.score),
+      buy_eligibility_hard_block_reasons: translateBuyEligibilityReasons(buyEligibility.hard_block_reasons),
+      buy_eligibility_caution_reasons: translateBuyEligibilityReasons(buyEligibility.caution_reasons),
+      buyability_status: selection.buyability_status || null,
+      buyability_watchlist_tier: selection.buyability_watchlist_tier || null,
+      buyability_expected_action: selection.buyability_expected_action || null,
+      buyability_blocking_reasons: Array.isArray(selection.buyability_blocking_reasons) ? selection.buyability_blocking_reasons : [],
+      buyability_supporting_reasons: Array.isArray(selection.buyability_supporting_reasons) ? selection.buyability_supporting_reasons : [],
       rows,
     });
   } catch (e) {
@@ -699,13 +2995,70 @@ app.get("/api/ranking", async (req, res) => {
         risk_penalty: toNum(r.risk_penalty),
         prob_top20_60d: toNum(r.prob_top20_60d),
         prob_top20_90d: toNum(r.prob_top20_90d),
-        score: toNum(r.final_score ?? r.score),
+        score: getLiveScore(r),
+        live_score: getLiveScore(r),
+        live_rank: getLiveRank(r),
+        live_score_source: getLiveScoreSource(r),
+        live_score: getLiveScore(r),
         final_score: toNum(r.final_score),
+        shadow_quality_risk_guard_score: getQualityRiskGuardShadowScore(r),
+        shadow_quality_risk_guard_rank: getQualityRiskGuardShadowRank(r),
+        shadow_quality_risk_guard_penalty: getQualityRiskGuardPenalty(r),
+        shadow_quality_risk_guard_rank_delta:
+          Number.isFinite(getLiveRank(r)) && Number.isFinite(getQualityRiskGuardShadowRank(r))
+            ? getLiveRank(r) - getQualityRiskGuardShadowRank(r)
+            : null,
+        final_score_raw: toNum(r.final_score_raw),
         tech_score: toNum(r.tech_score),
         qual_score: toNum(r.qual_score),
         ret_score: toNum(r.ret_score),
         prob_score: toNum(r.prob_score),
         pred_score: toNum(r.pred_score),
+        safety_score: toNum(r.safety_score),
+        liquidity_score: toNum(r.liquidity_score),
+        confidence_score: toNum(r.confidence_score),
+        confidence_label: r.confidence_label || null,
+        confidence_grade: r.confidence_grade || null,
+        confidence_reason: r.confidence_reason || null,
+        explain_text: r.explain_text || null,
+        confidence_explain_text: r.confidence_explain_text || null,
+        score_explain_summary: r.score_explain_summary || null,
+        score_explain_strengths: r.score_explain_strengths || null,
+        score_explain_risks: r.score_explain_risks || null,
+        score_explain_confidence: r.score_explain_confidence || null,
+        score_explain_regime: r.score_explain_regime || null,
+        score_driver_1: r.score_driver_1 || null,
+        score_driver_2: r.score_driver_2 || null,
+        score_driver_3: r.score_driver_3 || null,
+        score_drag_1: r.score_drag_1 || null,
+        score_drag_2: r.score_drag_2 || null,
+        top_driver_1: r.top_driver_1 || null,
+        top_driver_2: r.top_driver_2 || null,
+        top_driver_3: r.top_driver_3 || null,
+        risk_factor_1: r.risk_factor_1 || null,
+        risk_factor_2: r.risk_factor_2 || null,
+        action_note: r.action_note || null,
+        regime: r.regime || null,
+        regime_reason: r.regime_reason || null,
+        weight_profile: r.weight_profile || null,
+        contrib_ret: toNum(r.contrib_ret),
+        contrib_prob: toNum(r.contrib_prob),
+        contrib_qual: toNum(r.contrib_qual),
+        contrib_tech: toNum(r.contrib_tech),
+        contrib_safety: toNum(r.contrib_safety),
+        contrib_liquidity: toNum(r.contrib_liquidity),
+        contrib_penalty: toNum(r.contrib_penalty),
+        score_contribution_ret: toNum(r.score_contribution_ret),
+        score_contribution_prob: toNum(r.score_contribution_prob),
+        score_contribution_tech: toNum(r.score_contribution_tech),
+        score_contribution_qual: toNum(r.score_contribution_qual),
+        score_contribution_safety: toNum(r.score_contribution_safety),
+        score_contribution_liquidity: toNum(r.score_contribution_liquidity),
+        score_contribution_risk: toNum(r.score_contribution_risk),
+        top_positive_factor: r.top_positive_factor || null,
+        top_positive_value: toNum(r.top_positive_value),
+        top_negative_factor: r.top_negative_factor || null,
+        top_negative_value: toNum(r.top_negative_value),
         market_up: marketUp,
         market_status_date: r.market_status_date || null,
         market_kospi_close: toNum(r.market_kospi_close),
@@ -723,8 +3076,8 @@ app.get("/api/ranking", async (req, res) => {
     }
 
     data.sort((a, b) => {
-      const af = Number.isFinite(+a.final_score) ? +a.final_score : -Infinity;
-      const bf = Number.isFinite(+b.final_score) ? +b.final_score : -Infinity;
+      const af = Number.isFinite(+a.live_score) ? +a.live_score : -Infinity;
+      const bf = Number.isFinite(+b.live_score) ? +b.live_score : -Infinity;
       return bf - af;
     });
 
@@ -748,8 +3101,8 @@ app.get("/api/top20", async (req, res) => {
       .slice()
       .sort(
         (a, b) =>
-          (Number.isFinite(+b.final_score) ? +b.final_score : -Infinity) -
-          (Number.isFinite(+a.final_score) ? +a.final_score : -Infinity)
+          (Number.isFinite(+getLiveScore(b)) ? +getLiveScore(b) : -Infinity) -
+          (Number.isFinite(+getLiveScore(a)) ? +getLiveScore(a) : -Infinity)
       )
       .slice(0, 20);
 
@@ -789,7 +3142,7 @@ app.get("/api/top20", async (req, res) => {
       const retScore = toNum(r.ret_score);
       const probScore = toNum(r.prob_score);
       const riskPenalty = toNum(r.risk_penalty);
-      const finalScore = toNum(r.final_score ?? r.score);
+      const finalScore = getLiveScore(r);
 
       const summary_ko = [
         `(${idx + 1}) ${name} (${code})${sector ? ` · 섹터: ${sector}` : ""}${market ? ` · 시장: ${market}` : ""}`,
@@ -797,7 +3150,7 @@ app.get("/api/top20", async (req, res) => {
         `- 상위20% 확률: 60d ${fmtPct(prob60)}, 90d ${fmtPct(prob90)}`,
         `- 예상 MDD: 60d ${fmtPct(Math.abs(mdd60))}, 90d ${fmtPct(Math.abs(mdd90))}`,
         `- 점수: 수익 ${retScore?.toFixed?.(1) ?? "-"}, 확률 ${probScore?.toFixed?.(1) ?? "-"}, 리스크 ${riskPenalty?.toFixed?.(1) ?? "-"}`,
-        `- 최종 점수(final_score): ${Number.isFinite(finalScore) ? finalScore.toFixed(2) : "-"}`,
+        `- 실운영 점수(live_score): ${Number.isFinite(finalScore) ? finalScore.toFixed(2) : "-"}`,
       ].join("\n");
 
       return {
@@ -818,6 +3171,16 @@ app.get("/api/top20", async (req, res) => {
         prob_score: probScore,
         risk_penalty: riskPenalty,
         final_score: finalScore,
+        live_score: finalScore,
+        live_rank: getLiveRank(r),
+        live_score_source: getLiveScoreSource(r),
+        shadow_quality_risk_guard_score: getQualityRiskGuardShadowScore(r),
+        shadow_quality_risk_guard_rank: getQualityRiskGuardShadowRank(r),
+        shadow_quality_risk_guard_penalty: getQualityRiskGuardPenalty(r),
+        shadow_quality_risk_guard_rank_delta:
+          Number.isFinite(getLiveRank(r)) && Number.isFinite(getQualityRiskGuardShadowRank(r))
+            ? getLiveRank(r) - getQualityRiskGuardShadowRank(r)
+            : null,
         score: finalScore,
         summary_ko,
       };
@@ -882,7 +3245,17 @@ app.get("/api/signals/top20", async (req, res) => {
         pred_return: toNum(r[sortKey]),
         pred_mdd: toNum(r[mddKey]),
         prob_top20: toNum(r[probKey]),
+        live_score: getLiveScore(r),
+        live_rank: getLiveRank(r),
+        live_score_source: getLiveScoreSource(r),
         final_score: toNum(r.final_score),
+        shadow_quality_risk_guard_score: getQualityRiskGuardShadowScore(r),
+        shadow_quality_risk_guard_rank: getQualityRiskGuardShadowRank(r),
+        shadow_quality_risk_guard_penalty: getQualityRiskGuardPenalty(r),
+        shadow_quality_risk_guard_rank_delta:
+          Number.isFinite(getLiveRank(r)) && Number.isFinite(getQualityRiskGuardShadowRank(r))
+            ? getLiveRank(r) - getQualityRiskGuardShadowRank(r)
+            : null,
         ret_score: toNum(r.ret_score),
         prob_score: toNum(r.prob_score),
         qual_score: toNum(r.qual_score),
@@ -948,7 +3321,7 @@ app.get("/api/dashboard/today-actions", async (req, res) => {
       const predRet = toNum(r.pred_return_60d);
       const predMdd = toNum(r.pred_mdd_60d);
       const prob = toNum(r.prob_top20_60d);
-      const finalScore = toNum(r.final_score);
+      const finalScore = getLiveScore(r);
       const isHolding = holdingCodes.has(code);
 
       if (
@@ -970,6 +3343,7 @@ app.get("/api/dashboard/today-actions", async (req, res) => {
           pred_return_60d: predRet,
           pred_mdd_60d: predMdd,
           prob_top20_60d: prob,
+          live_score: finalScore,
           final_score: finalScore,
           reason: "예상 수익/확률 양호 + 리스크 완화 범위",
         });
@@ -993,6 +3367,7 @@ app.get("/api/dashboard/today-actions", async (req, res) => {
           pred_return_60d: predRet,
           pred_mdd_60d: predMdd,
           prob_top20_60d: prob,
+          live_score: finalScore,
           final_score: finalScore,
           reason: "보유 중이며 모멘텀/확률 충분",
         });
@@ -1012,6 +3387,7 @@ app.get("/api/dashboard/today-actions", async (req, res) => {
           pred_return_60d: predRet,
           pred_mdd_60d: predMdd,
           prob_top20_60d: prob,
+          live_score: finalScore,
           final_score: finalScore,
           reason: "수익 기대치 낮거나 MDD 위험 확대",
         });
@@ -1032,7 +3408,7 @@ app.get("/api/dashboard/today-actions", async (req, res) => {
 });
 
 // Trades list
-app.get("/api/trades", async (req, res) => {
+app.get("/api/trades", operatorAccess.apiGuard, async (req, res) => {
   try {
     const trades = await listTrades();
     res.json({ count: trades.length, items: trades });
@@ -1043,7 +3419,7 @@ app.get("/api/trades", async (req, res) => {
 });
 
 // Create trade
-app.post("/api/trades", async (req, res) => {
+app.post("/api/trades", operatorAccess.apiGuard, async (req, res) => {
   try {
     const { side, code, date, qty, price, fee, memo } = req.body || {};
     const s = (side || "").toUpperCase();
@@ -1074,10 +3450,63 @@ app.post("/api/trades", async (req, res) => {
       memo: memo ?? null,
     });
 
+    await insertTradeAuditLog({
+      tradeId: inserted.trade_id,
+      action: "INSERT",
+      tradeSnapshot: buildTradeAuditSnapshot({
+        trade_id: inserted.trade_id,
+        date,
+        side: s,
+        code,
+        name: info.name || null,
+        market: info.market || null,
+        sector: info.sector || null,
+        qty: q,
+        price: p,
+        amount,
+        fee: fee ?? null,
+        memo: memo ?? null,
+      }),
+      actor: typeof req.body?.updated_by === "string" ? req.body.updated_by.trim() : null,
+      reason: "api_insert_trade",
+    });
+
     res.json({ success: true, trade_id: inserted.trade_id });
   } catch (e) {
     console.error("[POST /api/trades] error:", e);
     res.status(500).json({ error: "failed to save", detail: String(e) });
+  }
+});
+
+app.delete("/api/trades/:tradeId", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    const tradeId = Number(req.params.tradeId);
+    if (!Number.isFinite(tradeId) || tradeId <= 0) {
+      return res.status(400).json({ error: "valid trade_id required" });
+    }
+
+    const existing = await getTradeById(tradeId);
+    if (!existing) {
+      return res.status(404).json({ error: "trade not found" });
+    }
+
+    const deleted = await deleteTradeById(tradeId);
+    if (!deleted) {
+      return res.status(500).json({ error: "trade delete failed" });
+    }
+
+    await insertTradeAuditLog({
+      tradeId,
+      action: "DELETE",
+      tradeSnapshot: buildTradeAuditSnapshot(existing),
+      actor: typeof req.query.updated_by === "string" ? req.query.updated_by.trim() : null,
+      reason: typeof req.query.reason === "string" ? req.query.reason.trim() : "api_delete_trade",
+    });
+
+    res.json({ success: true, trade_id: tradeId });
+  } catch (e) {
+    console.error("[DELETE /api/trades/:tradeId] error:", e);
+    res.status(500).json({ error: "failed to delete trade", detail: String(e) });
   }
 });
 
@@ -1335,6 +3764,10 @@ app.get("/api/holding/:code", async (req, res) => {
         unrealized_pnl_pct: unrealizedPnlPct,
         realized_pnl: realizedPnl,
         realized_pnl_pct: realizedPnlPct,
+        live_score: rank ? getLiveScore(rank) : null,
+        live_score: rank ? getLiveScore(rank) : null,
+        live_rank: rank ? getLiveRank(rank) : null,
+        live_score_source: rank ? getLiveScoreSource(rank) : null,
         final_score: rank ? Number(rank.final_score) : null,
         first_buy_date: firstBuyDate,
         last_trade_date: lastTradeDate,
@@ -1345,6 +3778,392 @@ app.get("/api/holding/:code", async (req, res) => {
   } catch (e) {
     console.error("api/holding error", e);
     res.status(500).json({ error: "failed to build holding detail", detail: String(e) });
+  }
+});
+
+app.get("/api/paper-trading/summary", async (req, res) => {
+  try {
+    const requestedRunId = toNum(req.query.paper_run_id);
+    const runRow = Number.isFinite(requestedRunId)
+      ? await getPaperTradingRunById(requestedRunId)
+      : await getLatestPaperTradingRun();
+    if (!runRow) {
+      return res.status(404).json({ error: "paper trading run not found" });
+    }
+
+    const strategyRows = await queryRows(
+      `
+      WITH latest_nav AS (
+        SELECT DISTINCT ON (strategy)
+          strategy,
+          date,
+          nav,
+          cumulative_return,
+          drawdown,
+          active_position_count,
+          closed_trade_count,
+          closed_trade_count_cum,
+          closed_win_rate
+        FROM research.paper_trading_nav
+        WHERE paper_run_id = $1
+        ORDER BY strategy, date DESC
+      )
+      SELECT *
+      FROM latest_nav
+      ORDER BY strategy
+      `,
+      [runRow.paper_run_id]
+    );
+
+    const openPositionRows = await queryRows(
+      `
+      SELECT strategy, COUNT(*) AS open_position_count
+      FROM research.paper_trading_position
+      WHERE paper_run_id = $1
+        AND COALESCE(status, 'OPEN') = 'OPEN'
+      GROUP BY strategy
+      ORDER BY strategy
+      `,
+      [runRow.paper_run_id]
+    );
+
+    const openCountMap = new Map(
+      openPositionRows.map((row) => [String(row.strategy || ""), toNum(row.open_position_count) || 0])
+    );
+
+    const strategies = strategyRows.map((row) => ({
+      strategy: row.strategy,
+      latest_date: toIsoDate(row.date),
+      nav: toNum(row.nav),
+      cumulative_return: toNum(row.cumulative_return),
+      drawdown: toNum(row.drawdown),
+      active_position_count: toNum(row.active_position_count),
+      open_position_count: openCountMap.get(String(row.strategy || "")) || 0,
+      closed_trade_count: toNum(row.closed_trade_count_cum ?? row.closed_trade_count),
+      closed_win_rate: toNum(row.closed_win_rate),
+    }));
+
+    res.json({
+      run: normalizePaperRun(runRow),
+      strategies,
+    });
+  } catch (e) {
+    console.error("GET /api/paper-trading/summary error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/paper-trading/nav", async (req, res) => {
+  try {
+    const requestedRunId = toNum(req.query.paper_run_id);
+    const strategy = String(req.query.strategy || "").trim();
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 120));
+    const runRow = Number.isFinite(requestedRunId)
+      ? await getPaperTradingRunById(requestedRunId)
+      : await getLatestPaperTradingRun();
+    if (!runRow) {
+      return res.status(404).json({ error: "paper trading run not found" });
+    }
+
+    const params = [runRow.paper_run_id];
+    let strategyFilter = "";
+    if (strategy) {
+      params.push(strategy);
+      strategyFilter = `AND strategy = $${params.length}`;
+    }
+    params.push(limit);
+
+    const rows = await queryRows(
+      `
+      SELECT
+        strategy,
+        date,
+        cash,
+        market_value,
+        nav,
+        daily_return,
+        active_position_count,
+        opened_today,
+        duplicate_skip_count,
+        deployed_cash,
+        cumulative_return,
+        running_nav_max,
+        drawdown,
+        closed_trade_count,
+        closed_win_rate,
+        closed_win_count,
+        closed_trade_count_cum,
+        closed_win_count_cum
+      FROM research.paper_trading_nav
+      WHERE paper_run_id = $1
+      ${strategyFilter}
+      ORDER BY date DESC, strategy ASC
+      LIMIT $${params.length}
+      `,
+      params
+    );
+
+    const items = rows
+      .slice()
+      .reverse()
+      .map((row) => ({
+        strategy: row.strategy,
+        date: toIsoDate(row.date),
+        cash: toNum(row.cash),
+        market_value: toNum(row.market_value),
+        nav: toNum(row.nav),
+        daily_return: toNum(row.daily_return),
+        cumulative_return: toNum(row.cumulative_return),
+        drawdown: toNum(row.drawdown),
+        active_position_count: toNum(row.active_position_count),
+        opened_today: toNum(row.opened_today),
+        duplicate_skip_count: toNum(row.duplicate_skip_count),
+        deployed_cash: toNum(row.deployed_cash),
+        closed_trade_count: toNum(row.closed_trade_count),
+        closed_win_rate: toNum(row.closed_win_rate),
+        closed_win_count: toNum(row.closed_win_count),
+        closed_trade_count_cum: toNum(row.closed_trade_count_cum),
+        closed_win_count_cum: toNum(row.closed_win_count_cum),
+      }));
+
+    res.json({
+      run: normalizePaperRun(runRow),
+      strategy: strategy || null,
+      count: items.length,
+      items,
+    });
+  } catch (e) {
+    console.error("GET /api/paper-trading/nav error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/paper-trading/positions", async (req, res) => {
+  try {
+    const requestedRunId = toNum(req.query.paper_run_id);
+    const strategy = String(req.query.strategy || "").trim();
+    const status = String(req.query.status || "").trim().toUpperCase();
+    const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 200));
+    const runRow = Number.isFinite(requestedRunId)
+      ? await getPaperTradingRunById(requestedRunId)
+      : await getLatestPaperTradingRun();
+    if (!runRow) {
+      return res.status(404).json({ error: "paper trading run not found" });
+    }
+
+    const params = [runRow.paper_run_id];
+    const filters = [];
+    if (strategy) {
+      params.push(strategy);
+      filters.push(`strategy = $${params.length}`);
+    }
+    if (status) {
+      params.push(status);
+      filters.push(`COALESCE(status, 'OPEN') = $${params.length}`);
+    }
+    params.push(limit);
+    const whereExtra = filters.length ? `AND ${filters.join(" AND ")}` : "";
+
+    const rows = await queryRows(
+      `
+      SELECT
+        strategy,
+        code,
+        name,
+        entry_date,
+        planned_exit_date,
+        exit_date,
+        entry_price_close,
+        entry_exec_price,
+        exit_price_close,
+        exit_exec_price,
+        shares,
+        entry_notional_gross,
+        exit_notional_net,
+        entry_cost_amount,
+        exit_cost_amount,
+        gross_return,
+        net_return,
+        source_rank,
+        selection_stage,
+        dominant_theme,
+        confidence_score,
+        final_score,
+        status
+      FROM research.paper_trading_position
+      WHERE paper_run_id = $1
+      ${whereExtra}
+      ORDER BY entry_date DESC, strategy ASC, code ASC
+      LIMIT $${params.length}
+      `,
+      params
+    );
+
+    const latestRankByCode = await getRankingLatestByCode();
+
+    const items = rows.map((row) => {
+      const code = String(row.code || "").trim();
+      const rankRow = latestRankByCode.get(code) || {};
+      const currentPrice = toNum(rankRow.close);
+      const shares = toNum(row.shares);
+      const entryNotionalGross = toNum(row.entry_notional_gross);
+      const entryCostAmount = toNum(row.entry_cost_amount);
+      const currentValue =
+        Number.isFinite(currentPrice) && Number.isFinite(shares) ? currentPrice * shares : null;
+      const currentPnlAmount =
+        Number.isFinite(currentValue) && Number.isFinite(entryNotionalGross)
+          ? currentValue - entryNotionalGross - (Number.isFinite(entryCostAmount) ? entryCostAmount : 0)
+          : null;
+      const currentReturn =
+        Number.isFinite(currentPnlAmount) &&
+        Number.isFinite(entryNotionalGross) &&
+        entryNotionalGross > 0
+          ? currentPnlAmount / entryNotionalGross
+          : null;
+
+      return {
+        strategy: row.strategy,
+        code,
+        name: row.name || getName(code) || code,
+        entry_date: toIsoDate(row.entry_date),
+        planned_exit_date: toIsoDate(row.planned_exit_date),
+        exit_date: toIsoDate(row.exit_date),
+      entry_price_close: toNum(row.entry_price_close),
+      entry_exec_price: toNum(row.entry_exec_price),
+      exit_price_close: toNum(row.exit_price_close),
+      exit_exec_price: toNum(row.exit_exec_price),
+      shares: toNum(row.shares),
+      entry_notional_gross: toNum(row.entry_notional_gross),
+      exit_notional_net: toNum(row.exit_notional_net),
+      entry_cost_amount: toNum(row.entry_cost_amount),
+      exit_cost_amount: toNum(row.exit_cost_amount),
+      gross_return: toNum(row.gross_return),
+      net_return: toNum(row.net_return),
+      source_rank: toNum(row.source_rank),
+      selection_stage: row.selection_stage || null,
+        dominant_theme: row.dominant_theme || null,
+        confidence_score: toNum(row.confidence_score),
+        live_score: getLiveScore(rankRow) ?? toNum(row.final_score),
+        live_rank: getLiveRank(rankRow),
+        live_score_source: getLiveScoreSource(rankRow),
+        final_score: toNum(row.final_score),
+        status: row.status || "OPEN",
+        current_price: currentPrice,
+        current_value: currentValue,
+        current_pnl_amount: currentPnlAmount,
+        current_return: currentReturn,
+        latest_price_date: toIsoDate(rankRow.date),
+      };
+    });
+
+    res.json({
+      run: normalizePaperRun(runRow),
+      strategy: strategy || null,
+      status: status || null,
+      count: items.length,
+      items,
+    });
+  } catch (e) {
+    console.error("GET /api/paper-trading/positions error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/live-account/summary", operatorAccess.apiGuard, (req, res) => {
+  try {
+    const summary = readJson(path.join(OUTPUTS_DIR, "live_account_balance_summary.json"));
+    const preview = readJson(path.join(OUTPUTS_DIR, "live_order_preview.json"));
+    const holdings = readCsv(path.join(DATA_DIR, "live_account_holdings.csv")) || [];
+    if (!summary && !preview && !holdings.length) {
+      return res.status(404).json({ error: "live account artifacts not found" });
+    }
+    res.json({
+      summary: summary || null,
+      holding_count: holdings.length,
+      order_preview_count: Array.isArray(preview?.items) ? preview.items.length : 0,
+      preview_gate_status: preview?.gate_status || null,
+    });
+  } catch (e) {
+    console.error("GET /api/live-account/summary error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/live-account/holdings", operatorAccess.apiGuard, (req, res) => {
+  try {
+    const rows = readCsv(path.join(DATA_DIR, "live_account_holdings.csv")) || [];
+    if (!rows.length) {
+      return res.status(404).json({ error: "live account holdings not found" });
+    }
+    const items = rows.map((row) => ({
+      code: String(row.code || "").trim(),
+      name: row.name || getName(String(row.code || "").trim()) || null,
+      qty: toNum(row.qty),
+      avg_price: toNum(row.avg_price),
+      current_price: toNum(row.current_price),
+      eval_amount: toNum(row.eval_amount),
+      pnl_amount: toNum(row.pnl_amount),
+      pnl_pct: toNum(row.pnl_pct),
+      weight: toNum(row.weight),
+      status: row.status || "OPEN",
+    }));
+    res.json({ count: items.length, items });
+  } catch (e) {
+    console.error("GET /api/live-account/holdings error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/live-account/order-preview", operatorAccess.apiGuard, (req, res) => {
+  try {
+    const preview = readJson(path.join(OUTPUTS_DIR, "live_order_preview.json"));
+    if (!preview) {
+      return res.status(404).json({ error: "live order preview not found" });
+    }
+    res.json(preview);
+  } catch (e) {
+    console.error("GET /api/live-account/order-preview error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/manual-trading/summary", async (req, res) => {
+  try {
+    const payload = await buildManualTradingSummary();
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/manual-trading/summary error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/trading-policy", async (req, res) => {
+  try {
+    const payload = await buildTradingPolicySummary();
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/trading-policy error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/ops-readiness", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    const payload = await buildOpsReadinessSummary();
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/ops-readiness error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/analytics/summary", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    const payload = await buildVisitorAnalyticsSummary();
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/analytics/summary error", e);
+    res.status(500).json({ error: "internal error" });
   }
 });
 

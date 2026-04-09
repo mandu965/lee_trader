@@ -20,6 +20,7 @@ rebalance_ranking.py
 import logging
 import os
 from pathlib import Path
+from typing import Dict
 
 import pandas as pd
 from sqlalchemy import text
@@ -28,6 +29,16 @@ try:
     from db import get_engine
 except Exception:
     get_engine = None
+
+from ranking_builder import (
+    REBALANCE_PRED_SCORE_DEFAULT,
+    REBALANCE_WEIGHT_PRED,
+    REBALANCE_WEIGHT_PROB,
+    REBALANCE_WEIGHT_QUAL,
+    REBALANCE_WEIGHT_RET,
+    REBALANCE_WEIGHT_TECH,
+    compute_rebalance_score,
+)
 
 OUTPUT_DIR = Path("outputs/rebalance")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -40,9 +51,13 @@ PRED_MDD_THRESHOLD = -0.20  # -20% 이하 제외
 SECTOR_CAP_RATIO = 0.40
 FEATURES_CSV = Path(os.environ.get("FEATURES_CSV", "data/features.csv"))
 UNIVERSE_CSV = Path(os.environ.get("UNIVERSE_CSV", "data/universe.csv"))
-# score weights (aligned with adjusted scoring.py)
-W_RET, W_PROB, W_QUAL, W_TECH, W_PRED = 0.28, 0.25, 0.20, 0.17, 0.10
-PRED_SCORE_DEFAULT = 60.0
+# score weights follow ranking_builder.py
+W_RET = REBALANCE_WEIGHT_RET
+W_PROB = REBALANCE_WEIGHT_PROB
+W_QUAL = REBALANCE_WEIGHT_QUAL
+W_TECH = REBALANCE_WEIGHT_TECH
+W_PRED = REBALANCE_WEIGHT_PRED
+PRED_SCORE_DEFAULT = REBALANCE_PRED_SCORE_DEFAULT
 
 
 def setup_logging() -> None:
@@ -252,17 +267,16 @@ def apply_sector_cap(df: pd.DataFrame, top_n: int, cap_ratio: float) -> pd.DataF
 
 
 def build_topn(df: pd.DataFrame, top_n: int) -> pd.DataFrame:
-    # Recompute custom score with adjusted weights
-    df = df.copy()
-    df["final_score_custom"] = (
-        W_RET * df["ret_score"].fillna(0)
-        + W_PROB * df["prob_score"].fillna(0)
-        + W_QUAL * df["qual_score"].fillna(0)
-        + W_TECH * df["tech_score"].fillna(0)
-        + W_PRED * PRED_SCORE_DEFAULT
+    df = compute_rebalance_score(
+        df,
+        score_col="final_score_custom",
+        w_ret=W_RET,
+        w_prob=W_PROB,
+        w_qual=W_QUAL,
+        w_tech=W_TECH,
+        w_pred=W_PRED,
+        pred_score_default=PRED_SCORE_DEFAULT,
     )
-    if "risk_penalty" in df.columns:
-        df["final_score_custom"] = df["final_score_custom"] * df["risk_penalty"].fillna(1.0)
     df = df.sort_values("final_score_custom", ascending=False).head(top_n).copy()
     # equal weight capped at 5%
     weight = min(0.05, 1.0 / top_n if top_n > 0 else 0)

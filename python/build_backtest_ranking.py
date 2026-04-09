@@ -82,6 +82,14 @@ def load_predictions(run_id: int, start: Optional[str], end: Optional[str]) -> p
     )
     with eng.connect() as conn:
         df = pd.read_sql(query, conn, parse_dates=["as_of_date"])
+        try:
+            score_formula_version = conn.execute(
+                text("SELECT config_json ->> 'score_formula_version' FROM research.dim_model_run WHERE run_id = :rid"),
+                {"rid": run_id},
+            ).scalar()
+        except Exception:
+            score_formula_version = None
+    df["score_formula_version"] = score_formula_version
     return df
 
 
@@ -107,6 +115,7 @@ def build_ranking(df: pd.DataFrame, top_n: int) -> pd.DataFrame:
         "horizon_days",
         "rank",
         "final_score",
+        "score_formula_version",
         "ret_score",
         "prob_score",
         "qual_score",
@@ -119,6 +128,23 @@ def build_ranking(df: pd.DataFrame, top_n: int) -> pd.DataFrame:
         if col not in df.columns:
             df[col] = np.nan
     return df[needed]
+
+
+def _get_ranking_history_columns() -> list[str]:
+    if not get_engine:
+        return []
+    eng = get_engine()
+    query = text(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'research' AND table_name = 'ranking_history'
+        ORDER BY ordinal_position
+        """
+    )
+    with eng.connect() as conn:
+        rows = conn.execute(query).fetchall()
+    return [row[0] for row in rows]
 
 
 def save_ranking(run_id: int, df_rank: pd.DataFrame, start: Optional[str], end: Optional[str]) -> None:
@@ -140,7 +166,11 @@ def save_ranking(run_id: int, df_rank: pd.DataFrame, start: Optional[str], end: 
                 conn.execute(text(f"DELETE FROM research.ranking_history WHERE {' AND '.join(where)}"), params)
             else:
                 conn.execute(text("DELETE FROM research.ranking_history WHERE run_id = :rid"), {"rid": run_id})
-        df_rank.to_sql("ranking_history", eng, schema="research", if_exists="append", index=False, method="multi")
+        actual_columns = _get_ranking_history_columns()
+        out = df_rank.copy()
+        if actual_columns:
+            out = out[[col for col in out.columns if col in actual_columns]].copy()
+        out.to_sql("ranking_history", eng, schema="research", if_exists="append", index=False, method="multi")
         logging.info("Saved ranking_history (run_id=%s, rows=%d)", run_id, len(df_rank))
     except Exception:
         logging.exception("Failed to save ranking_history")

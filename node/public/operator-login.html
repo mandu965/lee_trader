@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>운영자 로그인</title>
+  <link rel="stylesheet" href="/site.css">
+  <style>
+    .login-shell {
+      width: min(100% - 32px, 460px);
+      margin: 64px auto;
+      padding: 28px;
+      border-radius: 24px;
+      border: 1px solid var(--site-border);
+      background: var(--site-surface);
+      box-shadow: var(--site-shadow);
+    }
+    .login-shell h1 { margin: 0 0 12px; font-size: 30px; }
+    .login-shell p { color: var(--site-muted); }
+    .login-field { display: grid; gap: 8px; margin-top: 18px; }
+    .login-field input {
+      height: 48px;
+      border-radius: 14px;
+      border: 1px solid var(--site-border);
+      background: rgba(148, 163, 184, 0.08);
+      color: var(--site-text);
+      padding: 0 14px;
+      font: inherit;
+    }
+    .login-actions { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+    .login-state { margin-top: 14px; color: var(--site-muted); min-height: 24px; }
+  </style>
+</head>
+<body class="site-body">
+  <main class="site-main">
+    <section class="login-shell">
+      <p class="section__eyebrow">Operator Access</p>
+      <h1>운영자 로그인</h1>
+      <p>운영자 화면과 매수/매도 기능은 공용 비밀번호로 보호됩니다.</p>
+      <div class="login-field">
+        <label for="password">비밀번호</label>
+        <input id="password" type="password" autocomplete="current-password" placeholder="운영자 비밀번호">
+      </div>
+      <div class="login-actions">
+        <button id="loginBtn" class="btn btn--primary" type="button">로그인</button>
+        <a class="btn" href="/">홈으로</a>
+      </div>
+      <div id="loginState" class="login-state"></div>
+    </section>
+  </main>
+  <script>
+    const stateEl = document.getElementById("loginState");
+    const passwordEl = document.getElementById("password");
+    const nextUrl = new URLSearchParams(location.search).get("next") || "/app";
+
+    async function submitLogin() {
+      const password = passwordEl.value || "";
+      stateEl.textContent = "확인 중입니다.";
+      const res = await fetch("/api/operator-auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (!res.ok) {
+        stateEl.textContent = "비밀번호가 맞지 않습니다.";
+        return;
+      }
+      stateEl.textContent = "로그인되었습니다. 이동합니다.";
+      location.href = nextUrl;
+    }
+
+    document.getElementById("loginBtn")?.addEventListener("click", () => {
+      submitLogin().catch(() => {
+        stateEl.textContent = "로그인 중 오류가 발생했습니다.";
+      });
+    });
+    passwordEl?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submitLogin().catch(() => {
+          stateEl.textContent = "로그인 중 오류가 발생했습니다.";
+        });
+      }
+    });
+  </script>
+</body>
+</html>

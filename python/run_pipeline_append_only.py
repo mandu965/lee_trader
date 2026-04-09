@@ -9,6 +9,7 @@ import logging
 import sys
 
 from run_pipeline import (
+    _require_numeric_run_id,
     append_prediction_history,
     append_ranking_history,
     append_backtest_outcome,
@@ -27,11 +28,12 @@ def main() -> None:
     setup_logging()
     args = parse_args()
     run_id = args.run_id
+    run_id_num = _require_numeric_run_id(run_id, context="run_pipeline_append_only")
 
-    logging.info("Append-only pipeline start (run_id=%s)", run_id)
-    append_prediction_history(run_id)
-    append_ranking_history(run_id)
-    append_backtest_outcome(run_id)
+    logging.info("Append-only pipeline start (run_id=%s)", run_id_num)
+    append_prediction_history(str(run_id_num))
+    append_ranking_history(str(run_id_num))
+    append_backtest_outcome(str(run_id_num))
     log_table_stats()
     logging.info("Append-only pipeline done.")
 

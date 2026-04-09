@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>리서치 리뷰</title>
+  <link rel="stylesheet" href="./styles.css">
+  <style>
+    .meaning-wrap {
+      display: grid;
+      gap: 16px;
+      margin-top: 16px;
+    }
+    .meaning-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .meaning-card, .cohort-card, .table-panel {
+      padding: 16px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .meaning-card__label, .cohort-card__label {
+      font-size: 11px;
+      color: var(--color-text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .meaning-card__value {
+      margin-top: 6px;
+      font-size: 24px;
+      font-weight: 800;
+    }
+    .meaning-card__detail, .cohort-card__detail, .meaning-sub {
+      margin-top: 6px;
+      font-size: 12px;
+      line-height: 1.6;
+      color: var(--color-text-secondary);
+    }
+    .meaning-head, .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+    .meaning-title {
+      margin: 0;
+      font-size: 24px;
+    }
+    .meaning-controls, .meaning-links {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .cohort-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .cohort-card__title {
+      margin: 6px 0 0;
+      font-size: 18px;
+    }
+    .cohort-list {
+      margin-top: 12px;
+      display: grid;
+      gap: 10px;
+    }
+    .cohort-item {
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+      cursor: pointer;
+    }
+    .cohort-item__head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .cohort-item__name {
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .cohort-item__sub {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--color-text-secondary);
+    }
+    .cohort-item__score {
+      font-size: 18px;
+      font-weight: 800;
+    }
+    .cohort-item__body {
+      margin-top: 10px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .meaning-reasons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+    .meaning-chip, .meaning-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+    }
+    .meaning-chip--good, .meaning-badge--A {
+      color: #7ee787;
+      border-color: rgba(34,197,94,0.26);
+      background: rgba(34,197,94,0.10);
+    }
+    .meaning-chip--warn, .meaning-badge--C {
+      color: #fde68a;
+      border-color: rgba(250,204,21,0.24);
+      background: rgba(250,204,21,0.10);
+    }
+    .meaning-badge--B {
+      color: #93c5fd;
+      border-color: rgba(96,165,250,0.28);
+      background: rgba(96,165,250,0.10);
+    }
+    .meaning-badge--D, .meaning-chip--bad {
+      color: #fda4af;
+      border-color: rgba(248,113,113,0.26);
+      background: rgba(248,113,113,0.10);
+    }
+    .meaning-table td, .meaning-table th {
+      vertical-align: top;
+    }
+    .meaning-empty {
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px dashed var(--border);
+      color: var(--color-text-secondary);
+    }
+    @media (max-width: 1100px) {
+      .meaning-grid, .cohort-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+    @media (max-width: 760px) {
+      .meaning-grid, .cohort-grid {
+        grid-template-columns: 1fr;
+      }
+      .container {
+        padding: 12px;
+      }
+      header h1 {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .meaning-wrap {
+        gap: 12px;
+      }
+      .meaning-card, .cohort-card, .table-panel {
+        padding: 14px;
+      }
+      .meaning-title {
+        font-size: 20px;
+      }
+      .meaning-controls {
+        width: 100%;
+        justify-content: flex-start;
+      }
+    }
+    @media (max-width: 430px) {
+      .container {
+        padding: 10px;
+      }
+      .panel {
+        border-radius: 12px;
+      }
+      .meaning-card, .cohort-card, .table-panel {
+        padding: 12px;
+      }
+      .meaning-title {
+        font-size: 18px;
+      }
+      .meaning-card__value {
+        font-size: 20px;
+      }
+      .cohort-card__title {
+        font-size: 16px;
+      }
+      .cohort-item {
+        padding: 10px;
+      }
+      .cohort-item__name {
+        font-size: 14px;
+      }
+      .cohort-item__score {
+        font-size: 16px;
+      }
+    }
+    @media (max-width: 390px) {
+      .nav-tab, button {
+        min-height: 38px;
+        font-size: 12px;
+      }
+      .meaning-badge, .meaning-chip {
+        font-size: 10px;
+        padding: 3px 7px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>리서치 리뷰 <span class="badge">수동매매 검증 보드</span></h1>
+      <div class="toolbar">
+        <div class="nav-tabs">
+          <button id="homeBtn" class="nav-tab" aria-label="메인">메인</button>
+          <button id="recoBtn" class="nav-tab" aria-label="리서치 랭킹">리서치 랭킹</button>
+          <button id="meaningfulnessBtn" class="nav-tab active" aria-label="리서치 리뷰">리서치 리뷰</button>
+          <button id="opsReadinessBtn" class="nav-tab" aria-label="운영자">운영자</button>
+          <button id="manualTradingBtn" class="nav-tab" aria-label="수동매매">수동매매</button>
+          <button id="holdingsBtn" class="nav-tab" aria-label="보유종목">보유종목</button>
+          <button id="paperTradingBtn" class="nav-tab" aria-label="모의투자">모의투자</button>
+          <button id="tradeHistoryBtn" class="nav-tab" aria-label="매매기록">매매기록</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="meaning-wrap">
+      <section class="panel" style="padding:16px;">
+        <div class="meaning-head">
+          <div>
+            <h2 class="meaning-title">수동매매 검증 보드</h2>
+            <div id="pageSub" class="meaning-sub">수동매매 종목, 최종 스코어 상위 종목, 의미 점수 등급의 관계를 한 번에 확인합니다.</div>
+          </div>
+          <div class="meaning-controls">
+            <button id="reloadBtn" type="button">새로고침</button>
+            <div class="meaning-links">
+              <a class="detail-link" href="/api/manual-trading/summary" target="_blank" rel="noreferrer">수동매매 데이터</a>
+              <a class="detail-link" href="/api/top20-meaningfulness" target="_blank" rel="noreferrer">리뷰 원본</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="meaning-grid" id="summaryGrid"></section>
+
+      <section class="cohort-grid">
+        <article class="cohort-card">
+          <div class="cohort-card__label">장중 재확인</div>
+          <h3 class="cohort-card__title">장중 재확인 필요</h3>
+          <div class="cohort-card__detail">장중 시세 연결이 약하거나 불완전해 오후장 판단 전에 한 번 더 확인할 종목입니다.</div>
+          <div id="intradayMissingList" class="cohort-list"></div>
+        </article>
+        <article class="cohort-card">
+          <div class="cohort-card__label">우선 제외</div>
+          <h3 class="cohort-card__title">우선 검토 제외</h3>
+          <div class="cohort-card__detail">마감 기준 우선 검토에서 오후장에는 빠진 종목입니다.</div>
+          <div id="intradayDroppedList" class="cohort-list"></div>
+        </article>
+        <article class="cohort-card">
+          <div class="cohort-card__label">우선 승격</div>
+          <h3 class="cohort-card__title">우선 검토 승격</h3>
+          <div class="cohort-card__detail">오후장 기준으로 우선순위가 올라온 종목입니다.</div>
+          <div id="intradayPromotedList" class="cohort-list"></div>
+        </article>
+      </section>
+
+      <section class="cohort-grid">
+        <article class="cohort-card">
+          <div class="cohort-card__label">수동매매 핵심</div>
+          <h3 class="cohort-card__title">수동매매 핵심 후보</h3>
+          <div class="cohort-card__detail">수동매매 우선 후보 중에서 최종 점수와 의미 점수가 모두 방어되는 종목입니다.</div>
+          <div id="coreManualList" class="cohort-list"></div>
+        </article>
+        <article class="cohort-card">
+          <div class="cohort-card__label">검토 경계</div>
+          <h3 class="cohort-card__title">상위 랭킹 경계 후보</h3>
+          <div class="cohort-card__detail">랭킹은 높지만 수동매매에서 보류되었거나 주의로 밀린 종목입니다.</div>
+          <div id="boundaryList" class="cohort-list"></div>
+        </article>
+        <article class="cohort-card">
+          <div class="cohort-card__label">대체 후보</div>
+          <h3 class="cohort-card__title">대체 검토 후보</h3>
+          <div class="cohort-card__detail">수동매매 밖에 있지만 의미 점수와 설명력이 양호한 대체 후보입니다.</div>
+          <div id="alternateList" class="cohort-list"></div>
+        </article>
+      </section>
+
+      <section class="panel table-panel">
+        <div class="section-head" style="margin-bottom:12px;">
+          <div>
+            <h3 style="margin:0;">비교 표</h3>
+            <div class="meaning-sub">상위 랭킹, 수동매매 선택, 리뷰 등급을 한 표에서 비교합니다.</div>
+          </div>
+        </div>
+        <table class="stock-table meaning-table" aria-label="리서치 리뷰 비교 표">
+          <thead>
+            <tr>
+              <th>구분</th>
+              <th>종목</th>
+              <th>최종 점수</th>
+              <th>리뷰 등급</th>
+              <th>수동매매</th>
+              <th>강점</th>
+              <th>주의</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="7" class="center">데이터를 불러오는 중입니다.</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.__API_BASE__ || "";
+    const api = (path) => `${API_BASE}${path}`;
+    const $ = (sel) => document.querySelector(sel);
+    const toNum = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const escapeHtml = (v) => String(v ?? "").replace(/[&<>\"']/g, (m) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m]));
+    const fmt = (v, digits = 2) => Number.isFinite(Number(v)) ? Number(v).toFixed(digits) : "-";
+
+    async function fetchJson(path) {
+      const res = await fetch(api(path));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
+    function chipList(text, kind) {
+      const parts = String(text || "").split(" / ").map((item) => item.trim()).filter(Boolean);
+      if (!parts.length) return '<span class="meaning-chip">-</span>';
+      return parts.map((item) => `<span class="meaning-chip meaning-chip--${kind}">${escapeHtml(item)}</span>`).join("");
+    }
+
+    function dedupeRows(rows) {
+      const seen = new Set();
+      return (rows || []).filter((row) => {
+        const code = String(row?.code || "").trim();
+        if (!code || seen.has(code)) return false;
+        seen.add(code);
+        return true;
+      });
+    }
+
+    function buildRowLookup(rows) {
+      return new Map((rows || []).map((row) => [String(row?.code || "").trim(), row]));
+    }
+
+    function classifyManual(item) {
+      if (!item) return "-";
+      if (item.bucket === "priority") return "우선 검토";
+      if (item.bucket === "caution") return "보수 검토";
+      const status = String(item.buy_eligibility_status || "").toUpperCase();
+      if (status === "BUY_NOW") return "매수 가능";
+      if (status === "WATCHLIST") return "관찰";
+      if (status === "WATCH") return "보수 검토";
+      if (status === "BLOCK") return "제외";
+      return item.buy_eligibility_status || "-";
+    }
+
+    function formatCategory(category) {
+      if (category === "core_manual") return "수동매매 핵심";
+      if (category === "boundary") return "검토 경계";
+      if (category === "alternate") return "대체 후보";
+      return category || "-";
+    }
+
+    function rowGradeTone(row) {
+      const grade = String(row?.meaningfulness_grade || "").toUpperCase();
+      if (grade === "A") return "good";
+      if (grade === "B") return "good";
+      if (grade === "C") return "warn";
+      return "bad";
+    }
+
+    function rowSummary(row, manualItem) {
+      const parts = [];
+      if (manualItem?.buy_eligibility_status) parts.push(`manual ${manualItem.buy_eligibility_status}`);
+      if (row?.meaningfulness_grade) parts.push(`meaning ${row.meaningfulness_grade}`);
+      if (toNum(row?.final_score_v3 ?? row?.final_score) !== null) parts.push(`final ${fmt(row?.final_score_v3 ?? row?.final_score, 1)}`);
+      return parts.join(" / ");
+    }
+
+    function buildCohortItem(row, manualItem, note) {
+      const finalScore = toNum(row?.final_score_v3 ?? row?.final_score);
+      return `
+        <article class="cohort-item" onclick="location.href='./detail.html?code=${encodeURIComponent(row.code || "")}'">
+          <div class="cohort-item__head">
+            <div>
+              <div class="cohort-item__name">${escapeHtml(row.name || row.code)}</div>
+              <div class="cohort-item__sub">${escapeHtml(row.code || "-")} / ${escapeHtml(row.market || "-")} / ${escapeHtml(row.sector || "-")}</div>
+            </div>
+            <div class="cohort-item__score">${escapeHtml(fmt(finalScore, 1))}</div>
+          </div>
+          <div class="cohort-item__body">${escapeHtml(note || rowSummary(row, manualItem) || "-")}</div>
+          <div class="meaning-reasons">
+            <span class="meaning-badge meaning-badge--${escapeHtml(row.meaningfulness_grade || "C")}">${escapeHtml((row.meaningfulness_grade || "-") + " " + (row.meaningfulness_label || ""))}</span>
+            ${manualItem ? `<span class="meaning-chip meaning-chip--${manualItem.bucket === "priority" ? "good" : "warn"}">${escapeHtml(classifyManual(manualItem))}</span>` : `<span class="meaning-chip">manual outside</span>`}
+          </div>
+          <div class="meaning-reasons">${chipList(row.positive_reasons, "good")}</div>
+          <div class="meaning-reasons">${chipList(row.caution_reasons, rowGradeTone(row))}</div>
+        </article>
+      `;
+    }
+
+    function renderSummary(model) {
+      const intraday = model.intradaySummary || {};
+      const cards = [
+        {
+          label: "기준일",
+          value: model.analysisDate || "-",
+          detail: `랭킹 상위 ${model.topRows.length} / 수동매매 후보 ${model.manualItems.length}`
+        },
+        {
+          label: "수동매매 핵심",
+          value: model.manualPriority.length,
+          detail: `리뷰 A/B ${model.manualPriority.filter((row) => ["A", "B"].includes(row.meaningfulness_grade)).length}`
+        },
+        {
+          label: "검토 경계",
+          value: model.boundaryRows.length,
+          detail: "랭킹은 높지만 수동매매에서는 관찰 또는 제외"
+        },
+        {
+          label: "대체 후보",
+          value: model.alternateRows.length,
+          detail: "수동매매 밖에서 다시 볼 만한 후보"
+        },
+        {
+          label: "장중 변화",
+          value: intraday.is_active ? `${intraday.priority_count || 0}/${intraday.caution_count || 0}` : "-",
+          detail: intraday.headline || "장중 변화가 없습니다."
+        }
+      ];
+      $("#summaryGrid").innerHTML = cards.map((card) => `
+        <section class="meaning-card">
+          <div class="meaning-card__label">${escapeHtml(card.label)}</div>
+          <div class="meaning-card__value">${escapeHtml(card.value)}</div>
+          <div class="meaning-card__detail">${escapeHtml(card.detail)}</div>
+        </section>
+      `).join("");
+      $("#pageSub").textContent = `기준일 ${model.analysisDate || "-"} / 수동매매와 최종 랭킹의 중복, 누락, 대체 후보를 동시에 확인합니다.${intraday.headline ? ` / ${intraday.headline}` : ""}`;
+    }
+
+    function renderCohorts(model) {
+      const sections = [
+        ["#coreManualList", model.manualPriority.slice(0, 4), (row) => buildCohortItem(row, model.manualMap.get(row.code), "수동매매 우선 후보이면서 의미 점수 검증을 통과한 종목")],
+        ["#boundaryList", model.boundaryRows.slice(0, 4), (row) => buildCohortItem(row, model.manualMap.get(row.code), "랭킹은 높지만 수동매매에서 바로 집행하지 않은 경계 종목")],
+        ["#alternateList", model.alternateRows.slice(0, 4), (row) => buildCohortItem(row, model.manualMap.get(row.code), "수동매매 밖에서 대체 카드로 볼 만한 종목")]
+      ];
+      sections.forEach(([target, rows, render]) => {
+        const el = $(target);
+        if (!rows.length) {
+          el.innerHTML = '<div class="meaning-empty">해당 구간 종목이 없습니다.</div>';
+          return;
+        }
+        el.innerHTML = rows.map(render).join("");
+      });
+    }
+
+    function renderIntradayLists(model) {
+      const intraday = model.intradaySummary || {};
+      const sections = [
+        ["#intradayMissingList", intraday.missing_quotes || [], "장중 재확인 필요 종목이 없습니다."],
+        ["#intradayDroppedList", intraday.dropped_from_priority || [], "제외 종목이 없습니다."],
+        ["#intradayPromotedList", intraday.promoted_to_priority || [], "승격 종목이 없습니다."],
+      ];
+      sections.forEach(([target, rows, emptyText]) => {
+        const el = $(target);
+        if (!el) return;
+        if (!rows.length) {
+          el.innerHTML = `<div class="meaning-empty">${escapeHtml(emptyText)}</div>`;
+          return;
+        }
+        el.innerHTML = rows.slice(0, 4).map((row) => buildCohortItem(row, model.manualMap.get(row.code), row?.intraday_reasons?.[0] || "장중 변화 반영")).join("");
+      });
+    }
+
+    function renderTable(model) {
+      const rows = dedupeRows([
+        ...model.manualPriority.map((row) => ({ ...row, _category: "core_manual" })),
+        ...model.boundaryRows.map((row) => ({ ...row, _category: "boundary" })),
+        ...model.alternateRows.map((row) => ({ ...row, _category: "alternate" }))
+      ]).slice(0, 16);
+
+      if (!rows.length) {
+        $("#tbody").innerHTML = '<tr><td colspan="7" class="center">표시할 데이터가 없습니다.</td></tr>';
+        return;
+      }
+
+      $("#tbody").innerHTML = rows.map((row) => {
+        const manualItem = model.manualMap.get(row.code);
+        return `
+          <tr>
+            <td>${escapeHtml(formatCategory(row._category))}</td>
+            <td>
+              <div>
+                <div style="font-weight:700;">${escapeHtml(row.name || row.code)}</div>
+                <div class="meaning-sub" style="margin-top:2px;">${escapeHtml(row.code || "-")} / ${escapeHtml(row.sector || "-")}</div>
+              </div>
+            </td>
+            <td>${escapeHtml(fmt(row.final_score_v3 ?? row.final_score, 1))}</td>
+            <td><span class="meaning-badge meaning-badge--${escapeHtml(row.meaningfulness_grade || "C")}">${escapeHtml((row.meaningfulness_grade || "-") + " " + (row.meaningfulness_label || ""))}</span></td>
+            <td>${escapeHtml(classifyManual(manualItem))}</td>
+            <td><div class="meaning-reasons">${chipList(row.positive_reasons, "good")}</div></td>
+            <td><div class="meaning-reasons">${chipList(row.caution_reasons, rowGradeTone(row))}</div></td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function buildModel(rankingRows, manualSummary, meaningPayload) {
+      const meaningRows = Array.isArray(meaningPayload?.rows) ? meaningPayload.rows : [];
+      const meaningMap = buildRowLookup(meaningRows);
+      const combinedRows = dedupeRows(
+        (rankingRows || []).slice(0, 50).map((row) => ({
+          ...row,
+          ...(meaningMap.get(String(row?.code || "").trim()) || {})
+        }))
+      );
+      const rowLookup = buildRowLookup(combinedRows);
+      const topRows = combinedRows.slice(0, 30);
+
+      const manualPriorityItems = (manualSummary?.priority_candidates || []).map((item) => ({ ...item, bucket: "priority" }));
+      const manualCautionItems = (manualSummary?.caution_candidates || []).map((item) => ({ ...item, bucket: "caution" }));
+      const manualItems = [...manualPriorityItems, ...manualCautionItems];
+      const manualMap = new Map(manualItems.map((item) => [String(item.code || "").trim(), item]));
+
+      const manualPriority = dedupeRows(
+        manualPriorityItems
+          .map((item) => rowLookup.get(String(item.code || "").trim()))
+          .filter(Boolean)
+      ).sort((a, b) => (toNum(b.meaningfulness_score) || 0) - (toNum(a.meaningfulness_score) || 0));
+
+      const boundaryRows = dedupeRows(
+        topRows.filter((row) => {
+          const manual = manualMap.get(String(row.code || "").trim());
+          const grade = String(row.meaningfulness_grade || "").toUpperCase();
+          return Boolean(
+            (manual && manual.bucket === "caution") ||
+            (!manual && ["A", "B"].includes(grade) && toNum(row.final_score_v3 ?? row.final_score) >= 60) ||
+            (manual && manual.bucket === "priority" && ["C", "D"].includes(grade))
+          );
+        })
+      );
+
+      const alternateRows = dedupeRows(
+        topRows.filter((row) => {
+          const manual = manualMap.get(String(row.code || "").trim());
+          const grade = String(row.meaningfulness_grade || "").toUpperCase();
+          return !manual && ["A", "B"].includes(grade);
+        })
+      ).sort((a, b) => (toNum(b.meaningfulness_score) || 0) - (toNum(a.meaningfulness_score) || 0));
+
+      return {
+        analysisDate: meaningPayload?.meta?.analysis_date || manualSummary?.asof_date || rankingRows?.[0]?.date || "-",
+        topRows,
+        manualItems,
+        manualMap,
+        intradaySummary: manualSummary?.intraday_summary || null,
+        manualPriority,
+        boundaryRows,
+        alternateRows
+      };
+    }
+
+    async function loadReport() {
+      $("#tbody").innerHTML = '<tr><td colspan="7" class="center">데이터를 불러오는 중입니다.</td></tr>';
+      try {
+        const [rankingRows, manualSummary, meaningPayload] = await Promise.all([
+          fetchJson("/api/ranking"),
+          fetchJson("/api/manual-trading/summary"),
+          fetchJson("/api/top20-meaningfulness")
+        ]);
+        const model = buildModel(rankingRows, manualSummary, meaningPayload);
+        renderSummary(model);
+        renderIntradayLists(model);
+        renderCohorts(model);
+        renderTable(model);
+      } catch (err) {
+        console.error(err);
+        $("#summaryGrid").innerHTML = `<div class="meaning-empty">페이지를 불러오지 못했습니다. ${escapeHtml(err.message || "")}</div>`;
+        $("#coreManualList").innerHTML = '<div class="meaning-empty">로드 실패</div>';
+        $("#boundaryList").innerHTML = '<div class="meaning-empty">로드 실패</div>';
+        $("#alternateList").innerHTML = '<div class="meaning-empty">로드 실패</div>';
+        $("#tbody").innerHTML = '<tr><td colspan="7" class="center">조회 실패</td></tr>';
+      }
+    }
+
+    $("#homeBtn")?.addEventListener("click", () => { window.location.href = "/app"; });
+    $("#recoBtn")?.addEventListener("click", () => { window.location.href = "./ranking.html"; });
+    $("#meaningfulnessBtn")?.addEventListener("click", () => { window.location.href = "./meaningfulness.html"; });
+    $("#opsReadinessBtn")?.addEventListener("click", () => { window.location.href = "./ops-readiness.html"; });
+    $("#manualTradingBtn")?.addEventListener("click", () => { window.location.href = "./manual-trading.html"; });
+    $("#holdingsBtn")?.addEventListener("click", () => { window.location.href = "./holdings.html"; });
+    $("#paperTradingBtn")?.addEventListener("click", () => { window.location.href = "./paper-trading.html"; });
+    $("#tradeHistoryBtn")?.addEventListener("click", () => { window.location.href = "./trade-history.html"; });
+    $("#reloadBtn")?.addEventListener("click", loadReport);
+    loadReport();
+  </script>
+</body>
+</html>

@@ -8,10 +8,19 @@ import numpy as np
 import pandas as pd
 import sqlite3
 try:
-    from db import get_engine, copy_df
+    from db import (
+        copy_df,
+        ensure_unique_keys,
+        get_engine,
+        replace_table_rows_pg,
+        replace_table_rows_sqlite,
+    )
 except Exception:
     get_engine = None
     copy_df = None
+    ensure_unique_keys = None
+    replace_table_rows_pg = None
+    replace_table_rows_sqlite = None
 
 DATA_DIR = Path("data")
 FEATURES_CSV = DATA_DIR / "features.csv"
@@ -19,6 +28,18 @@ SCORES_CSV = DATA_DIR / "scores_final.csv"
 MODEL_PKL = DATA_DIR / "model.pkl"
 PREDICTIONS_CSV = DATA_DIR / "predictions.csv"
 DB_PATH = DATA_DIR / "lee_trader.db"
+PREDICTIONS_DB_COLUMNS = [
+    "date",
+    "code",
+    "pred_return_60d",
+    "pred_return_90d",
+    "pred_mdd_60d",
+    "pred_mdd_90d",
+    "prob_top20_60d",
+    "prob_top20_90d",
+    "score",
+]
+PREDICTIONS_PK = ["date", "code"]
 
 # 회귀 타깃 이름과 horizon 매핑 (log-return / MDD)
 REG_LOG_TARGETS = {
@@ -92,12 +113,33 @@ def load_features_latest(feature_cols) -> pd.DataFrame:
     latest = df.groupby("code", as_index=False).tail(1).copy()
     latest = latest.reset_index(drop=True)
 
+    # 운영 예측은 latest snapshot 단일 기준일만 사용한다. 일부 종목의 최신
+    # feature 행이 과거 날짜에 멈춰 있으면 stale prediction이 ranking까지
+    # 전파되므로 최신 전체 기준일보다 오래된 종목은 제외한다.
+    latest_date = latest["date"].max()
+    stale_mask = latest["date"].lt(latest_date)
+    stale_count = int(stale_mask.sum())
+    if stale_count > 0:
+        stale_codes = latest.loc[stale_mask, "code"].astype(str).head(10).tolist()
+        logging.warning(
+            "Dropping stale feature rows before prediction: latest_date=%s stale_rows=%d sample_codes=%s",
+            latest_date.strftime("%Y-%m-%d") if pd.notna(latest_date) else "NA",
+            stale_count,
+            ",".join(stale_codes) if stale_codes else "NA",
+        )
+        latest = latest.loc[~stale_mask].copy()
+        latest = latest.reset_index(drop=True)
+
     # 필요한 feature 컬럼만 유지
     missing = [c for c in feature_cols if c not in latest.columns]
     if missing:
         raise ValueError(f"Missing feature columns in features.csv: {missing}")
 
-    logging.info("Using latest features per code: %d rows", len(latest))
+    logging.info(
+        "Using latest features per code on latest snapshot date=%s: %d rows",
+        latest_date.strftime("%Y-%m-%d") if pd.notna(latest_date) else "NA",
+        len(latest),
+    )
     return latest
 
 
@@ -148,41 +190,58 @@ def predict_all(model_pack: Dict[str, Any], feats_latest: pd.DataFrame) -> pd.Da
         proba = model.predict_proba(X)[:, 1]
         out[col_name] = proba
 
-    # /api/stocks 에서 사용하는 score 컬럼 (간단히 60d 예측 수익률 기반)
-    if "pred_return_60d" in out.columns:
-        out["score"] = out["pred_return_60d"] * 100.0
-
     return out
 
 
 def save_predictions(df: pd.DataFrame) -> None:
-    df.to_csv(PREDICTIONS_CSV, index=False, encoding="utf-8")
-    logging.info("Saved predictions: %s (rows=%d)", PREDICTIONS_CSV.resolve(), len(df))
+    out = df.copy()
+    out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y-%m-%d")
+    for col in PREDICTIONS_DB_COLUMNS:
+        if col not in out.columns:
+            out[col] = pd.NA
+    out = out[PREDICTIONS_DB_COLUMNS]
+    if ensure_unique_keys:
+        ensure_unique_keys(out, PREDICTIONS_PK, "predictions")
 
-    # Save to DB (prefer Postgres via SQLAlchemy)
+    out.to_csv(PREDICTIONS_CSV, index=False, encoding="utf-8")
+    logging.info("Saved predictions: %s (rows=%d)", PREDICTIONS_CSV.resolve(), len(out))
+
+    # Save to DB while preserving schema and indexes.
     try:
-        if copy_df:
+        if replace_table_rows_pg:
             try:
-                copy_df("predictions", df, columns=list(df.columns), truncate=True)
-                logging.info("Saved predictions to Postgres via copy_expert (rows=%d)", len(df))
+                replace_table_rows_pg("predictions", out, columns=PREDICTIONS_DB_COLUMNS)
+                logging.info("Replaced predictions rows in Postgres (rows=%d)", len(out))
                 return
             except Exception:
-                logging.exception("copy_expert failed, trying SQLAlchemy")
-        if get_engine:
-            eng = get_engine()
-            df.to_sql("predictions", eng, if_exists="replace", index=False, method="multi")
-            logging.info("Saved predictions to Postgres via SQLAlchemy (rows=%d)", len(df))
-            return
+                logging.exception("Postgres row replace failed, fallback to sqlite")
     except Exception:
-        logging.exception("SQLAlchemy save failed, fallback to sqlite")
+        logging.exception("Postgres save failed, fallback to sqlite")
 
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
-        df.to_sql("predictions", conn, if_exists="replace", index=False)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS predictions (
+                date             DATE NOT NULL,
+                code             TEXT NOT NULL,
+                pred_return_60d  REAL,
+                pred_return_90d  REAL,
+                pred_mdd_60d     REAL,
+                pred_mdd_90d     REAL,
+                prob_top20_60d   REAL,
+                prob_top20_90d   REAL,
+                score            REAL,
+                PRIMARY KEY (date, code)
+            );
+            """
+        )
+        if replace_table_rows_sqlite:
+            replace_table_rows_sqlite(conn, "predictions", out)
         conn.commit()
-        logging.info("Saved predictions to sqlite DB: %s (rows=%d)", DB_PATH.resolve(), len(df))
+        logging.info("Saved predictions to sqlite DB: %s (rows=%d)", DB_PATH.resolve(), len(out))
     except Exception:
         logging.exception("Failed to save predictions to sqlite DB")
     finally:

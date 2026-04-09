@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>매매 이력 - AI Stock Analyzer</title>
+    <title>매매 이력</title>
     <style>
       :root {
         --bg: #020617;
@@ -52,6 +52,18 @@
         cursor: pointer;
       }
       .btn-outline:hover { border-color: var(--accent); }
+      .toolbar {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .toolbar .btn-outline.is-active {
+        border-color: rgba(34, 197, 94, 0.44);
+        background: rgba(34, 197, 94, 0.12);
+        color: #86efac;
+      }
+      .toolbar .btn-outline.is-secondary { opacity: 0.86; }
       .btn-sm {
         border-radius: 999px;
         border: 1px solid #4b5563;
@@ -166,10 +178,15 @@
             모든 매수·매도 거래 내역과 실현손익 변화를 한눈에 확인할 수 있습니다.
           </p>
         </div>
-        <div>
-          <button class="btn-outline" onclick="location.href='index.html'">
-            ← 예측 리스트
-          </button>
+        <div class="toolbar">
+          <button class="btn-outline" onclick="location.href='index.html'">메인</button>
+          <button class="btn-outline is-secondary" onclick="location.href='ranking.html'">리서치 랭킹</button>
+          <button class="btn-outline is-secondary" onclick="location.href='meaningfulness.html'">리서치 리뷰</button>
+          <button class="btn-outline" onclick="location.href='ops-readiness.html'">운영자</button>
+          <button class="btn-outline" onclick="location.href='manual-trading.html'">수동매매</button>
+          <button class="btn-outline" onclick="location.href='holdings.html'">보유종목</button>
+          <button class="btn-outline" onclick="location.href='paper-trading.html'">모의투자</button>
+          <button class="btn-outline is-active" onclick="location.href='trade-history.html'">매매 기록</button>
         </div>
       </header>
 

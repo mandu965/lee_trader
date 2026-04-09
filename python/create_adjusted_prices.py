@@ -8,9 +8,28 @@ INPUT = DATA_DIR / "prices_daily_clean.csv"
 OUTPUT = DATA_DIR / "prices_daily_adjusted.csv"
 DB_PATH = DATA_DIR / "lee_trader.db"
 try:
-    from db import get_engine
+    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite
 except Exception:
     get_engine = None
+    ensure_unique_keys = None
+    replace_table_rows_pg = None
+    replace_table_rows_sqlite = None
+
+PRICES_ADJUSTED_DB_COLUMNS = ["date", "code", "adj_open", "adj_high", "adj_low", "adj_close", "volume"]
+FACT_PRICE_DAILY_DB_COLUMNS = [
+    "date",
+    "code",
+    "open",
+    "high",
+    "low",
+    "close",
+    "adj_close",
+    "volume",
+    "value",
+    "market_cap",
+    "listed_shares",
+]
+PRICE_PK = ["date", "code"]
 
 def detect_split_ratios(df):
     """
@@ -70,6 +89,9 @@ def main():
     csv_cols = ["date", "code", "adj_open", "adj_high", "adj_low", "adj_close", "volume"]
     csv_out = final[csv_cols].copy()
     csv_out["date"] = csv_out["date"].dt.strftime("%Y-%m-%d")
+    csv_out = csv_out[PRICES_ADJUSTED_DB_COLUMNS]
+    if ensure_unique_keys:
+        ensure_unique_keys(csv_out, PRICE_PK, "prices_adjusted")
     csv_out.to_csv(OUTPUT, index=False, encoding="utf-8")
     print(f"Adjusted prices saved: {OUTPUT}, rows={len(csv_out)}")
 
@@ -80,28 +102,60 @@ def main():
     fact_df["value"] = pd.NA
     fact_df["market_cap"] = pd.NA
     fact_df["listed_shares"] = pd.NA
-    fact_df = fact_df[
-        ["date", "code", "open", "high", "low", "close", "adj_close", "volume", "value", "market_cap", "listed_shares"]
-    ]
+    fact_df = fact_df[FACT_PRICE_DAILY_DB_COLUMNS]
+    if ensure_unique_keys:
+        ensure_unique_keys(fact_df, PRICE_PK, "fact_price_daily")
 
-    # DB upsert (prefer Postgres via SQLAlchemy)
+    # Replace table rows while preserving schema and indexes.
     try:
-        if get_engine:
-            eng = get_engine()
-            csv_out.to_sql("prices_adjusted", eng, if_exists="replace", index=False)
-            fact_df.to_sql("fact_price_daily", eng, if_exists="replace", index=False)
-            print(f"Adjusted prices saved to Postgres via SQLAlchemy, rows={len(csv_out)}")
-            print(f"fact_price_daily saved to Postgres via SQLAlchemy, rows={len(fact_df)}")
+        if replace_table_rows_pg:
+            replace_table_rows_pg("prices_adjusted", csv_out, columns=PRICES_ADJUSTED_DB_COLUMNS)
+            replace_table_rows_pg("fact_price_daily", fact_df, columns=FACT_PRICE_DAILY_DB_COLUMNS)
+            print(f"Adjusted prices replaced in Postgres, rows={len(csv_out)}")
+            print(f"fact_price_daily replaced in Postgres, rows={len(fact_df)}")
             return
     except Exception as e:
-        print(f"[WARN] SQLAlchemy save failed, fallback to sqlite: {e}")
+        print(f"[WARN] Postgres row replace failed, fallback to sqlite: {e}")
 
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
-        csv_out.to_sql("prices_adjusted", conn, if_exists="replace", index=False)
-        fact_df.to_sql("fact_price_daily", conn, if_exists="replace", index=False)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS prices_adjusted (
+                date      DATE NOT NULL,
+                code      TEXT NOT NULL,
+                adj_open  REAL,
+                adj_high  REAL,
+                adj_low   REAL,
+                adj_close REAL,
+                volume    REAL,
+                PRIMARY KEY (date, code)
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS fact_price_daily (
+                date          DATE NOT NULL,
+                code          TEXT NOT NULL,
+                open          REAL,
+                high          REAL,
+                low           REAL,
+                close         REAL,
+                adj_close     REAL,
+                volume        REAL,
+                value         REAL,
+                market_cap    REAL,
+                listed_shares REAL,
+                PRIMARY KEY (date, code)
+            );
+            """
+        )
+        if replace_table_rows_sqlite:
+            replace_table_rows_sqlite(conn, "prices_adjusted", csv_out)
+            replace_table_rows_sqlite(conn, "fact_price_daily", fact_df)
         conn.commit()
         print(f"Adjusted prices saved to sqlite DB: {DB_PATH}, rows={len(csv_out)}")
         print(f"fact_price_daily saved to sqlite DB: {DB_PATH}, rows={len(fact_df)}")

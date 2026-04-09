@@ -14,12 +14,12 @@ try:
     )
 except ImportError:
     # fallback when running standalone with sys.path pointing to python/
-    from config import BacktestConfig
-    from data_loader import load_predictions, load_prices, load_benchmark
-    from outcomes import compute_realized_outcomes
-    from scoring import apply_score_weights
-    from strategy import select_top_n, evaluate_strategy
-    from metrics import (
+    from research.config import BacktestConfig
+    from research.data_loader import load_predictions, load_prices, load_benchmark
+    from research.outcomes import compute_realized_outcomes
+    from research.scoring import apply_score_weights
+    from research.strategy import select_top_n, evaluate_strategy
+    from research.metrics import (
         prediction_regression_metrics,
         quantile_analysis,
         summarize_strategy_performance,

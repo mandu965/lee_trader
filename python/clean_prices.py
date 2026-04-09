@@ -5,14 +5,19 @@ import numpy as np
 import pandas as pd
 import sqlite3
 try:
-    from db import get_engine
+    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite
 except Exception:
     get_engine = None
+    ensure_unique_keys = None
+    replace_table_rows_pg = None
+    replace_table_rows_sqlite = None
 
 DATA_DIR = Path("data")
 RAW_CSV = DATA_DIR / "prices_daily_raw.csv"
 CLEAN_CSV = DATA_DIR / "prices_daily_clean.csv"
 DB_PATH = DATA_DIR / "lee_trader.db"
+PRICES_CLEAN_DB_COLUMNS = ["date", "code", "open", "high", "low", "close", "volume"]
+PRICES_CLEAN_PK = ["date", "code"]
 
 
 def setup_logging():
@@ -81,24 +86,44 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
 def save_clean(df: pd.DataFrame):
     df_out = df.copy()
     df_out["date"] = df_out["date"].dt.strftime("%Y-%m-%d")
+    for col in PRICES_CLEAN_DB_COLUMNS:
+        if col not in df_out.columns:
+            df_out[col] = pd.NA
+    df_out = df_out[PRICES_CLEAN_DB_COLUMNS]
+    if ensure_unique_keys:
+        ensure_unique_keys(df_out, PRICES_CLEAN_PK, "prices_clean")
     df_out.to_csv(CLEAN_CSV, index=False, encoding="utf-8")
     logging.info(f"Saved clean prices: {CLEAN_CSV.resolve()} (rows={len(df_out)})")
 
-    # DB upsert (prefer Postgres via SQLAlchemy)
+    # Replace table rows while preserving schema and indexes.
     try:
-        if get_engine:
-            eng = get_engine()
-            df_out.to_sql("prices_clean", eng, if_exists="replace", index=False)
-            logging.info("Saved clean prices to Postgres via SQLAlchemy (rows=%d)", len(df_out))
+        if replace_table_rows_pg:
+            replace_table_rows_pg("prices_clean", df_out, columns=PRICES_CLEAN_DB_COLUMNS)
+            logging.info("Replaced prices_clean rows in Postgres (rows=%d)", len(df_out))
             return
     except Exception:
-        logging.exception("SQLAlchemy save failed, fallback to sqlite")
+        logging.exception("Postgres save failed, fallback to sqlite")
 
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
-        df_out.to_sql("prices_clean", conn, if_exists="replace", index=False)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS prices_clean (
+                date   DATE NOT NULL,
+                code   TEXT NOT NULL,
+                open   REAL,
+                high   REAL,
+                low    REAL,
+                close  REAL,
+                volume REAL,
+                PRIMARY KEY (date, code)
+            );
+            """
+        )
+        if replace_table_rows_sqlite:
+            replace_table_rows_sqlite(conn, "prices_clean", df_out)
         conn.commit()
         logging.info("Saved clean prices to sqlite DB: %s (rows=%d)", DB_PATH.resolve(), len(df_out))
     except Exception:

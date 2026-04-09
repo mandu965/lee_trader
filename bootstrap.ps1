@@ -110,7 +110,6 @@ $pipelineFiles = @(
     "download_prices_kis.py",
     "clean_prices.py",
     "feature_builder.py",
-    "scoring.py",
     "label_builder.py",
     "model_train.py",
     "model_predict.py"
@@ -135,7 +134,6 @@ STEPS = [
     ("download_prices_kis", "download_prices_kis.py"),
     ("clean_prices", "clean_prices.py"),
     ("feature_builder", "feature_builder.py"),
-    ("scoring", "scoring.py"),
     ("label_builder", "label_builder.py"),
     ("model_train", "model_train.py"),
     ("model_predict", "model_predict.py"),

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>방법론 | Lee Trader Lab</title>
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body class="site-body">
+  <header class="site-header">
+    <div class="site-container site-header__inner">
+      <a class="site-brand" href="/">
+        <div class="site-brand__mark">LT</div>
+        <div>
+          <p class="site-brand__title">Lee Trader Lab</p>
+          <p class="site-brand__subtitle">국내 주식 운영 해석과 시장 해설</p>
+        </div>
+      </a>
+      <button class="site-nav-toggle" type="button" aria-expanded="false" aria-controls="siteNav">메뉴</button>
+      <nav id="siteNav" class="site-nav">
+        <a href="/">홈</a>
+        <a href="/about">소개</a>
+        <a class="is-active" href="/methodology">방법론</a>
+        <a href="/reports">시장 해설</a>
+        <a href="/blog">블로그</a>
+        <a class="site-nav__app" href="/app">운영 앱</a>
+        <a class="site-nav__minor" href="/contact">문의</a>
+      </nav>
+    </div>
+  </header>
+  <main class="site-main">
+    <div class="site-container">
+      <section class="page-hero">
+        <p class="section__eyebrow">Methodology</p>
+        <h1>분석 방법 개요</h1>
+        <p>이 사이트는 한 줄 점수만으로 종목을 설명하지 않습니다. 후보 점수, 매수 기준, 시장 국면, 신뢰 해석, 워크포워드, 반복성 검증을 함께 읽는 구조를 사용합니다.</p>
+      </section>
+
+      <section class="section grid-4">
+        <article class="site-card"><h3>후보 점수</h3><p>예상 수익, 진입 확률, 품질, 기술 흐름, 리스크를 결합해 상대 순위를 만듭니다.</p></article>
+        <article class="site-card"><h3>운영 판단</h3><p>매수 gate와 시장 국면을 통해 실제 행동 강도를 다시 보수적으로 조정합니다.</p></article>
+        <article class="site-card"><h3>데이터 품질</h3><p>coverage와 freshness를 보고 해석 가능한 구간과 아직 보조 해석인 구간을 구분합니다.</p></article>
+        <article class="site-card"><h3>승격 기준</h3><p>shadow 성과뿐 아니라 반복성, coverage, 운영 리스크까지 확인한 뒤에만 승격을 검토합니다.</p></article>
+      </section>
+
+      <section class="section">
+        <div class="page-hero article-body">
+          <p class="section__eyebrow">Step By Step</p>
+          <h2>전체 흐름을 쉽게 설명하면</h2>
+          <p>첫째, 시장과 종목 데이터를 모읍니다. 둘째, 종목별 특징을 계산합니다. 셋째, 이 특징을 바탕으로 후보 점수를 만듭니다. 넷째, 매수 gate와 시장 국면을 적용해 오늘은 어느 정도까지 행동할 수 있는지 다시 조정합니다. 다섯째, 실제 수동매매 화면에서 우선 검토, 보수 검토, 장중 재확인 후보를 따로 정리합니다.</p>
+          <p>핵심은 마지막 단계입니다. 점수가 높다고 바로 매수 후보가 되지 않습니다. 시장이 불안정하거나, 검증 이력이 부족하거나, 장중 가격이 과열되면 행동 강도는 낮아집니다. 이 조정 층이 이 시스템의 핵심 차별점입니다.</p>
+        </div>
+      </section>
+
+      <section class="section policy-grid">
+        <article class="policy-card">
+          <h3>1. 후보 점수는 무엇인가</h3>
+          <p>후보 점수는 종목을 줄 세우기 위한 비교 점수입니다. 오늘 무엇이 상대적으로 더 좋아 보이는지 정리해 주는 역할에 가깝습니다.</p>
+        </article>
+        <article class="policy-card">
+          <h3>2. 왜 점수만으로 끝내지 않나</h3>
+          <p>점수는 정렬 도구일 뿐 행동 결정 자체는 아닙니다. 시장 상황과 데이터 안정성, 장중 과열 여부가 행동 수준을 바꿀 수 있습니다.</p>
+        </article>
+        <article class="policy-card">
+          <h3>3. 신뢰 해석은 무엇을 보나</h3>
+          <p>이 판단이 현재 시장에서 얼마나 일관되게 읽히는지, 데이터가 충분한지, 설명 가능한지까지 같이 봅니다.</p>
+        </article>
+        <article class="policy-card">
+          <h3>4. 시장 국면은 왜 먼저 보나</h3>
+          <p>같은 종목도 강한 장과 방어 장에서 읽는 방식이 다릅니다. 그래서 종목보다 먼저 시장의 온도를 확인합니다.</p>
+        </article>
+      </section>
+
+      <section class="section">
+        <div class="page-hero article-body">
+          <p class="section__eyebrow">Manual Trading</p>
+          <h2>수동매매 후보는 어떻게 선정되는가</h2>
+          <p>수동매매 후보는 단순 상위 5개를 가져오는 구조가 아닙니다. 먼저 상위 랭킹 후보를 고르고, 그다음 매수 기준, 신뢰 상태, 관찰 단계, 진입 규칙을 다시 확인합니다. 이 과정을 거치면서 상위권 종목이라도 관찰 후보나 제외 후보로 바뀔 수 있습니다.</p>
+          <p>12시 장중 스케줄은 별도의 역할을 가집니다. 마감 기준 랭킹을 다시 계산하는 것이 아니라, 오후장 대응을 위해 장중 가격과 거래 흐름을 보고 우선 검토 승격, 우선 검토 제외, 장중 재확인 필요 후보를 다시 정리합니다.</p>
+          <p>즉 수동매매 화면은 “좋아 보이는 종목” 목록이 아니라, “지금 다시 검토할 가치가 있는 종목” 목록에 가깝습니다.</p>
+        </div>
+      </section>
+
+      <section class="section grid-3">
+        <article class="site-card"><h3>마감 기준</h3><p>하루가 끝난 뒤 정리하는 공식 기준입니다. 다음 날 기본 판단의 출발점이 됩니다.</p></article>
+        <article class="site-card"><h3>장중 기준</h3><p>오후장 대응을 위한 보조 판단입니다. 장중 변화는 보조 신호로 읽고, 마감 기준과 구분해서 봐야 합니다.</p></article>
+        <article class="site-card"><h3>시세 출처 표시</h3><p>장중 판단은 시세 출처와 안정성 영향을 받습니다. 그래서 출처와 재확인 필요 여부를 함께 보여줍니다.</p></article>
+      </section>
+
+      <section class="section">
+        <div class="page-hero article-body">
+          <p class="section__eyebrow">Limits</p>
+          <h2>이 방법론의 한계도 함께 봐야 합니다</h2>
+          <p>데이터가 많다고 해서 미래를 확정적으로 맞힐 수 있는 것은 아닙니다. 일부 재무 데이터는 주기가 길고, 장중 시세는 외부 API 안정성 영향을 받습니다. 또 어떤 날은 시장 전체가 개별 종목 신호를 덮어버리기도 합니다.</p>
+          <p>그래서 이 시스템은 결과보다 한계와 보수적 조정을 함께 보여줍니다. 데이터가 약하면 약하다고 말하고, 검증 이력이 부족하면 승격을 보류합니다. 이 보수성이 운영의 중요한 일부입니다.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+  <script src="/site-shell.js"></script>
+</body>
+</html>

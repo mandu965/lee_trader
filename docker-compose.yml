@@ -1,4 +1,17 @@
-version: "3.9"
+x-python-runtime: &python-runtime
+  image: lee_trader-python-runtime:latest
+  build:
+    context: .
+    dockerfile: ./python/Dockerfile
+  depends_on:
+    postgres:
+      condition: service_healthy
+  working_dir: /app
+  env_file:
+    - .env
+  environment:
+    DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+    TZ: Asia/Seoul
 
 services:
   postgres:
@@ -21,23 +34,57 @@ services:
       retries: 5
 
   python-pipeline:
-    build:
-      context: .
-      dockerfile: ./python/Dockerfile
+    <<: *python-runtime
     container_name: lee_trader_pipeline
-    depends_on:
-      postgres:
-        condition: service_healthy
-    working_dir: /app
     command: ["python", "python/run_pipeline.py"]
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-    env_file:
-      - .env
+
+  scheduler:
+    <<: *python-runtime
+    container_name: lee_trader_scheduler
+    restart: unless-stopped
+    command: ["python", "python/run_daily_scheduler.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./output:/app/output
+      - ./outputs:/app/outputs
+      - ./serving:/app/serving
     environment:
-      TZ: Asia/Seoul
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      SCHEDULER_TIMEZONE: Asia/Seoul
+      SCHEDULER_DAILY_TIME: ${SCHEDULER_DAILY_TIME:-16:00}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_POLL_SECONDS:-30}
+      SCHEDULER_SKIP_CATCHUP_ON_START: ${SCHEDULER_SKIP_CATCHUP_ON_START:-1}
+      SCHEDULER_RUN_POLICY: ${SCHEDULER_RUN_POLICY:-always}
+
+  scheduler-recovery:
+    <<: *python-runtime
+    container_name: lee_trader_scheduler_recovery
+    restart: unless-stopped
+    command: ["python", "python/run_daily_scheduler.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./output:/app/output
+      - ./outputs:/app/outputs
+      - ./serving:/app/serving
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      SCHEDULER_TIMEZONE: Asia/Seoul
+      SCHEDULER_COMMAND_SET: intraday
+      SCHEDULER_DAILY_TIME: ${SCHEDULER_RECOVERY_DAILY_TIME:-12:00}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_RECOVERY_POLL_SECONDS:-30}
+      SCHEDULER_SKIP_CATCHUP_ON_START: ${SCHEDULER_RECOVERY_SKIP_CATCHUP_ON_START:-1}
+      SCHEDULER_RUN_POLICY: ${SCHEDULER_RECOVERY_RUN_POLICY:-always}
+      SCHEDULER_STATUS_PATH: ${SCHEDULER_RECOVERY_STATUS_PATH:-outputs/auto_ops_recovery_scheduler_status.json}
+      SCHEDULER_LOG_PATH: ${SCHEDULER_RECOVERY_LOG_PATH:-logs/auto_ops_recovery_scheduler.log}
+      SCHEDULER_PRIMARY_STATUS_PATH: ${SCHEDULER_PRIMARY_STATUS_PATH:-outputs/auto_ops_scheduler_status.json}
+      SCHEDULER_PRIMARY_MAX_AGE_HOURS: ${SCHEDULER_PRIMARY_MAX_AGE_HOURS:-20}
 
   node-api:
     build: ./node
@@ -51,8 +98,10 @@ services:
       - "3000:3000"
     volumes:
       - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./serving:/app/serving
     env_file:
       - .env
     environment:
-      TZ: Asia/Seoul
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul

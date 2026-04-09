@@ -1,0 +1,30 @@
+# Runtime secrets
+.env
+.env.local
+.env.production
+.env.development
+
+# Generated data
+data/
+logs/
+output/
+outputs/
+backups/
+artifacts/
+models/
+serving/
+
+# Local dependencies / caches
+node_modules/
+node/node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

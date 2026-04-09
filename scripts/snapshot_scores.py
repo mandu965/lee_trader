@@ -20,6 +20,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -27,6 +28,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 SNAPSHOT_ROOT = ROOT / "outputs" / "snapshots"
+KST = ZoneInfo("Asia/Seoul")
 
 
 def copy_with_date(src: Path, dest_dir: Path) -> Path:
@@ -66,7 +68,7 @@ def top20_metrics(df: pd.DataFrame, score_col: str) -> Dict[str, float]:
 
 
 def main() -> None:
-    today = datetime.today().strftime("%Y%m%d")
+    today = datetime.now(KST).strftime("%Y%m%d")
     dest_dir = SNAPSHOT_ROOT / today
     dest_dir.mkdir(parents=True, exist_ok=True)
 

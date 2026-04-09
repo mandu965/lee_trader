@@ -10,3 +10,6 @@ finance-datareader
 optuna
 sqlalchemy
 psycopg2-binary
+yfinance
+beautifulsoup4
+urllib3

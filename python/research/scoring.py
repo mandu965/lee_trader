@@ -1,4 +1,4 @@
-# python/research/scoring.py
+# research score helpers
 import pandas as pd
 try:
     from .config import BacktestConfig

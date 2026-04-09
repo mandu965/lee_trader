@@ -21,7 +21,7 @@ sys.path.append(str(BASE_DIR / "research"))
 
 from config import BacktestConfig, ScoreWeights  # noqa: E402
 from data_loader import load_predictions  # noqa: E402
-from scoring import apply_score_weights  # noqa: E402
+from research.scoring import apply_score_weights  # noqa: E402
 
 
 def parse_args():

@@ -1,7 +1,10 @@
 import argparse
 import logging
 import pickle
+import os
+from datetime import datetime
 import json  # 튜닝 파라미터 로딩용
+from pathlib import Path
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -68,6 +71,17 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=LABELS_CSV,
         help="Labels CSV path. Defaults to data/labels.csv",
+    )
+    p.add_argument(
+        "--train-end-date",
+        type=str,
+        help="Use only rows with date <= train_end_date (YYYY-MM-DD).",
+    )
+    p.add_argument(
+        "--model-version",
+        type=str,
+        default=os.environ.get("MODEL_VERSION", "v1"),
+        help="Model version metadata stored in the model pack.",
     )
     return p.parse_args()
 
@@ -159,6 +173,22 @@ def make_merged(reg_targets: List[str], cls_targets: List[str], features_path: P
 
     logging.info("Using %d feature columns: %s", len(feature_cols), feature_cols)
     return merged, feature_cols
+
+
+def apply_train_end_date(df: pd.DataFrame, train_end_date: str | None) -> tuple[pd.DataFrame, pd.Timestamp | None]:
+    if not train_end_date:
+        return df, None
+    cutoff = pd.to_datetime(train_end_date).normalize()
+    filtered = df[df["date"] <= cutoff].copy()
+    logging.info(
+        "Applied train_end_date=%s -> rows=%d (from %d)",
+        cutoff.date(),
+        len(filtered),
+        len(df),
+    )
+    if filtered.empty:
+        raise ValueError(f"No training rows remain after applying train_end_date={cutoff.date()}")
+    return filtered, cutoff
 
 
 def time_series_folds(dates: np.ndarray, n_splits: int) -> List[Tuple[np.ndarray, np.ndarray]]:
@@ -386,6 +416,7 @@ def main() -> None:
 
     logging.info("Training horizons: %s", reg_targets)
     df, feature_cols = make_merged(reg_targets, cls_targets, args.features_csv, args.labels_csv)
+    df, cutoff = apply_train_end_date(df, args.train_end_date)
 
     logging.info("Start training regressors (log-return + MDD)...")
     reg_models = train_regressors(df, feature_cols, reg_targets)
@@ -393,20 +424,27 @@ def main() -> None:
     logging.info("Start training classifiers (Top20 flags)...")
     cls_models = train_classifiers(df, feature_cols, cls_targets)
 
+    train_end_date = cutoff.strftime("%Y-%m-%d") if cutoff is not None else None
     pack = {
         "features": feature_cols,
         "reg_models": reg_models,
         "cls_models": cls_models,
         "reg_targets": list(reg_models.keys()),
         "cls_targets": list(cls_models.keys()),
+        "model_version": args.model_version,
+        "train_end_date": train_end_date,
+        "trained_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
+    args.output_pkl.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output_pkl, "wb") as f:
         pickle.dump(pack, f)
 
     logging.info(
-        "Saved model package to %s (reg_targets=%s, cls_targets=%s)",
+        "Saved model package to %s (model_version=%s, train_end_date=%s, reg_targets=%s, cls_targets=%s)",
         args.output_pkl.resolve(),
+        args.model_version,
+        train_end_date,
         list(reg_models.keys()),
         list(cls_models.keys()),
     )

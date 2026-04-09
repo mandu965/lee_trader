@@ -16,6 +16,13 @@ from dotenv import load_dotenv
 import os
 import sqlite3
 
+try:
+    from db import ensure_unique_keys, get_engine, replace_table_rows_pg
+except Exception:
+    ensure_unique_keys = None
+    get_engine = None
+    replace_table_rows_pg = None
+
 DATA_DIR = Path("data")
 CACHE_DIR = DATA_DIR / "dart"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -24,6 +31,8 @@ FUND_OUT = DATA_DIR / "fundamentals.csv"
 UNIVERSE_CSV = DATA_DIR / "universe.csv"
 FEATURES_CSV = DATA_DIR / "features.csv"
 DB_PATH = DATA_DIR / "lee_trader.db"
+FUNDAMENTALS_PK = ["date", "code"]
+FUNDAMENTALS_DB_COLUMNS = ["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"]
 
 DART_CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 DART_FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
@@ -216,10 +225,29 @@ def fetch_annual_financials(
     return None, None, last_status
 
 
+def load_existing_fundamentals() -> pd.DataFrame:
+    if not FUND_OUT.exists():
+        return pd.DataFrame(columns=["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"])
+    try:
+        existing = pd.read_csv(FUND_OUT, dtype={"code": str})
+    except Exception:
+        logging.warning("Failed to read existing fundamentals cache: %s", FUND_OUT.resolve())
+        return pd.DataFrame(columns=["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"])
+    if existing.empty or "code" not in existing.columns or "date" not in existing.columns:
+        return pd.DataFrame(columns=["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"])
+    existing = existing.copy()
+    existing["code"] = existing["code"].astype(str).str.zfill(6)
+    existing["date"] = pd.to_datetime(existing["date"], errors="coerce")
+    existing = existing.dropna(subset=["date", "code"])
+    keep_cols = ["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"]
+    return existing.loc[:, [c for c in keep_cols if c in existing.columns]].copy()
+
+
 def build_fundamentals_from_dart(
     api_key: str,
     codes: List[str],
     years_back: int = DEFAULT_YEARS_BACK,
+    refresh_recent_years: int = 0,
     sleep_sec: float = 0.15,
     log_every: int = 20,
     raw_log: bool = False,
@@ -232,12 +260,35 @@ def build_fundamentals_from_dart(
     today = datetime.today()
     end_year = today.year
     start_year = end_year - (years_back - 1)
+    existing_out = load_existing_fundamentals()
+    fetch_plan: Dict[str, int] = {}
+    cached_code_count = 0
+    for code in codes:
+        covered_years: set[int] = set()
+        if not existing_out.empty:
+            covered_years = set(
+                existing_out.loc[existing_out["code"] == code, "date"].dt.year.dropna().astype(int).tolist()
+            )
+        missing_years = [year for year in range(start_year, end_year + 1) if year not in covered_years]
+        forced_refresh_start_year = None
+        if refresh_recent_years > 0:
+            forced_refresh_start_year = max(start_year, end_year - refresh_recent_years)
+        if not missing_years:
+            if forced_refresh_start_year is None:
+                cached_code_count += 1
+                continue
+            fetch_plan[code] = forced_refresh_start_year
+            continue
+        planned_start_year = max(start_year, min(missing_years) - 1)
+        if forced_refresh_start_year is not None:
+            planned_start_year = min(planned_start_year, forced_refresh_start_year)
+        fetch_plan[code] = planned_start_year
 
     unmapped_codes: List[str] = []
     rows: List[Dict[str, object]] = []
 
     # 진행률/ETA 집계
-    total_iters = len(codes) * years_back
+    total_iters = sum((end_year - fetch_start_year + 1) for fetch_start_year in fetch_plan.values())
     iter_idx = 0
     ok_count = 0
     empty_count = 0
@@ -246,6 +297,15 @@ def build_fundamentals_from_dart(
     api_calls = 0
     total_ms = 0.0
     start_ts = time.perf_counter()
+    logging.info(
+        "Fundamentals fetch plan: target_codes=%d cached_codes=%d fetch_codes=%d planned_calls=%d window=%d-%d",
+        len(codes),
+        cached_code_count,
+        len(fetch_plan),
+        total_iters,
+        start_year,
+        end_year,
+    )
 
     # raw 로그 설정
     csv_path: Optional[Path] = None
@@ -261,15 +321,16 @@ def build_fundamentals_from_dart(
         )
 
     for code in codes:
+        fetch_start_year = fetch_plan.get(code)
+        if fetch_start_year is None:
+            continue
         corp_code = code_map.get(code)
         if not corp_code:
             unmapped_codes.append(code)
             logging.info("No corp_code for stock %s (skip)", code)
-            # 해당 코드에 대해 years_back 만큼 iter 증가 처리
-            iter_idx += years_back
             continue
 
-        for y in range(start_year, end_year + 1):
+        for y in range(fetch_start_year, end_year + 1):
             t0 = time.perf_counter()
             fin, fs_used, status = fetch_annual_financials(api_key, corp_code, y)
             dt_ms = (time.perf_counter() - t0) * 1000.0
@@ -358,6 +419,9 @@ def build_fundamentals_from_dart(
     )
 
     if not rows:
+        if not existing_out.empty:
+            logging.info("No missing fundamentals to fetch. Reusing existing fundamentals cache.")
+            return existing_out.sort_values(["code", "date"]).reset_index(drop=True)
         raise RuntimeError("No financial rows fetched from DART.")
 
     df = pd.DataFrame(rows).sort_values(["code", "date"]).reset_index(drop=True)
@@ -371,11 +435,14 @@ def build_fundamentals_from_dart(
         g = g.sort_values("date").copy()
         g["equity_avg"] = (g["equity"].shift(1) + g["equity"]) / 2.0
         g["assets_avg"] = (g["assets"].shift(1) + g["assets"]) / 2.0
+        # 평균 분모가 비어 있으면 당기 자본/자산으로 fallback해 최신 연도 coverage를 보강한다.
+        g["equity_basis"] = np.where(g["equity_avg"].abs() > 1e-9, g["equity_avg"], g["equity"])
+        g["assets_basis"] = np.where(g["assets_avg"].abs() > 1e-9, g["assets_avg"], g["assets"])
         # 비율 계산(0 나눗셈 방지)
-        g["roe"] = np.where((g["equity_avg"].abs() > 1e-9), g["net_income"] / g["equity_avg"], np.nan)
+        g["roe"] = np.where((g["equity_basis"].abs() > 1e-9), g["net_income"] / g["equity_basis"], np.nan)
         g["op_margin"] = np.where((g["revenue"].abs() > 1e-9), g["op_income"] / g["revenue"], np.nan)
         g["debt_ratio"] = np.where((g["equity"].abs() > 1e-9), g["liabilities"] / g["equity"], np.nan)
-        g["ocf_to_assets"] = np.where((g["assets_avg"].abs() > 1e-9), g["ocf"] / g["assets_avg"], np.nan)
+        g["ocf_to_assets"] = np.where((g["assets_basis"].abs() > 1e-9), g["ocf"] / g["assets_basis"], np.nan)
         g["net_margin"] = np.where((g["revenue"].abs() > 1e-9), g["net_income"] / g["revenue"], np.nan)
         return g
 
@@ -383,17 +450,44 @@ def build_fundamentals_from_dart(
     # 필요 컬럼만
     out_cols = ["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"]
     out = df[out_cols].copy()
-    return out
+    if existing_out.empty:
+        return out.sort_values(["code", "date"]).reset_index(drop=True)
+
+    refresh_frames = []
+    for code, fetch_start_year in fetch_plan.items():
+        refresh_frames.append((code, pd.Timestamp(f"{fetch_start_year}-01-01")))
+    retained = existing_out.copy()
+    for code, cutoff_date in refresh_frames:
+        retained = retained.loc[~((retained["code"] == code) & (retained["date"] >= cutoff_date))]
+    merged = (
+        pd.concat([retained, out], ignore_index=True)
+        .drop_duplicates(subset=["date", "code"], keep="last")
+        .sort_values(["code", "date"])
+        .reset_index(drop=True)
+    )
+    return merged
 
 
 def save_fundamentals(df: pd.DataFrame) -> None:
     out = df.copy()
     out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y-%m-%d")
+    out["code"] = out["code"].astype(str).str.zfill(6)
+    out = out[FUNDAMENTALS_DB_COLUMNS]
+    if ensure_unique_keys:
+        ensure_unique_keys(out, FUNDAMENTALS_PK, "fundamentals")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     out.to_csv(FUND_OUT, index=False, encoding="utf-8")
     logging.info("Saved fundamentals: %s (rows=%d)", FUND_OUT.resolve(), len(out))
 
-    # DB upsert
+    try:
+        if replace_table_rows_pg and get_engine:
+            replace_table_rows_pg("fundamentals", out, columns=FUNDAMENTALS_DB_COLUMNS)
+            logging.info("Replaced fundamentals rows in Postgres (rows=%d)", len(out))
+            return
+    except Exception:
+        logging.exception("Failed to save fundamentals to Postgres, fallback to sqlite")
+
+    # SQLite fallback
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)
@@ -436,6 +530,12 @@ def save_fundamentals(df: pd.DataFrame) -> None:
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Fetch fundamentals via OpenDART and build fundamentals.csv")
     p.add_argument("--years-back", type=int, default=DEFAULT_YEARS_BACK, help="Number of years to fetch (default: 7)")
+    p.add_argument(
+        "--refresh-recent-years",
+        type=int,
+        default=0,
+        help="Force refetch for the most recent N years window (plus prior-year anchor if needed).",
+    )
     p.add_argument("--sleep-sec", type=float, default=0.15, help="Sleep seconds between calls (default: 0.15)")
     p.add_argument("--log-every", type=int, default=20, help="Log progress every N calls (default: 20)")
     p.add_argument("--raw-log", action="store_true", help="Write raw fetch log CSV under data/dart")
@@ -452,6 +552,7 @@ def main() -> None:
         api_key,
         codes,
         years_back=args.years_back,
+        refresh_recent_years=args.refresh_recent_years,
         sleep_sec=args.sleep_sec,
         log_every=args.log_every,
         raw_log=args.raw_log,

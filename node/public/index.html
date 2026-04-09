@@ -1,87 +1,147 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Stock Analyzer - 예측 리스트</title>
+  <title>오늘의 종목 추천</title>
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./ui-components.css">
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>AI Stock Analyzer 예측 리스트<span id="envBadge" class="badge">상태 확인 중...</span></h1>
-      <div class="toolbar">
-        <input id="q" type="text" placeholder="종목코드/이름 검색(예: 005930, 삼성전자)">
-        <select id="market">
-          <option value="ALL">전체시장</option>
-          <option value="KOSPI">KOSPI</option>
-          <option value="KOSDAQ">KOSDAQ</option>
-        </select>
-        <select id="sector">
-          <option value="ALL">전체분야</option>
-        </select>
-        <div class="nav-tabs">
-          <button id="recoBtn" class="nav-tab">추천종목</button>
-          <button id="holdingsBtn" class="nav-tab">보유종목</button>
-          <button id="tradeHistoryBtn" class="nav-tab">매매 기록</button>
-          <button id="alertToggleBtn" class="nav-tab">알림 숨기기</button>
+      <h1>오늘의 종목 추천 <span id="envBadge" class="badge">서비스 준비 중</span></h1>
+      <button id="mobileFilterBtn" class="mobile-filter-btn" type="button" aria-expanded="false" aria-controls="mobileFilterPanel" aria-label="메뉴 열기">메뉴</button>
+      <div class="toolbar" id="toolbar">
+        <div class="toolbar-filters">
+          <div class="toolbar-section-label">추천 찾기</div>
+          <input id="q" type="text" placeholder="종목코드/이름 검색" aria-label="종목 검색">
+          <select id="market" aria-label="시장 필터">
+            <option value="ALL">전체시장</option>
+            <option value="KOSPI">KOSPI</option>
+            <option value="KOSDAQ">KOSDAQ</option>
+          </select>
+          <select id="sector" aria-label="섹터 필터">
+            <option value="ALL">전체분야</option>
+          </select>
+          <select id="sortOption" aria-label="정렬 기준">
+            <option value="final_score_desc">정렬: 최종 점수 높은순</option>
+            <option value="pred60_desc">정렬: 60d 예상수익률 높은순</option>
+            <option value="pred60_asc">정렬: 60d 예상수익률 낮은순</option>
+            <option value="ret3m_desc">정렬: 최근 3개월 수익률 높은순</option>
+            <option value="ret3m_asc">정렬: 최근 3개월 수익률 낮은순</option>
+            <option value="name_asc">정렬: 종목명 가나다순</option>
+            <option value="code_asc">정렬: 코드 오름차순</option>
+            <option value="market_asc">정렬: 시장순</option>
+          </select>
+        </div>
+        <div class="toolbar-nav">
+          <div class="toolbar-section-label">화면 이동</div>
+          <div class="nav-tabs nav-tabs--primary">
+            <button id="opsReadinessBtn" class="nav-tab" aria-label="운영자 대시보드 화면으로 이동">운영자</button>
+            <button id="manualTradingBtn" class="nav-tab" aria-label="수동매매 체크리스트 화면으로 이동">수동매매</button>
+            <button id="holdingsBtn" class="nav-tab" aria-label="보유종목 화면으로 이동">보유종목</button>
+            <button id="tradeHistoryBtn" class="nav-tab" aria-label="매매 기록 화면으로 이동">매매 기록</button>
+            <button id="paperTradingBtn" class="nav-tab" aria-label="모의투자 화면으로 이동">모의투자</button>
+            <button id="operatorLoginBtn" class="nav-tab" type="button" style="display:none;" aria-label="운영자 로그인">운영자 로그인</button>
+            <button id="alertToggleBtn" class="nav-tab" aria-label="시장 상태 알림 토글">알림 숨기기</button>
+          </div>
+          <div class="nav-tabs nav-tabs--secondary">
+            <button id="recoBtn" class="nav-tab" aria-label="리서치 랭킹 화면으로 이동">리서치 랭킹</button>
+            <button id="meaningfulnessBtn" class="nav-tab" aria-label="리서치 리뷰 화면으로 이동">리서치 리뷰</button>
+          </div>
         </div>
       </div>
     </header>
+
+    <section id="mobileFilterPanel" class="mobile-filter-panel" aria-hidden="true">
+      <div class="mobile-filter-panel__head">
+        <strong>메뉴</strong>
+        <button id="mobileFilterCloseBtn" class="mobile-filter-close" type="button" aria-label="메뉴 닫기">닫기</button>
+      </div>
+      <p class="mobile-filter-panel__note">모바일에서는 추천 카드와 점수 요약을 먼저 보고, 검색과 화면 이동은 메뉴 안에서 여는 방식으로 정리했습니다.</p>
+    </section>
+
     <div id="marketAlert" class="market-alert hidden"></div>
 
+    <section class="panel hero-panel" id="heroPanel">
+      <div class="hero-meta" id="heroMeta">
+        <div class="hero-block hero-block--primary">
+          <div class="hero-label">기준일</div>
+          <div class="hero-value" id="heroDate">-</div>
+          <div class="hero-detail" id="heroDateDetail">최신 추천이 반영된 기준일</div>
+        </div>
+        <div class="hero-block hero-block--primary">
+          <div class="hero-label hero-label--with-help">시장 흐름<button type="button" class="help-chip" aria-label="시장 흐름 설명" data-tooltip="지금이 공격적으로 볼 장인지, 보수적으로 선별할 장인지 짧게 요약합니다.">?</button></div>
+          <div class="hero-value" id="heroMarketState">-</div>
+          <div class="hero-detail" id="heroMarketDetail">오늘 추천을 어떤 톤으로 읽을지 요약합니다.</div>
+        </div>
+        <div class="hero-block hero-block--primary">
+          <div class="hero-label hero-label--with-help">신뢰도 높은 후보<button type="button" class="help-chip" aria-label="신뢰도 높은 후보 설명" data-tooltip="상위 20개 중 신뢰도 80점 이상 비중입니다. 낮다고 오류는 아니고, 오늘 강한 확신 후보가 적다는 뜻에 가깝습니다.">?</button></div>
+          <div class="hero-value" id="heroConfidenceShare">-</div>
+          <div class="hero-detail" id="heroConfidenceDetail">상위 20개 중 신뢰도가 높은 후보 비율</div>
+        </div>
+        <div class="hero-block hero-block--secondary">
+          <div class="hero-label hero-label--with-help">우선 검토 후보<button type="button" class="help-chip" aria-label="우선 검토 후보 설명" data-tooltip="점수, 신뢰도, 예상 리스크를 함께 봤을 때 오늘 먼저 볼 후보 수입니다. 0개면 보수적으로 보는 날입니다.">?</button></div>
+          <div class="hero-value" id="heroReviewCount">-</div>
+          <div class="hero-detail" id="heroReviewDetail">오늘 우선 확인할 후보 수</div>
+        </div>
+        <div class="hero-block hero-block--secondary">
+          <div class="hero-label hero-label--with-help">추가 확인 후보<button type="button" class="help-chip" aria-label="추가 확인 후보 설명" data-tooltip="상위 20개 중 낙폭이나 리스크 부담이 커서 추가 점검이 필요한 종목 수입니다.">?</button></div>
+          <div class="hero-value" id="heroRiskCount">-</div>
+          <div class="hero-detail" id="heroRiskDetail">상위 20개 중 추가 확인이 필요한 수</div>
+        </div>
+      </div>
+      <button id="heroMetaToggleBtn" class="hero-meta-toggle" type="button" aria-expanded="false">요약 더보기</button>
+      <div class="ops-strip" id="opsStrip">
+        <div class="ops-strip__empty">추천 해석 정보를 불러오는 중입니다.</div>
+      </div>
+      <div class="hero-top-picks" id="heroTopPicks">
+        <div class="hero-empty">추천 종목을 불러오는 중입니다.</div>
+      </div>
+    </section>
+
     <div class="panel table-panel">
-      <table class="stock-table">
+      <table class="stock-table" aria-label="추천 종목 목록">
         <thead>
           <tr>
-            <th class="sortable" data-sort="rank">순위</th>
-            <th class="sortable" data-sort="market">구분(분야)</th>
-            <th class="sortable" data-sort="name">종목/코드</th>
-            <th class="right sortable" data-sort="close">현재가</th>
-            <th class="right sortable" data-sort="ret">3개월 수익률</th>
-            <th class="right sortable" data-sort="pred60">예측수익률(60d)</th>
-            <th class="right sortable" data-sort="pred90">예측수익률(90d)</th>
-            <th class="right sortable" data-sort="mdd60">예상 MDD(60d)</th>
-            <th class="sortable score-col" data-sort="score">
-              <span class="tooltip" title="R(수익): 모멘텀/수익률&#10;P(확률): Top20 포함&#10;Q(퀄리티): 실적/기초체력&#10;T(기술): 기술적 지표&#10;M(모델): 예측 수익률&#10;RP(리스크): 변동성 패널티&#10;길이 비중으로 스코어 표시">지표·스코어</span>
-            </th>
-            <th>액션</th>
+            <th class="sortable col-rank" data-sort="rank" aria-sort="none">순위</th>
+            <th class="sortable col-name" data-sort="name" aria-sort="none">종목명</th>
+            <th class="sortable col-sector" data-sort="market" aria-sort="none">섹터</th>
+            <th class="col-price">현재가</th>
+            <th class="sortable col-score" data-sort="final_score" aria-sort="descending">최종 점수</th>
+            <th class="col-action-state">판단</th>
+            <th class="col-confidence">신뢰도</th>
+            <th class="sortable col-ret60" data-sort="pred60" aria-sort="none">기대수익(60d)</th>
+            <th class="sortable col-ret3m" data-sort="ret3m" aria-sort="none">최근 3개월 수익률</th>
+            <th class="col-mdd">예상MDD</th>
+            <th class="col-reason">핵심이유</th>
+            <th class="col-action">상세</th>
           </tr>
         </thead>
         <tbody id="tbody">
-          <!-- 반복: rows 데이터를 데스크톱 테이블 행으로 렌더링 -->
-          <tr><td colspan="10" class="center">표시할 데이터가 없습니다.</td></tr>
+          <tr><td colspan="12" class="center">표시할 데이터가 없습니다.</td></tr>
         </tbody>
       </table>
+      <div id="listState" class="state-panel hidden" aria-live="polite"></div>
       <div class="status" id="status"></div>
     </div>
-    <div class="mobile-list" id="mobileList">
-      <!-- 반복: rows 데이터를 모바일 카드(.stock-card)로 렌더링 -->
-    </div>
+
+    <div class="mobile-list" id="mobileList"></div>
   </div>
 
-  <!-- Trade modal -->
+  <div id="tooltipLayer" class="tooltip-layer" hidden></div>
+
   <div class="overlay" id="tradeOverlay">
     <div class="trade-modal">
       <div class="trade-modal-header">
         <div class="trade-modal-title" id="tradeModalTitle">매수 입력</div>
         <button class="modal-close" onclick="closeTradeModal()">닫기</button>
       </div>
-      <div class="trade-field">
-        <div class="trade-label" id="tradeInfo"></div>
-      </div>
-      <div class="trade-field">
-        <div class="trade-label">날짜</div>
-        <input id="tradeDate" type="date" class="trade-input">
-      </div>
-      <div class="trade-field">
-        <div class="trade-label">수량</div>
-        <input id="tradeQty" type="number" class="trade-input" min="1">
-      </div>
-      <div class="trade-field">
-        <div class="trade-label">가격</div>
-        <input id="tradePrice" type="number" class="trade-input" min="1">
-      </div>
+      <div class="trade-field"><div class="trade-label" id="tradeInfo"></div></div>
+      <div class="trade-field"><div class="trade-label">날짜</div><input id="tradeDate" type="date" class="trade-input"></div>
+      <div class="trade-field"><div class="trade-label">수량</div><input id="tradeQty" type="number" class="trade-input" min="1"></div>
+      <div class="trade-field"><div class="trade-label">가격</div><input id="tradePrice" type="number" class="trade-input" min="1"></div>
       <div class="trade-actions">
         <button onclick="saveTrade()">저장</button>
         <button onclick="closeTradeModal()">취소</button>
@@ -89,325 +149,944 @@
     </div>
   </div>
 
+  <script src="./ui-components.js"></script>
   <script>
     const $ = (sel) => document.querySelector(sel);
     const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+    const escapeHtml = (v) => String(v ?? "").replace(/[&<>"']/g, (m) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m]));
+    const escapeJsString = (v) => String(v ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const API_BASE = window.__API_BASE__ || "";
     const api = (path) => `${API_BASE}${path}`;
+
     let universe = [];
     let rankMap = new Map();
-    const sortState = { key: "score", dir: "desc" };
+    let marketStatus = null;
+    let confidenceCalibration = null;
+    let scoreKpiMonitor = null;
+    let manualTradingSummary = null;
+    let manualReviewMap = new Map();
     let alertHidden = false;
-    let tradeCtx = { side:"BUY", code:"", name:"" };
+    let tradeCtx = { side: "BUY", code: "", name: "" };
+    let operatorAuth = { enabled: false, authorized: true };
+    let mobileFilterOpen = false;
+    let heroMetaExpanded = false;
+    let listUiState = { mode: "idle", message: "", detail: "" };
+    const sortState = { key: "final_score", dir: "desc" };
 
-    const fmtPct = (v, digits = 2) => {
-      const n = Number(v);
-      if (!Number.isFinite(n)) return "-";
-      return (n * 100).toFixed(digits) + "%";
-    };
-    const getRiskClass = (mdd) => {
-      if (!Number.isFinite(mdd)) return "";
-      if (mdd <= -0.3) return "neg";
-      if (mdd <= -0.15) return "warn";
-      return "pos";
+    const debounce = (fn, wait = 120) => {
+      let timer = null;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), wait);
+      };
     };
 
-    function buildRank(rows) {
-      const arr = rows.filter(r => Number.isFinite(+r.final_score) || Number.isFinite(+r.score))
-        .sort((a,b)=>{
-          const af = Number.isFinite(+a.final_score)?+a.final_score:(Number.isFinite(+a.score)?+a.score:-Infinity);
-          const bf = Number.isFinite(+b.final_score)?+b.final_score:(Number.isFinite(+b.score)?+b.score:-Infinity);
-          return bf-af;
-        });
-      rankMap = new Map();
-      arr.forEach((r,i)=>rankMap.set(r.code, i+1));
+    const debouncedRender = debounce(render, 120);
+    const factorLabelMap = { ret: "예측 수익률", prob: "확률", qual: "품질", tech: "기술", safety: "안정성", liquidity: "유동성", penalty: "리스크 패널티" };
+    const fmtPct = (v, digits = 1) => Number.isFinite(Number(v)) ? `${(Number(v) * 100).toFixed(digits)}%` : "-";
+    const fmtScore = (v) => Number.isFinite(Number(v)) ? Number(v).toFixed(1) : "-";
+    const fmtPrice = (v) => Number.isFinite(Number(v)) ? Number(v).toLocaleString("ko-KR") : "-";
+    const displayPctClass = (v) => {
+      const n = toNum(v);
+      if (n === null) return "muted";
+      if (n > 0) return "pos";
+      if (n < 0) return "neg";
+      return "muted";
+    };
+
+    function getBaseDate(rows) {
+      const first = rows.find((r) => r?.date || r?.as_of_date);
+      return first?.date || first?.as_of_date || marketStatus?.status_date || "";
     }
 
-    function applySort(rows){
-      const {key,dir}=sortState;
-      const g=(r)=>{
-        switch(key){
-          case "name": return (r.name||"").toLowerCase();
-          case "code": return (r.code||"").toLowerCase();
-          case "market": return (r.market||"").toLowerCase();
-          case "close": return toNum(r.close) ?? -Infinity;
-          case "ret": return toNum(r.ret_3m) ?? -Infinity;
-          case "pred60": return toNum(r.pred_return_60d) ?? -Infinity;
-          case "pred90": return toNum(r.pred_return_90d) ?? -Infinity;
-          case "mdd60": return toNum(r.pred_mdd_60d) !== null ? -toNum(r.pred_mdd_60d) : -Infinity;
-          case "rank": return rankMap.get(r.code) ?? Infinity;
-          case "score":
+    function formatKstDate(value) {
+      if (!value) return "";
+      const text = String(value).trim();
+      if (!text) return "";
+      if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+      const parsed = new Date(text);
+      if (Number.isNaN(parsed.getTime())) return text;
+      return new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "Asia/Seoul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(parsed);
+    }
+
+    function displayBaseDate(value) {
+      return formatKstDate(value) || "기준일 정보 없음";
+    }
+
+    function displayField(value, fallback = "데이터 없음") {
+      return value === null || value === undefined || value === "" ? fallback : String(value);
+    }
+
+    function operatorLoginUrl() {
+      return `/operator-login?next=${encodeURIComponent(location.pathname + location.search)}`;
+    }
+
+    function applyOperatorUi() {
+      const showOperator = !operatorAuth.enabled || operatorAuth.authorized;
+      ["opsReadinessBtn"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = showOperator ? "" : "none";
+      });
+      const loginBtn = document.getElementById("operatorLoginBtn");
+      if (loginBtn) {
+        loginBtn.style.display = operatorAuth.enabled ? "" : "none";
+        loginBtn.textContent = operatorAuth.authorized ? "운영자 로그아웃" : "운영자 로그인";
+      }
+      document.querySelectorAll(".compact-btn").forEach((el) => {
+        el.style.display = showOperator ? "" : "none";
+      });
+    }
+
+    function getRegimeMeta(r) {
+      const regime = (r?.regime || marketStatus?.regime || "").toString().toLowerCase();
+      if (regime === "bull") return { label: "강세", cls: "good" };
+      if (regime === "defensive") return { label: "방어", cls: "bad" };
+      return { label: "중립", cls: "neutral" };
+    }
+
+    function getScoreTone(score) {
+      const n = toNum(score);
+      if (n === null) return "muted";
+      if (n >= 75) return "high";
+      if (n >= 60) return "medium";
+      return "low";
+    }
+
+    function getCalibrationMeta() {
+      return confidenceCalibration?.summary || null;
+    }
+
+    function getScoreKpiMeta() {
+      return scoreKpiMonitor?.summary || null;
+    }
+
+    function getScoreKpiMetric(metric) {
+      return scoreKpiMonitor?.metric_map?.[metric] || null;
+    }
+
+    function getMonitorStatusLabel(status) {
+      if (status === "GOOD") return "안정";
+      if (status === "WATCH") return "선별 운용";
+      if (status === "ALERT") return "보수 운용";
+      return "해석 준비 중";
+    }
+
+    function getMonitorSourceLabel(sourceMode) {
+      if (sourceMode === "walkforward_provisional") return "보조 해석 기준";
+      if (sourceMode === "snapshot_operational") return "일일 해석 기준";
+      return sourceMode || "기준 정보 없음";
+    }
+
+    function fmtKpiValue(metricName, metric) {
+      if (!metric) return "-";
+      const raw = metric.value;
+      if (typeof raw === "number") {
+        if (metricName.includes("return") || metricName.includes("rate") || metricName.includes("share") || metricName.includes("corr") || metricName.includes("overlap")) {
+          return `${(raw * 100).toFixed(1)}%`;
+        }
+        return Number.isInteger(raw) ? `${raw}` : raw.toFixed(2);
+      }
+      return metric.value_display || "-";
+    }
+
+    function getCalibrationBucket(score) {
+      const items = Array.isArray(confidenceCalibration?.bucket_map) ? confidenceCalibration.bucket_map : [];
+      const n = toNum(score);
+      if (n === null) return null;
+      return items.find((item) => {
+        const low = toNum(item.bucket_low);
+        const high = toNum(item.bucket_high);
+        if (low === null || high === null) return false;
+        return low === 0 ? n >= low && n <= high : n > low && n <= high;
+      }) || null;
+    }
+
+    function getCalibrationView(score) {
+      const meta = getCalibrationMeta();
+      const bucket = getCalibrationBucket(score);
+      if (!meta || !bucket) return null;
+      const calibratedScore = toNum(bucket.calibrated_confidence_score);
+      const band = String(bucket.calibrated_confidence_band || "unknown").toLowerCase();
+      const sourceMode = String(meta.source_mode || "");
+      return {
+        sourceMode,
+        sourceLabel: String(meta.source_label || ""),
+        confidenceKind: String(meta.confidence_kind || ""),
+        calibratedScore,
+        band,
+        status: String(bucket.status || ""),
+        bucketLabel: String(bucket.bucket_label || ""),
+        isProvisional: sourceMode === "walkforward_provisional",
+      };
+    }
+
+    function calibrationBandText(view) {
+      if (!view) return "정보 없음";
+      if (view.band === "high") return "보정상 높음";
+      if (view.band === "medium") return "보정상 중간";
+      if (view.band === "low") return "보정상 낮음";
+      return "보정 정보 없음";
+    }
+
+    function buildConfidenceWidget(score, grade, explain, mode = "compact") {
+      return window.ConfidenceUI
+        ? window.ConfidenceUI.render(score, grade, explain || "투자 판단 보조용 신뢰도 지표입니다.", { mode, label: "Confidence" })
+        : `<div>${fmtScore(score)}</div>`;
+    }
+
+    function collectReasonItems(r) {
+      return [
+        { label: "예측 수익", score: toNum(r.ret_score) },
+        { label: "확률", score: toNum(r.prob_score) },
+        { label: "품질", score: toNum(r.qual_score) },
+        { label: "기술", score: toNum(r.tech_score) },
+        { label: "안정성", score: toNum(r.safety_score) }
+      ].filter((item) => Number.isFinite(item.score)).sort((a, b) => b.score - a.score);
+    }
+
+    function getReasonSummary(r, limit = 3) {
+      const items = collectReasonItems(r).slice(0, limit);
+      if (!items.length) return [{ label: "근거 없음", score: null, cls: "muted" }];
+      return items.map((item) => ({ ...item, cls: item.score >= 70 ? "good" : (item.score >= 50 ? "warn" : "muted") }));
+    }
+
+    function getRiskSummary(r) {
+      const penalty = toNum(r.risk_penalty);
+      if (penalty === null) return { text: "-", badge: "MID", cls: "muted" };
+      if (penalty >= 12) return { text: "HIGH", badge: "HIGH", cls: "bad" };
+      if (penalty >= 6) return { text: "MID", badge: "MID", cls: "warn" };
+      return { text: "LOW", badge: "LOW", cls: "good" };
+    }
+
+    function getActionState(r) {
+      const score = toNum(r.final_score) || 0;
+      const confidence = toNum(r.confidence_score) || 0;
+      const penalty = toNum(r.risk_penalty);
+      const ret60 = toNum(r.pred_return_60d) || 0;
+      const calibration = getCalibrationView(r.confidence_score);
+
+      if (calibration?.isProvisional && calibration.band === "low" && confidence < 65) {
+        return { label: "보조 검토", cls: "caution", detail: "원 신뢰도는 있지만 provisional 보정상 확신은 아직 보조 수준입니다." };
+      }
+
+      if (score >= 68 && confidence >= 80 && penalty !== null && penalty < 6 && ret60 >= 0.10) {
+        return { label: "우선 검토", cls: "review", detail: "점수와 신뢰도, 리스크 균형이 가장 양호합니다." };
+      }
+      if (confidence >= 72 && penalty !== null && penalty < 10 && ret60 >= 0.06) {
+        return { label: "관심 유지", cls: "watch", detail: "좋은 편이지만 보조 지표 확인이 더 필요합니다." };
+      }
+      if (penalty !== null && penalty >= 10) {
+        return { label: "주의 관찰", cls: "hold", detail: "리스크 패널티가 높아 즉시 행동보다 관찰이 우선입니다." };
+      }
+      return { label: "보조 검토", cls: "caution", detail: "핵심 후보는 아니지만 추적 가치는 있습니다." };
+    }
+
+    function buildManualReviewMap(summary) {
+      const map = new Map();
+      const groups = [
+        ...(summary?.priority_candidates || []),
+        ...(summary?.caution_candidates || []),
+      ];
+      groups.forEach((item) => {
+        const code = String(item?.code || "").trim();
+        if (!code) return;
+        const existing = map.get(code) || {};
+        map.set(code, {
+          ...existing,
+          ...item,
+          supporting_reasons: item?.supporting_reasons || existing.supporting_reasons || [],
+          blocking_reasons: item?.blocking_reasons || existing.blocking_reasons || [],
+        });
+      });
+      return map;
+    }
+
+    function buildManualReviewLine(r) {
+      const item = manualReviewMap.get(String(r.code || "").trim());
+      if (!item) return "";
+      const parts = [];
+      if (item.buyability_status) parts.push(item.buyability_status);
+      if (item.watchlist_tier) parts.push(item.watchlist_tier);
+      if (item.confidence_state_v2) parts.push(item.confidence_state_v2);
+      const reason = (item.blocking_reasons && item.blocking_reasons.length)
+        ? item.blocking_reasons.slice(0, 2).join(", ")
+        : ((item.supporting_reasons && item.supporting_reasons.length) ? item.supporting_reasons.slice(0, 2).join(", ") : "");
+      const prefix = parts.length ? `운영판정 ${parts.join(" / ")}` : "운영판정";
+      return reason ? `${prefix} · ${reason}` : prefix;
+    }
+
+    function buildCompactHeadline(r) {
+      const primary = (r.top_driver_1 || r.action_note || "").trim();
+      const secondary = (r.top_driver_2 || "").trim();
+      if (primary && secondary) return `${primary} · ${secondary}`;
+      if (primary) return primary;
+      const summary = String(r.score_explain_summary || "").trim();
+      if (summary) return summary.length > 34 ? `${summary.slice(0, 34)}...` : summary;
+      return "핵심 추천 근거 확인 필요";
+    }
+
+    function buildConfidenceBadge(r) {
+      const labelRaw = String(r.confidence_label || r.confidence_grade || "").trim();
+      const score = toNum(r.confidence_score);
+      const label = labelRaw || (score === null ? "Experimental" : (score >= 80 ? "High" : score >= 60 ? "Medium" : score >= 40 ? "Low" : "Experimental"));
+      const cls = label.toLowerCase();
+      return `<span class="compact-badge compact-badge--confidence is-${escapeHtml(cls)}">${escapeHtml(label)}</span>`;
+    }
+
+    function buildCalibrationBadge(r) {
+      const view = getCalibrationView(r.confidence_score);
+      if (!view || !view.isProvisional) return "";
+      const band = view.band || "unknown";
+      const scoreText = view.calibratedScore === null ? "" : ` ${fmtScore(view.calibratedScore)}`;
+      const bandText = band === "high" ? "높음" : band === "medium" ? "중간" : band === "low" ? "낮음" : "정보없음";
+      return `<span class="compact-badge compact-badge--calibration is-${escapeHtml(band)}" title="walk-forward provisional calibration 기준 ${escapeHtml(view.bucketLabel)} bucket">${escapeHtml(`WF ${bandText}${scoreText}`)}</span>`;
+    }
+
+    function buildRiskBadge(r) {
+      const risk = getRiskSummary(r);
+      return `<span class="compact-badge compact-badge--risk is-${risk.cls}">${escapeHtml(risk.badge)}</span>`;
+    }
+
+    function buildActionBadge(r) {
+      const action = getActionState(r);
+      return `<span class="action-state is-${escapeHtml(action.cls)}">${escapeHtml(action.label)}</span>`;
+    }
+
+    function buildRank(rows) {
+      const arr = rows.filter((r) => Number.isFinite(+r.final_score) || Number.isFinite(+r.score)).sort((a, b) => (Number.isFinite(+b.final_score) ? +b.final_score : -Infinity) - (Number.isFinite(+a.final_score) ? +a.final_score : -Infinity));
+      rankMap = new Map();
+      arr.forEach((r, i) => rankMap.set(r.code, i + 1));
+    }
+
+    function applySortOption(value) {
+      switch (value) {
+        case "pred60_desc":
+          sortState.key = "pred60";
+          sortState.dir = "desc";
+          break;
+        case "pred60_asc":
+          sortState.key = "pred60";
+          sortState.dir = "asc";
+          break;
+        case "ret3m_desc":
+          sortState.key = "ret3m";
+          sortState.dir = "desc";
+          break;
+        case "ret3m_asc":
+          sortState.key = "ret3m";
+          sortState.dir = "asc";
+          break;
+        case "name_asc":
+          sortState.key = "name";
+          sortState.dir = "asc";
+          break;
+        case "code_asc":
+          sortState.key = "code";
+          sortState.dir = "asc";
+          break;
+        case "market_asc":
+          sortState.key = "market";
+          sortState.dir = "asc";
+          break;
+        case "final_score_desc":
+        default:
+          sortState.key = "final_score";
+          sortState.dir = "desc";
+          break;
+      }
+      syncSortAria();
+      syncSortControl();
+    }
+
+    function syncSortControl() {
+      const sortSelect = $("#sortOption");
+      if (!sortSelect) return;
+      if (sortState.key === "final_score" && sortState.dir === "desc") sortSelect.value = "final_score_desc";
+      else if (sortState.key === "pred60" && sortState.dir === "desc") sortSelect.value = "pred60_desc";
+      else if (sortState.key === "pred60" && sortState.dir === "asc") sortSelect.value = "pred60_asc";
+      else if (sortState.key === "ret3m" && sortState.dir === "desc") sortSelect.value = "ret3m_desc";
+      else if (sortState.key === "ret3m" && sortState.dir === "asc") sortSelect.value = "ret3m_asc";
+      else if (sortState.key === "name" && sortState.dir === "asc") sortSelect.value = "name_asc";
+      else if (sortState.key === "code" && sortState.dir === "asc") sortSelect.value = "code_asc";
+      else if (sortState.key === "market" && sortState.dir === "asc") sortSelect.value = "market_asc";
+    }
+
+    function applySort(rows) {
+      const { key, dir } = sortState;
+        const getValue = (r) => {
+          switch (key) {
+            case "name": return (r.name || "").toLowerCase();
+            case "code": return (r.code || "").toLowerCase();
+            case "market": return (r.market || "").toLowerCase();
+            case "rank": return rankMap.get(r.code) ?? Infinity;
+            case "ret3m":
+              if (Number.isFinite(+r.ret_3m)) return +r.ret_3m;
+              if (Number.isFinite(+r.pred_return_60d)) return +r.pred_return_60d;
+              if (Number.isFinite(+r.final_score)) return +r.final_score;
+              return Number.isFinite(+r.score) ? +r.score : -Infinity;
+            case "pred60":
+              if (Number.isFinite(+r.pred_return_60d)) return +r.pred_return_60d;
+              if (Number.isFinite(+r.final_score)) return +r.final_score;
+              return Number.isFinite(+r.score) ? +r.score : -Infinity;
+          case "final_score":
           default:
-            return Number.isFinite(+r.final_score)?+r.final_score:(Number.isFinite(+r.score)?+r.score:-Infinity);
+            if (Number.isFinite(+r.final_score)) return +r.final_score;
+            return Number.isFinite(+r.score) ? +r.score : -Infinity;
         }
       };
-      return rows.sort((a,b)=>{
-        const va=g(a), vb=g(b);
-        if(va<vb) return dir==="asc"?-1:1;
-        if(va>vb) return dir==="asc"?1:-1;
+      return rows.sort((a, b) => {
+        const va = getValue(a);
+        const vb = getValue(b);
+        if (va < vb) return dir === "asc" ? -1 : 1;
+        if (va > vb) return dir === "asc" ? 1 : -1;
+        const fa = Number.isFinite(+a.final_score) ? +a.final_score : -Infinity;
+        const fb = Number.isFinite(+b.final_score) ? +b.final_score : -Infinity;
+        if (fa !== fb) return fb - fa;
         return 0;
       });
     }
 
-    function buildStrip(r){
-      const R = toNum(r.ret_score)||0;
-      const P = toNum(r.prob_score)||0;
-      const Q = toNum(r.qual_score)||0;
-      const T = toNum(r.tech_score)||0;
-      const M = toNum(r.pred_score)||0;
-      const RP= toNum(r.risk_penalty)||0;
-      let total = R+P+Q+T+M+RP;
-      if(!Number.isFinite(total) || total<=0) total=1;
-      const minPct=0.5;
-      const seg=(val,cls,label,desc)=>{
-        const pct=Math.max((val/total)*100,minPct);
-        const tooltip = `${label}: ${val.toFixed(1)}점\n${desc}`;
-        return `<div class="seg ${cls}" style="flex-basis:${pct}%" title="${tooltip}"></div>`;
-      };
-      return `
-        <div class="score-cell">
-          <span class="score-val">${Number.isFinite(+r.final_score)?(+r.final_score).toFixed(1)+'점':'-'}</span>
-          <div class="score-strip">
-            ${seg(R,'seg-R','R (Return Score)','최근 모멘텀/수익률 기반')}
-            ${seg(P,'seg-P','P (Probability Score)','모델의 예측 상위 Top20 포함')}
-            ${seg(Q,'seg-Q','Q (Quality Score)','실적/기초체력 지표')}
-            ${seg(T,'seg-T','T (Tech Score)','기술적 지표 기반')}
-            ${seg(M,'seg-M','M (Model Score)','예측 수익률 기반')}
-            ${seg(RP,'seg-RP','RP (Risk Penalty)','변동성 및 리스크 패널티')}
-          </div>
-        </div>`;
+    function buildStrip(r) {
+      const vals = [
+        { v: toNum(r.ret_score) || 0, cls: "seg-R", label: "예측 수익" },
+        { v: toNum(r.prob_score) || 0, cls: "seg-P", label: "확률" },
+        { v: toNum(r.qual_score) || 0, cls: "seg-Q", label: "품질" },
+        { v: toNum(r.tech_score) || 0, cls: "seg-T", label: "기술" },
+        { v: toNum(r.pred_score) || 0, cls: "seg-M", label: "연구용 모델" },
+        { v: toNum(r.risk_penalty) || 0, cls: "seg-RP", label: "리스크 패널티" }
+      ];
+      let total = vals.reduce((acc, item) => acc + item.v, 0);
+      if (!Number.isFinite(total) || total <= 0) total = 1;
+      return `<div class="score-cell"><span class="score-val">${fmtScore(r.final_score)}점</span><div class="score-strip">${vals.map((item) => `<div class="seg ${item.cls}" style="flex-basis:${Math.max((item.v / total) * 100, 0.5)}%" title="${item.label} ${item.v.toFixed(1)}"></div>`).join("")}</div></div>`;
     }
 
-    function render(){
-      const q = (($("#q")?.value)||"").trim().toLowerCase();
-      let rows = universe.slice();
-      const mktFilter = (($("#market")?.value)||"ALL").toUpperCase();
-      const sectorFilter = (($("#sector")?.value)||"ALL");
-      const mobileList = $("#mobileList");
-      const isMobile = window.matchMedia("(max-width: 768px)")?.matches === true;
-      if(mktFilter!=="ALL") rows = rows.filter(r => (r.market||"").toUpperCase()===mktFilter);
-      if(sectorFilter!=="ALL") rows = rows.filter(r => (r.sector||"")===sectorFilter);
-      if(q) rows = rows.filter(r => (r.code||"").toLowerCase().includes(q) || (r.name||"").toLowerCase().includes(q));
-      if(!rows.length){
-        $("#tbody").innerHTML='<tr><td colspan="10" class="center">표시할 데이터가 없습니다.</td></tr>';
-        if(mobileList && isMobile) mobileList.innerHTML='<div class="stock-card"><div class="stock-card-sub">표시할 데이터가 없습니다.</div></div>';
-        if(mobileList && !isMobile) mobileList.innerHTML="";
+    function buildFinalScoreViz(score) {
+      const n = toNum(score);
+      const width = n === null ? 0 : Math.max(8, Math.min(n, 100));
+      return `<div class="mini-viz"><div class="mini-viz-head"><span class="mini-viz-label">score level</span><strong>${fmtScore(score)}</strong></div><div class="mini-meter"><div class="mini-meter-fill" style="width:${width}%"></div></div></div>`;
+    }
+
+    function buildHorizonViz(r) {
+      const ret60 = toNum(r.pred_return_60d), ret90 = toNum(r.pred_return_90d);
+      const scale = (v) => v === null ? 0 : Math.max(8, Math.min(Math.abs(v) * 120, 100));
+      return `<div class="mini-horizon-viz"><div class="mini-viz-head"><span class="mini-viz-label">horizon</span><span class="mini-viz-note">${ret60 !== null || ret90 !== null ? "60d vs 90d" : "비교 데이터 없음"}</span></div><div class="mini-horizon-row"><span>60d</span><div class="mini-meter is-horizon"><div class="mini-meter-fill ${ret60 !== null && ret60 < 0 ? "is-negative" : ""}" style="width:${scale(ret60)}%"></div></div><strong class="${ret60 !== null && ret60 < 0 ? "neg" : "pos"}">${fmtPct(ret60, 1)}</strong></div><div class="mini-horizon-row"><span>90d</span><div class="mini-meter is-horizon"><div class="mini-meter-fill ${ret90 !== null && ret90 < 0 ? "is-negative" : ""}" style="width:${scale(ret90)}%"></div></div><strong class="${ret90 !== null && ret90 < 0 ? "neg" : "pos"}">${fmtPct(ret90, 1)}</strong></div></div>`;
+    }
+
+    function buildRankChangeViz(r) {
+      const delta = toNum(r.rank_change ?? r.rank_delta);
+      if (delta === null) return '<div class="mini-rank-change is-muted">랭킹 변화 데이터 없음</div>';
+      const cls = delta > 0 ? "is-up" : (delta < 0 ? "is-down" : "is-flat");
+      const label = delta > 0 ? `상승 +${delta}` : (delta < 0 ? `하락 ${delta}` : "변화 없음");
+      return `<div class="mini-rank-change ${cls}">${label}</div>`;
+    }
+
+    function setListUiState(mode, options = {}) {
+      listUiState = { mode, message: options.message || "", detail: options.detail || "" };
+    }
+
+    function setListStatePanel(mode, message, detail = "") {
+      const panel = $("#listState");
+      if (!panel) return;
+      if (!mode) {
+        panel.className = "state-panel hidden";
+        panel.innerHTML = "";
         return;
       }
+      panel.className = `state-panel state-panel-${mode}`;
+      panel.innerHTML = `<div class="state-panel__icon">${mode === "error" ? "!" : mode === "loading" ? "..." : "i"}</div><div class="state-panel__body"><div class="state-panel__title">${escapeHtml(message)}</div>${detail ? `<div class="state-panel__detail">${escapeHtml(detail)}</div>` : ""}</div>`;
+    }
+
+    function renderSkeletonRows(count = 10) {
+      return Array.from({ length: count }, () => `<tr class="skeleton-row"><td class="col-rank"><div class="skeleton-block skeleton-block-rank"></div></td><td class="col-name"><div class="skeleton-stack"><div class="skeleton-line w-60"></div><div class="skeleton-line w-35"></div></div></td><td class="col-sector"><div class="skeleton-stack"><div class="skeleton-line w-50"></div><div class="skeleton-line w-40"></div></div></td><td class="col-score"><div class="skeleton-line w-45"></div></td><td class="col-action-state"><div class="skeleton-line w-45"></div></td><td class="col-confidence"><div class="skeleton-line w-45"></div></td><td class="col-ret60"><div class="skeleton-line w-45"></div></td><td class="col-ret3m"><div class="skeleton-line w-45"></div></td><td class="col-mdd"><div class="skeleton-line w-45"></div></td><td class="col-reason"><div class="skeleton-line w-100"></div></td><td class="col-action"><div class="skeleton-line w-45"></div></td></tr>`).join("");
+    }
+
+    function renderSkeletonCards(count = 4) {
+      return Array.from({ length: count }, () => `<article class="stock-card skeleton-card"><div class="skeleton-line w-25"></div><div class="skeleton-line w-55"></div><div class="skeleton-line w-35"></div><div class="skeleton-line w-100"></div><div class="skeleton-line w-80"></div><div class="skeleton-line w-65"></div></article>`).join("");
+    }
+
+    function renderListFeedback(mode, message, detail = "") {
+      const mobileList = $("#mobileList");
+      const isMobile = window.matchMedia("(max-width: 768px)").matches;
+      if (mode === "loading") {
+        setListStatePanel("loading", "추천 종목을 불러오는 중입니다.", "최신 점수와 해석 정보를 정리하고 있습니다.");
+        $("#tbody").innerHTML = renderSkeletonRows();
+        if (mobileList) mobileList.innerHTML = isMobile ? renderSkeletonCards() : "";
+        return;
+      }
+      if (mode === "error" || mode === "empty" || mode === "filter-empty") {
+        setListStatePanel(mode, message, detail);
+        $("#tbody").innerHTML = `<tr><td colspan="12" class="center">${escapeHtml(message)}</td></tr>`;
+        if (mobileList) mobileList.innerHTML = isMobile ? `<div class="state-card"><div class="state-card__title">${escapeHtml(message)}</div>${detail ? `<div class="state-card__detail">${escapeHtml(detail)}</div>` : ""}</div>` : "";
+        return;
+      }
+      setListStatePanel(null);
+      if (mobileList && !isMobile) mobileList.innerHTML = "";
+    }
+
+    function renderHero(rows) {
+      const baseDate = displayBaseDate(getBaseDate(rows));
+      const regime = getRegimeMeta(rows[0] || {});
+      const top20 = rows.slice(0, 20);
+      const highConfidenceCount = top20.filter((r) => (toNum(r.confidence_score) || 0) >= 80).length;
+      const reviewNowCount = top20.filter((r) => getActionState(r).cls === "review").length;
+      const riskAlertCount = top20.filter((r) => getRiskSummary(r).cls === "bad").length;
+      const confidenceShare = top20.length ? `${Math.round((highConfidenceCount / top20.length) * 100)}%` : "-";
+      const marketActionGuide = marketStatus?.market_up === true ? "상방 후보 일부 허용" : "보수 대응 권장";
+      $("#heroDate").textContent = baseDate;
+      $("#heroDateDetail").textContent = `${rows.length}개 추천 종목 기준입니다.`;
+      $("#heroMarketState").textContent = marketStatus ? `${regime.label} 장세 · ${marketActionGuide}` : "시장 상태 정보 없음";
+      $("#heroMarketDetail").textContent = marketStatus?.regime_reason || "오늘은 공격보다 선별이 우선인지 보여줍니다.";
+      $("#heroConfidenceShare").textContent = confidenceShare;
+      $("#heroConfidenceShare").className = `hero-value ${highConfidenceCount >= 10 ? "hero-value--good" : highConfidenceCount >= 4 ? "hero-value--warn" : "hero-value--soft"}`;
+      const calibrationMeta = getCalibrationMeta();
+      $("#heroConfidenceDetail").innerHTML = `상위 20개 중 신뢰도 80점 이상이 ${highConfidenceCount}개입니다. 낮다고 오류는 아닙니다.${calibrationMeta?.source_mode === "walkforward_provisional" ? `<span class="hero-detail__subnote">일부 해석은 보조 기준으로 제공됩니다.</span>` : ""}`;
+      $("#heroReviewCount").textContent = `${reviewNowCount}개`;
+      $("#heroReviewCount").className = `hero-value ${reviewNowCount >= 4 ? "hero-value--good" : reviewNowCount >= 1 ? "hero-value--warn" : "hero-value--soft"}`;
+      $("#heroReviewDetail").textContent = reviewNowCount === 0 ? "오늘은 강하게 볼 후보가 적다는 뜻입니다." : "점수, 신뢰도, 리스크를 함께 본 우선 후보 수입니다.";
+      $("#heroRiskCount").textContent = `${riskAlertCount}개`;
+      $("#heroRiskCount").className = `hero-value ${riskAlertCount <= 1 ? "hero-value--good" : riskAlertCount <= 4 ? "hero-value--warn" : "hero-value--bad"}`;
+      $("#heroRiskDetail").textContent = `상위 20개 중 추가 점검이 필요한 종목이 ${riskAlertCount}개입니다. 많을수록 선별이 필요합니다.`;
+      renderOpsStrip();
+      const picks = rows.slice(0, 3);
+      const heroTopPicks = $("#heroTopPicks");
+      if (!picks.length) {
+        const fallbackMessage = listUiState.mode === "loading" ? "추천 종목을 준비하고 있습니다." : "현재 표시할 추천 종목이 없습니다.";
+        heroTopPicks.innerHTML = `<div class="hero-empty">${fallbackMessage}</div>`;
+        return;
+      }
+      heroTopPicks.innerHTML = picks.map((r) => `<article class="hero-pick" tabindex="0" role="link" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 상세 보기" onclick="location.href='./detail.html?code=${encodeURIComponent(r.code)}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='./detail.html?code=${encodeURIComponent(r.code)}';}"><div class="hero-pick-header"><span class="rank-badge">${rankMap.get(r.code) ?? "-"}</span><span class="market-tag">${escapeHtml((r.market || "").toUpperCase() || "-")}</span></div><div class="hero-pick-name">${escapeHtml(displayField(r.name || r.code, "종목명 정보 없음"))}</div><div class="hero-pick-code">${escapeHtml(displayField(r.code, "코드 정보 없음"))}</div><div class="hero-pick-score hero-pick-score--${getScoreTone(r.final_score)}">${fmtScore(r.final_score)}</div><div class="hero-pick-confidence">${buildActionBadge(r)}${buildConfidenceBadge(r)}${buildCalibrationBadge(r)}${buildRiskBadge(r)}</div><div class="hero-pick-reasons"><span class="reason-chip good">${escapeHtml(buildCompactHeadline(r))}</span></div></article>`).join("");
+    }
+
+    function renderOpsStrip() {
+      const box = $("#opsStrip");
+      if (!box) return;
+      const summary = getScoreKpiMeta();
+      if (!summary) {
+        box.innerHTML = `<div class="ops-strip__empty">추천 해석 지표를 준비하고 있습니다.</div>`;
+        return;
+      }
+      const overall = getMonitorStatusLabel(summary.overall_status);
+      const wf = getScoreKpiMetric("walkforward_top20_avg_return_60d");
+      const confidenceHit = getScoreKpiMetric("confidence_high_bucket_hit_rate_60d");
+      const calibrationCount = getScoreKpiMetric("confidence_calibration_usable_bucket_count");
+      const calibrationSource = getScoreKpiMetric("confidence_calibration_source_mode");
+      box.innerHTML = [
+        `<div class="ops-card is-${String(summary.overall_status || '').toLowerCase()}"><div class="ops-card__label">운용 톤</div><div class="ops-card__value">${escapeHtml(overall)}</div><div class="ops-card__detail">오늘 추천을 얼마나 보수적으로 볼지 요약합니다.</div></div>`,
+        `<div class="ops-card"><div class="ops-card__label">최근 검증 성과</div><div class="ops-card__value">${escapeHtml(fmtKpiValue("walkforward_top20_avg_return_60d", wf))}</div><div class="ops-card__detail">최근 검증 구간의 상위 후보 평균 성과입니다.</div></div>`,
+        `<div class="ops-card"><div class="ops-card__label">신뢰 구간</div><div class="ops-card__value">${escapeHtml(fmtKpiValue("confidence_high_bucket_hit_rate_60d", confidenceHit))}</div><div class="ops-card__detail">해석 가능한 최상단 구간의 적중 흐름입니다.</div></div>`,
+        `<div class="ops-card"><div class="ops-card__label">해석 기준</div><div class="ops-card__value">${escapeHtml(getMonitorSourceLabel(calibrationSource?.value_display || calibrationSource?.value))}</div><div class="ops-card__detail">현재 해석 가능한 구간 ${escapeHtml(fmtKpiValue("confidence_calibration_usable_bucket_count", calibrationCount))}개</div></div>`,
+      ].join("");
+    }
+
+    function syncMobileFilterState(forceOpen) {
+      const panel = $("#mobileFilterPanel");
+      const toolbar = $("#toolbar");
+      const button = $("#mobileFilterBtn");
+      if (!panel || !toolbar || !button) return;
+      mobileFilterOpen = typeof forceOpen === "boolean" ? forceOpen : mobileFilterOpen;
+      if (window.matchMedia("(max-width: 768px)").matches) panel.appendChild(toolbar);
+      else document.querySelector("header").appendChild(toolbar);
+      panel.classList.toggle("open", mobileFilterOpen);
+      panel.setAttribute("aria-hidden", mobileFilterOpen ? "false" : "true");
+      button.setAttribute("aria-expanded", mobileFilterOpen ? "true" : "false");
+      button.textContent = mobileFilterOpen ? "메뉴 닫기" : "메뉴";
+    }
+
+    function syncHeroMetaState(forceExpanded) {
+      const heroMeta = $("#heroMeta");
+      const toggle = $("#heroMetaToggleBtn");
+      if (!heroMeta || !toggle) return;
+      const isMobile = window.matchMedia("(max-width: 768px)").matches;
+      heroMetaExpanded = typeof forceExpanded === "boolean" ? forceExpanded : heroMetaExpanded;
+      if (!isMobile) {
+        heroMeta.classList.remove("is-expanded");
+        toggle.style.display = "none";
+        toggle.setAttribute("aria-expanded", "false");
+        return;
+      }
+      heroMeta.classList.toggle("is-expanded", heroMetaExpanded);
+      toggle.style.display = "";
+      toggle.setAttribute("aria-expanded", heroMetaExpanded ? "true" : "false");
+      toggle.textContent = heroMetaExpanded ? "요약 접기" : "요약 더보기";
+    }
+
+    function render() {
+      const q = (($("#q")?.value) || "").trim().toLowerCase();
+      let rows = universe.slice();
+      const marketFilter = (($("#market")?.value) || "ALL").toUpperCase();
+      const sectorFilter = (($("#sector")?.value) || "ALL");
+      const mobileList = $("#mobileList");
+      const isMobile = window.matchMedia("(max-width: 768px)").matches;
+      if (marketFilter !== "ALL") rows = rows.filter((r) => (r.market || "").toUpperCase() === marketFilter);
+      if (sectorFilter !== "ALL") rows = rows.filter((r) => (r.sector || "") === sectorFilter);
+      if (q) rows = rows.filter((r) => (r.code || "").toLowerCase().includes(q) || (r.name || "").toLowerCase().includes(q));
+
+      if (listUiState.mode === "loading") {
+        renderHero([]);
+        renderListFeedback("loading");
+        return;
+      }
+      if (listUiState.mode === "error") {
+        renderHero([]);
+        renderListFeedback("error", listUiState.message || "추천 데이터를 불러오지 못했습니다.", listUiState.detail || "잠시 후 다시 시도해 주세요.");
+        return;
+      }
+      if (!universe.length) {
+        renderHero([]);
+        renderListFeedback("empty", "현재 표시할 추천 종목이 없습니다.", "최신 기준일 반영 전이거나 추천 후보가 제한된 상태일 수 있습니다.");
+        return;
+      }
+      if (!rows.length) {
+        renderHero([]);
+        renderListFeedback("filter-empty", "필터 조건에 맞는 추천 종목이 없습니다.", "검색어 또는 시장/섹터 필터를 조정해 주세요.");
+        return;
+      }
+
+      renderListFeedback(null);
       rows = applySort(rows);
-      const html = rows.map(r=>{
-        const pred60=toNum(r.pred_return_60d); const pred90=toNum(r.pred_return_90d);
-        const ret3 = toNum(r.ret_3m); const mdd=toNum(r.pred_mdd_60d);
+      renderHero(rows);
+        $("#tbody").innerHTML = rows.map((r) => {
         const link = `./detail.html?code=${encodeURIComponent(r.code)}`;
-        const strip = buildStrip(r);
-        return `
-          <tr onclick="location.href='${link}'" style="cursor:pointer">
-            <td class="rank">${rankMap.get(r.code)??"-"}</td>
-            <td><div class="cell-market">${(r.market||"").toUpperCase()} <span class="sector">(${r.sector||"-"})</span></div></td>
-            <td><div class="cell-name"><div class="name">${r.name||r.code}</div><div class="code">${r.code}</div></div></td>
-            <td class="right">${Number.isFinite(+r.close)?Number(r.close).toLocaleString():"-"}</td>
-            <td class="right ${ret3>=0?'pos':'neg'}">${fmtPct(ret3)}</td>
-            <td class="right ${pred60>=0?'pos':'neg'}">${fmtPct(pred60)}</td>
-            <td class="right ${pred90>=0?'pos':'neg'}">${fmtPct(pred90)}</td>
-            <td class="right">${Number.isFinite(mdd)?`<span class="pill ${getRiskClass(mdd)}">${(mdd*100).toFixed(2)}%</span>`:"-"}</td>
-            <td class="right">${strip}</td>
-            <td>
-              <button onclick="openTradeModal('BUY','${r.code}','${r.name||r.code}', event)">매수</button>
-              <button onclick="openTradeModal('SELL','${r.code}','${r.name||r.code}', event)">매도</button>
-            </td>
-          </tr>`;
+        const regime = getRegimeMeta(r);
+        const baseDate = displayBaseDate(r.date || r.as_of_date || marketStatus?.status_date || "");
+        const safeCode = escapeJsString(r.code || "");
+        const safeName = escapeJsString(r.name || r.code || "");
+        const close = toNum(r.close);
+        const pred60 = toNum(r.pred_return_60d);
+        const ret3m = toNum(r.ret_3m);
+        const mdd = toNum(r.pred_mdd_60d);
+        const reasonLine = buildCompactHeadline(r);
+        const actionLine = (r.action_note || "").trim();
+        const manualLine = buildManualReviewLine(r);
+        return `<tr class="stock-row" tabindex="0" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 추천 상세" onclick="location.href='${link}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${link}';}"><td class="rank col-rank">${rankMap.get(r.code) ?? "-"}</td><td class="col-name"><div class="cell-name compact"><div class="name">${escapeHtml(displayField(r.name || r.code, "종목명 정보 없음"))}</div><div class="code">${escapeHtml(displayField(r.code, "코드 정보 없음"))}</div></div></td><td class="col-sector"><div class="cell-sector"><div class="sector-main">${escapeHtml(displayField(r.sector, "-"))}</div><div class="sector-sub">${escapeHtml((r.market || "").toUpperCase() || "-")} · ${escapeHtml(regime.label)}</div></div></td><td class="col-price"><div class="price-main">${fmtPrice(close)}</div><div class="sector-sub">기준 ${escapeHtml(baseDate)}</div></td><td class="col-score"><div class="score-primary score-primary--${getScoreTone(r.final_score)}">${fmtScore(r.final_score)}</div></td><td class="col-action-state">${buildActionBadge(r)}</td><td class="col-confidence">${buildConfidenceBadge(r)} ${buildCalibrationBadge(r)}</td><td class="col-ret60"><span class="${displayPctClass(pred60)}">${fmtPct(pred60)}</span></td><td class="col-ret3m"><span class="${displayPctClass(ret3m)}">${fmtPct(ret3m)}</span></td><td class="col-mdd"><span class="${displayPctClass(mdd)}">${fmtPct(mdd)}</span><div class="risk-badge-wrap">${buildRiskBadge(r)}</div></td><td class="col-reason"><div class="table-headline"><div class="table-headline__top"><span class="reason-chip good">${escapeHtml(reasonLine)}</span></div><div class="table-headline__summary">${escapeHtml(manualLine || actionLine || getActionState(r).detail)}</div></div></td><td class="action-col col-action"><a class="detail-link compact" href="${link}" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 상세보기" onclick="event.stopPropagation()">상세보기</a><button class="compact-btn" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 매수 입력" onclick="openTradeModal('BUY','${safeCode}','${safeName}', event)">매수</button><button class="compact-btn" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 매도 입력" onclick="openTradeModal('SELL','${safeCode}','${safeName}', event)">매도</button></td></tr>`;
       }).join("");
-      const mobileHtml = !isMobile ? "" : rows.map(r=>{
+
+      if (!isMobile) {
+        applyOperatorUi();
+        mobileList.innerHTML = "";
+        return;
+      }
+
+      mobileList.innerHTML = rows.map((r) => {
         const link = `./detail.html?code=${encodeURIComponent(r.code)}`;
-        const pred60=toNum(r.pred_return_60d); const pred90=toNum(r.pred_return_90d);
-        const ret3 = toNum(r.ret_3m); const mdd=toNum(r.pred_mdd_60d);
-        const close = Number.isFinite(+r.close)?Number(r.close).toLocaleString():"-";
-        const strip = buildStrip(r);
-        return `
-          <article class="stock-card" onclick="location.href='${link}'">
-            <div class="stock-card-header">
-              <span class="rank-badge">${rankMap.get(r.code)??"-"}위</span>
-              <span class="market-tag">${(r.market||"").toUpperCase()}</span>
-            </div>
-            <div class="stock-name">${r.name||r.code}</div>
-            <div class="stock-code">${r.code}</div>
-            <div class="stock-card-sub">${r.sector||"-"}</div>
-            <div class="card-metrics">
-              <div class="metric">
-                <div class="metric-label">현재가</div>
-                <div class="metric-val">${close}</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">3개월 수익률</div>
-                <div class="metric-val ${ret3>=0?'pos':'neg'}">${fmtPct(ret3)}</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">예측(60d)</div>
-                <div class="metric-val ${pred60>=0?'pos':'neg'}">${fmtPct(pred60)}</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">예측(90d)</div>
-                <div class="metric-val ${pred90>=0?'pos':'neg'}">${fmtPct(pred90)}</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">예상 MDD</div>
-                <div class="metric-val">${Number.isFinite(mdd)?`<span class="pill ${getRiskClass(mdd)}">${(mdd*100).toFixed(2)}%</span>`:"-"}</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">종합 스코어</div>
-                <div class="score-mini">${strip}</div>
-              </div>
-            </div>
-          </article>`;
+        const regime = getRegimeMeta(r);
+        const close = toNum(r.close);
+        const pred60 = toNum(r.pred_return_60d);
+        const ret3m = toNum(r.ret_3m);
+        const mdd = toNum(r.pred_mdd_60d);
+        const manualLine = buildManualReviewLine(r);
+        return `<article class="stock-card" tabindex="0" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 추천 카드" onclick="location.href='${link}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${link}';}"><div class="stock-card-header"><span class="rank-badge">${rankMap.get(r.code) ?? "-"}위</span><span class="market-tag">${escapeHtml((r.market || "").toUpperCase() || "-")}</span><span class="market-state-pill ${regime.cls}">${regime.label}</span></div><div class="stock-name">${escapeHtml(displayField(r.name || r.code, "종목명 정보 없음"))}</div><div class="stock-code">${escapeHtml(displayField(r.code, "코드 정보 없음"))}</div><div class="stock-card-sub">${escapeHtml(displayField(r.sector, "섹터 정보 없음"))} / 기준일 ${escapeHtml(displayBaseDate(r.date || r.as_of_date || marketStatus?.status_date || ""))}</div><div class="mobile-score-summary"><div><div class="hero-label">최종 점수</div><div class="score-primary score-primary--${getScoreTone(r.final_score)}">${fmtScore(r.final_score)}</div></div>${buildActionBadge(r)}</div><div class="hero-pick-confidence">${buildConfidenceBadge(r)}${buildCalibrationBadge(r)}${buildRiskBadge(r)}</div><div class="reason-chips"><span class="reason-chip good">${escapeHtml(buildCompactHeadline(r))}</span>${r.risk_factor_1 ? `<span class="reason-chip warn">${escapeHtml(r.risk_factor_1)}</span>` : ""}</div><div class="card-metrics compact"><div class="metric"><div class="metric-label">현재가</div><div class="metric-val">${fmtPrice(close)}</div></div><div class="metric"><div class="metric-label">기대수익(60d)</div><div class="metric-val ${displayPctClass(pred60)}">${fmtPct(pred60)}</div></div></div><details class="card-more" onclick="event.stopPropagation()"><summary>추가 정보</summary><div class="card-more__body"><div class="card-metrics compact"><div class="metric"><div class="metric-label">최근 3개월</div><div class="metric-val ${displayPctClass(ret3m)}">${fmtPct(ret3m)}</div></div><div class="metric"><div class="metric-label">예상 MDD</div><div class="metric-val ${displayPctClass(mdd)}">${fmtPct(mdd)}</div></div><div class="metric"><div class="metric-label">운영 메모</div><div class="metric-val">${escapeHtml(manualLine || getActionState(r).detail)}</div></div></div></div></details><div class="card-actions compact"><a class="detail-link compact" href="${link}" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 상세보기" onclick="event.stopPropagation()">상세보기</a><button class="compact-btn" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 매수 입력" onclick="openTradeModal('BUY','${escapeJsString(r.code || "")}','${escapeJsString(r.name || r.code || "")}', event)">매수</button><button class="compact-btn" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 매도 입력" onclick="openTradeModal('SELL','${escapeJsString(r.code || "")}','${escapeJsString(r.name || r.code || "")}', event)">매도</button></div></article>`;
       }).join("");
-      $("#tbody").innerHTML = html;
-      if(mobileList) mobileList.innerHTML = mobileHtml;
+      applyOperatorUi();
     }
 
-    async function fetchEnv(){
-      try{
-        const res=await fetch(api("/api/health"));
-        const info=await res.json();
-        $("#envBadge").textContent = info?.status==="ok" ? (info.demo ? "DEMO":"LIVE") : "상태 불명";
-      }catch{ $("#envBadge").textContent="상태 불명"; }
+    function syncSortAria() {
+      document.querySelectorAll("th[data-sort]").forEach((th) => {
+        const headerKeyMap = {
+          rank: "rank",
+          name: "name",
+          market: "market",
+          pred60: "pred60",
+          final_score: "final_score"
+        };
+        const isActive = headerKeyMap[th.dataset.sort] === sortState.key;
+        const value = isActive ? (sortState.dir === "asc" ? "ascending" : "descending") : "none";
+        th.setAttribute("aria-sort", value);
+      });
     }
 
-    function populateSectors(rows){
-      const select=$("#sector");
-      const sectors=Array.from(new Set(rows.map(r=>r.sector||"").filter(Boolean))).sort((a,b)=>a.localeCompare(b,"ko"));
-      select.innerHTML='<option value="ALL">전체분야</option>'+sectors.map(s=>`<option value="${s}">${s}</option>`).join("");
-      select.onchange=render;
-    }
-
-    async function fetchRanking(){
-      $("#status").textContent="불러오는 중...";
-      try{
-        const res=await fetch(api("/api/ranking"));
-        if(!res.ok) throw new Error("HTTP "+res.status);
-        const data=await res.json();
-        universe=Array.isArray(data)?data:(Array.isArray(data?.data)?data.data:[]);
-        buildRank(universe);
-        populateSectors(universe);
-        render();
-        $("#status").textContent=`총 ${universe.length}종목`;
-      }catch(e){
-        console.error(e);
-        $("#status").textContent="불러오기 실패";
+    async function fetchEnv() {
+      try {
+        const res = await fetch(api("/api/health"));
+        const info = await res.json();
+        $("#envBadge").textContent = info?.status === "ok" ? (info.demo ? "데모" : "서비스 중") : "연결 확인 중";
+      } catch {
+        $("#envBadge").textContent = "상태 불명";
       }
     }
 
-    function openTradeModal(side, code, name, e){
-      if(e && e.stopPropagation) e.stopPropagation();
+    function populateSectors(rows) {
+      const select = $("#sector");
+      const sectors = Array.from(new Set(rows.map((r) => r.sector || "").filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko"));
+      select.innerHTML = '<option value="ALL">전체분야</option>' + sectors.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+    }
+
+    async function fetchRanking() {
+      setListUiState("loading");
+      $("#status").textContent = "추천 데이터를 불러오는 중";
+      render();
+      try {
+        const res = await fetch(api("/api/ranking"));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        universe = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+        buildRank(universe);
+        populateSectors(universe);
+        setListUiState(universe.length ? "ready" : "empty");
+        render();
+        $("#status").textContent = universe.length ? `총 ${universe.length}종목` : "추천 데이터 없음";
+      } catch (e) {
+        console.error(e);
+        universe = [];
+        setListUiState("error", {
+          message: "추천 데이터를 불러오지 못했습니다.",
+          detail: e?.message ? `API 응답 오류: ${e.message}` : "잠시 후 다시 시도해 주세요."
+        });
+        render();
+        $("#status").textContent = "데이터 조회 실패";
+      }
+    }
+
+    async function fetchConfidenceCalibration() {
+      try {
+        const res = await fetch(api("/api/confidence-calibration"));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        confidenceCalibration = await res.json();
+      } catch (e) {
+        console.warn("confidence calibration load fail", e);
+        confidenceCalibration = null;
+      }
+    }
+
+    async function fetchScoreKpiMonitor() {
+      try {
+        const res = await fetch(api("/api/score-kpi-monitor"));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        scoreKpiMonitor = await res.json();
+      } catch (e) {
+        console.warn("score kpi monitor load fail", e);
+        scoreKpiMonitor = null;
+      }
+    }
+
+    async function fetchManualTradingSummary() {
+      try {
+        const res = await fetch(api("/api/manual-trading/summary"));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        manualTradingSummary = await res.json();
+        manualReviewMap = buildManualReviewMap(manualTradingSummary);
+      } catch (e) {
+        console.warn("manual trading summary load fail", e);
+        manualTradingSummary = null;
+        manualReviewMap = new Map();
+      }
+    }
+
+    async function fetchOperatorAuthStatus() {
+      try {
+        const res = await fetch(api("/api/operator-auth/status"));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        operatorAuth = await res.json();
+      } catch (e) {
+        console.warn("operator auth status load fail", e);
+        operatorAuth = { enabled: false, authorized: true };
+      }
+      applyOperatorUi();
+    }
+
+    async function operatorLogout() {
+      try {
+        await fetch(api("/api/operator-auth/logout"), { method: "POST" });
+      } catch (e) {
+        console.warn("operator logout fail", e);
+      }
+      operatorAuth = { enabled: true, authorized: false };
+      applyOperatorUi();
+    }
+
+    function openTradeModal(side, code, name, e) {
+      if (e?.stopPropagation) e.stopPropagation();
+      if (operatorAuth.enabled && !operatorAuth.authorized) {
+        location.href = operatorLoginUrl();
+        return;
+      }
       tradeCtx = { side, code, name };
-      const overlay=$("#tradeOverlay");
-      const title=$("#tradeModalTitle");
-      const info=$("#tradeInfo");
-      const date=$("#tradeDate");
-      const qty=$("#tradeQty");
-      const price=$("#tradePrice");
-      if(title) title.textContent = side==="BUY" ? "매수 입력" : "매도 입력";
-      if(info) info.textContent = `${name} (${code})`;
       const today = new Date();
-      const yyyy = today.getFullYear();
-      const mm = String(today.getMonth()+1).padStart(2,"0");
-      const dd = String(today.getDate()).padStart(2,"0");
-      if(date) date.value = `${yyyy}-${mm}-${dd}`;
-      if(qty) qty.value = "";
-      if(price) price.value = "";
-      if(overlay) overlay.style.display="flex";
+      $("#tradeModalTitle").textContent = side === "BUY" ? "매수 입력" : "매도 입력";
+      $("#tradeInfo").textContent = `${name} (${code})`;
+      $("#tradeDate").value = today.toISOString().slice(0, 10);
+      $("#tradeDate").setAttribute("aria-label", "매매 날짜");
+      $("#tradeQty").value = "";
+      $("#tradeQty").setAttribute("aria-label", "매매 수량");
+      $("#tradePrice").value = "";
+      $("#tradePrice").setAttribute("aria-label", "매매 가격");
+      $("#tradeOverlay").style.display = "flex";
     }
-    function closeTradeModal(){
-      const overlay=$("#tradeOverlay");
-      if(overlay) overlay.style.display="none";
+
+    function closeTradeModal() {
+      $("#tradeOverlay").style.display = "none";
     }
-    async function saveTrade(){
+
+    async function saveTrade() {
       const date = $("#tradeDate")?.value;
       const qty = Number($("#tradeQty")?.value);
       const price = Number($("#tradePrice")?.value);
-      if(!date || !Number.isFinite(qty) || qty<=0 || !Number.isFinite(price) || price<=0){
-        alert("날짜/수량/가격을 올바르게 입력해주세요");
+      if (!date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) {
+        alert("날짜/수량/가격을 올바르게 입력해 주세요");
         return;
       }
-      const payload = { side: tradeCtx.side, code: tradeCtx.code, date, qty, price };
-      try{
-        const res = await fetch(api("/api/trades"), { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(payload) });
-        if(!res.ok) throw new Error("HTTP "+res.status);
+      try {
+        const res = await fetch(api("/api/trades"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ side: tradeCtx.side, code: tradeCtx.code, date, qty, price }) });
+        if (res.status === 401) {
+          location.href = operatorLoginUrl();
+          return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         alert("저장되었습니다.");
         closeTradeModal();
-      }catch(err){
+      } catch (err) {
         console.error(err);
-        alert("저장 실패: "+err.message);
+        alert(`저장 실패: ${err.message}`);
       }
     }
 
-    function setAlertHidden(flag){
+    function setAlertHidden(flag) {
       alertHidden = flag;
-      const box = $("#marketAlert");
-      const btn = $("#alertToggleBtn");
-      if(box) box.classList.toggle("hidden", flag);
-      if(btn) btn.textContent = flag ? "알림 펼치기" : "알림 숨기기";
+      $("#marketAlert")?.classList.toggle("hidden", flag);
+      $("#alertToggleBtn").textContent = flag ? "알림 펼치기" : "알림 숨기기";
     }
 
-    async function fetchMarketStatus(){
-      const box=$("#marketAlert");
-      if(!box) return;
-      try{
-        const res=await fetch(api("/api/market/status"));
-        if(!res.ok) throw new Error("HTTP "+res.status);
-        const m=await res.json();
-        const isUp = m.market_up === true;
-        const lines=[];
-        const dateStr = m.status_date || "";
-        if(dateStr) lines.push(`${dateStr} 기준`);
-        if(Number.isFinite(m.kospi_close) && Number.isFinite(m.kospi_ma20)){
-          lines.push(`KOSPI ${Number(m.kospi_close).toLocaleString()} / MA20 ${Number(m.kospi_ma20).toLocaleString()}`);
-        }
-        if(Number.isFinite(m.vol_5d)){
-          lines.push(`5일변동성 ${(m.vol_5d*100).toFixed(2)}% (기준: 3% 미만)`);
-        }
-        if(Number.isFinite(m.foreign_5d)){
-          lines.push(`최근 5일간 외국인 순매수 ${Number(m.foreign_5d).toLocaleString()}`);
-        }
-        const tag = isUp
-          ? '<span class="tag good">위험 축소 국면</span>'
-          : '<span class="tag bad">신중 매수 구간</span>';
+    function hideTooltip() {
+      const layer = $("#tooltipLayer");
+      if (!layer) return;
+      layer.hidden = true;
+      layer.textContent = "";
+      layer.classList.remove("open");
+    }
+
+    function showTooltip(target) {
+      const layer = $("#tooltipLayer");
+      const text = target?.dataset?.tooltip;
+      if (!layer || !text) return;
+      layer.textContent = text;
+      layer.hidden = false;
+      layer.classList.add("open");
+      const rect = target.getBoundingClientRect();
+      const layerRect = layer.getBoundingClientRect();
+      let left = rect.left + window.scrollX + (rect.width / 2) - (layerRect.width / 2);
+      let top = rect.bottom + window.scrollY + 10;
+      const minLeft = window.scrollX + 12;
+      const maxLeft = window.scrollX + window.innerWidth - layerRect.width - 12;
+      left = Math.max(minLeft, Math.min(left, maxLeft));
+      if (top + layerRect.height > window.scrollY + window.innerHeight - 12) {
+        top = rect.top + window.scrollY - layerRect.height - 10;
+      }
+      layer.style.left = `${left}px`;
+      layer.style.top = `${Math.max(window.scrollY + 12, top)}px`;
+    }
+
+    function bindHelpTooltips() {
+      document.querySelectorAll(".help-chip").forEach((btn) => {
+        btn.addEventListener("mouseenter", () => showTooltip(btn));
+        btn.addEventListener("focus", () => showTooltip(btn));
+        btn.addEventListener("mouseleave", hideTooltip);
+        btn.addEventListener("blur", hideTooltip);
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          const layer = $("#tooltipLayer");
+          if (layer && !layer.hidden && layer.textContent === btn.dataset.tooltip) hideTooltip();
+          else showTooltip(btn);
+        });
+      });
+      document.addEventListener("scroll", hideTooltip, true);
+      document.addEventListener("click", (e) => {
+        if (!e.target.closest(".help-chip") && !e.target.closest("#tooltipLayer")) hideTooltip();
+      });
+      window.addEventListener("resize", hideTooltip);
+    }
+
+    async function fetchMarketStatus() {
+      const box = $("#marketAlert");
+      if (!box) return;
+      try {
+        const res = await fetch(api("/api/market/status"));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        marketStatus = await res.json();
+        const lines = [];
+        if (marketStatus.status_date) lines.push(`${displayBaseDate(marketStatus.status_date)} 기준`);
+        if (Number.isFinite(marketStatus.kospi_close) && Number.isFinite(marketStatus.kospi_ma20)) lines.push(`KOSPI ${Number(marketStatus.kospi_close).toLocaleString()} / MA20 ${Number(marketStatus.kospi_ma20).toLocaleString()}`);
+        const tag = marketStatus.market_up === true ? '<span class="tag good">상방 우위 구간</span>' : '<span class="tag bad">방어 우위 구간</span>';
         box.innerHTML = `${tag}<div class="lines">${lines.join("<br>")}</div>`;
         box.classList.toggle("hidden", alertHidden);
-      }catch(e){
+      } catch (e) {
         console.warn("market status load fail", e);
         box.classList.add("hidden");
       }
     }
 
-    (async function(){
+    (async function init() {
       await fetchEnv();
       await fetchMarketStatus();
+      await fetchConfidenceCalibration();
+      await fetchScoreKpiMonitor();
+      await fetchOperatorAuthStatus();
+      await fetchManualTradingSummary();
       await fetchRanking();
-      setAlertHidden(false);
-      $("#q")?.addEventListener("input", render);
+      $("#q")?.addEventListener("input", debouncedRender);
       $("#market")?.addEventListener("change", render);
       $("#sector")?.addEventListener("change", render);
-      document.querySelectorAll("th[data-sort]").forEach(th=>{
-        th.addEventListener("click", ()=>{
-          const key=th.dataset.sort;
-          if(sortState.key===key) sortState.dir = sortState.dir==="asc"?"desc":"asc";
-          else { sortState.key=key; sortState.dir="desc"; }
-          render();
-        });
+      $("#sortOption")?.addEventListener("change", (e) => {
+        applySortOption(e.target.value);
+        render();
       });
-      $("#recoBtn")?.addEventListener("click", (e)=>{e.preventDefault(); window.location.href='./ranking.html';});
-      $("#holdingsBtn")?.addEventListener("click", (e)=>{e.preventDefault(); window.location.href='./holdings.html';});
-      $("#tradeHistoryBtn")?.addEventListener("click", (e)=>{e.preventDefault(); window.location.href='./trade-history.html';});
-      $("#alertToggleBtn")?.addEventListener("click", (e)=>{e.preventDefault(); setAlertHidden(!alertHidden);});
-      const path = (location.pathname||"").toLowerCase();
-      const setActive = (id)=>{ document.querySelectorAll(".nav-tab").forEach(btn=>btn.classList.toggle("active", btn.id===id)); };
-      if(path.includes("ranking")) setActive("recoBtn");
-      else if(path.includes("holdings")) setActive("holdingsBtn");
-      else if(path.includes("trade-history")) setActive("tradeHistoryBtn");
-      else setActive("");
+      document.querySelectorAll("th[data-sort]").forEach((th) => th.addEventListener("click", () => {
+        const key = th.dataset.sort;
+        if (key === "score") {
+          if (sortState.key === "pred60") sortState.dir = sortState.dir === "asc" ? "desc" : "asc";
+          else { sortState.key = "pred60"; sortState.dir = "desc"; }
+        } else if (sortState.key === key) {
+          sortState.dir = sortState.dir === "asc" ? "desc" : "asc";
+        } else {
+          sortState.key = key;
+          sortState.dir = key === "rank" || key === "name" || key === "market" ? "asc" : "desc";
+        }
+        syncSortAria();
+        syncSortControl();
+        render();
+      }));
+      $("#recoBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./ranking.html"; });
+      $("#opsReadinessBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./ops-readiness.html"; });
+      $("#manualTradingBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./manual-trading.html"; });
+      $("#meaningfulnessBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./meaningfulness.html"; });
+      $("#holdingsBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./holdings.html"; });
+      $("#paperTradingBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./paper-trading.html"; });
+      $("#operatorLoginBtn")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        if (operatorAuth.authorized) {
+          operatorLogout().catch(() => {});
+          return;
+        }
+        window.location.href = operatorLoginUrl();
+      });
+      $("#tradeHistoryBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./trade-history.html"; });
+      $("#alertToggleBtn")?.addEventListener("click", (e) => { e.preventDefault(); setAlertHidden(!alertHidden); });
+      $("#mobileFilterBtn")?.addEventListener("click", () => syncMobileFilterState(!mobileFilterOpen));
+      $("#mobileFilterCloseBtn")?.addEventListener("click", () => syncMobileFilterState(false));
+      $("#heroMetaToggleBtn")?.addEventListener("click", () => syncHeroMetaState(!heroMetaExpanded));
+      const path = (location.pathname || "").toLowerCase();
+      const setActive = (id) => document.querySelectorAll(".nav-tab").forEach((btn) => btn.classList.toggle("active", btn.id === id));
+      if (path.includes("ops-readiness")) setActive("opsReadinessBtn");
+      else if (path.includes("ranking")) setActive("recoBtn");
+      else if (path.includes("manual-trading")) setActive("manualTradingBtn");
+      else if (path.includes("meaningfulness")) setActive("meaningfulnessBtn");
+      else if (path.includes("holdings")) setActive("holdingsBtn");
+      else if (path.includes("paper-trading")) setActive("paperTradingBtn");
+      else if (path.includes("trade-history")) setActive("tradeHistoryBtn");
       const mq = window.matchMedia("(max-width: 768px)");
-      if(mq?.addEventListener) mq.addEventListener("change", render);
-      else if(mq?.addListener) mq.addListener(render);
+      const handleViewportChange = () => { syncMobileFilterState(false); syncHeroMetaState(false); render(); };
+      if (mq?.addEventListener) mq.addEventListener("change", handleViewportChange);
+      else if (mq?.addListener) mq.addListener(handleViewportChange);
+      syncMobileFilterState(false);
+      syncHeroMetaState(false);
+      syncSortControl();
+      setAlertHidden(false);
+      syncSortAria();
+      bindHelpTooltips();
     })();
   </script>
 </body>

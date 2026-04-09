@@ -25,6 +25,12 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import text
 
+from scoring.final_score import (
+    apply_baseline_final_score,
+    attach_market_columns_by_date,
+    compute_component_scores,
+)
+
 try:
     from db import get_engine
 except Exception:
@@ -42,12 +48,13 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Backfill prediction_history with run_id")
     p.add_argument("--features-csv", type=Path, default=Path("data/features.csv"))
     p.add_argument("--model-pkl", type=Path, default=Path("data/model.pkl"))
+    p.add_argument("--market-status-csv", type=Path, default=Path("data/market_status.csv"))
     p.add_argument("--universe-csv", type=Path, help="Optional universe file with 'code' column")
     p.add_argument("--dates-file", type=Path, help="Optional text file with as_of_date list (YYYY-MM-DD per line)")
     p.add_argument("--start-date", type=str, help="as_of_date range start (YYYY-MM-DD)")
     p.add_argument("--end-date", type=str, help="as_of_date range end (YYYY-MM-DD)")
     p.add_argument("--run-id", type=int, required=True, help="Backfill run_id (e.g., 4)")
-    p.add_argument("--model-version", type=str, default=os.environ.get("MODEL_VERSION", "v1"))
+    p.add_argument("--model-version", type=str, help="Override model_version. Defaults to model pack metadata or env.")
     p.add_argument("--horizon-days", type=int, default=int(os.environ.get("HORIZON_DAYS", "60")))
     p.add_argument("--out-csv", type=Path, help="Optional path to save all predictions to CSV")
     p.add_argument("--log-interval", type=int, default=20, help="Log every N dates")
@@ -75,6 +82,8 @@ def load_model(model_path: Path) -> Dict[str, Any]:
         "cls_models": cls_models,
         "reg_targets": list(reg_targets),
         "cls_targets": list(cls_targets),
+        "model_version": pack.get("model_version"),
+        "train_end_date": pack.get("train_end_date"),
     }
 
 
@@ -103,6 +112,22 @@ def load_universe(path: Path | None) -> set[str] | None:
     codes = set(df["code"].astype(str).str.zfill(6))
     logging.info("Loaded universe codes: %d", len(codes))
     return codes
+
+
+def load_market_status_history(path: Path | None) -> pd.DataFrame:
+    if not path:
+        return pd.DataFrame()
+    if not path.exists():
+        logging.warning("market_status file not found: %s", path)
+        return pd.DataFrame()
+    df = pd.read_csv(path)
+    if "date" not in df.columns:
+        logging.warning("market_status file missing date column: %s", path)
+        return pd.DataFrame()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).sort_values("date")
+    logging.info("Loaded market status history: %s (rows=%d)", path, len(df))
+    return df
 
 
 def parse_dates(features_df: pd.DataFrame, args: argparse.Namespace) -> List[pd.Timestamp]:
@@ -187,7 +212,7 @@ def _percentile_by_date(df: pd.DataFrame, col: str) -> pd.Series:
     return df.groupby("date", group_keys=False)[col].transform(_rank)
 
 
-def compute_scores(preds: pd.DataFrame) -> pd.DataFrame:
+def compute_scores_legacy(preds: pd.DataFrame) -> pd.DataFrame:
     """
     점수 계산:
       - ret_score: pred_return_60d/90d + pred_mdd 조합 기반
@@ -265,6 +290,62 @@ def compute_scores(preds: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def compute_scores(
+    preds: pd.DataFrame,
+    features: pd.DataFrame,
+    market_status_history: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    preds = preds.copy()
+    preds["date"] = pd.to_datetime(preds["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    feature_frame = features.copy()
+    feature_frame["date"] = pd.to_datetime(feature_frame["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    feature_cols = ["date", "code"]
+    for col in [
+        "close",
+        "quality_score",
+        "quality_factor_count",
+        "quality_missing_ratio",
+        "quality_score_confidence",
+        "vol_20",
+        "vol_60",
+        "vol_ma_20",
+        "volume",
+        "mom_20",
+        "close_over_ma20",
+        "rsi_14",
+        "vol_ratio_20",
+        "ma_5",
+        "ma_20",
+        "ma_60",
+        "ret_5d",
+        "ret_10d",
+        "per",
+        "pe",
+        "pbr",
+        "pb",
+        "psr",
+        "ps",
+        "ev_ebitda",
+        "ev_to_ebitda",
+        "price_to_book",
+        "price_to_sales",
+        "price_to_earnings",
+        "earnings_yield",
+        "book_to_price",
+        "free_cash_flow_yield",
+        "dividend_yield",
+    ]:
+        if col in feature_frame.columns:
+            feature_cols.append(col)
+
+    scored = preds.merge(feature_frame[feature_cols], on=["date", "code"], how="left")
+    scored = attach_market_columns_by_date(scored, market_status_history)
+    scored = compute_component_scores(scored)
+    scored = apply_baseline_final_score(scored, fill_score_columns=True, include_explain=True)
+    scored["final_score_custom"] = np.nan
+    return scored
+
+
 def save_prediction_history(run_id: int, model_version: str, horizon_days: int, df_all: pd.DataFrame) -> None:
     if not get_engine:
         logging.info("No DB engine available -> skip DB save")
@@ -322,7 +403,9 @@ def main() -> None:
     args = parse_args()
 
     model_pack = load_model(args.model_pkl)
+    model_version = args.model_version or model_pack.get("model_version") or os.environ.get("MODEL_VERSION", "v1")
     feats = load_features(args.features_csv)
+    market_status_history = load_market_status_history(args.market_status_csv)
     universe_codes = load_universe(args.universe_csv)
     dates = parse_dates(feats, args)
 
@@ -338,7 +421,7 @@ def main() -> None:
                 logging.warning("Universe-filtered features empty for %s -> skip", d.date())
                 continue
         preds = predict_for_date(model_pack, df_day)
-        preds = compute_scores(preds)
+        preds = compute_scores(preds, df_day, market_status_history)
         all_rows.append(preds)
         if i % args.log_interval == 0 or i == len(dates):
             logging.info("Predictions built for %s (%d/%d): rows=%d", d.date(), i, len(dates), len(preds))
@@ -352,7 +435,7 @@ def main() -> None:
         df_all.to_csv(args.out_csv, index=False, encoding="utf-8")
         logging.info("Saved predictions CSV: %s (rows=%d)", args.out_csv, len(df_all))
 
-    save_prediction_history(args.run_id, args.model_version, args.horizon_days, df_all)
+    save_prediction_history(args.run_id, model_version, args.horizon_days, df_all)
 
 
 if __name__ == "__main__":

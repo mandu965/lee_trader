@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>모의투자 현황</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .paper-page {
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 24px 20px 48px;
+      }
+      .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 18px;
+      }
+      .page-title {
+        margin: 0;
+        font-size: 24px;
+      }
+      .page-subtitle {
+        margin: 6px 0 0;
+        color: var(--color-text-secondary);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+      .page-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+      .page-actions button.is-active {
+        border-color: rgba(34, 197, 94, 0.44);
+        background: rgba(34, 197, 94, 0.12);
+        color: #86efac;
+      }
+      .page-actions button.is-secondary { opacity: 0.86; }
+      .panel-block {
+        margin-bottom: 16px;
+        padding: 16px;
+      }
+      .filter-bar {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .section-title {
+        margin: 0;
+        font-size: 17px;
+      }
+      .section-note {
+        color: var(--color-text-secondary);
+        font-size: 12px;
+      }
+      .explain-grid,
+      .meta-strip,
+      .status-strip {
+        display: grid;
+        gap: 12px;
+      }
+      .explain-grid,
+      .meta-strip {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .status-strip {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .explain-card,
+      .meta-card,
+      .status-card,
+      .strategy-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: rgba(255, 255, 255, 0.03);
+        padding: 14px;
+      }
+      .explain-card {
+        background: linear-gradient(135deg, rgba(255,255,255,0.04) 0, rgba(15,23,42,0.24) 100%);
+      }
+      .card-label {
+        font-size: 11px;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .card-value {
+        margin-top: 6px;
+        font-size: 19px;
+        font-weight: 700;
+      }
+      .card-detail {
+        margin-top: 7px;
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--color-text-secondary);
+      }
+      .strategy-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .strategy-card {
+        display: grid;
+        gap: 10px;
+      }
+      .strategy-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: flex-start;
+      }
+      .strategy-name {
+        margin: 0;
+        font-size: 18px;
+      }
+      .strategy-date {
+        margin-top: 3px;
+        color: var(--color-text-secondary);
+        font-size: 12px;
+      }
+      .strategy-return {
+        font-size: 28px;
+        font-weight: 800;
+        line-height: 1;
+      }
+      .strategy-metrics {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .metric-box {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: var(--radius-md);
+        padding: 10px 11px;
+        background: rgba(255,255,255,0.025);
+      }
+      .metric-box__label {
+        font-size: 11px;
+        color: var(--color-text-secondary);
+      }
+      .metric-box__value {
+        margin-top: 4px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .status-card__list,
+      .focus-list {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 6px;
+      }
+      .focus-list li,
+      .status-card__list li {
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--color-text-primary);
+      }
+      .table-wrap {
+        overflow-x: auto;
+      }
+      .table-wrap table {
+        min-width: 1040px;
+      }
+      .table-wrap table.positions-table {
+        min-width: 1480px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        white-space: nowrap;
+      }
+      .chip.is-new {
+        color: #7ee787;
+        border-color: rgba(34,197,94,0.28);
+        background: rgba(34,197,94,0.10);
+      }
+      .chip.is-hold {
+        color: #93c5fd;
+        border-color: rgba(96,165,250,0.26);
+        background: rgba(96,165,250,0.10);
+      }
+      .chip.is-near {
+        color: #fde68a;
+        border-color: rgba(250,204,21,0.26);
+        background: rgba(250,204,21,0.10);
+      }
+      .date-stack {
+        display: grid;
+        gap: 2px;
+      }
+      .date-stack__main {
+        font-weight: 600;
+      }
+      .date-stack__sub {
+        font-size: 11px;
+        color: var(--color-text-secondary);
+      }
+      .empty-state {
+        padding: 18px;
+        border: 1px dashed var(--border);
+        border-radius: var(--radius-lg);
+        color: var(--color-text-secondary);
+        text-align: center;
+      }
+      .state-line {
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--color-text-secondary);
+      }
+      @media (max-width: 960px) {
+        .page-header {
+          flex-direction: column;
+        }
+        .explain-grid,
+        .meta-strip,
+        .status-strip,
+        .strategy-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="paper-page">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">모의투자 현황</h1>
+          <p class="page-subtitle">
+            이 화면은 실제 계좌가 아니라 <strong>top5 / top8 / top10</strong> 3개 독립 전략을 보는
+            분석용 화면입니다. 매일 추천 후보를 얼마나 새로 편입했고, 계속 들고 있고, 곧 청산할지를 읽습니다.
+          </p>
+        </div>
+      </header>
+      <section class="panel panel-block">
+        <div class="page-actions">
+          <button type="button" onclick="location.href='./index.html'">메인</button>
+          <button type="button" class="is-secondary" onclick="location.href='./ranking.html'">리서치 랭킹</button>
+          <button type="button" class="is-secondary" onclick="location.href='./meaningfulness.html'">리서치 리뷰</button>
+          <button type="button" onclick="location.href='./ops-readiness.html'">운영자</button>
+          <button type="button" onclick="location.href='./manual-trading.html'">수동매매</button>
+          <button type="button" onclick="location.href='./holdings.html'">보유종목</button>
+          <button type="button" class="is-active" onclick="location.href='./paper-trading.html'">모의투자</button>
+          <button type="button" onclick="location.href='./trade-history.html'">매매 기록</button>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="filter-bar">
+          <select id="strategyFilter" aria-label="전략 선택">
+            <option value="">전체 전략</option>
+            <option value="top5">top5</option>
+            <option value="top8">top8</option>
+            <option value="top10">top10</option>
+          </select>
+          <select id="statusFilter" aria-label="포지션 상태 선택">
+            <option value="OPEN">OPEN</option>
+            <option value="">전체 상태</option>
+            <option value="CLOSED">CLOSED</option>
+          </select>
+          <button id="refreshBtn" type="button">새로고침</button>
+          <div id="runInfo" class="section-note">최신 run 조회 중</div>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">이 화면 읽는 법</h2>
+            <div class="section-note">먼저 구조를 이해해야 현재 보유 종목 수가 왜 많은지 해석이 됩니다.</div>
+          </div>
+        </div>
+        <div class="explain-grid" id="explainGrid"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="meta-strip" id="metaStrip"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">전략별 계좌 요약</h2>
+            <div class="section-note">top5 / top8 / top10은 서로 다른 가상 계좌입니다.</div>
+          </div>
+        </div>
+        <div class="strategy-grid" id="strategyGrid"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">선택 전략 현재 상태</h2>
+            <div class="section-note">오늘 신규 편입, 계속 보유, 곧 청산 대기 상태를 요약합니다.</div>
+          </div>
+        </div>
+        <div class="status-strip" id="statusStrip"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">NAV 시계열</h2>
+            <div class="section-note">선택한 전략의 최근 NAV 흐름</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>전략</th>
+                <th>날짜</th>
+                <th class="right">NAV</th>
+                <th class="right">누적수익률</th>
+                <th class="right">드로다운</th>
+                <th class="right">활성 포지션</th>
+                <th class="right">당일 신규</th>
+                <th class="right">중복 스킵</th>
+              </tr>
+            </thead>
+            <tbody id="navTbody">
+              <tr><td colspan="8" class="center">불러오는 중</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">현재 보유 종목</h2>
+            <div class="section-note">선택한 전략에서 아직 열려 있는 포지션 목록</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="positions-table">
+            <thead>
+              <tr>
+                <th>상태</th>
+                <th>전략</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>진입일</th>
+                <th>예상 마감일</th>
+                <th class="right">보유일수</th>
+                <th class="right">잔여일수</th>
+                <th class="right">진입가</th>
+                <th class="right">수량</th>
+                <th class="right">평가수익률</th>
+                <th class="right">Confidence</th>
+                <th class="right">Final Score</th>
+              </tr>
+            </thead>
+            <tbody id="positionsTbody">
+              <tr><td colspan="12" class="center">불러오는 중</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div id="pageState" class="state-line"></div>
+    </div>
+
+    <script src="./paper-trading.js"></script>
+  </body>
+</html>

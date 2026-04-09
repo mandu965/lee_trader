@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: lee-trader-web
+    runtime: docker
+    dockerContext: ./node
+    dockerfilePath: ./Dockerfile
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TZ
+        value: Asia/Seoul
+      - key: DATABASE_URL
+        sync: false
+      - key: SITE_BASE_URL
+        sync: false
+      - key: OPERATOR_PASSWORD
+        sync: false
+      - key: OPERATOR_AUTH_SECRET
+        generateValue: true
+      - key: ADMIN_TOKEN
+        generateValue: true
