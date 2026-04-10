@@ -522,6 +522,10 @@ def _flow_window() -> tuple[str, str]:
 
 
 def maybe_run_flow_ingestion(run_id: str) -> None:
+    if _env_flag("RUN_PIPELINE_SKIP_FLOW_INGESTION", "0"):
+        _log_run_id_event(run_id, "RUN_PIPELINE_SKIP_FLOW_INGESTION enabled -> skip optional flow ingestion")
+        return
+
     if not all([os.environ.get("KIS_BASE_URL"), os.environ.get("KIS_APP_KEY"), os.environ.get("KIS_APP_SECRET")]):
         logging.info("KIS env not fully configured -> skip optional flow ingestion/validation")
         return

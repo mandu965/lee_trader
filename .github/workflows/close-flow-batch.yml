@@ -1,25 +1,23 @@
-name: Close Batch
+name: Close Flow Batch
 
 on:
-  schedule:
-    - cron: "0 7 * * 1-5"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: lee-trader-close-batch
+  group: lee-trader-close-flow-batch
   cancel-in-progress: false
 
 jobs:
-  close-batch:
+  close-flow-batch:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
       TZ: Asia/Seoul
       MARKET_TIMEZONE: Asia/Seoul
-      RUN_PIPELINE_SKIP_FLOW_INGESTION: "1"
+      ENABLE_FLOW_INGESTION: "0"
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
       KIS_BASE_URL: ${{ secrets.KIS_BASE_URL }}
@@ -49,6 +47,7 @@ jobs:
             data/confidence_score_v2.json
             outputs
             serving
+            output
           key: ${{ runner.os }}-lee-trader-state-${{ github.run_id }}
           restore-keys: |
             ${{ runner.os }}-lee-trader-state-
@@ -61,12 +60,8 @@ jobs:
       - name: Install Python packages
         run: python -m pip install --upgrade pip && pip install -r python/requirements.txt
 
-      - name: Run close batch
-        run: >
-          python python/run_scheduled_job.py
-          --command-set close
-          --daily-time 16:00
-          --trigger-source github_actions
+      - name: Run close flow batch
+        run: python python/run_flow_ingestion_batch.py
 
       - name: Save scheduler state cache
         if: always()
@@ -81,4 +76,5 @@ jobs:
             data/confidence_score_v2.json
             outputs
             serving
+            output
           key: ${{ runner.os }}-lee-trader-state-${{ github.run_id }}
