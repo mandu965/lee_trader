@@ -22,6 +22,7 @@ ROOT_FILES = [
 ]
 
 ROOT_DIRS = [
+    ".github",
     "config",
     "doc",
     "docs",

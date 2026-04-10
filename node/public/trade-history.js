@@ -46,6 +46,18 @@ function renderSummary(items) {
 function renderTable(items) {
   const tbody = document.getElementById("tradeTbody");
   tbody.innerHTML = "";
+  const labels = [
+    "날짜",
+    "구분",
+    "종목",
+    "수량",
+    "단가",
+    "금액",
+    "실현손익",
+    "누적손익",
+    "잔여수량",
+    "평단가",
+  ];
 
   if (!items.length) {
     const tr = document.createElement("tr");
@@ -69,18 +81,18 @@ function renderTable(items) {
         : '<span class="badge-buy">매수</span>';
 
     tr.innerHTML = `
-      <td>${it.date}</td>
-      <td>${sideBadge}</td>
-      <td>${it.name} <span style="font-size:11px;color:#9ca3af;">${it.code}</span></td>
-      <td class="num">${formatNumber(it.qty)}</td>
-      <td class="num">${formatNumber(it.price)}</td>
-      <td class="num">${formatNumber(it.amount)}</td>
-      <td class="num">${formatSigned(Math.round(it.realized || 0))}</td>
-      <td class="num">${formatSigned(
+      <td data-label="${labels[0]}">${it.date}</td>
+      <td data-label="${labels[1]}">${sideBadge}</td>
+      <td data-label="${labels[2]}">${it.name} <span style="font-size:11px;color:#9ca3af;">${it.code}</span></td>
+      <td class="num" data-label="${labels[3]}">${formatNumber(it.qty)}</td>
+      <td class="num" data-label="${labels[4]}">${formatNumber(it.price)}</td>
+      <td class="num" data-label="${labels[5]}">${formatNumber(it.amount)}</td>
+      <td class="num" data-label="${labels[6]}">${formatSigned(Math.round(it.realized || 0))}</td>
+      <td class="num" data-label="${labels[7]}">${formatSigned(
         Math.round(it.realized_acc_code || 0)
       )}</td>
-      <td class="num">${formatNumber(it.remain_qty)}</td>
-      <td class="num">${formatNumber(
+      <td class="num" data-label="${labels[8]}">${formatNumber(it.remain_qty)}</td>
+      <td class="num" data-label="${labels[9]}">${formatNumber(
         it.avg_price ? Math.round(it.avg_price) : 0
       )}</td>
     `;

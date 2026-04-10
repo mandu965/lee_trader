@@ -59,15 +59,29 @@
 로컬 DB dump:
 
 ```powershell
-pg_dump --format=plain --no-owner --no-privileges `
-  --dbname "postgresql://lee_trader:lee_trader_pw@localhost:5432/lee_trader" `
-  --file lee_trader_dump.sql
+$dump = docker exec -i lee_trader_pg pg_dump `
+  --data-only `
+  --inserts `
+  --no-owner `
+  --no-privileges `
+  -U lee_trader `
+  -d lee_trader 2>$null
+
+Set-Content -Path 'lee_trader_data.sql' -Value $dump -Encoding UTF8
+
 ```
 
 Supabase로 import:
 
 ```powershell
-psql "postgres://postgres.PROJECT_REF:YOUR_PASSWORD@aws-0-REGION.pooler.supabase.com:5432/postgres?sslmode=require" -f lee_trader_dump.sql
+$env:PGPASSWORD="YOUR_SUPABASE_DB_PASSWORD"
+Get-Content .\lee_trader_data.sql | docker exec -i lee_trader_pg psql `
+  -h aws-1-ap-northeast-2.pooler.supabase.com `
+  -p 5432 `
+  -U postgres.wlkyypcakkrjmscfujdp `
+  -d postgres
+
+
 ```
 
 주의:
@@ -75,6 +89,7 @@ psql "postgres://postgres.PROJECT_REF:YOUR_PASSWORD@aws-0-REGION.pooler.supabase
 - 실제 값은 Supabase `Connect`에서 복사한 값을 사용합니다.
 - Render 웹앱 용도는 `pooler session mode` 문자열이 가장 무난합니다.
 - import 전에 [schema.sql](/d:/ai/Lee_trader/schema.sql)을 먼저 적용해 두는 편이 안전합니다.
+- 로컬 PC에 `psql`이 없어도 `lee_trader_pg` 컨테이너 안의 `psql`로 그대로 실행할 수 있습니다.
 
 ### 2-4. import 후 확인할 테이블
 
@@ -102,6 +117,64 @@ from research.app_payload_store
 order by updated_at desc
 limit 20;
 ```
+
+### 2-5. CSV로 테이블별 이관
+
+`psql` import가 막히거나 일부 테이블만 먼저 옮길 때는 CSV 방식으로 진행할 수 있습니다.
+로컬 DB에서 Supabase Table Editor 업로드용 CSV를 먼저 생성합니다.
+
+CSV export:
+
+```powershell
+cd D:\ai\Lee_trader
+python python\export_db_tables_to_csv.py
+```
+
+생성 경로:
+
+- [exports/db_csv/public](/d:/ai/Lee_trader/exports/db_csv/public)
+- [exports/db_csv/research](/d:/ai/Lee_trader/exports/db_csv/research)
+- [exports/db_csv/manifest.json](/d:/ai/Lee_trader/exports/db_csv/manifest.json)
+
+권장 업로드 순서:
+
+1. `public`
+- `stocks`
+- `theme_master`
+- `etf_master`
+- `prices_raw`
+- `prices_clean`
+- `prices_adjusted`
+- `market_status`
+- `fundamentals`
+- `quality`
+- `features`
+- `labels`
+- `predictions`
+- `daily_scores`
+- `daily_ranking`
+
+2. 운영성 테이블
+- `pipeline_history`
+- `trade_audit_log`
+- `page_view_events`
+- `backtest_trades`
+
+3. `research`
+- `dim_model_run`
+- `prediction_history`
+- `ranking_history`
+- `backtest_outcome`
+- `app_payload_store`
+- `paper_trading_run`
+- `paper_trading_position`
+- `paper_trading_nav`
+
+주의:
+
+- `research` 테이블은 Table Editor의 schema를 `research`로 바꿔야 보입니다.
+- [exports/db_csv/manifest.json](/d:/ai/Lee_trader/exports/db_csv/manifest.json) 으로 테이블별 row 수를 비교하면 누락 확인이 쉽습니다.
+- 우선 확인이 목적이면 `stocks`, `market_status`, `features`, `predictions`, `daily_ranking`, `research.app_payload_store` 부터 올려도 됩니다.
 
 ## 3. Render에서 해야 할 일
 

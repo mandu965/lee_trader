@@ -137,6 +137,11 @@
         border-collapse: collapse;
         font-size: 12px;
       }
+      .table-wrap {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
       thead tr {
         background: var(--table-header);
       }
@@ -166,6 +171,71 @@
         border-color: rgba(248,113,113,0.7);
         color: var(--danger);
         background: rgba(248,113,113,0.1);
+      }
+      @media (max-width: 900px) {
+        .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      @media (max-width: 720px) {
+        .page-container { margin: 16px auto 36px; padding: 0 12px; }
+        .page-header, .card-header { flex-direction: column; align-items: stretch; }
+        .toolbar {
+          flex-wrap: nowrap;
+          justify-content: flex-start;
+          overflow-x: auto;
+          padding-bottom: 4px;
+          -webkit-overflow-scrolling: touch;
+        }
+        .toolbar .btn-outline { flex: 0 0 auto; white-space: nowrap; }
+        .filters {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          align-items: stretch;
+        }
+        .quick-range {
+          grid-column: 1 / -1;
+          display: flex;
+          gap: 8px;
+          overflow-x: auto;
+          padding-bottom: 2px;
+        }
+        .quick-range .btn-sm { flex: 0 0 auto; white-space: nowrap; }
+        .input-text { grid-column: 1 / -1; }
+        .input-text, .input-date, #filterBtn { width: 100%; min-height: 38px; }
+      }
+      @media (max-width: 560px) {
+        .summary-grid { grid-template-columns: 1fr; }
+        .card { padding: 14px 12px; }
+        table, thead, tbody, th, td, tr { display: block; }
+        thead { display: none; }
+        .table-wrap { overflow-x: visible; }
+        tbody { display: grid; gap: 10px; }
+        tbody tr {
+          border: 1px solid var(--border);
+          border-radius: 14px;
+          padding: 10px;
+          background: rgba(15,23,42,0.72);
+        }
+        tbody td {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          align-items: flex-start;
+          padding: 6px 0;
+          border-bottom: 1px solid rgba(30,41,59,0.7);
+          text-align: right;
+          white-space: normal;
+          word-break: break-word;
+        }
+        tbody td:last-child { border-bottom: 0; }
+        tbody td::before {
+          content: attr(data-label);
+          flex: 0 0 96px;
+          text-align: left;
+          color: var(--muted);
+          font-size: 11px;
+          font-weight: 600;
+        }
+        td.num { text-align: right; }
       }
     </style>
   </head>
@@ -242,7 +312,7 @@
           <button id="filterBtn" class="btn-sm">조회</button>
         </div>
         </div>
-        <div>
+        <div class="table-wrap">
           <table>
             <thead>
               <tr>

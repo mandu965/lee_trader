@@ -22,6 +22,7 @@ DEFAULT_TIMEZONE = "Asia/Seoul"
 DEFAULT_SKIP_CATCHUP = True
 DEFAULT_RUN_POLICY = "always"
 DEFAULT_PRIMARY_MAX_AGE_HOURS = 20
+DEFAULT_SCHEDULER_MODE = "internal_service"
 
 def _resolve_run_steps() -> list[tuple[str, list[str]]]:
     command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
@@ -33,6 +34,10 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
         ("run_pipeline", [sys.executable, str(ROOT / "python" / "run_pipeline.py")]),
         ("run_operational_refresh", [sys.executable, str(ROOT / "python" / "run_operational_refresh.py")]),
     ]
+
+
+def _scheduler_mode() -> str:
+    return str(os.environ.get("SCHEDULER_MODE", DEFAULT_SCHEDULER_MODE)).strip() or DEFAULT_SCHEDULER_MODE
 
 
 def ensure_dirs() -> None:
@@ -203,7 +208,7 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
     payload = {
         **status,
         "timezone": tz_name,
-        "scheduler_mode": "internal_service",
+        "scheduler_mode": _scheduler_mode(),
         "status": "running",
         "last_attempt_at": started_at,
         "last_error": "",
@@ -269,7 +274,7 @@ def main() -> int:
 
     status = _load_status()
     status.setdefault("timezone", tz_name)
-    status.setdefault("scheduler_mode", "internal_service")
+    status.setdefault("scheduler_mode", _scheduler_mode())
     status.setdefault("status", "idle")
     status["configured_daily_time"] = f"{scheduled_hour:02d}:{scheduled_minute:02d}"
     status["skip_catchup_on_start"] = skip_catchup
