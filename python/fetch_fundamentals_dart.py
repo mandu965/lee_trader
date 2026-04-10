@@ -243,6 +243,61 @@ def load_existing_fundamentals() -> pd.DataFrame:
     return existing.loc[:, [c for c in keep_cols if c in existing.columns]].copy()
 
 
+def finalize_fundamentals_rows(rows: List[Dict[str, object]]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame(columns=FUNDAMENTALS_DB_COLUMNS)
+
+    df = pd.DataFrame(rows).sort_values(["code", "date"]).reset_index(drop=True)
+    for c in ["revenue", "op_income", "net_income", "assets", "equity", "liabilities", "ocf"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    def per_code(g: pd.DataFrame) -> pd.DataFrame:
+        g = g.sort_values("date").copy()
+        g["equity_avg"] = (g["equity"].shift(1) + g["equity"]) / 2.0
+        g["assets_avg"] = (g["assets"].shift(1) + g["assets"]) / 2.0
+        g["equity_basis"] = np.where(g["equity_avg"].abs() > 1e-9, g["equity_avg"], g["equity"])
+        g["assets_basis"] = np.where(g["assets_avg"].abs() > 1e-9, g["assets_avg"], g["assets"])
+        g["roe"] = np.where((g["equity_basis"].abs() > 1e-9), g["net_income"] / g["equity_basis"], np.nan)
+        g["op_margin"] = np.where((g["revenue"].abs() > 1e-9), g["op_income"] / g["revenue"], np.nan)
+        g["debt_ratio"] = np.where((g["equity"].abs() > 1e-9), g["liabilities"] / g["equity"], np.nan)
+        g["ocf_to_assets"] = np.where((g["assets_basis"].abs() > 1e-9), g["ocf"] / g["assets_basis"], np.nan)
+        g["net_margin"] = np.where((g["revenue"].abs() > 1e-9), g["net_income"] / g["revenue"], np.nan)
+        return g
+
+    df = df.groupby("code", group_keys=False).apply(per_code)
+    return df[FUNDAMENTALS_DB_COLUMNS].copy()
+
+
+def merge_fundamentals_with_existing(
+    existing_out: pd.DataFrame,
+    fetched_rows: List[Dict[str, object]],
+    fetch_plan: Dict[str, int],
+) -> pd.DataFrame:
+    if not fetched_rows:
+        if existing_out.empty:
+            return pd.DataFrame(columns=FUNDAMENTALS_DB_COLUMNS)
+        return existing_out.sort_values(["code", "date"]).reset_index(drop=True)
+
+    out = finalize_fundamentals_rows(fetched_rows)
+    if existing_out.empty:
+        return out.sort_values(["code", "date"]).reset_index(drop=True)
+
+    refresh_frames = []
+    for code, fetch_start_year in fetch_plan.items():
+        refresh_frames.append((code, pd.Timestamp(f"{fetch_start_year}-01-01")))
+    retained = existing_out.copy()
+    for code, cutoff_date in refresh_frames:
+        retained = retained.loc[~((retained["code"] == code) & (retained["date"] >= cutoff_date))]
+    merged = (
+        pd.concat([retained, out], ignore_index=True)
+        .drop_duplicates(subset=["date", "code"], keep="last")
+        .sort_values(["code", "date"])
+        .reset_index(drop=True)
+    )
+    return merged
+
+
 def build_fundamentals_from_dart(
     api_key: str,
     codes: List[str],
@@ -250,6 +305,7 @@ def build_fundamentals_from_dart(
     refresh_recent_years: int = 0,
     sleep_sec: float = 0.15,
     log_every: int = 20,
+    checkpoint_every: int = 0,
     raw_log: bool = False,
 ) -> pd.DataFrame:
     xml_path = download_and_cache_corp_codes(api_key)
@@ -297,6 +353,7 @@ def build_fundamentals_from_dart(
     api_calls = 0
     total_ms = 0.0
     start_ts = time.perf_counter()
+    checkpoint_count = 0
     logging.info(
         "Fundamentals fetch plan: target_codes=%d cached_codes=%d fetch_codes=%d planned_calls=%d window=%d-%d",
         len(codes),
@@ -376,6 +433,18 @@ def build_fundamentals_from_dart(
                     len(unmapped_codes),
                 )
 
+            if checkpoint_every > 0 and rows and (iter_idx % checkpoint_every) == 0:
+                checkpoint_df = merge_fundamentals_with_existing(existing_out, rows, fetch_plan)
+                save_fundamentals(checkpoint_df)
+                checkpoint_count += 1
+                logging.info(
+                    "Checkpoint saved at %d/%d calls (rows=%d checkpoints=%d)",
+                    iter_idx,
+                    total_iters,
+                    len(checkpoint_df),
+                    checkpoint_count,
+                )
+
             # raw 로그 저장
             if csv_writer is not None:
                 csv_writer.writerow(
@@ -404,7 +473,7 @@ def build_fundamentals_from_dart(
     h, rem = divmod(total_sec, 3600)
     m, s = divmod(rem, 60)
     logging.info(
-        "Summary: codes=%d years=%d total=%d calls=%d ok=%d empty=%d fail=%d unmapped=%d elapsed=%02d:%02d:%02d",
+        "Summary: codes=%d years=%d total=%d calls=%d ok=%d empty=%d fail=%d unmapped=%d checkpoints=%d elapsed=%02d:%02d:%02d",
         len(codes),
         years_back,
         total_iters,
@@ -413,6 +482,7 @@ def build_fundamentals_from_dart(
         empty_count,
         fail_count,
         len(unmapped_codes),
+        checkpoint_count,
         h,
         m,
         s,
@@ -424,48 +494,7 @@ def build_fundamentals_from_dart(
             return existing_out.sort_values(["code", "date"]).reset_index(drop=True)
         raise RuntimeError("No financial rows fetched from DART.")
 
-    df = pd.DataFrame(rows).sort_values(["code", "date"]).reset_index(drop=True)
-    # 숫자형 변환
-    for c in ["revenue", "op_income", "net_income", "assets", "equity", "liabilities", "ocf"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
-
-    # 전년도 대비 평균자본(ROE), 평균자산(OCF/Assets) 계산
-    def per_code(g: pd.DataFrame) -> pd.DataFrame:
-        g = g.sort_values("date").copy()
-        g["equity_avg"] = (g["equity"].shift(1) + g["equity"]) / 2.0
-        g["assets_avg"] = (g["assets"].shift(1) + g["assets"]) / 2.0
-        # 평균 분모가 비어 있으면 당기 자본/자산으로 fallback해 최신 연도 coverage를 보강한다.
-        g["equity_basis"] = np.where(g["equity_avg"].abs() > 1e-9, g["equity_avg"], g["equity"])
-        g["assets_basis"] = np.where(g["assets_avg"].abs() > 1e-9, g["assets_avg"], g["assets"])
-        # 비율 계산(0 나눗셈 방지)
-        g["roe"] = np.where((g["equity_basis"].abs() > 1e-9), g["net_income"] / g["equity_basis"], np.nan)
-        g["op_margin"] = np.where((g["revenue"].abs() > 1e-9), g["op_income"] / g["revenue"], np.nan)
-        g["debt_ratio"] = np.where((g["equity"].abs() > 1e-9), g["liabilities"] / g["equity"], np.nan)
-        g["ocf_to_assets"] = np.where((g["assets_basis"].abs() > 1e-9), g["ocf"] / g["assets_basis"], np.nan)
-        g["net_margin"] = np.where((g["revenue"].abs() > 1e-9), g["net_income"] / g["revenue"], np.nan)
-        return g
-
-    df = df.groupby("code", group_keys=False).apply(per_code)
-    # 필요 컬럼만
-    out_cols = ["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"]
-    out = df[out_cols].copy()
-    if existing_out.empty:
-        return out.sort_values(["code", "date"]).reset_index(drop=True)
-
-    refresh_frames = []
-    for code, fetch_start_year in fetch_plan.items():
-        refresh_frames.append((code, pd.Timestamp(f"{fetch_start_year}-01-01")))
-    retained = existing_out.copy()
-    for code, cutoff_date in refresh_frames:
-        retained = retained.loc[~((retained["code"] == code) & (retained["date"] >= cutoff_date))]
-    merged = (
-        pd.concat([retained, out], ignore_index=True)
-        .drop_duplicates(subset=["date", "code"], keep="last")
-        .sort_values(["code", "date"])
-        .reset_index(drop=True)
-    )
-    return merged
+    return merge_fundamentals_with_existing(existing_out, rows, fetch_plan)
 
 
 def save_fundamentals(df: pd.DataFrame) -> None:
@@ -538,6 +567,12 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--sleep-sec", type=float, default=0.15, help="Sleep seconds between calls (default: 0.15)")
     p.add_argument("--log-every", type=int, default=20, help="Log progress every N calls (default: 20)")
+    p.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=100,
+        help="Persist intermediate fundamentals every N DART calls; set 0 to disable (default: 100)",
+    )
     p.add_argument("--raw-log", action="store_true", help="Write raw fetch log CSV under data/dart")
     return p.parse_args()
 
@@ -555,6 +590,7 @@ def main() -> None:
         refresh_recent_years=args.refresh_recent_years,
         sleep_sec=args.sleep_sec,
         log_every=args.log_every,
+        checkpoint_every=args.checkpoint_every,
         raw_log=args.raw_log,
     )
     save_fundamentals(df)

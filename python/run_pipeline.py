@@ -324,7 +324,7 @@ def apply_schema_if_available() -> None:
         return
 
     try:
-        sql_text = schema_path.read_text(encoding="utf-8")
+        sql_text = schema_path.read_text(encoding="utf-8-sig")
         eng = get_engine()
         with eng.begin() as conn:
             conn.exec_driver_sql(sql_text)

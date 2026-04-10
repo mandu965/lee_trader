@@ -217,7 +217,6 @@ input:focus-visible,
 select:focus-visible,
 .nav-tab:focus-visible,
 .detail-link:focus-visible,
-.hero-pick:focus-visible,
 .stock-card:focus-visible {
   outline: none;
   border-color: rgba(96, 165, 250, 0.55);
@@ -334,12 +333,6 @@ button:active,
   display: block;
 }
 
-.hero-top-picks {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-
 .ops-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -404,66 +397,6 @@ button:active,
   font-size: 12px;
   line-height: 1.45;
   color: var(--color-text-secondary);
-}
-
-.hero-pick {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0, rgba(15, 23, 42, 0.3) 100%);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 14px;
-  display: grid;
-  gap: 8px;
-  cursor: pointer;
-  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
-}
-
-.hero-pick:hover {
-  border-color: rgba(96, 165, 250, 0.25);
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0, rgba(15, 23, 42, 0.4) 100%);
-  box-shadow: var(--shadow-card-soft);
-}
-
-.hero-pick-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: space-between;
-  flex-wrap: wrap;
-}
-
-.hero-pick-name {
-  font-weight: 700;
-  font-size: 16px;
-}
-
-.hero-pick-code {
-  font-size: 12px;
-  color: var(--color-text-secondary);
-}
-
-.hero-pick-score {
-  font-size: 28px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.hero-pick-confidence {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--color-text-secondary);
-}
-
-.hero-pick-reasons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.hero-empty {
-  color: var(--color-text-secondary);
-  padding: 12px 0;
 }
 
 .table-panel { overflow-x: auto; }
@@ -716,6 +649,12 @@ th.score-col { text-align: center; }
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.stock-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .score-summary-metric {
@@ -1636,15 +1575,8 @@ th.score-col { text-align: center; }
     font-weight: 700;
   }
   .ops-strip { grid-template-columns: 1fr; }
-  .hero-top-picks { grid-template-columns: 1fr; }
   .hero-panel {
     padding: 14px;
-  }
-  .hero-pick {
-    padding: 12px;
-  }
-  .hero-pick-score {
-    font-size: 24px;
   }
   .table-panel { display: none; }
   .mobile-list { display: flex; flex-direction: column; }
@@ -1721,8 +1653,7 @@ th.score-col { text-align: center; }
   }
 
   .hero-panel,
-  .stock-card,
-  .hero-pick {
+  .stock-card {
     padding: 12px;
   }
 

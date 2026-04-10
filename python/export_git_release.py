@@ -84,6 +84,8 @@ GENERATED_GITIGNORE = """# Runtime secrets
 
 # Generated data
 data/
+!data/
+!data/interest_universe.csv
 logs/
 output/
 outputs/
