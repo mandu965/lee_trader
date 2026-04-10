@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import os
+import stat
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +17,7 @@ ROOT_FILES = [
     ".env.render.example",
     "base_weights.json",
     "bootstrap.ps1",
+    "data/interest_universe.csv",
     "docker-compose.yml",
     "render.yaml",
     "schema.sql",
@@ -179,9 +182,25 @@ def clean_target(target: Path, dry_run: bool) -> None:
             print(f"REMOVE {child}")
             continue
         if child.is_dir():
-            shutil.rmtree(child)
+            shutil.rmtree(child, onerror=_handle_remove_readonly)
         else:
-            child.unlink()
+            _remove_file(child)
+
+
+def _handle_remove_readonly(func, path, exc_info) -> None:
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        raise exc_info[1]
+
+
+def _remove_file(path: Path) -> None:
+    try:
+        path.unlink()
+    except PermissionError:
+        os.chmod(path, stat.S_IWRITE)
+        path.unlink()
 
 
 def write_gitignore(target: Path, dry_run: bool, stats: CopyStats) -> None:
