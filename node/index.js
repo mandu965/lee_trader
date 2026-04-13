@@ -162,17 +162,21 @@ function renderArticlePage(item, section) {
         <div class="site-brand__mark">LT</div>
         <div>
           <p class="site-brand__title">Lee Trader Lab</p>
-          <p class="site-brand__subtitle">국내 주식 운영 해석과 리포트</p>
+          <p class="site-brand__subtitle">국내 주식 운영 해석과 시장 브리프</p>
         </div>
       </a>
       <button class="site-nav-toggle" type="button" aria-expanded="false" aria-controls="siteNav">메뉴</button>
       <nav id="siteNav" class="site-nav">
+        <span class="site-nav__section">둘러보기</span>
         <a href="/">홈</a>
         <a href="/about">소개</a>
         <a href="/methodology">방법론</a>
         <a href="/glossary">용어 해설</a>
+        <a href="/operator-note">관리자 말씀</a>
+        <span class="site-nav__section">콘텐츠</span>
         <a class="${section === "reports" ? "is-active" : ""}" href="/reports">시장 해설</a>
         <a class="${section === "blog" ? "is-active" : ""}" href="/blog">블로그</a>
+        <span class="site-nav__section">바로가기</span>
         <a class="site-nav__app" href="/app">운영 앱</a>
         <a class="site-nav__minor" href="/contact">문의</a>
       </nav>
@@ -2608,6 +2612,7 @@ app.get("/app", (req, res) => sendPublicPage(res, "index.html"));
 app.get("/about", (req, res) => sendPublicPage(res, "about.html"));
 app.get("/methodology", (req, res) => sendPublicPage(res, "methodology.html"));
 app.get("/glossary", (req, res) => sendPublicPage(res, "glossary.html"));
+app.get("/operator-note", (req, res) => sendPublicPage(res, "operator-note.html"));
 app.get("/contact", (req, res) => sendPublicPage(res, "contact.html"));
 app.get("/privacy", (req, res) => sendPublicPage(res, "privacy.html"));
 app.get("/terms", (req, res) => sendPublicPage(res, "terms.html"));

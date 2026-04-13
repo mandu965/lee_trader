@@ -13,6 +13,17 @@ document.addEventListener("DOMContentLoaded", () => {
     toggle.setAttribute("aria-expanded", open ? "true" : "false");
   });
 
+  document.addEventListener("click", (event) => {
+    if (!window.matchMedia("(max-width: 760px)").matches) return;
+    if (!nav.classList.contains("is-open")) return;
+    if (nav.contains(event.target) || toggle.contains(event.target)) return;
+    closeNav();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeNav();
+  });
+
   nav.querySelectorAll("a").forEach((link) => {
     link.addEventListener("click", () => {
       if (window.matchMedia("(max-width: 760px)").matches) closeNav();

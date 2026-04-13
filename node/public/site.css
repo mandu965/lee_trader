@@ -114,6 +114,18 @@ body.site-body {
   border-radius: 999px;
 }
 
+.site-nav__section {
+  display: none;
+  width: 100%;
+  margin-top: 6px;
+  padding: 4px 2px 0;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #8fb7dd;
+}
+
 .site-nav a:hover,
 .site-nav a.is-active {
   background: rgba(148, 163, 184, 0.1);
@@ -846,6 +858,44 @@ body.site-body {
   border-color: rgba(125, 211, 252, 0.24);
 }
 
+.example-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.example-card {
+  border-radius: 20px;
+  border: 1px solid var(--site-border);
+  background: rgba(10, 16, 32, 0.74);
+  padding: 22px;
+}
+
+.example-card__label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  background: rgba(125, 211, 252, 0.1);
+  color: #bfeaff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.example-card h3 {
+  margin: 14px 0 10px;
+  font-size: 18px;
+}
+
+.example-card p {
+  margin: 0;
+  color: #d3deec;
+}
+
 .site-footer {
   border-top: 1px solid rgba(148, 163, 184, 0.12);
   padding: 26px 0 42px;
@@ -874,7 +924,8 @@ body.site-body {
   .page-hero--split,
   .reading-strip,
   .summary-grid,
-  .glossary-grid {
+  .glossary-grid,
+  .example-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -909,6 +960,10 @@ body.site-body {
 
   .site-nav.is-open {
     display: flex;
+  }
+
+  .site-nav__section {
+    display: block;
   }
 
   .site-nav a {

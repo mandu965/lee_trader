@@ -247,6 +247,7 @@ def benchmark_metrics(benchmark_df: pd.DataFrame, bucket: int) -> dict[str, obje
             "available_benchmarks": 0,
             "avg_excess_return_kospi": None,
             "avg_excess_return_baseline": None,
+            "avg_excess_return_universe": None,
             "excess_confirmed": False,
             "negative_excess_block": False,
         }
@@ -263,6 +264,7 @@ def benchmark_metrics(benchmark_df: pd.DataFrame, bucket: int) -> dict[str, obje
             "available_benchmarks": 0,
             "avg_excess_return_kospi": None,
             "avg_excess_return_baseline": None,
+            "avg_excess_return_universe": None,
             "excess_confirmed": False,
             "negative_excess_block": False,
         }

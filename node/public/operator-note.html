@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>관리자 말씀 | Lee Trader Lab</title>
+  <meta name="description" content="Lee Trader Lab 운영자 안내 페이지입니다. 공개 화면의 매수/매도 기능, 보유종목, 매매이력의 의미를 설명합니다.">
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body class="site-body">
+  <header class="site-header">
+    <div class="site-container site-header__inner">
+      <a class="site-brand" href="/">
+        <div class="site-brand__mark">LT</div>
+        <div>
+          <p class="site-brand__title">Lee Trader Lab</p>
+          <p class="site-brand__subtitle">국내 주식 운영 해석과 시장 브리프</p>
+        </div>
+      </a>
+      <button class="site-nav-toggle" type="button" aria-expanded="false" aria-controls="siteNav">메뉴</button>
+      <nav id="siteNav" class="site-nav">
+        <span class="site-nav__section">둘러보기</span>
+        <a href="/">홈</a>
+        <a href="/about">소개</a>
+        <a href="/methodology">방법론</a>
+        <a href="/glossary">용어 해설</a>
+        <a class="is-active" href="/operator-note">관리자 말씀</a>
+        <span class="site-nav__section">콘텐츠</span>
+        <a href="/reports">시장 해설</a>
+        <a href="/blog">블로그</a>
+        <span class="site-nav__section">바로가기</span>
+        <a class="site-nav__app" href="/app">운영 앱</a>
+        <a class="site-nav__minor" href="/contact">문의</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="site-main">
+    <div class="site-container">
+      <section class="page-hero">
+        <p class="section__eyebrow">Operator Note</p>
+        <h1>관리자 말씀</h1>
+        <p>공개 페이지를 보시는 분들이 혼동하기 쉬운 운영 기준을 먼저 분명하게 남겨두는 안내 페이지입니다.</p>
+        <div class="callout-box">
+          <strong>핵심 안내</strong>
+          <p>공개 화면의 <span class="term">매수</span>, <span class="term term--accent">매도</span> 기능은 관리자 전용입니다. 일반 방문자는 기록과 해석을 보는 용도로 이해하시면 됩니다.</p>
+        </div>
+      </section>
+
+      <section class="section summary-grid">
+        <article class="summary-card">
+          <h3>매수·매도 기능</h3>
+          <p>매수, 매도 입력 기능은 관리자만 사용할 수 있습니다. 공개 화면에 버튼이 보이더라도 실제 실행 권한은 관리자 인증이 있어야만 열립니다.</p>
+        </article>
+        <article class="summary-card">
+          <h3>보유종목과 매매이력</h3>
+          <p>보유종목, 매매이력 화면은 실제 관리자가 기록한 운영 내역입니다. 자동으로 생성된 가상 기록이 아니라 운영 로그에 가깝게 보시면 됩니다.</p>
+        </article>
+        <article class="summary-card">
+          <h3>현재 운영 상태</h3>
+          <p>현재는 소액 테스트를 진행하고 있습니다. 따라서 공개 화면의 기록은 본격 운용 결과라기보다 운영 검증 단계의 참고 정보에 가깝습니다.</p>
+        </article>
+      </section>
+
+      <section class="section policy-grid">
+        <article class="policy-card">
+          <h3>왜 이 안내가 필요한가</h3>
+          <p>공개 페이지에서 보이는 숫자와 기록이 모두 즉시 투자 권유처럼 보이지 않도록, 운영 권한과 공개 열람의 범위를 구분하기 위해 이 페이지를 둡니다.</p>
+        </article>
+        <article class="policy-card">
+          <h3>어떻게 읽으면 좋은가</h3>
+          <p>공개 페이지는 추천 종목 자체보다 운영자의 판단 흐름과 기록을 참고하는 화면으로 보시는 편이 맞습니다. 특히 보유종목과 매매이력은 테스트 운영 맥락을 함께 보셔야 합니다.</p>
+        </article>
+      </section>
+
+      <section class="section">
+        <div class="section__head">
+          <div>
+            <p class="section__eyebrow">Practical Note</p>
+            <h2 class="section__title">실제 화면에서는 이렇게 이해하시면 됩니다</h2>
+            <p class="section__desc">공개된 운영 기록을 너무 강하게 해석하지 않도록, 자주 생기는 오해를 먼저 적어 둡니다.</p>
+          </div>
+        </div>
+        <div class="example-grid">
+          <article class="example-card">
+            <span class="example-card__label">보유종목</span>
+            <h3>실제 관리자 기록입니다</h3>
+            <p>화면에 보이는 보유 목록은 관리자만 입력하거나 갱신할 수 있는 기록입니다. 사용자 참여형 목록이 아닙니다.</p>
+          </article>
+          <article class="example-card">
+            <span class="example-card__label">매매이력</span>
+            <h3>운영 로그에 가깝게 봐야 합니다</h3>
+            <p>과거 체결 기록은 “이 전략을 무조건 따라 하라”는 뜻이 아니라, 현재 어떤 기준으로 테스트 중인지 보여주는 운영 흔적입니다.</p>
+          </article>
+          <article class="example-card">
+            <span class="example-card__label">현재 단계</span>
+            <h3>지금은 소액 테스트 운영입니다</h3>
+            <p>운영 규모보다 검증 맥락이 더 중요합니다. 수익 숫자만 떼어 보기보다 실험 단계라는 전제를 함께 보셔야 합니다.</p>
+          </article>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/site-shell.js"></script>
+</body>
+</html>

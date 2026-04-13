@@ -87,7 +87,9 @@ services:
       SCHEDULER_PRIMARY_MAX_AGE_HOURS: ${SCHEDULER_PRIMARY_MAX_AGE_HOURS:-20}
 
   node-api:
-    build: ./node
+    build:
+      context: .
+      dockerfile: ./node/Dockerfile
     container_name: lee_trader_api
     depends_on:
       postgres:
