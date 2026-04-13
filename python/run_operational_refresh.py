@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 
@@ -37,6 +39,8 @@ SCORE_KPI_JSON_CANDIDATES = [
 ]
 BUY_GATE_HISTORY_CSV = DATA_HISTORY_DIR / "operational_buy_gate_history.csv"
 SCORE_KPI_HISTORY_CSV = DATA_HISTORY_DIR / "score_kpi_monitor_history.csv"
+DEFAULT_REQUIRED_STEP_TIMEOUT_SEC = 20 * 60
+DEFAULT_OPTIONAL_STEP_TIMEOUT_SEC = 10 * 60
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,10 +61,26 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def run_step(name: str, command: list[str]) -> None:
+def _step_env_key(name: str) -> str:
+    normalized = "".join(ch if ch.isalnum() else "_" for ch in name.upper())
+    return f"OPS_REFRESH_TIMEOUT_{normalized}_SEC"
+
+
+def _step_timeout_seconds(name: str, required: bool) -> int:
+    default_value = DEFAULT_REQUIRED_STEP_TIMEOUT_SEC if required else DEFAULT_OPTIONAL_STEP_TIMEOUT_SEC
+    raw = os.environ.get(_step_env_key(name), os.environ.get("OPS_REFRESH_STEP_TIMEOUT_SEC", str(default_value)))
+    try:
+        return max(60, int(str(raw).strip()))
+    except Exception:
+        return default_value
+
+
+def run_step(name: str, command: list[str], *, timeout_sec: int) -> None:
     print(f"[START] {name}")
-    subprocess.run(command, cwd=ROOT, check=True)
-    print(f"[OK] {name}")
+    started = time.monotonic()
+    subprocess.run(command, cwd=ROOT, check=True, timeout=timeout_sec)
+    elapsed = time.monotonic() - started
+    print(f"[OK] {name} elapsed_sec={elapsed:.1f}")
 
 
 def read_json(path: Path) -> dict | None:
@@ -184,42 +204,63 @@ def append_operational_history() -> None:
 def main() -> int:
     args = parse_args()
 
-    steps: list[tuple[str, list[str]]] = []
+    steps: list[tuple[str, list[str], bool]] = []
     if not args.skip_theme_shadow:
-        steps.append(("theme_shadow_daily", [PYTHON, str(THEME_SHADOW_SCRIPT)]))
+        steps.append(("theme_shadow_daily", [PYTHON, str(THEME_SHADOW_SCRIPT)], True))
     steps.extend(
         [
-            ("buy_candidate_builder", [PYTHON, str(BUY_CANDIDATE_SCRIPT)]),
-            ("buy_candidate_comparison", [PYTHON, str(BUY_COMPARE_SCRIPT)]),
-            ("score_kpi_monitor", [PYTHON, str(SCORE_KPI_MONITOR_SCRIPT)]),
-            ("market_status_validation", [PYTHON, str(MARKET_STATUS_VALIDATION_SCRIPT)]),
-            ("operational_buy_gate", [PYTHON, str(BUY_GATE_SCRIPT)]),
+            ("buy_candidate_builder", [PYTHON, str(BUY_CANDIDATE_SCRIPT)], True),
+            ("buy_candidate_comparison", [PYTHON, str(BUY_COMPARE_SCRIPT)], True),
+            ("score_kpi_monitor", [PYTHON, str(SCORE_KPI_MONITOR_SCRIPT)], True),
+            ("market_status_validation", [PYTHON, str(MARKET_STATUS_VALIDATION_SCRIPT)], True),
+            ("operational_buy_gate", [PYTHON, str(BUY_GATE_SCRIPT)], True),
         ]
     )
     if not args.skip_paper_trading:
-        steps.append(("paper_trading_ledger", [PYTHON, str(PAPER_TRADING_SCRIPT)]))
+        steps.append(("paper_trading_ledger", [PYTHON, str(PAPER_TRADING_SCRIPT)], False))
         if not args.skip_paper_trading_db:
-            steps.append(("paper_trading_db_sync", [PYTHON, str(PAPER_TRADING_DB_SYNC_SCRIPT)]))
+            steps.append(("paper_trading_db_sync", [PYTHON, str(PAPER_TRADING_DB_SYNC_SCRIPT)], False))
     if args.with_live_account:
-        steps.append(("live_account_holdings_sync", [PYTHON, str(LIVE_SYNC_SCRIPT)]))
+        steps.append(("live_account_holdings_sync", [PYTHON, str(LIVE_SYNC_SCRIPT)], False))
         if not args.skip_live_preview:
-            steps.append(("live_order_preview", [PYTHON, str(LIVE_PREVIEW_SCRIPT)]))
-    steps.append(("export_serving_payloads", [PYTHON, str(EXPORT_SCRIPT)]))
-    steps.append(("shadow_quality_risk_guard_daily_report", [PYTHON, str(SHADOW_DAILY_REPORT_SCRIPT)]))
-    steps.append(("repair_shadow_ranking_snapshots", [PYTHON, str(REPAIR_SHADOW_SNAPSHOTS_SCRIPT)]))
-    steps.append(("shadow_quality_risk_guard_repeatability_report", [PYTHON, str(SHADOW_REPEATABILITY_REPORT_SCRIPT)]))
-    steps.append(("quality_coverage_report", [PYTHON, str(QUALITY_COVERAGE_REPORT_SCRIPT)]))
-    steps.append(("quality_risk_guard_promotion_report", [PYTHON, str(QUALITY_RISK_GUARD_PROMOTION_REPORT_SCRIPT)]))
-    steps.append(("sync_auxiliary_payloads", [PYTHON, str(SYNC_AUXILIARY_PAYLOADS_SCRIPT)]))
+            steps.append(("live_order_preview", [PYTHON, str(LIVE_PREVIEW_SCRIPT)], False))
+    steps.append(("export_serving_payloads", [PYTHON, str(EXPORT_SCRIPT)], True))
+    steps.append(("shadow_quality_risk_guard_daily_report", [PYTHON, str(SHADOW_DAILY_REPORT_SCRIPT)], False))
+    steps.append(("repair_shadow_ranking_snapshots", [PYTHON, str(REPAIR_SHADOW_SNAPSHOTS_SCRIPT)], False))
+    steps.append(("shadow_quality_risk_guard_repeatability_report", [PYTHON, str(SHADOW_REPEATABILITY_REPORT_SCRIPT)], False))
+    steps.append(("quality_coverage_report", [PYTHON, str(QUALITY_COVERAGE_REPORT_SCRIPT)], False))
+    steps.append(("quality_risk_guard_promotion_report", [PYTHON, str(QUALITY_RISK_GUARD_PROMOTION_REPORT_SCRIPT)], False))
+    steps.append(("sync_auxiliary_payloads", [PYTHON, str(SYNC_AUXILIARY_PAYLOADS_SCRIPT)], False))
 
+    optional_failures: list[str] = []
     try:
-        for name, command in steps:
-            run_step(name, command)
+        for name, command, required in steps:
+            timeout_sec = _step_timeout_seconds(name, required)
+            try:
+                run_step(name, command, timeout_sec=timeout_sec)
+            except subprocess.TimeoutExpired:
+                label = f"{name} timeout after {timeout_sec}s"
+                if required:
+                    print(f"[FAIL] {label}")
+                    return 124
+                print(f"[WARN] optional step failed: {label}")
+                optional_failures.append(label)
+            except subprocess.CalledProcessError as exc:
+                label = f"{name} exit={exc.returncode}"
+                if required:
+                    print(f"[FAIL] {label}")
+                    return exc.returncode
+                print(f"[WARN] optional step failed: {label}")
+                optional_failures.append(label)
         append_operational_history()
-    except subprocess.CalledProcessError as exc:
-        print(f"[FAIL] returncode={exc.returncode}")
-        return exc.returncode
+    except Exception as exc:
+        print(f"[FAIL] {exc}")
+        return 1
 
+    if optional_failures:
+        print(f"[WARN] optional_failures={len(optional_failures)}")
+        for item in optional_failures:
+            print(f"[WARN] {item}")
     print("[DONE] operational refresh completed")
     return 0
 

@@ -47,7 +47,8 @@ jobs:
             data/paper_trading_nav.csv
             data/score_kpi_monitor.json
             data/confidence_score_v2.json
-            outputs
+            outputs/auto_ops_scheduler_status.json
+            outputs/auto_ops_recovery_scheduler_status.json
             serving
           key: ${{ runner.os }}-lee-trader-state-${{ github.run_id }}
           restore-keys: |
@@ -79,6 +80,7 @@ jobs:
             data/paper_trading_nav.csv
             data/score_kpi_monitor.json
             data/confidence_score_v2.json
-            outputs
+            outputs/auto_ops_scheduler_status.json
+            outputs/auto_ops_recovery_scheduler_status.json
             serving
           key: ${{ runner.os }}-lee-trader-state-${{ github.run_id }}
