@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from functools import lru_cache
 from pathlib import Path
 
 import pandas as pd
@@ -123,6 +124,76 @@ def db_snapshot(table: str, date_col: str | None) -> dict[str, object]:
     return {"rows": int(rows or 0), "latest_date": latest}
 
 
+@lru_cache(maxsize=None)
+def get_table_column_types(table: str) -> dict[str, str]:
+    engine = get_engine()
+    query = text(
+        """
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = :table_name
+        ORDER BY ordinal_position
+        """
+    )
+    with engine.connect() as conn:
+        rows = conn.execute(query, {"table_name": table}).mappings().all()
+    return {str(row["column_name"]): str(row["data_type"]).lower() for row in rows}
+
+
+def _coerce_bool(series: pd.Series) -> pd.Series:
+    normalized = series.copy()
+    if normalized.dtype == bool:
+        return normalized
+    text_values = normalized.astype(str).str.strip().str.lower()
+    mapped = text_values.map(
+        {
+            "true": True,
+            "t": True,
+            "1": True,
+            "yes": True,
+            "y": True,
+            "false": False,
+            "f": False,
+            "0": False,
+            "no": False,
+            "n": False,
+            "": pd.NA,
+            "nan": pd.NA,
+            "none": pd.NA,
+            "<na>": pd.NA,
+        }
+    )
+    return mapped.astype("boolean")
+
+
+def normalize_for_pg_table(df: pd.DataFrame, table: str, columns: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    column_types = get_table_column_types(table)
+    integer_types = {"smallint", "integer", "bigint"}
+    numeric_types = {"real", "double precision", "numeric", "decimal"}
+    date_types = {"date"}
+    timestamp_types = {"timestamp without time zone", "timestamp with time zone"}
+
+    for col in columns:
+        if col not in out.columns:
+            out[col] = pd.NA
+            continue
+        data_type = column_types.get(col)
+        if data_type in integer_types:
+            out[col] = pd.to_numeric(out[col], errors="coerce").round().astype("Int64")
+        elif data_type in numeric_types:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+        elif data_type == "boolean":
+            out[col] = _coerce_bool(out[col])
+        elif data_type in date_types:
+            out[col] = pd.to_datetime(out[col], errors="coerce").dt.strftime("%Y-%m-%d")
+        elif data_type in timestamp_types:
+            out[col] = pd.to_datetime(out[col], errors="coerce").dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    return out
+
+
 def upsert_stocks(df: pd.DataFrame) -> None:
     engine = get_engine()
     out = df.copy()
@@ -161,15 +232,19 @@ def sync_table(spec: dict[str, object]) -> dict[str, object]:
         }
 
     configured_columns = spec.get("columns")
-    columns = list(df.columns) if configured_columns is None else [col for col in configured_columns if col in df.columns]
+    table_column_types = get_table_column_types(str(spec["table"]))
+    if configured_columns is None:
+        columns = [col for col in df.columns if col in table_column_types]
+    else:
+        columns = [col for col in configured_columns if col in table_column_types]
     out = df.copy()
     if "code" in out.columns:
         out["code"] = out["code"].astype(str).str.zfill(6)
-    if configured_columns is not None:
-        for col in columns:
-            if col not in out.columns:
-                out[col] = pd.NA
-        out = out[columns]
+    for col in columns:
+        if col not in out.columns:
+            out[col] = pd.NA
+    out = out[columns]
+    out = normalize_for_pg_table(out, str(spec["table"]), columns)
     out = out.drop_duplicates(subset=spec["key_cols"], keep="last").reset_index(drop=True)
     if spec["table"] == "stocks":
         upsert_stocks(out)

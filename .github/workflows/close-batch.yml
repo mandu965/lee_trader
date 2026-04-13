@@ -19,6 +19,7 @@ jobs:
     env:
       TZ: Asia/Seoul
       MARKET_TIMEZONE: Asia/Seoul
+      USE_KIS_UNIVERSE: "0"
       RUN_PIPELINE_SKIP_FLOW_INGESTION: "1"
       DART_REFRESH_RECENT_YEARS: "1"
       DART_CHECKPOINT_EVERY: "100"

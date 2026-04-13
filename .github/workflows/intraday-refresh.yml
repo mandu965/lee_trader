@@ -19,6 +19,7 @@ jobs:
     env:
       TZ: Asia/Seoul
       MARKET_TIMEZONE: Asia/Seoul
+      USE_KIS_UNIVERSE: "0"
       DART_REFRESH_RECENT_YEARS: "1"
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
