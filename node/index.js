@@ -165,14 +165,16 @@ function renderArticlePage(item, section) {
           <p class="site-brand__subtitle">국내 주식 운영 해석과 리포트</p>
         </div>
       </a>
-      <nav class="site-nav">
+      <button class="site-nav-toggle" type="button" aria-expanded="false" aria-controls="siteNav">메뉴</button>
+      <nav id="siteNav" class="site-nav">
         <a href="/">홈</a>
         <a href="/about">소개</a>
         <a href="/methodology">방법론</a>
-        <a class="${section === "reports" ? "is-active" : ""}" href="/reports">리포트</a>
+        <a href="/glossary">용어 해설</a>
+        <a class="${section === "reports" ? "is-active" : ""}" href="/reports">시장 해설</a>
         <a class="${section === "blog" ? "is-active" : ""}" href="/blog">블로그</a>
-        <a href="/contact">문의</a>
         <a class="site-nav__app" href="/app">운영 앱</a>
+        <a class="site-nav__minor" href="/contact">문의</a>
       </nav>
     </div>
   </header>
@@ -197,7 +199,7 @@ function renderArticlePage(item, section) {
             <ul>
               <li>분류: ${escapeHtml(item.category || "-")}</li>
               <li>발행일: ${escapeHtml(item.date || "-")}</li>
-              <li>읽기 시간: ${escapeHtml(item.readingTime || "-")}</li>
+              <li>읽는 시간: ${escapeHtml(item.readingTime || "-")}</li>
             </ul>
           </section>
           <section class="side-panel">
@@ -207,17 +209,19 @@ function renderArticlePage(item, section) {
             </ul>
           </section>
           <section class="side-panel">
-            <h3>운영 앱</h3>
+            <h3>바로 가기</h3>
             <ul>
-              <li><a class="text-link" href="/app">추천 화면 열기</a></li>
-              <li><a class="text-link" href="/ops-readiness.html">운영자 페이지</a></li>
-              <li><a class="text-link" href="/paper-trading.html">모의투자 화면</a></li>
+              <li><a class="text-link" href="/methodology">방법론 읽기</a></li>
+              <li><a class="text-link" href="/glossary">용어 해설 보기</a></li>
+              <li><a class="text-link" href="/app">운영 앱 열기</a></li>
+              <li><a class="text-link" href="/ops-readiness.html">운영 상태 페이지</a></li>
             </ul>
           </section>
         </aside>
       </div>
     </div>
   </main>
+  <script src="/site-shell.js"></script>
 </body>
 </html>`;
 }
@@ -2603,6 +2607,7 @@ app.get("/", (req, res) => sendPublicPage(res, "landing.html"));
 app.get("/app", (req, res) => sendPublicPage(res, "index.html"));
 app.get("/about", (req, res) => sendPublicPage(res, "about.html"));
 app.get("/methodology", (req, res) => sendPublicPage(res, "methodology.html"));
+app.get("/glossary", (req, res) => sendPublicPage(res, "glossary.html"));
 app.get("/contact", (req, res) => sendPublicPage(res, "contact.html"));
 app.get("/privacy", (req, res) => sendPublicPage(res, "privacy.html"));
 app.get("/terms", (req, res) => sendPublicPage(res, "terms.html"));

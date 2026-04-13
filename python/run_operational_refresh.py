@@ -206,7 +206,7 @@ def main() -> int:
 
     steps: list[tuple[str, list[str], bool]] = []
     if not args.skip_theme_shadow:
-        steps.append(("theme_shadow_daily", [PYTHON, str(THEME_SHADOW_SCRIPT)], True))
+        steps.append(("theme_shadow_daily", [PYTHON, str(THEME_SHADOW_SCRIPT)], False))
     steps.extend(
         [
             ("buy_candidate_builder", [PYTHON, str(BUY_CANDIDATE_SCRIPT)], True),

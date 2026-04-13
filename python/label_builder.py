@@ -39,6 +39,23 @@ LABELS_DB_COLUMNS = [
     "realized_return_90d",
 ]
 LABELS_PK = ["date", "code"]
+POSTGRES_LABEL_COLUMN_TYPES = {
+    "target_30d": "numeric",
+    "target_60d": "numeric",
+    "target_90d": "numeric",
+    "target_log_30d": "numeric",
+    "target_log_60d": "numeric",
+    "target_log_90d": "numeric",
+    "target_mdd_30d": "numeric",
+    "target_mdd_60d": "numeric",
+    "target_mdd_90d": "numeric",
+    "target_30d_top20": "numeric",
+    "target_60d_top20": "numeric",
+    "target_90d_top20": "numeric",
+    "realized_return_30d": "numeric",
+    "realized_return_60d": "numeric",
+    "realized_return_90d": "numeric",
+}
 
 
 def setup_logging() -> None:
@@ -193,6 +210,40 @@ def save_labels_csv(labels: pd.DataFrame) -> None:
     logging.info("Saved labels: %s (rows=%d)", LABELS_CSV.resolve(), len(out))
 
 
+def ensure_postgres_labels_schema() -> None:
+    if not get_engine:
+        return
+    eng = get_engine()
+    with eng.begin() as conn:
+        existing_columns = {
+            str(row[0])
+            for row in conn.exec_driver_sql(
+                """
+                select column_name
+                from information_schema.columns
+                where table_schema = 'public' and table_name = 'labels'
+                """
+            ).fetchall()
+        }
+        if not existing_columns:
+            return
+
+        legacy_renames = {
+            "realized_price_60d": "realized_return_60d",
+            "realized_price_90d": "realized_return_90d",
+        }
+        for old_name, new_name in legacy_renames.items():
+            if old_name in existing_columns and new_name not in existing_columns:
+                conn.exec_driver_sql(f"ALTER TABLE public.labels RENAME COLUMN {old_name} TO {new_name}")
+                existing_columns.remove(old_name)
+                existing_columns.add(new_name)
+
+        for column_name, column_type in POSTGRES_LABEL_COLUMN_TYPES.items():
+            if column_name not in existing_columns:
+                conn.exec_driver_sql(f"ALTER TABLE public.labels ADD COLUMN {column_name} {column_type}")
+                existing_columns.add(column_name)
+
+
 def save_labels_db(labels: pd.DataFrame) -> None:
     out = labels.copy()
     out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y-%m-%d")
@@ -206,6 +257,7 @@ def save_labels_db(labels: pd.DataFrame) -> None:
     # Prefer Postgres row replacement.
     try:
         if replace_table_rows_pg:
+            ensure_postgres_labels_schema()
             replace_table_rows_pg("labels", out, columns=LABELS_DB_COLUMNS)
             logging.info("Replaced labels rows in Postgres (rows=%d)", len(out))
             return

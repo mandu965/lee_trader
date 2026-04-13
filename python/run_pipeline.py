@@ -311,7 +311,7 @@ def write_theme_pipeline_mode_note(theme_cfg: dict[str, object]) -> None:
 
 def apply_schema_if_available() -> None:
     """
-    Apply schema.sql once on startup (idempotent: CREATE IF NOT EXISTS).
+    Apply schema.sql only when the target database looks uninitialized.
     Useful in environments without shell access (e.g., Render).
     """
     if not get_engine:
@@ -324,9 +324,16 @@ def apply_schema_if_available() -> None:
         return
 
     try:
-        sql_text = schema_path.read_text(encoding="utf-8-sig")
         eng = get_engine()
         with eng.begin() as conn:
+            existing_research_schema = conn.exec_driver_sql(
+                "select 1 from information_schema.schemata where schema_name = 'research' limit 1"
+            ).scalar()
+            if existing_research_schema:
+                logging.info("research schema already exists -> skip schema.sql apply")
+                return
+
+            sql_text = schema_path.read_text(encoding="utf-8-sig")
             conn.exec_driver_sql(sql_text)
         logging.info("schema.sql applied successfully")
     except Exception:

@@ -8,7 +8,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from theme_mapping_utils import load_stock_theme_map, load_theme_etf_master as _load_theme_etf_master_seed
+from theme_mapping_utils import (
+    ensure_theme_mapping_files,
+    load_stock_theme_map,
+    load_theme_etf_master as _load_theme_etf_master_seed,
+)
 
 
 DATA_DIR = Path("data")
@@ -129,9 +133,11 @@ def safe_rank_or_scale(series: pd.Series) -> pd.Series:
 
 
 def load_theme_etf_master(path: Path = THEME_ETF_MASTER_CSV) -> pd.DataFrame:
+    if not path.exists() and path.resolve() == THEME_ETF_MASTER_CSV.resolve():
+        ensure_theme_mapping_files()
     if not path.exists():
         raise FileNotFoundError(f"theme_etf_master.csv not found: {path}")
-    df = _load_theme_etf_master_seed(ensure_exists=False)
+    df = _load_theme_etf_master_seed(ensure_exists=True)
     if df.empty:
         raise ValueError(f"theme_etf_master.csv is empty: {path}")
     df["theme_id"] = df["theme_id"].fillna("").astype(str).str.upper().str.strip()
@@ -592,7 +598,7 @@ def export_debug_outputs(theme_df: pd.DataFrame) -> None:
 
 def build_theme_etf_daily(start_date: date, end_date: date) -> pd.DataFrame:
     theme_master = load_theme_etf_master()
-    stock_theme_map = load_stock_theme_map(ensure_exists=False)
+    stock_theme_map = load_stock_theme_map(ensure_exists=True)
     all_price_df = load_etf_price_data(set(theme_master["etf_code"].astype(str).str.zfill(6)))
     benchmark_df = load_benchmark_data(all_price_df, start_date, end_date)
 

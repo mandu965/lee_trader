@@ -77,6 +77,7 @@ python python\restore_csv_md_zip.py --zip backups\csv_backup_20260409.zip --over
 ### 운영 확인용 핵심 명령
 
 ```powershell
+docker compose logs -f python-pipeline
 docker compose logs -f node-api
 docker compose ps scheduler scheduler-recovery
 docker compose logs -f scheduler

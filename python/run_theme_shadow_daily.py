@@ -52,6 +52,12 @@ def run_step(step_name: str, cmd: list[str], log_buffer: list[str]) -> int:
         log_buffer.append(result.stderr.rstrip())
 
     if result.returncode != 0:
+        if result.stdout:
+            print("[STDOUT tail]")
+            print("\n".join(result.stdout.rstrip().splitlines()[-40:]))
+        if result.stderr:
+            print("[STDERR tail]")
+            print("\n".join(result.stderr.rstrip().splitlines()[-80:]))
         fail_line = f"[FAIL] {step_name}"
         print(fail_line)
         log_buffer.append(fail_line)

@@ -441,16 +441,21 @@ CREATE TABLE public.fundamentals (
 CREATE TABLE public.labels (
     date date NOT NULL,
     code text NOT NULL,
+    target_30d numeric,
     target_60d numeric,
     target_90d numeric,
+    target_log_30d numeric,
     target_log_60d numeric,
     target_log_90d numeric,
+    target_mdd_30d numeric,
     target_mdd_60d numeric,
     target_mdd_90d numeric,
+    target_30d_top20 numeric,
     target_60d_top20 numeric,
     target_90d_top20 numeric,
-    realized_price_60d numeric,
-    realized_price_90d numeric
+    realized_return_30d numeric,
+    realized_return_60d numeric,
+    realized_return_90d numeric
 );
 
 
