@@ -74,6 +74,29 @@ python python\backup_csv_md_zip.py --output backups\csv_backup_20260410.zip --ov
 python python\restore_csv_md_zip.py --zip backups\csv_backup_20260409.zip --overwrite
 
 
+## DB->CSV
+python python\export_db_tables_to_csv.py
+
+### 최신 CSV 기준 웹 DB 동기화
+
+```powershell
+$env:DATABASE_URL="postgresql://postgres.wlkyypcakkrjmscfujdp:!760595leeuser@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres"
+python python/sync_csv_db_parity.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+$env:DATABASE_URL="postgresql://postgres.wlkyypcakkrjmscfujdp:!760595leeuser@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
+python python/sync_csv_db_parity.py
+
+
+
+```
+
+- 현재 로컬 최신 CSV를 기준으로 `stocks`, `market_status`, `fundamentals`, `quality`, `features`, `predictions`, `daily_ranking`를 웹 DB에 직접 반영
+- 결과 확인:
+  - [csv_db_parity_report.json](/d:/ai/Lee_trader/outputs/csv_db_parity_report.json)
+  - [csv_db_parity_report.md](/d:/ai/Lee_trader/outputs/csv_db_parity_report.md)
+- payload DB는 별도이므로 필요 시 이후 `python python/run_operational_refresh.py` 실행
+
 ### 운영 확인용 핵심 명령
 
 ```powershell

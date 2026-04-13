@@ -19,6 +19,7 @@ jobs:
     env:
       TZ: Asia/Seoul
       MARKET_TIMEZONE: Asia/Seoul
+      DART_REFRESH_RECENT_YEARS: "1"
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
       KIS_BASE_URL: ${{ secrets.KIS_BASE_URL }}
@@ -41,6 +42,8 @@ jobs:
         with:
           path: |
             data/history
+            data/dart
+            data/fundamentals.csv
             data/ranking_snapshot_archive.csv
             data/live_account_holdings.csv
             data/paper_trading_nav.csv
@@ -74,6 +77,8 @@ jobs:
         with:
           path: |
             data/history
+            data/dart
+            data/fundamentals.csv
             data/ranking_snapshot_archive.csv
             data/live_account_holdings.csv
             data/paper_trading_nav.csv

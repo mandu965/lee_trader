@@ -41,9 +41,44 @@ SYNC_TABLES = [
         "key_cols": ["date", "code"],
         "columns": ["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"],
     },
+    {
+        "name": "quality",
+        "csv_path": DATA_DIR / "quality.csv",
+        "table": "quality",
+        "date_col": "date",
+        "key_cols": ["date", "code"],
+        "columns": None,
+    },
+    {
+        "name": "features",
+        "csv_path": DATA_DIR / "features.csv",
+        "table": "features",
+        "date_col": "date",
+        "key_cols": ["date", "code"],
+        "columns": None,
+    },
+    {
+        "name": "predictions",
+        "csv_path": DATA_DIR / "predictions.csv",
+        "table": "predictions",
+        "date_col": "date",
+        "key_cols": ["date", "code"],
+        "columns": None,
+    },
+    {
+        "name": "daily_ranking",
+        "csv_path": DATA_DIR / "ranking_final.csv",
+        "table": "daily_ranking",
+        "date_col": "date",
+        "key_cols": ["date", "code"],
+        "columns": None,
+    },
 ]
 
 VERIFY_TABLES = [
+    {"name": "stocks", "csv_path": DATA_DIR / "universe.csv", "table": "stocks", "date_col": None},
+    {"name": "market_status", "csv_path": DATA_DIR / "market_status.csv", "table": "market_status", "date_col": "date"},
+    {"name": "fundamentals", "csv_path": DATA_DIR / "fundamentals.csv", "table": "fundamentals", "date_col": "date"},
     {"name": "quality", "csv_path": DATA_DIR / "quality.csv", "table": "quality", "date_col": "date"},
     {"name": "features", "csv_path": DATA_DIR / "features.csv", "table": "features", "date_col": "date"},
     {"name": "predictions", "csv_path": DATA_DIR / "predictions.csv", "table": "predictions", "date_col": "date"},
@@ -125,14 +160,16 @@ def sync_table(spec: dict[str, object]) -> dict[str, object]:
             "db_latest_date": None,
         }
 
-    columns = [col for col in spec["columns"] if col in df.columns]
+    configured_columns = spec.get("columns")
+    columns = list(df.columns) if configured_columns is None else [col for col in configured_columns if col in df.columns]
     out = df.copy()
     if "code" in out.columns:
         out["code"] = out["code"].astype(str).str.zfill(6)
-    for col in columns:
-        if col not in out.columns:
-            out[col] = pd.NA
-    out = out[columns]
+    if configured_columns is not None:
+        for col in columns:
+            if col not in out.columns:
+                out[col] = pd.NA
+        out = out[columns]
     out = out.drop_duplicates(subset=spec["key_cols"], keep="last").reset_index(drop=True)
     if spec["table"] == "stocks":
         upsert_stocks(out)

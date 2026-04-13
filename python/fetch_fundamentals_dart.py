@@ -15,6 +15,8 @@ import xml.etree.ElementTree as ET
 from dotenv import load_dotenv
 import os
 import sqlite3
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 try:
     from db import ensure_unique_keys, get_engine, replace_table_rows_pg
@@ -58,6 +60,12 @@ ACC_CANDIDATES = {
 DEFAULT_YEARS_BACK = 7  # 최근 7년(필요시 조정)
 
 
+DEFAULT_REFRESH_RECENT_YEARS = 0
+DEFAULT_SLEEP_SEC = 0.15
+DEFAULT_LOG_EVERY = 20
+DEFAULT_CHECKPOINT_EVERY = 100
+
+
 def setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -73,7 +81,25 @@ def load_api_key() -> str:
     return api_key
 
 
+def build_http_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=0.6,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET"}),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=4, pool_maxsize=4)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
 def request_with_retry(
+    session: requests.Session,
     url: str,
     params: Dict[str, str],
     expect_json: bool = True,
@@ -82,7 +108,7 @@ def request_with_retry(
 ):
     for i in range(retries):
         try:
-            r = requests.get(url, params=params, timeout=20)
+            r = session.get(url, params=params, timeout=20)
             if r.status_code == 200:
                 return r.json() if expect_json else r.content
             logging.warning("HTTP %s for %s params=%s", r.status_code, url, params)
@@ -92,7 +118,7 @@ def request_with_retry(
     raise RuntimeError(f"Failed request after {retries} retries: {url} params={params}")
 
 
-def download_and_cache_corp_codes(api_key: str) -> Path:
+def download_and_cache_corp_codes(api_key: str, session: requests.Session) -> Path:
     cache_xml = CACHE_DIR / "corp_codes.xml"
     if (
         cache_xml.exists()
@@ -103,7 +129,7 @@ def download_and_cache_corp_codes(api_key: str) -> Path:
         return cache_xml
 
     logging.info("Downloading corpCode.zip from DART...")
-    content = request_with_retry(DART_CORP_CODE_URL, params={"crtfc_key": api_key}, expect_json=False)
+    content = request_with_retry(session, DART_CORP_CODE_URL, params={"crtfc_key": api_key}, expect_json=False)
     with zipfile.ZipFile(io.BytesIO(content)) as zf:
         xml_name = next((n for n in zf.namelist() if n.lower().endswith(".xml")), None)
         if not xml_name:
@@ -180,7 +206,7 @@ def value_by_candidates(df: pd.DataFrame, candidates: List[str]) -> Optional[flo
 
 
 def fetch_annual_financials(
-    api_key: str, corp_code: str, year: int
+    api_key: str, corp_code: str, year: int, session: requests.Session
 ) -> Tuple[Optional[Dict[str, Optional[float]]], Optional[str], Optional[str]]:
     """연간 재무 조회. (결과 dict, 사용된 fs_div, status) 반환"""
     last_status: Optional[str] = None
@@ -193,7 +219,7 @@ def fetch_annual_financials(
             "fs_div": fs_div,
         }
         try:
-            data = request_with_retry(DART_FNLTT_URL, params=params, expect_json=True)
+            data = request_with_retry(session, DART_FNLTT_URL, params=params, expect_json=True)
         except Exception as e:
             logging.debug("request failed corp=%s year=%s fs=%s err=%s", corp_code, year, fs_div, e)
             last_status = "REQ_ERR"
@@ -308,7 +334,8 @@ def build_fundamentals_from_dart(
     checkpoint_every: int = 0,
     raw_log: bool = False,
 ) -> pd.DataFrame:
-    xml_path = download_and_cache_corp_codes(api_key)
+    session = build_http_session()
+    xml_path = download_and_cache_corp_codes(api_key, session)
     corp_df = parse_corp_codes(xml_path)
     corp_df["stock_code"] = corp_df["stock_code"].astype(str).str.zfill(6)
     code_map = dict(zip(corp_df["stock_code"], corp_df["corp_code"]))
@@ -389,7 +416,7 @@ def build_fundamentals_from_dart(
 
         for y in range(fetch_start_year, end_year + 1):
             t0 = time.perf_counter()
-            fin, fs_used, status = fetch_annual_financials(api_key, corp_code, y)
+            fin, fs_used, status = fetch_annual_financials(api_key, corp_code, y, session)
             dt_ms = (time.perf_counter() - t0) * 1000.0
             total_ms += dt_ms
             api_calls += 1
@@ -558,19 +585,34 @@ def save_fundamentals(df: pd.DataFrame) -> None:
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Fetch fundamentals via OpenDART and build fundamentals.csv")
-    p.add_argument("--years-back", type=int, default=DEFAULT_YEARS_BACK, help="Number of years to fetch (default: 7)")
+    p.add_argument(
+        "--years-back",
+        type=int,
+        default=int(os.getenv("DART_YEARS_BACK", str(DEFAULT_YEARS_BACK))),
+        help="Number of years to fetch (default: 7)",
+    )
     p.add_argument(
         "--refresh-recent-years",
         type=int,
-        default=0,
+        default=int(os.getenv("DART_REFRESH_RECENT_YEARS", str(DEFAULT_REFRESH_RECENT_YEARS))),
         help="Force refetch for the most recent N years window (plus prior-year anchor if needed).",
     )
-    p.add_argument("--sleep-sec", type=float, default=0.15, help="Sleep seconds between calls (default: 0.15)")
-    p.add_argument("--log-every", type=int, default=20, help="Log progress every N calls (default: 20)")
+    p.add_argument(
+        "--sleep-sec",
+        type=float,
+        default=float(os.getenv("DART_SLEEP_SEC", str(DEFAULT_SLEEP_SEC))),
+        help="Sleep seconds between calls (default: 0.15)",
+    )
+    p.add_argument(
+        "--log-every",
+        type=int,
+        default=int(os.getenv("DART_LOG_EVERY", str(DEFAULT_LOG_EVERY))),
+        help="Log progress every N calls (default: 20)",
+    )
     p.add_argument(
         "--checkpoint-every",
         type=int,
-        default=100,
+        default=int(os.getenv("DART_CHECKPOINT_EVERY", str(DEFAULT_CHECKPOINT_EVERY))),
         help="Persist intermediate fundamentals every N DART calls; set 0 to disable (default: 100)",
     )
     p.add_argument("--raw-log", action="store_true", help="Write raw fetch log CSV under data/dart")
