@@ -17,6 +17,7 @@ ROOT_FILES = [
     ".env.render.example",
     "base_weights.json",
     "bootstrap.ps1",
+    "data/fundamentals.csv",
     "data/interest_universe.csv",
     "docker-compose.yml",
     "render.yaml",
@@ -85,6 +86,7 @@ GENERATED_GITIGNORE = """# Runtime secrets
 # Generated data
 data/
 !data/
+!data/fundamentals.csv
 !data/interest_universe.csv
 logs/
 output/

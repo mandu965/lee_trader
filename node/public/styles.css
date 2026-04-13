@@ -1506,6 +1506,9 @@ th.score-col { text-align: center; }
     align-items: center;
     justify-content: center;
   }
+  header > .toolbar {
+    display: none;
+  }
   .toolbar {
     width: 100%;
     flex-direction: column;
@@ -1546,6 +1549,9 @@ th.score-col { text-align: center; }
   }
   .mobile-filter-panel.open {
     display: block;
+  }
+  .mobile-filter-panel .toolbar {
+    display: flex;
   }
   .mobile-filter-panel .toolbar {
     gap: 14px;

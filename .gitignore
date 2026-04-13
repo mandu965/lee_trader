@@ -7,6 +7,7 @@
 # Generated data
 data/
 !data/
+!data/fundamentals.csv
 !data/interest_universe.csv
 logs/
 output/

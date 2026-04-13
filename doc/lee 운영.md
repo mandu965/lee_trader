@@ -75,7 +75,7 @@ python python\restore_csv_md_zip.py --zip backups\csv_backup_20260409.zip --over
 
 
 ## DB->CSV
-python python\export_db_tables_to_csv.py
+python python\export_db_tables_to_csv.py실제
 
 ### 최신 CSV 기준 웹 DB 동기화
 
