@@ -40,6 +40,11 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      RUN_PIPELINE_SKIP_FLOW_INGESTION: ${RUN_PIPELINE_SKIP_FLOW_INGESTION:-1}
+      DART_REFRESH_RECENT_YEARS: ${DART_REFRESH_RECENT_YEARS:-1}
 
   scheduler:
     <<: *python-runtime
