@@ -16,6 +16,8 @@ DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "outputs"
 REPORT_JSON = OUTPUT_DIR / "csv_db_parity_report.json"
 REPORT_MD = OUTPUT_DIR / "csv_db_parity_report.md"
+PRICES_CLEAN_CSV = DATA_DIR / "prices_daily_clean.csv"
+PRICES_ADJUSTED_CSV = DATA_DIR / "prices_daily_adjusted.csv"
 
 SYNC_TABLES = [
     {
@@ -51,9 +53,33 @@ SYNC_TABLES = [
         "columns": None,
     },
     {
+        "name": "prices_adjusted",
+        "csv_path": PRICES_ADJUSTED_CSV,
+        "table": "prices_adjusted",
+        "date_col": "date",
+        "key_cols": ["date", "code"],
+        "columns": ["date", "code", "adj_open", "adj_high", "adj_low", "adj_close", "volume"],
+    },
+    {
+        "name": "fact_price_daily",
+        "csv_path": PRICES_CLEAN_CSV,
+        "table": "fact_price_daily",
+        "date_col": "date",
+        "key_cols": ["date", "code"],
+        "columns": ["date", "code", "open", "high", "low", "close", "adj_close", "volume", "value", "market_cap", "listed_shares"],
+    },
+    {
         "name": "features",
         "csv_path": DATA_DIR / "features.csv",
         "table": "features",
+        "date_col": "date",
+        "key_cols": ["date", "code"],
+        "columns": None,
+    },
+    {
+        "name": "labels",
+        "csv_path": DATA_DIR / "labels.csv",
+        "table": "labels",
         "date_col": "date",
         "key_cols": ["date", "code"],
         "columns": None,
@@ -81,7 +107,10 @@ VERIFY_TABLES = [
     {"name": "market_status", "csv_path": DATA_DIR / "market_status.csv", "table": "market_status", "date_col": "date"},
     {"name": "fundamentals", "csv_path": DATA_DIR / "fundamentals.csv", "table": "fundamentals", "date_col": "date"},
     {"name": "quality", "csv_path": DATA_DIR / "quality.csv", "table": "quality", "date_col": "date"},
+    {"name": "prices_adjusted", "csv_path": PRICES_ADJUSTED_CSV, "table": "prices_adjusted", "date_col": "date"},
+    {"name": "fact_price_daily", "csv_path": PRICES_CLEAN_CSV, "table": "fact_price_daily", "date_col": "date"},
     {"name": "features", "csv_path": DATA_DIR / "features.csv", "table": "features", "date_col": "date"},
+    {"name": "labels", "csv_path": DATA_DIR / "labels.csv", "table": "labels", "date_col": "date"},
     {"name": "predictions", "csv_path": DATA_DIR / "predictions.csv", "table": "predictions", "date_col": "date"},
     {"name": "daily_ranking", "csv_path": DATA_DIR / "ranking_final.csv", "table": "daily_ranking", "date_col": "date"},
 ]
@@ -95,6 +124,38 @@ def read_csv(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
     return pd.read_csv(path, low_memory=False)
+
+
+def build_prices_adjusted_df() -> pd.DataFrame:
+    return read_csv(PRICES_ADJUSTED_CSV)
+
+
+def build_fact_price_daily_df() -> pd.DataFrame:
+    clean = read_csv(PRICES_CLEAN_CSV)
+    adjusted = read_csv(PRICES_ADJUSTED_CSV)
+    if clean.empty or adjusted.empty:
+        return pd.DataFrame()
+
+    clean = clean.copy()
+    adjusted = adjusted.copy()
+    if "code" in clean.columns:
+        clean["code"] = clean["code"].astype(str).str.zfill(6)
+    if "code" in adjusted.columns:
+        adjusted["code"] = adjusted["code"].astype(str).str.zfill(6)
+    if "date" in clean.columns:
+        clean["date"] = pd.to_datetime(clean["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    if "date" in adjusted.columns:
+        adjusted["date"] = pd.to_datetime(adjusted["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+    merged = clean.merge(
+        adjusted[["date", "code", "adj_close"]],
+        on=["date", "code"],
+        how="left",
+    )
+    merged["value"] = pd.NA
+    merged["market_cap"] = pd.NA
+    merged["listed_shares"] = pd.NA
+    return merged
 
 
 def normalize_dates(df: pd.DataFrame, date_col: str | None) -> pd.DataFrame:
@@ -219,7 +280,14 @@ def upsert_stocks(df: pd.DataFrame) -> None:
 
 
 def sync_table(spec: dict[str, object]) -> dict[str, object]:
-    df = normalize_dates(read_csv(spec["csv_path"]), spec.get("date_col"))
+    if spec["name"] == "prices_adjusted":
+        raw_df = build_prices_adjusted_df()
+    elif spec["name"] == "fact_price_daily":
+        raw_df = build_fact_price_daily_df()
+    else:
+        raw_df = read_csv(spec["csv_path"])
+
+    df = normalize_dates(raw_df, spec.get("date_col"))
     if df.empty:
         return {
             "name": spec["name"],
@@ -265,7 +333,13 @@ def sync_table(spec: dict[str, object]) -> dict[str, object]:
 
 
 def verify_table(spec: dict[str, object]) -> dict[str, object]:
-    df = normalize_dates(read_csv(spec["csv_path"]), spec.get("date_col"))
+    if spec["name"] == "prices_adjusted":
+        raw_df = build_prices_adjusted_df()
+    elif spec["name"] == "fact_price_daily":
+        raw_df = build_fact_price_daily_df()
+    else:
+        raw_df = read_csv(spec["csv_path"])
+    df = normalize_dates(raw_df, spec.get("date_col"))
     db = db_snapshot(spec["table"], spec.get("date_col"))
     csv_latest = latest_date(df, spec.get("date_col"))
     status = "ok" if db["rows"] == len(df) and db["latest_date"] == csv_latest else "mismatch"

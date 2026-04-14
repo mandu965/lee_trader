@@ -72,12 +72,14 @@ from scoring.final_score import (
 from score_explainer import attach_score_explain_columns
 
 try:
-    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite
+    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite, use_sqlite_fallback_writes
 except Exception:
     get_engine = None
     ensure_unique_keys = None
     replace_table_rows_pg = None
     replace_table_rows_sqlite = None
+    def use_sqlite_fallback_writes() -> bool:
+        return False
 
 DATA_DIR = Path("data")
 OUTPUT_DIR = Path("outputs")
@@ -5654,6 +5656,10 @@ def save_ranking(
             return
     except Exception:
         logging.exception("Postgres save failed, fallback to sqlite")
+
+    if not use_sqlite_fallback_writes():
+        logging.info("Skipping sqlite fallback for daily_ranking (USE_SQLITE_FALLBACK_WRITES=0)")
+        return
 
     conn = None
     try:

@@ -43,6 +43,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
       TZ: Asia/Seoul
+      USE_SQLITE_MIRROR: ${USE_SQLITE_MIRROR:-0}
+      USE_SQLITE_FALLBACK_WRITES: ${USE_SQLITE_FALLBACK_WRITES:-0}
       USE_KIS_UNIVERSE: ${USE_KIS_UNIVERSE:-0}
       RUN_PIPELINE_SKIP_FLOW_INGESTION: ${RUN_PIPELINE_SKIP_FLOW_INGESTION:-1}
       DART_REFRESH_RECENT_YEARS: ${DART_REFRESH_RECENT_YEARS:-1}
@@ -61,6 +63,8 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
       TZ: Asia/Seoul
+      USE_SQLITE_MIRROR: ${USE_SQLITE_MIRROR:-0}
+      USE_SQLITE_FALLBACK_WRITES: ${USE_SQLITE_FALLBACK_WRITES:-0}
       USE_KIS_UNIVERSE: ${USE_KIS_UNIVERSE:-0}
       SCHEDULER_TIMEZONE: Asia/Seoul
       SCHEDULER_DAILY_TIME: ${SCHEDULER_DAILY_TIME:-16:00}

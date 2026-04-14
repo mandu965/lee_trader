@@ -27,6 +27,14 @@ WALKFORWARD_REQUIRED_CONFIG_FIELDS = [
 ]
 
 
+def use_sqlite_mirror() -> bool:
+    return os.environ.get("USE_SQLITE_MIRROR", "0").strip().lower() in ("1", "true", "yes", "y")
+
+
+def use_sqlite_fallback_writes() -> bool:
+    return os.environ.get("USE_SQLITE_FALLBACK_WRITES", "0").strip().lower() in ("1", "true", "yes", "y")
+
+
 @lru_cache(maxsize=1)
 def get_database_url() -> str:
     url = os.environ.get("DATABASE_URL")

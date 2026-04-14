@@ -9,6 +9,12 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
+try:
+    from db import use_sqlite_mirror
+except Exception:
+    def use_sqlite_mirror() -> bool:
+        return False
+
 from kis_client import KISClient, KISError
 
 try:
@@ -405,6 +411,9 @@ def write_prices_raw_csv(df: pd.DataFrame) -> None:
 
 
 def save_prices_raw_db(df: pd.DataFrame) -> None:
+    if not use_sqlite_mirror():
+        logging.info("Skipping sqlite mirror for raw prices (USE_SQLITE_MIRROR=0)")
+        return
     conn = None
     try:
         conn = sqlite3.connect(DB_PATH)

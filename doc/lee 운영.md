@@ -20,11 +20,34 @@ docker compose up -d --build node-api
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
+### GitHub Actions와 동일 기준으로 로컬 실행
+
+`run_operational_refresh.py` 단독 실행은 Git `close-batch`와 동일하지 않습니다. 로컬 비교는 아래 기준으로 맞춥니다.
+
+```powershell
+$env:TZ="Asia/Seoul"
+$env:MARKET_TIMEZONE="Asia/Seoul"
+$env:USE_KIS_UNIVERSE="0"
+$env:RUN_PIPELINE_SKIP_FLOW_INGESTION="1"
+$env:DART_REFRESH_RECENT_YEARS="1"
+$env:THEME_OVERLAY_MODE="off"
+$env:MARKET_DATE="2026-04-13"
+
+python python/run_scheduled_job.py --command-set close --daily-time 16:00 --trigger-source local_sync
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+차이 확인 전 체크:
+
+- `python python/run_operational_refresh.py` 단독 로그와 Git `close-batch` 로그를 직접 비교하지 않습니다.
+- 로컬도 `run_pipeline -> run_operational_refresh` 순서로 실행해야 합니다.
+- 같은 날 비교는 `MARKET_DATE`를 같은 절대 날짜로 고정합니다.
+
 ### CSV 백업 / 복구
 
 powershell
-python python\backup_csv_md_zip.py --output backups\csv_backup_20260413.zip --overwrite
-python python\restore_csv_md_zip.py --zip backups\csv_backup_20260409.zip --overwrite
+python python\backup_csv_md_zip.py --output backups\csv_backup_20260414.zip --overwrite
+python python\restore_csv_md_zip.py --zip backups\csv_backup_20260413.zip --overwrite
 
 
 ## DB->CSV
@@ -42,6 +65,43 @@ python python/sync_csv_db_parity.py
 
 
 ```
+
+### 웹 DB 학습 이력 복구 순서
+
+Git 배치가 짧은 가격 이력으로 `fact_price_daily`, `features`, `labels`를 전체 교체한 경우 아래 순서로 복구합니다.
+
+```powershell
+$env:DATABASE_URL="postgresql://postgres.wlkyypcakkrjmscfujdp:!760595leeuser@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
+
+python python/create_adjusted_prices.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+python python/feature_builder.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+python python/label_builder.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+python python/model_train.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+python python/model_predict.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+python python/ranking_builder.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+python python/sync_csv_db_parity.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+메모:
+
+- `sync_csv_db_parity.py`는 이제 `prices_adjusted`, `fact_price_daily`, `features`, `labels`, `predictions`, `daily_ranking`까지 같이 동기화합니다.
+- `export_git_release.py` 배포본에는 `fundamentals.csv`, `interest_universe.csv`만 포함됩니다. `features.csv`, `labels.csv`, `prices_daily_adjusted.csv`는 git 배포본에 실리지 않습니다.
+- 따라서 웹 DB 학습 이력 복구는 git 푸시가 아니라 로컬 CSV -> 웹 DB 동기화로 처리해야 합니다.
+- 수동 이관 우선순위는 `fact_price_daily` -> `prices_adjusted` -> `features` -> `labels` -> `predictions` -> `daily_ranking` 순서로 맞춥니다.
+- GitHub Actions `close-batch`, `intraday-refresh` 모두 가격 이력 CSV 캐시를 복원하도록 맞춰 두었습니다. 한 번 긴 이력을 이관해두면 이후 배치에서 재사용될 가능성이 높습니다.
 ### 운영 확인용 핵심 명령
 
 ```powershell

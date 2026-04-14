@@ -45,6 +45,9 @@ jobs:
             data/history
             data/dart
             data/fundamentals.csv
+            data/prices_daily_raw.csv
+            data/prices_daily_clean.csv
+            data/prices_daily_adjusted.csv
             data/ranking_snapshot_archive.csv
             data/live_account_holdings.csv
             data/paper_trading_nav.csv
@@ -80,6 +83,9 @@ jobs:
             data/history
             data/dart
             data/fundamentals.csv
+            data/prices_daily_raw.csv
+            data/prices_daily_clean.csv
+            data/prices_daily_adjusted.csv
             data/ranking_snapshot_archive.csv
             data/live_account_holdings.csv
             data/paper_trading_nav.csv

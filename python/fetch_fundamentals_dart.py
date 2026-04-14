@@ -19,11 +19,13 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 try:
-    from db import ensure_unique_keys, get_engine, replace_table_rows_pg
+    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, use_sqlite_fallback_writes
 except Exception:
     ensure_unique_keys = None
     get_engine = None
     replace_table_rows_pg = None
+    def use_sqlite_fallback_writes() -> bool:
+        return False
 
 DATA_DIR = Path("data")
 CACHE_DIR = DATA_DIR / "dart"
@@ -542,6 +544,10 @@ def save_fundamentals(df: pd.DataFrame) -> None:
             return
     except Exception:
         logging.exception("Failed to save fundamentals to Postgres, fallback to sqlite")
+
+    if not use_sqlite_fallback_writes():
+        logging.info("Skipping sqlite fallback for fundamentals (USE_SQLITE_FALLBACK_WRITES=0)")
+        return
 
     # SQLite fallback
     conn = None

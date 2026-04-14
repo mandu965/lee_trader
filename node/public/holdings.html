@@ -350,6 +350,16 @@
       .summary {
         grid-template-columns: 1fr;
       }
+      .summary-breakdown {
+        grid-template-columns: 1fr;
+      }
+      .summary-card {
+        min-height: auto;
+      }
+      .toolbar {
+        width: 100%;
+        justify-content: flex-start;
+      }
       table, thead, tbody, tr, th, td {
         display: block;
       }
@@ -368,6 +378,11 @@
         color: var(--muted);
         font-size: 11px;
         margin-bottom: 4px;
+      }
+      .action-cell,
+      .review-cell,
+      .reason-cell {
+        min-width: 0;
       }
     }
   </style>
@@ -424,7 +439,7 @@
       <div class="summary-card">
         <div class="summary-title">총 평가손익</div>
         <div class="summary-value" id="sumPnl">-</div>
-        <div class="summary-sub" id="sumPnlPct">-</div>
+        <div class="summary-sub" id="sumPnlPct">보유 종목 종가 기준 미실현 손익</div>
       </div>
       <div class="summary-card">
         <div class="summary-title">평균 보유일</div>
@@ -739,7 +754,7 @@
                   <span class="subtext">최근 거래 ${fmtDate(item.last_trade_date)}</span>
                 </div>
               </td>
-              <td data-label="검토 이유"><div class="reason-cell">${reasonHtml}${ruleBadgeHtml}${intradayTags.map((label) => `<span class="tag">${label}</span>`).join("")}</div></td>
+              <td data-label="검토 이유"><div class="reason-cell">${reasonHtml}${intradayTags.map((label) => `<span class="tag">${label}</span>`).join("")}</div></td>
               <td data-label="권장 액션" class="action-cell">${item.system_action_note || "-"}</td>
             </tr>
           `;

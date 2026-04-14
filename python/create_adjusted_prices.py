@@ -2,18 +2,21 @@ import pandas as pd
 import numpy as np
 import sqlite3
 from pathlib import Path
+from sqlalchemy import text
 
 DATA_DIR = Path("data")
 INPUT = DATA_DIR / "prices_daily_clean.csv"
 OUTPUT = DATA_DIR / "prices_daily_adjusted.csv"
 DB_PATH = DATA_DIR / "lee_trader.db"
 try:
-    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite
+    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite, use_sqlite_fallback_writes
 except Exception:
     get_engine = None
     ensure_unique_keys = None
     replace_table_rows_pg = None
     replace_table_rows_sqlite = None
+    def use_sqlite_fallback_writes() -> bool:
+        return False
 
 PRICES_ADJUSTED_DB_COLUMNS = ["date", "code", "adj_open", "adj_high", "adj_low", "adj_close", "volume"]
 FACT_PRICE_DAILY_DB_COLUMNS = [
@@ -30,6 +33,71 @@ FACT_PRICE_DAILY_DB_COLUMNS = [
     "listed_shares",
 ]
 PRICE_PK = ["date", "code"]
+
+
+def _load_existing_fact_price_daily() -> pd.DataFrame:
+    columns = ["date", "code", "open", "high", "low", "close", "volume"]
+
+    if get_engine:
+        try:
+            eng = get_engine()
+            with eng.connect() as conn:
+                df = pd.read_sql(
+                    text("SELECT date, code, open, high, low, close, volume FROM fact_price_daily"),
+                    conn,
+                    dtype={"code": str},
+                )
+            if not df.empty:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                df["code"] = df["code"].astype(str).str.zfill(6)
+                for col in ["open", "high", "low", "close", "volume"]:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                df = df.dropna(subset=["date", "code", "close"])
+                return df[columns]
+        except Exception:
+            pass
+
+    if DB_PATH.exists():
+        try:
+            with sqlite3.connect(DB_PATH) as conn:
+                df = pd.read_sql(
+                    "SELECT date, code, open, high, low, close, volume FROM fact_price_daily",
+                    conn,
+                    dtype={"code": str},
+                )
+            if not df.empty:
+                df["date"] = pd.to_datetime(df["date"], errors="coerce")
+                df["code"] = df["code"].astype(str).str.zfill(6)
+                for col in ["open", "high", "low", "close", "volume"]:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                df = df.dropna(subset=["date", "code", "close"])
+                return df[columns]
+        except Exception:
+            pass
+
+    return pd.DataFrame(columns=columns)
+
+
+def _merge_price_history(current_df: pd.DataFrame) -> pd.DataFrame:
+    base_cols = ["date", "code", "open", "high", "low", "close", "volume"]
+    current = current_df[base_cols].copy()
+    current["date"] = pd.to_datetime(current["date"], errors="coerce")
+    current["code"] = current["code"].astype(str).str.zfill(6)
+    for col in ["open", "high", "low", "close", "volume"]:
+        current[col] = pd.to_numeric(current[col], errors="coerce")
+    current = current.dropna(subset=["date", "code", "close"])
+
+    existing = _load_existing_fact_price_daily()
+    if existing.empty:
+        return current.sort_values(["code", "date"]).reset_index(drop=True)
+
+    merged = pd.concat([existing, current], ignore_index=True)
+    merged = merged.sort_values(["date", "code"]).drop_duplicates(subset=["date", "code"], keep="last")
+    merged = merged.sort_values(["code", "date"]).reset_index(drop=True)
+    print(
+        f"Merged price history for adjustment: existing_rows={len(existing)} current_rows={len(current)} merged_rows={len(merged)}"
+    )
+    return merged
 
 def detect_split_ratios(df):
     """
@@ -72,6 +140,7 @@ def apply_adjustment(df):
 def main():
     df = pd.read_csv(INPUT, dtype={"code": str})
     df["date"] = pd.to_datetime(df["date"])
+    df = _merge_price_history(df)
 
     out_list = []
 
@@ -116,6 +185,10 @@ def main():
             return
     except Exception as e:
         print(f"[WARN] Postgres row replace failed, fallback to sqlite: {e}")
+
+    if not use_sqlite_fallback_writes():
+        print("[INFO] Skipping sqlite fallback for adjusted prices (USE_SQLITE_FALLBACK_WRITES=0)")
+        return
 
     conn = None
     try:

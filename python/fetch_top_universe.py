@@ -31,12 +31,14 @@ STOCKS_STORE_COLUMNS = ["code", "name", "market", "sector", "listed_at", "delist
 STOCKS_PK = ["code"]
 
 try:
-    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite
+    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite, use_sqlite_fallback_writes
 except Exception:
     get_engine = None
     ensure_unique_keys = None
     replace_table_rows_pg = None
     replace_table_rows_sqlite = None
+    def use_sqlite_fallback_writes() -> bool:
+        return False
 
 
 def _upsert_stocks_pg(df: pd.DataFrame) -> None:
@@ -93,6 +95,23 @@ _NAVER_HEADERS = {
     "Referer": "https://finance.naver.com/",
     "Accept-Language": "ko-KR,ko;q=0.9",
 }
+ETF_NAME_TOKENS = (
+    "etf",
+    "etn",
+    "kodex",
+    "tiger",
+    "kosef",
+    "kindex",
+    "koact",
+    "rise",
+    "ace",
+    "plus",
+    "sol",
+    "timefolio",
+    "hanaro",
+    "arirang",
+    "fofocus",
+)
 _MARKET_SOSOK = {"KOSPI": 0, "KOSDAQ": 1}
 _REQUEST_DELAY = 0.3   # 서버 부하 방지용 요청 간격(초)
 _MAX_PAGES     = 5     # 페이지당 50종목 × 5페이지 = 최대 250종목
@@ -128,6 +147,52 @@ def _parse_mcap(value) -> Optional[int]:
         return int(float(s))
     except Exception:
         return None
+
+
+def _parse_market_date_override() -> Optional[str]:
+    raw = str(os.environ.get("MARKET_DATE", "")).strip()
+    if not raw:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%Y%m%d")
+        except ValueError:
+            continue
+    logging.warning("Invalid MARKET_DATE format in fetch_top_universe: %s", raw)
+    return None
+
+
+def _is_etf_like_name(name: object) -> bool:
+    text = str(name or "").strip().lower()
+    if not text:
+        return False
+    return any(token in text for token in ETF_NAME_TOKENS)
+
+
+def _filter_common_equities(df: pd.DataFrame, *, market: str, stage: str) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["code", "name", "market"])
+
+    out = df.copy()
+    if "code" in out.columns:
+        out["code"] = out["code"].astype(str).str.zfill(6)
+    if "market" not in out.columns:
+        out["market"] = market
+    out["market"] = out["market"].astype(str).str.upper().str.strip()
+    if "name" not in out.columns:
+        out["name"] = ""
+    out["name"] = out["name"].fillna("").astype(str).str.strip()
+
+    before = len(out)
+    mask = out["name"].map(_is_etf_like_name)
+    removed = int(mask.sum())
+    if removed:
+        sample = out.loc[mask, "name"].head(10).tolist()
+        logging.info("[%s] filtered ETF/ETN-like rows: removed=%d sample=%s", stage, removed, sample)
+    out = out.loc[~mask].copy()
+    out = out.drop_duplicates(subset=["code"]).reset_index(drop=True)
+    logging.info("[%s] equity-only rows=%d (before=%d)", stage, len(out), before)
+    return out[["code", "name", "market"]]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -213,7 +278,8 @@ def _naver_fetch_market_top(market: str, top_n: int) -> pd.DataFrame:
     df = pd.DataFrame(all_records[:top_n])
     df["market"] = market.upper()
     df["code"]   = df["code"].astype(str).str.zfill(6)
-    return df[["code", "name", "market"]].reset_index(drop=True)
+    df = _filter_common_equities(df[["code", "name", "market"]], market=market.upper(), stage=f"naver_{market.upper()}")
+    return df.head(top_n).reset_index(drop=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -395,6 +461,7 @@ def _load_universe_candidates() -> pd.DataFrame:
         if frames:
             meta = pd.concat(frames, ignore_index=True)
             meta = meta.drop_duplicates(subset=["code"])
+            meta = _filter_common_equities(meta, market="ALL", stage="candidate_naver")
             logging.info("Candidate universe from Naver Finance (rows=%d)", len(meta))
             return meta
     except Exception:
@@ -407,7 +474,7 @@ def _load_universe_candidates() -> pd.DataFrame:
             df["code"] = df["code"].astype(str).str.zfill(6)
         if "market" in df.columns:
             df["market"] = df["market"].astype(str).str.upper().str.strip()
-        return df
+        return _filter_common_equities(df, market="ALL", stage="candidate_db")
 
     # 3) universe.csv fallback
     if UNIVERSE_CSV.exists():
@@ -417,7 +484,7 @@ def _load_universe_candidates() -> pd.DataFrame:
                 df["code"] = df["code"].astype(str).str.zfill(6)
             if "market" in df.columns:
                 df["market"] = df["market"].astype(str).str.upper().str.strip()
-            return df
+            return _filter_common_equities(df, market="ALL", stage="candidate_csv")
         except Exception:
             logging.warning("Failed to load universe.csv for candidate universe", exc_info=True)
 
@@ -549,7 +616,8 @@ def top_by_market_kis(market: str, top_n: int) -> pd.DataFrame:
         return pd.DataFrame(columns=["code", "name", "market"])
 
     df = pd.DataFrame(rows).sort_values("mcap", ascending=False).head(top_n)
-    return df[["code", "name", "market"]]
+    df = _filter_common_equities(df[["code", "name", "market"]], market=mkt, stage=f"kis_{mkt}")
+    return df.head(top_n)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -618,8 +686,11 @@ def main():
     ensure_data_dir()
 
     use_kis = _env_use_kis()
-
-    if use_kis:
+    market_date_override = _parse_market_date_override()
+    if market_date_override:
+        ymd = market_date_override
+        logging.info("Using MARKET_DATE override for universe: %s", ymd)
+    elif use_kis:
         ymd = datetime.today().strftime("%Y%m%d")
         logging.info("Using KIS universe mode (date=%s)", ymd)
     else:
@@ -666,6 +737,7 @@ def main():
         uni["market"] = uni["market"].astype(str).str.upper().str.strip()
     else:
         uni["market"] = ""
+    uni = _filter_common_equities(uni, market="ALL", stage="final_universe")
 
     # ── sector 처리 ──────────────────────────────────────────────────────────
     if not used_db_fallback:
@@ -841,6 +913,10 @@ def main():
             return
     except Exception:
         logging.exception("Postgres save failed, fallback to sqlite")
+
+    if not use_sqlite_fallback_writes():
+        logging.info("Skipping sqlite fallback for stocks (USE_SQLITE_FALLBACK_WRITES=0)")
+        return
 
     conn = None
     try:
