@@ -1977,6 +1977,36 @@ function loadUniverse() {
 loadUniverse();
 fs.watchFile(UNIVERSE_CSV, { interval: 5000 }, () => loadUniverse());
 
+async function resolveTradeInstrumentInfo(code) {
+  const normalizedCode = String(code || "").trim();
+  if (!normalizedCode) {
+    return { name: null, market: null, sector: null };
+  }
+
+  const universeInfo = universeMap.get(normalizedCode) || {};
+  const hasUniverseInfo = Boolean(universeInfo.name || universeInfo.market || universeInfo.sector);
+  if (hasUniverseInfo) {
+    return {
+      name: universeInfo.name || null,
+      market: universeInfo.market || null,
+      sector: universeInfo.sector || null,
+    };
+  }
+
+  try {
+    const latestByCode = await getRankingLatestByCode();
+    const rank = latestByCode.get(normalizedCode) || {};
+    return {
+      name: (rank.name || "").trim() || null,
+      market: (rank.market || "").trim() || null,
+      sector: (rank.sector || "").trim() || null,
+    };
+  } catch (e) {
+    console.warn("[resolveTradeInstrumentInfo] fallback failed:", e.message);
+    return { name: null, market: null, sector: null };
+  }
+}
+
 // ---------------------
 // DB loaders
 // ---------------------
@@ -2317,6 +2347,45 @@ async function getFeatureStatsForCodes(codes) {
 // Trades
 // ---------------------
 let ensureTradesTablePromise = null;
+let backfillTradeMetadataPromise = null;
+
+async function backfillTradeMetadata() {
+  if (!backfillTradeMetadataPromise) {
+    backfillTradeMetadataPromise = (async () => {
+      const { rows } = await pool.query(
+        `
+        SELECT trade_id, code, name, market, sector
+        FROM trades
+        WHERE NULLIF(name, '') IS NULL
+           OR NULLIF(market, '') IS NULL
+           OR NULLIF(sector, '') IS NULL
+        ORDER BY trade_id ASC
+        `
+      );
+
+      for (const row of rows) {
+        const info = await resolveTradeInstrumentInfo(row.code);
+        if (!info.name && !info.market && !info.sector) continue;
+        await pool.query(
+          `
+          UPDATE trades
+          SET
+            name = COALESCE(NULLIF(name, ''), $2),
+            market = COALESCE(NULLIF(market, ''), $3),
+            sector = COALESCE(NULLIF(sector, ''), $4)
+          WHERE trade_id = $1
+          `,
+          [row.trade_id, info.name, info.market, info.sector]
+        );
+      }
+    })().catch((error) => {
+      backfillTradeMetadataPromise = null;
+      throw error;
+    });
+  }
+
+  await backfillTradeMetadataPromise;
+}
 
 async function ensureTradesTable() {
   if (!ensureTradesTablePromise) {
@@ -2363,6 +2432,57 @@ async function ensureTradesTable() {
           `
         );
       }
+
+      await pool.query(
+        `
+        ALTER TABLE trades ADD COLUMN IF NOT EXISTS name TEXT;
+        ALTER TABLE trades ADD COLUMN IF NOT EXISTS market TEXT;
+        ALTER TABLE trades ADD COLUMN IF NOT EXISTS sector TEXT;
+        ALTER TABLE trades ADD COLUMN IF NOT EXISTS qty NUMERIC;
+        ALTER TABLE trades ADD COLUMN IF NOT EXISTS price NUMERIC;
+        ALTER TABLE trades ADD COLUMN IF NOT EXISTS amount NUMERIC;
+        ALTER TABLE trades ADD COLUMN IF NOT EXISTS fee NUMERIC;
+        ALTER TABLE trades ADD COLUMN IF NOT EXISTS memo TEXT;
+        ALTER TABLE trades ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
+
+        ALTER TABLE trade_audit_log ADD COLUMN IF NOT EXISTS trade_id BIGINT;
+        ALTER TABLE trade_audit_log ADD COLUMN IF NOT EXISTS action TEXT;
+        ALTER TABLE trade_audit_log ADD COLUMN IF NOT EXISTS trade_snapshot JSONB;
+        ALTER TABLE trade_audit_log ADD COLUMN IF NOT EXISTS actor TEXT;
+        ALTER TABLE trade_audit_log ADD COLUMN IF NOT EXISTS reason TEXT;
+        ALTER TABLE trade_audit_log ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now();
+
+        CREATE INDEX IF NOT EXISTS idx_trades_code_date ON trades(code, date);
+        CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(date);
+        CREATE INDEX IF NOT EXISTS idx_trade_audit_trade_id_created ON trade_audit_log(trade_id, created_at DESC);
+        `
+      );
+
+      await pool.query(
+        `
+        UPDATE trade_audit_log
+        SET trade_snapshot = '{}'::jsonb
+        WHERE trade_snapshot IS NULL
+        `
+      );
+
+      await pool.query(
+        `
+        UPDATE trade_audit_log
+        SET action = 'UNKNOWN'
+        WHERE action IS NULL
+        `
+      );
+
+      await pool.query(
+        `
+        ALTER TABLE trade_audit_log
+        ALTER COLUMN action SET NOT NULL,
+        ALTER COLUMN trade_snapshot SET NOT NULL
+        `
+      );
+
+      await backfillTradeMetadata();
     })().catch((error) => {
       ensureTradesTablePromise = null;
       throw error;
@@ -3746,7 +3866,7 @@ app.post("/api/trades", operatorAccess.apiGuard, async (req, res) => {
     if (!Number.isFinite(p) || p <= 0) return res.status(400).json({ error: "price > 0" });
 
     const amount = q * p;
-    const info = universeMap.get(code) || {};
+    const info = await resolveTradeInstrumentInfo(code);
     const inserted = await insertTrade({
       date,
       side: s,
