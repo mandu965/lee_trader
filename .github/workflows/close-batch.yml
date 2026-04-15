@@ -97,3 +97,16 @@ jobs:
             outputs/auto_ops_recovery_scheduler_status.json
             serving
           key: ${{ runner.os }}-lee-trader-state-${{ github.run_id }}
+
+      - name: Upload comparison artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: close-batch-output-${{ github.run_id }}
+          path: |
+            data/ranking_final.csv
+            data/features.csv
+            data/labels.csv
+            data/universe.csv
+            data/prices_daily_adjusted.csv
+          if-no-files-found: warn

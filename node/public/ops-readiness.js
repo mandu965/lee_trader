@@ -785,6 +785,17 @@ async function loadOpsReadiness() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  const pageActions = document.querySelector(".page-actions");
+  if (pageActions && !pageActions.querySelector('[data-link="score-check"]')) {
+    const scoreCheckBtn = document.createElement("button");
+    scoreCheckBtn.type = "button";
+    scoreCheckBtn.dataset.link = "score-check";
+    scoreCheckBtn.textContent = "점수 검증";
+    scoreCheckBtn.addEventListener("click", () => {
+      window.location.href = "/score-check";
+    });
+    pageActions.insertBefore(scoreCheckBtn, pageActions.children[4] || null);
+  }
   document.getElementById("saveOperatorMemoBtn")?.addEventListener("click", () => {
     saveOperatorMemo().catch((error) => console.error(error));
   });

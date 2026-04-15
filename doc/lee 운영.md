@@ -47,11 +47,11 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 powershell
 python python\backup_csv_md_zip.py --output backups\csv_backup_20260414.zip --overwrite
-python python\restore_csv_md_zip.py --zip backups\csv_backup_20260413.zip --overwrite
+python python\restore_csv_md_zip.py --zip backups\csv_backup_20260414.zip --overwrite
 
 
 ## DB->CSV
-python python\export_db_tables_to_csv.py실제
+python python\export_db_tables_to_csv.py
 
 ### 최신 CSV 기준 웹 DB 동기화
 
@@ -95,13 +95,32 @@ python python/sync_csv_db_parity.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
+### 로컬 Docker DB vs 웹 DB 학습데이터 비교 한 번에 실행
+
+```powershell
+$env:LOCAL_DATABASE_URL="postgresql://lee_trader:lee_trader_pw@localhost:5432/lee_trader"
+$env:WEB_DATABASE_URL="postgresql://postgres.wlkyypcakkrjmscfujdp:!760595leeuser@aws-1-ap-northeast-2.pooler.supabase.com:5432/postgres?sslmode=require"
+
+python python/compare_training_data_sources.py --code 096530
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+이 스크립트는 아래 검증을 한 번에 출력합니다.
+
+- `fact_price_daily`, `prices_adjusted`, `features`, `labels`, `predictions`, `daily_ranking`의 row 수 / 시작일 / 최신일
+- `features INNER JOIN labels` 기준 실제 학습 가능 row 수
+- 지정 종목 기본값 `096530`의 `fact_price_daily`, `predictions`, `daily_ranking` 최신 스냅샷
+
+메모:
+
+- 웹 DB가 로컬보다 row 수는 비슷해도 시작일이 더 늦으면 학습데이터가 짧아진 상태일 수 있습니다.
+- 특히 `feature_builder.py`는 이제 코드 누락뿐 아니라 row 수와 시작일도 같이 보고, DB 이력이 짧으면 `prices_daily_adjusted.csv`로 fallback 하도록 보강했습니다.
+
 메모:
 
 - `sync_csv_db_parity.py`는 이제 `prices_adjusted`, `fact_price_daily`, `features`, `labels`, `predictions`, `daily_ranking`까지 같이 동기화합니다.
 - `export_git_release.py` 배포본에는 `fundamentals.csv`, `interest_universe.csv`만 포함됩니다. `features.csv`, `labels.csv`, `prices_daily_adjusted.csv`는 git 배포본에 실리지 않습니다.
 - 따라서 웹 DB 학습 이력 복구는 git 푸시가 아니라 로컬 CSV -> 웹 DB 동기화로 처리해야 합니다.
-- 수동 이관 우선순위는 `fact_price_daily` -> `prices_adjusted` -> `features` -> `labels` -> `predictions` -> `daily_ranking` 순서로 맞춥니다.
-- GitHub Actions `close-batch`, `intraday-refresh` 모두 가격 이력 CSV 캐시를 복원하도록 맞춰 두었습니다. 한 번 긴 이력을 이관해두면 이후 배치에서 재사용될 가능성이 높습니다.
 ### 운영 확인용 핵심 명령
 
 ```powershell

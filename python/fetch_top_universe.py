@@ -243,6 +243,7 @@ def _naver_fetch_market_top(market: str, top_n: int) -> pd.DataFrame:
         return pd.DataFrame(columns=["code", "name", "market"])
 
     all_records: list[dict] = []
+    filtered_count = 0
 
     for page in range(1, _MAX_PAGES + 1):
         url = (
@@ -266,7 +267,18 @@ def _naver_fetch_market_top(market: str, top_n: int) -> pd.DataFrame:
         all_records.extend(records)
         logging.info("[%s] page %d: %d개 수집 (누적: %d개)", market, page, len(records), len(all_records))
 
-        if len(all_records) >= top_n:
+        preview = pd.DataFrame(all_records)
+        if not preview.empty:
+            preview["market"] = market.upper()
+            filtered_preview = _filter_common_equities(
+                preview[["code", "name", "market"]],
+                market=market.upper(),
+                stage=f"naver_{market.upper()}_preview",
+            )
+            filtered_count = len(filtered_preview)
+            logging.info("[%s] non-ETF progress: %d/%d", market, filtered_count, top_n)
+
+        if filtered_count >= top_n:
             break
 
         time.sleep(_REQUEST_DELAY)
@@ -275,10 +287,18 @@ def _naver_fetch_market_top(market: str, top_n: int) -> pd.DataFrame:
         logging.warning("[%s] 네이버 금융에서 데이터를 수집하지 못했습니다.", market)
         return pd.DataFrame(columns=["code", "name", "market"])
 
-    df = pd.DataFrame(all_records[:top_n])
+    df = pd.DataFrame(all_records)
     df["market"] = market.upper()
     df["code"]   = df["code"].astype(str).str.zfill(6)
     df = _filter_common_equities(df[["code", "name", "market"]], market=market.upper(), stage=f"naver_{market.upper()}")
+    if len(df) < top_n:
+        logging.warning(
+            "[%s] unable to fill non-ETF target=%d within max_pages=%d (fetched=%d)",
+            market,
+            top_n,
+            _MAX_PAGES,
+            len(df),
+        )
     return df.head(top_n).reset_index(drop=True)
 
 
@@ -539,6 +559,8 @@ def top_by_market(ymd: str, market: str, top_n: int) -> pd.DataFrame:
     if df.empty:
         logging.warning("[top_by_market] %s: 네이버 금융에서 데이터를 가져오지 못했습니다.", market)
     else:
+        if len(df) < top_n:
+            logging.warning("[top_by_market] %s: requested=%d fetched=%d", market, top_n, len(df))
         logging.info("[top_by_market] %s: %d개 종목 수집 완료", market, len(df))
 
     return df

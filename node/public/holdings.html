@@ -591,6 +591,14 @@
       return badges;
     }
 
+    function fmtPriceMaybe(value) {
+      return Number.isFinite(Number(value)) ? fmtPrice(Number(value)) : "-";
+    }
+
+    function fmtNumberMaybe(value, digits = 0) {
+      return Number.isFinite(Number(value)) ? fmtNumber(Number(value), digits) : "-";
+    }
+
     async function fetchTradingPolicySafe() {
       try {
         const res = await fetch("/api/trading-policy");
@@ -743,8 +751,8 @@
               <td data-label="수익 현황" class="${pnlClass}">
                 <div class="name-cell">
                   <span class="name-main ${pnlClass}">${fmtPct(unrealizedPct)}</span>
-                  <span class="subtext-strong ${pnlClass}">평가손익 ${fmtNumber(Number(item.unrealized_pnl))}</span>
-                  <span class="subtext">현재가 ${fmtPrice(Number(item.current_price))} / 평균단가 ${fmtPrice(Number(item.avg_buy_price))}</span>
+                  <span class="subtext-strong ${pnlClass}">평가손익 ${fmtNumberMaybe(item.unrealized_pnl)}</span>
+                  <span class="subtext">현재가 ${fmtPriceMaybe(item.current_price)} / 평균단가 ${fmtPriceMaybe(item.avg_buy_price)}</span>
                 </div>
               </td>
               <td data-label="보유 현황">

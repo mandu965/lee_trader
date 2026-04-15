@@ -1998,6 +1998,158 @@ async function getRankingLatestByCode() {
   return map;
 }
 
+function getScoreWeightProfile(regime) {
+  const key = String(regime || "").trim().toLowerCase();
+  if (key === "bull") {
+    return { regime: "bull", ret: 0.35, prob: 0.26, tech: 0.29, qual: 0.06, valuation: 0.04, risk_penalty: 0.40 };
+  }
+  if (key === "neutral") {
+    return { regime: "neutral", ret: 0.30, prob: 0.26, tech: 0.26, qual: 0.10, valuation: 0.08, risk_penalty: 0.65 };
+  }
+  return { regime: "defensive", ret: 0.27, prob: 0.24, tech: 0.15, qual: 0.19, valuation: 0.15, risk_penalty: 0.80 };
+}
+
+function clampScore(value) {
+  const num = toNum(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.max(0, Math.min(100, num));
+}
+
+function computeFinalScoreCheck(row) {
+  const weights = getScoreWeightProfile(row?.regime);
+  const retScore = toNum(row?.ret_score) ?? 0;
+  const probScore = toNum(row?.prob_score) ?? 0;
+  const techScore = toNum(row?.tech_score) ?? 0;
+  const qualScore = toNum(row?.qual_score) ?? 0;
+  const valuationScore = toNum(row?.valuation_score) ?? 0;
+  const riskPenalty = toNum(row?.risk_penalty) ?? 0;
+  const recomputed = clampScore(
+    retScore * weights.ret +
+    probScore * weights.prob +
+    techScore * weights.tech +
+    qualScore * weights.qual +
+    valuationScore * weights.valuation -
+    riskPenalty * weights.risk_penalty
+  );
+  const finalScore = toNum(row?.final_score);
+  const liveScore = toNum(row?.live_score);
+  const diff = Number.isFinite(finalScore) && Number.isFinite(recomputed) ? finalScore - recomputed : null;
+  const fallbackFlags = [
+    row?.ret_score_fallback_used ? "ret" : null,
+    row?.prob_score_fallback_used ? "prob" : null,
+    row?.qual_score_fallback_used ? "qual" : null,
+    row?.tech_score_fallback_used ? "tech" : null,
+    row?.safety_score_fallback_used ? "safety" : null,
+    row?.liquidity_score_fallback_used ? "liquidity" : null,
+  ].filter(Boolean);
+  const missingFlags = [
+    !Number.isFinite(toNum(row?.ret_score)) ? "ret" : null,
+    !Number.isFinite(toNum(row?.prob_score)) ? "prob" : null,
+    !Number.isFinite(toNum(row?.tech_score)) ? "tech" : null,
+    !Number.isFinite(toNum(row?.qual_score)) ? "qual" : null,
+  ].filter(Boolean);
+  return {
+    code: row?.code || null,
+    name: row?.name || getName(row?.code || ""),
+    date: row?.date || null,
+    rank_final: toNum(row?.rank_final),
+    live_rank: toNum(row?.live_rank),
+    regime: row?.regime || weights.regime,
+    weight_profile: row?.weight_profile || null,
+    score_formula_version: row?.score_formula_version || null,
+    final_score: finalScore,
+    live_score: liveScore,
+    live_score_source: getLiveScoreSource(row),
+    recomputed_final_score: recomputed,
+    final_diff: diff,
+    abs_diff: Number.isFinite(diff) ? Math.abs(diff) : null,
+    ret_score: toNum(row?.ret_score),
+    prob_score: toNum(row?.prob_score),
+    tech_score: toNum(row?.tech_score),
+    qual_score: toNum(row?.qual_score),
+    valuation_score: toNum(row?.valuation_score),
+    safety_score: toNum(row?.safety_score),
+    liquidity_score: toNum(row?.liquidity_score),
+    risk_penalty: toNum(row?.risk_penalty),
+    pred_return_60d: toNum(row?.pred_return_60d),
+    prob_top20_60d: toNum(row?.prob_top20_60d),
+    pred_mdd_60d: toNum(row?.pred_mdd_60d),
+    fallback_flags: fallbackFlags,
+    fallback_count: fallbackFlags.length,
+    missing_flags: missingFlags,
+    weights,
+  };
+}
+
+async function buildScoreCheckPayload(targetDate) {
+  const ranking = await getRanking(targetDate);
+  if (!ranking || !Array.isArray(ranking.rows) || !ranking.rows.length) {
+    return null;
+  }
+
+  const checkedRows = ranking.rows.map(computeFinalScoreCheck);
+  const top20 = checkedRows
+    .slice()
+    .sort((a, b) => {
+      const ar = Number.isFinite(a.rank_final) ? a.rank_final : Number.MAX_SAFE_INTEGER;
+      const br = Number.isFinite(b.rank_final) ? b.rank_final : Number.MAX_SAFE_INTEGER;
+      if (ar !== br) return ar - br;
+      const af = Number.isFinite(a.final_score) ? a.final_score : -Infinity;
+      const bf = Number.isFinite(b.final_score) ? b.final_score : -Infinity;
+      return bf - af;
+    })
+    .slice(0, 20);
+
+  const absDiffRows = checkedRows
+    .filter((row) => Number.isFinite(row.abs_diff))
+    .sort((a, b) => b.abs_diff - a.abs_diff);
+  const flaggedRows = checkedRows
+    .filter((row) => row.fallback_count > 0 || row.missing_flags.length > 0 || (Number.isFinite(row.abs_diff) && row.abs_diff > 0.05))
+    .sort((a, b) => {
+      const ad = Number.isFinite(a.abs_diff) ? a.abs_diff : -1;
+      const bd = Number.isFinite(b.abs_diff) ? b.abs_diff : -1;
+      if (bd !== ad) return bd - ad;
+      return (b.fallback_count || 0) - (a.fallback_count || 0);
+    });
+
+  const regimeCounts = checkedRows.reduce((acc, row) => {
+    const key = String(row.regime || "unknown");
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const formulaCounts = checkedRows.reduce((acc, row) => {
+    const key = String(row.score_formula_version || "unknown");
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  const diffValues = absDiffRows.map((row) => row.abs_diff);
+  const meanAbsDiff = diffValues.length ? diffValues.reduce((sum, value) => sum + value, 0) / diffValues.length : null;
+  const maxAbsDiff = diffValues.length ? diffValues[0] : null;
+
+  return {
+    date: ranking.date,
+    summary: {
+      row_count: checkedRows.length,
+      top20_count: top20.length,
+      max_abs_diff: maxAbsDiff,
+      mean_abs_diff: meanAbsDiff,
+      exact_match_count: checkedRows.filter((row) => Number.isFinite(row.abs_diff) && row.abs_diff <= 0.0001).length,
+      diff_gt_001_count: checkedRows.filter((row) => Number.isFinite(row.abs_diff) && row.abs_diff > 0.01).length,
+      diff_gt_005_count: checkedRows.filter((row) => Number.isFinite(row.abs_diff) && row.abs_diff > 0.05).length,
+      rows_with_live_override: checkedRows.filter((row) => String(row.live_score_source || "final_score") !== "final_score").length,
+      rows_with_any_fallback: checkedRows.filter((row) => row.fallback_count > 0).length,
+      rows_with_missing_core_scores: checkedRows.filter((row) => row.missing_flags.length > 0).length,
+      top20_fallback_rows: top20.filter((row) => row.fallback_count > 0).length,
+    },
+    regime_counts: regimeCounts,
+    formula_counts: formulaCounts,
+    top20,
+    biggest_diffs: absDiffRows.slice(0, 30),
+    flagged_rows: flaggedRows.slice(0, 50),
+  };
+}
+
 async function getFeatureStatsForCodes(codes) {
   if (!codes || !codes.length) return { latestClose: new Map(), ret3m: new Map() };
   const latestClose = new Map();
@@ -2269,6 +2421,7 @@ function buildHoldings(trades, latestRankByCode) {
   const stateByCode = computePositions(trades);
   const holdings = [];
   const tradeMetaByCode = new Map();
+  const latestTradeByCode = new Map();
   const classifyHoldingReview = ({
     holdingDays,
     unrealizedPct,
@@ -2429,6 +2582,7 @@ function buildHoldings(trades, latestRankByCode) {
     if (tradeDate) {
       if (!meta.lastTradeDate || tradeDate > meta.lastTradeDate) {
         meta.lastTradeDate = tradeDate;
+        latestTradeByCode.set(code, trade);
       }
     }
 
@@ -2451,12 +2605,25 @@ function buildHoldings(trades, latestRankByCode) {
 
     const rankRow = latestRankByCode.get(code) || {};
     const tradeMeta = tradeMetaByCode.get(code) || {};
-    const name = rankRow.name || getName(code) || code;
-    const market = rankRow.market || getMarket(code) || null;
-    const sector = rankRow.sector || getSector(code) || null;
+    const latestTrade = latestTradeByCode.get(code) || {};
+    const name =
+      rankRow.name ||
+      latestTrade.name ||
+      getName(code) ||
+      code;
+    const market =
+      rankRow.market ||
+      latestTrade.market ||
+      getMarket(code) ||
+      null;
+    const sector =
+      rankRow.sector ||
+      latestTrade.sector ||
+      getSector(code) ||
+      null;
     const currentPrice = toNum(rankRow.close);
     const currentValue = Number.isFinite(currentPrice) ? currentPrice * qty : null;
-    const latestRankDate = toIsoDate(rankRow.date || "") || null;
+    const latestRankDate = toIsoDate(rankRow.date || "") || tradeMeta.lastTradeDate || null;
 
     const avgBuyPrice = st.avgPrice > 0 ? st.avgPrice : null;
     const costBasis = avgBuyPrice && qty ? avgBuyPrice * qty : null;
@@ -2606,6 +2773,7 @@ app.get("/operator-login", (req, res) => sendPublicPage(res, "operator-login.htm
 app.get("/ops-readiness.html", operatorAccess.pageGuard, (req, res) => sendPublicPage(res, "ops-readiness.html"));
 app.get("/holdings.html", (req, res) => sendPublicPage(res, "holdings.html"));
 app.get("/trade-history.html", (req, res) => sendPublicPage(res, "trade-history.html"));
+app.get("/score-check", operatorAccess.pageGuard, (req, res) => sendPublicPage(res, "score-check.html"));
 
 app.get("/", (req, res) => sendPublicPage(res, "landing.html"));
 app.get("/app", (req, res) => sendPublicPage(res, "index.html"));
@@ -2733,6 +2901,20 @@ app.get("/api/score-kpi-monitor", async (req, res) => {
   } catch (e) {
     console.error("GET /api/score-kpi-monitor error", e);
     res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/score-check", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    const date = typeof req.query.date === "string" ? req.query.date.trim() : "";
+    const payload = await buildScoreCheckPayload(date || undefined);
+    if (!payload) {
+      return res.status(404).json({ error: "score_check_not_found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/score-check error", e);
+    res.status(500).json({ error: "score_check_failed" });
   }
 });
 
@@ -3534,7 +3716,7 @@ app.get("/api/holdings", async (req, res) => {
     let totalRealized = 0;
     holdings.forEach((h) => {
       if (Number.isFinite(h.current_value)) totalValue += h.current_value;
-      if (Number.isFinite(h.cost_basis)) totalCost += h.cost_basis;
+      if (Number.isFinite(h.current_value) && Number.isFinite(h.cost_basis)) totalCost += h.cost_basis;
       if (Number.isFinite(h.realized_pnl)) totalRealized += h.realized_pnl;
     });
 

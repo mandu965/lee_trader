@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>점수 검증</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .score-check-page { max-width: 1560px; margin: 0 auto; padding: 24px 20px 48px; }
+      .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+      .page-title { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+      .page-subtitle { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.65; max-width: 880px; }
+      .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .page-actions button.is-active { border-color: rgba(56, 189, 248, 0.44); background: rgba(56, 189, 248, 0.12); color: #bae6fd; }
+      .toolbar-lite { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+      .toolbar-lite .status { color: var(--color-text-secondary); font-size: 12px; }
+      .grid-hero { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+      .section { margin-bottom: 18px; }
+      .card { border: 1px solid var(--border); border-radius: 18px; background: rgba(255,255,255,0.03); padding: 16px; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16); }
+      .eyebrow { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.08em; }
+      .big-value { margin-top: 8px; font-size: 28px; font-weight: 800; }
+      .muted { color: var(--color-text-secondary); }
+      .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      .chip { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); }
+      .chip.good { color: #86efac; border-color: rgba(34,197,94,0.28); background: rgba(34,197,94,0.12); }
+      .chip.watch { color: #fde68a; border-color: rgba(250,204,21,0.28); background: rgba(250,204,21,0.12); }
+      .chip.bad { color: #fca5a5; border-color: rgba(248,113,113,0.28); background: rgba(248,113,113,0.12); }
+      .chip.info { color: #93c5fd; border-color: rgba(96,165,250,0.28); background: rgba(96,165,250,0.12); }
+      .split-grid { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 12px; }
+      .table-wrap { overflow: auto; border-radius: 14px; border: 1px solid rgba(255,255,255,0.06); }
+      table { width: 100%; border-collapse: collapse; min-width: 980px; }
+      th, td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; font-size: 12px; vertical-align: top; }
+      th { position: sticky; top: 0; background: rgba(2, 8, 23, 0.96); z-index: 1; color: var(--color-text-secondary); }
+      tbody tr:hover { background: rgba(255,255,255,0.03); }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      .diff-good { color: #86efac; }
+      .diff-watch { color: #fde68a; }
+      .diff-bad { color: #fca5a5; }
+      .note-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+      .kv { display: grid; gap: 8px; }
+      .kv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+      .empty-state { padding: 20px; text-align: center; color: var(--color-text-secondary); border: 1px dashed var(--border); border-radius: 16px; }
+      @media (max-width: 1280px) { .grid-hero { grid-template-columns: repeat(3, minmax(0, 1fr)); } .split-grid { grid-template-columns: 1fr; } }
+      @media (max-width: 760px) {
+        .score-check-page { padding: 18px 12px 32px; }
+        .page-header { flex-direction: column; }
+        .grid-hero { grid-template-columns: 1fr 1fr; }
+      }
+      @media (max-width: 520px) {
+        .grid-hero { grid-template-columns: 1fr; }
+        .page-title { font-size: 24px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="score-check-page">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">점수 검증</h1>
+          <p class="page-subtitle">
+            최신 `daily_ranking` 기준으로 final score 저장값과 재계산값 차이, fallback 사용 여부, 상위 종목 구성점수를 한 화면에서 확인합니다.
+          </p>
+        </div>
+        <div class="page-actions">
+          <button type="button" onclick="location.href='/app'">메인</button>
+          <button type="button" onclick="location.href='./ranking.html'">랭킹</button>
+          <button type="button" onclick="location.href='./ops-readiness.html'">운영</button>
+          <button type="button" class="is-active" onclick="location.href='/score-check'">점수 검증</button>
+        </div>
+      </header>
+
+      <section class="toolbar-lite">
+        <label>
+          기준일
+          <input id="dateInput" type="date" />
+        </label>
+        <button id="refreshBtn" type="button">새로고침</button>
+        <span id="statusText" class="status">불러오는 중...</span>
+      </section>
+
+      <section id="heroGrid" class="grid-hero"></section>
+
+      <section class="section split-grid">
+        <article class="card">
+          <div class="eyebrow">검증 요약</div>
+          <h2>공식 검증 상태</h2>
+          <div id="summaryKv" class="kv"></div>
+          <div id="summaryChips" class="chip-row"></div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">메모</div>
+          <h2>바로 볼 포인트</h2>
+          <ul id="checkNotes" class="note-list"></ul>
+        </article>
+      </section>
+
+      <section class="section split-grid">
+        <article class="card">
+          <div class="eyebrow">레짐 / 공식 버전</div>
+          <h2>분포</h2>
+          <div id="regimeChips" class="chip-row"></div>
+          <div id="formulaChips" class="chip-row"></div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">이상행</div>
+          <h2>경고 기준</h2>
+          <ul class="note-list">
+            <li>`final_score - recomputed_final_score` 절대값이 0.05 초과</li>
+            <li>핵심 점수 `ret/prob/tech/qual` 중 누락 존재</li>
+            <li>fallback 사용 컬럼 존재</li>
+            <li>`live_score_source`가 `final_score` 외 값이면 운영 해석 시 별도 확인</li>
+          </ul>
+        </article>
+      </section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">Top 20</div>
+          <h2>상위 종목 구성점수</h2>
+          <div id="top20Table" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section class="section split-grid">
+        <article class="card">
+          <div class="eyebrow">오차 상위</div>
+          <h2>재계산 차이 큰 행</h2>
+          <div id="diffTable" class="table-wrap"></div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">경고 행</div>
+          <h2>fallback / 누락 / 오차</h2>
+          <div id="flaggedTable" class="table-wrap"></div>
+        </article>
+      </section>
+
+      <section id="emptyState" class="empty-state" hidden>점수 검증 데이터를 불러오지 못했습니다.</section>
+    </div>
+    <script src="./score-check.js"></script>
+  </body>
+</html>

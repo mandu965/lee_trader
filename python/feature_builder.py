@@ -105,7 +105,10 @@ def load_prices() -> pd.DataFrame:
             fallback_to_adjusted = False
             if ADJ_CSV.exists():
                 try:
-                    adj_codes = pd.read_csv(ADJ_CSV, dtype={"code": str})["code"].astype(str).str.zfill(6).unique()
+                    adj_df = pd.read_csv(ADJ_CSV, dtype={"code": str}, usecols=["date", "code"])
+                    adj_df["code"] = adj_df["code"].astype(str).str.zfill(6)
+                    adj_df["date"] = pd.to_datetime(adj_df["date"], errors="coerce")
+                    adj_codes = adj_df["code"].dropna().unique()
                     db_codes = df_db["code"].unique()
                     missing_codes = set(adj_codes) - set(db_codes)
                     if missing_codes:
@@ -116,6 +119,25 @@ def load_prices() -> pd.DataFrame:
                             sample,
                         )
                         fallback_to_adjusted = True
+                    else:
+                        adj_rows = len(adj_df.dropna(subset=["date", "code"]))
+                        db_rows = len(df_db.dropna(subset=["date", "code"]))
+                        adj_min_date = adj_df["date"].min()
+                        db_min_date = df_db["date"].min()
+                        if adj_rows > db_rows:
+                            logging.warning(
+                                "DB fact_price_daily rows (%d) < adjusted CSV rows (%d); fallback to adjusted CSV",
+                                db_rows,
+                                adj_rows,
+                            )
+                            fallback_to_adjusted = True
+                        elif pd.notna(adj_min_date) and pd.notna(db_min_date) and db_min_date > adj_min_date:
+                            logging.warning(
+                                "DB fact_price_daily starts later (%s) than adjusted CSV (%s); fallback to adjusted CSV",
+                                db_min_date.strftime("%Y-%m-%d"),
+                                adj_min_date.strftime("%Y-%m-%d"),
+                            )
+                            fallback_to_adjusted = True
                 except Exception:
                     logging.exception("code coverage check failed; keeping DB data")
             if not fallback_to_adjusted:
