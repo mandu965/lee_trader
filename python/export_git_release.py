@@ -17,6 +17,8 @@ ROOT_FILES = [
     ".env.render.example",
     "base_weights.json",
     "bootstrap.ps1",
+    "data/experiments/theme_weight/best_weight.json",
+    "data/experiments/theme_weight/best_weight_by_regime.json",
     "data/fundamentals.csv",
     "data/interest_universe.csv",
     "docker-compose.yml",

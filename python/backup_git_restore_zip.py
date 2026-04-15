@@ -20,6 +20,9 @@ DEFAULT_FILES = [
     "data/labels.csv",
     "data/universe.csv",
     "data/fundamentals.csv",
+    "data/interest_universe.csv",
+    "data/experiments/theme_weight/best_weight.json",
+    "data/experiments/theme_weight/best_weight_by_regime.json",
 ]
 
 

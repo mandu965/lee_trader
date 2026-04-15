@@ -2316,39 +2316,60 @@ async function getFeatureStatsForCodes(codes) {
 // ---------------------
 // Trades
 // ---------------------
-async function ensureTradesTable() {
-  await pool.query(
-    `
-    CREATE TABLE IF NOT EXISTS trades (
-      trade_id    BIGSERIAL PRIMARY KEY,
-      date        DATE NOT NULL,
-      side        TEXT NOT NULL,
-      code        TEXT NOT NULL,
-      name        TEXT,
-      market      TEXT,
-      sector      TEXT,
-      qty         NUMERIC,
-      price       NUMERIC,
-      amount      NUMERIC,
-      fee         NUMERIC,
-      memo        TEXT,
-      created_at  TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE INDEX IF NOT EXISTS idx_trades_code_date ON trades(code, date);
-    CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(date);
+let ensureTradesTablePromise = null;
 
-    CREATE TABLE IF NOT EXISTS trade_audit_log (
-      audit_id      BIGSERIAL PRIMARY KEY,
-      trade_id      BIGINT,
-      action        TEXT NOT NULL,
-      trade_snapshot JSONB NOT NULL,
-      actor         TEXT,
-      reason        TEXT,
-      created_at    TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE INDEX IF NOT EXISTS idx_trade_audit_trade_id_created ON trade_audit_log(trade_id, created_at DESC);
-    `
-  );
+async function ensureTradesTable() {
+  if (!ensureTradesTablePromise) {
+    ensureTradesTablePromise = (async () => {
+      const [{ rows: tradeRows }, { rows: auditRows }] = await Promise.all([
+        pool.query("SELECT to_regclass('public.trades') AS regclass"),
+        pool.query("SELECT to_regclass('public.trade_audit_log') AS regclass"),
+      ]);
+
+      const tradesExists = Boolean(tradeRows?.[0]?.regclass);
+      const auditExists = Boolean(auditRows?.[0]?.regclass);
+
+      if (!tradesExists || !auditExists) {
+        await pool.query(
+          `
+          CREATE TABLE IF NOT EXISTS trades (
+            trade_id    BIGSERIAL PRIMARY KEY,
+            date        DATE NOT NULL,
+            side        TEXT NOT NULL,
+            code        TEXT NOT NULL,
+            name        TEXT,
+            market      TEXT,
+            sector      TEXT,
+            qty         NUMERIC,
+            price       NUMERIC,
+            amount      NUMERIC,
+            fee         NUMERIC,
+            memo        TEXT,
+            created_at  TIMESTAMPTZ DEFAULT now()
+          );
+          CREATE INDEX IF NOT EXISTS idx_trades_code_date ON trades(code, date);
+          CREATE INDEX IF NOT EXISTS idx_trades_date ON trades(date);
+
+          CREATE TABLE IF NOT EXISTS trade_audit_log (
+            audit_id      BIGSERIAL PRIMARY KEY,
+            trade_id      BIGINT,
+            action        TEXT NOT NULL,
+            trade_snapshot JSONB NOT NULL,
+            actor         TEXT,
+            reason        TEXT,
+            created_at    TIMESTAMPTZ DEFAULT now()
+          );
+          CREATE INDEX IF NOT EXISTS idx_trade_audit_trade_id_created ON trade_audit_log(trade_id, created_at DESC);
+          `
+        );
+      }
+    })().catch((error) => {
+      ensureTradesTablePromise = null;
+      throw error;
+    });
+  }
+
+  await ensureTradesTablePromise;
 }
 
 async function listTrades() {

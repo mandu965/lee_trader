@@ -1,0 +1,10 @@
+{
+  "best_weight": 0.0,
+  "selected_horizon": "60d",
+  "composite_score": 0.0,
+  "reason": [
+    "highest composite score on preferred horizon",
+    "acceptable top20 theme coverage",
+    "none ratio remained controlled"
+  ]
+}

@@ -160,8 +160,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 메모:
 
 - `sync_csv_db_parity.py`는 이제 `prices_adjusted`, `fact_price_daily`, `features`, `labels`, `predictions`, `daily_ranking`까지 같이 동기화합니다.
-- `export_git_release.py` 배포본에는 `fundamentals.csv`, `interest_universe.csv`만 포함됩니다. `features.csv`, `labels.csv`, `prices_daily_adjusted.csv`는 git 배포본에 실리지 않습니다.
+- `export_git_release.py` 배포본에는 `fundamentals.csv`, `interest_universe.csv`, `data/experiments/theme_weight/best_weight*.json`만 포함됩니다. `features.csv`, `labels.csv`, `prices_daily_adjusted.csv`는 git 배포본에 실리지 않습니다.
 - 따라서 웹 DB 학습 이력 복구는 git 푸시가 아니라 로컬 CSV -> 웹 DB 동기화로 처리해야 합니다.
+- Git 배포본은 `ranking_final.csv` 재생성용 실행본이 아니라 코드/설정 배포용 복사본으로 운영합니다. ranking 재생성은 로컬 운영본에서 수행합니다.
 ### 운영 확인용 핵심 명령
 
 ```powershell
@@ -229,6 +230,11 @@ git pull --ff-only origin main
 
 # 로컬 배포본 다시 생성 후 커밋
 cd D:\ai\Lee_trader
+
+--표본 옮기기
+python python\backup_git_restore_zip.py --output backups\git_restore_backup.zip --overwrite --keep-latest 1
+
+-- 배포파일 옮기기
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
 
 git reset --soft origin/main
