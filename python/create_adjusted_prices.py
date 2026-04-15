@@ -33,11 +33,10 @@ FACT_PRICE_DAILY_DB_COLUMNS = [
     "listed_shares",
 ]
 PRICE_PK = ["date", "code"]
+BASE_PRICE_COLUMNS = ["date", "code", "open", "high", "low", "close", "volume"]
 
 
 def _load_existing_fact_price_daily() -> pd.DataFrame:
-    columns = ["date", "code", "open", "high", "low", "close", "volume"]
-
     if get_engine:
         try:
             eng = get_engine()
@@ -53,7 +52,7 @@ def _load_existing_fact_price_daily() -> pd.DataFrame:
                 for col in ["open", "high", "low", "close", "volume"]:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
                 df = df.dropna(subset=["date", "code", "close"])
-                return df[columns]
+                return df[BASE_PRICE_COLUMNS]
         except Exception:
             pass
 
@@ -71,23 +70,81 @@ def _load_existing_fact_price_daily() -> pd.DataFrame:
                 for col in ["open", "high", "low", "close", "volume"]:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
                 df = df.dropna(subset=["date", "code", "close"])
-                return df[columns]
+                return df[BASE_PRICE_COLUMNS]
         except Exception:
             pass
 
-    return pd.DataFrame(columns=columns)
+    return pd.DataFrame(columns=BASE_PRICE_COLUMNS)
+
+
+def _load_existing_adjusted_csv() -> pd.DataFrame:
+    adjusted_cols = ["date", "code", "adj_open", "adj_high", "adj_low", "adj_close", "volume"]
+    if not OUTPUT.exists():
+        return pd.DataFrame(columns=BASE_PRICE_COLUMNS)
+
+    try:
+        df = pd.read_csv(OUTPUT, dtype={"code": str}, usecols=lambda col: col in adjusted_cols)
+        if df.empty:
+            return pd.DataFrame(columns=BASE_PRICE_COLUMNS)
+
+        rename_map = {
+            "adj_open": "open",
+            "adj_high": "high",
+            "adj_low": "low",
+            "adj_close": "close",
+        }
+        df = df.rename(columns=rename_map)
+        df["date"] = pd.to_datetime(df["date"], errors="coerce")
+        df["code"] = df["code"].astype(str).str.zfill(6)
+        for col in ["open", "high", "low", "close", "volume"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.dropna(subset=["date", "code", "close"])
+        return df[BASE_PRICE_COLUMNS]
+    except Exception:
+        return pd.DataFrame(columns=BASE_PRICE_COLUMNS)
+
+
+def _choose_existing_history() -> pd.DataFrame:
+    db_df = _load_existing_fact_price_daily()
+    adjusted_df = _load_existing_adjusted_csv()
+
+    if db_df.empty and adjusted_df.empty:
+        return pd.DataFrame(columns=BASE_PRICE_COLUMNS)
+    if db_df.empty:
+        print(f"Using adjusted CSV history fallback: rows={len(adjusted_df)}")
+        return adjusted_df
+    if adjusted_df.empty:
+        print(f"Using DB fact_price_daily history: rows={len(db_df)}")
+        return db_df
+
+    db_min = db_df["date"].min()
+    adj_min = adjusted_df["date"].min()
+    if len(db_df) < len(adjusted_df):
+        print(
+            "DB fact_price_daily history shorter than adjusted CSV "
+            f"(db_rows={len(db_df)}, csv_rows={len(adjusted_df)}); using adjusted CSV fallback"
+        )
+        return adjusted_df
+    if pd.notna(db_min) and pd.notna(adj_min) and db_min > adj_min:
+        print(
+            "DB fact_price_daily starts later than adjusted CSV "
+            f"(db_min={db_min.date()}, csv_min={adj_min.date()}); using adjusted CSV fallback"
+        )
+        return adjusted_df
+
+    print(f"Using DB fact_price_daily history: rows={len(db_df)}")
+    return db_df
 
 
 def _merge_price_history(current_df: pd.DataFrame) -> pd.DataFrame:
-    base_cols = ["date", "code", "open", "high", "low", "close", "volume"]
-    current = current_df[base_cols].copy()
+    current = current_df[BASE_PRICE_COLUMNS].copy()
     current["date"] = pd.to_datetime(current["date"], errors="coerce")
     current["code"] = current["code"].astype(str).str.zfill(6)
     for col in ["open", "high", "low", "close", "volume"]:
         current[col] = pd.to_numeric(current[col], errors="coerce")
     current = current.dropna(subset=["date", "code", "close"])
 
-    existing = _load_existing_fact_price_daily()
+    existing = _choose_existing_history()
     if existing.empty:
         return current.sort_values(["code", "date"]).reset_index(drop=True)
 
