@@ -20,29 +20,6 @@ docker compose up -d --build node-api
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
-### GitHub Actions와 동일 기준으로 로컬 실행
-
-`run_operational_refresh.py` 단독 실행은 Git `close-batch`와 동일하지 않습니다. 로컬 비교는 아래 기준으로 맞춥니다.
-
-```powershell
-$env:TZ="Asia/Seoul"
-$env:MARKET_TIMEZONE="Asia/Seoul"
-$env:USE_KIS_UNIVERSE="0"
-$env:RUN_PIPELINE_SKIP_FLOW_INGESTION="1"
-$env:DART_REFRESH_RECENT_YEARS="1"
-$env:THEME_OVERLAY_MODE="off"
-$env:MARKET_DATE="2026-04-13"
-
-python python/run_scheduled_job.py --command-set close --daily-time 16:00 --trigger-source local_sync
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-```
-
-차이 확인 전 체크:
-
-- `python python/run_operational_refresh.py` 단독 로그와 Git `close-batch` 로그를 직접 비교하지 않습니다.
-- 로컬도 `run_pipeline -> run_operational_refresh` 순서로 실행해야 합니다.
-- 같은 날 비교는 `MARKET_DATE`를 같은 절대 날짜로 고정합니다.
-
 ### CSV 백업 / 복구
 
 powershell
@@ -54,21 +31,6 @@ python python\backup_git_restore_zip.py --output backups\git_restore_backup_2026
 
 -배포
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
-
-
-### GitHub Actions용 최소 복원 백업
-
-```powershell
-python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260415.zip --overwrite --keep-latest 1
-```
-
-이 백업은 GitHub 업로드용 최소 세트만 포함합니다.
-
-- `data/prices_daily_adjusted.csv`
-- `data/features.csv`
-- `data/labels.csv`
-- `data/universe.csv`
-- `data/fundamentals.csv`
 
 ### GitHub Actions 긴 이력 보호
 로컬 저장 
@@ -89,7 +51,6 @@ python python\backup_git_restore_zip.py --output backups\git_restore_backup_2026
 - 장기 이력이 정상인 날에는 로컬에서 `backups/git_restore_backup_YYYYMMDD.zip`를 갱신하고 `--keep-latest 1`로 최신 1개만 유지
 - GitHub Actions는 캐시 미스가 나더라도 이 zip으로 기본 이력을 먼저 복원
 - `features.csv`, `labels.csv`, `universe.csv`도 캐시에 포함해 다음 실행부터 누적 상태를 최대한 유지
-
 
 ## DB->CSV
 python python\export_db_tables_to_csv.py
