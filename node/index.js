@@ -410,6 +410,46 @@ function toNum(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+const RECENT_SURGE_THRESHOLDS = {
+  soft: { ret5d: 0.12, ret10d: 0.20, rsi14: 70 },
+  hard: { ret5d: 0.20, ret10d: 0.35, rsi14: 80 },
+};
+
+function buildRecentSurgeMeta(row = {}) {
+  const ret5d = toNum(row.ret_5d);
+  const ret10d = toNum(row.ret_10d);
+  const mom20 = toNum(row.mom_20);
+  const rsi14 = toNum(row.rsi_14);
+  const providedSoftFlag = boolify(row.recent_surge_soft_flag);
+  const hardFlag =
+    (ret5d !== null && ret5d >= RECENT_SURGE_THRESHOLDS.hard.ret5d) ||
+    (ret10d !== null && ret10d >= RECENT_SURGE_THRESHOLDS.hard.ret10d) ||
+    (rsi14 !== null && rsi14 >= RECENT_SURGE_THRESHOLDS.hard.rsi14);
+  const computedSoftFlag =
+    (ret5d !== null && ret5d >= RECENT_SURGE_THRESHOLDS.soft.ret5d) ||
+    (ret10d !== null && ret10d >= RECENT_SURGE_THRESHOLDS.soft.ret10d) ||
+    (rsi14 !== null && rsi14 >= RECENT_SURGE_THRESHOLDS.soft.rsi14);
+  const softFlag = hardFlag || providedSoftFlag === true || computedSoftFlag;
+  const signals = [];
+
+  if (ret5d !== null && ret5d >= RECENT_SURGE_THRESHOLDS.soft.ret5d) signals.push(`5일 ${formatPct(ret5d)}`);
+  if (ret10d !== null && ret10d >= RECENT_SURGE_THRESHOLDS.soft.ret10d) signals.push(`10일 ${formatPct(ret10d)}`);
+  if (rsi14 !== null && rsi14 >= RECENT_SURGE_THRESHOLDS.soft.rsi14) signals.push(`RSI ${rsi14.toFixed(1)}`);
+  if (mom20 !== null && mom20 >= 0.30) signals.push(`20일 모멘텀 ${formatPct(mom20)}`);
+
+  return {
+    recent_surge_soft_flag: softFlag,
+    recent_surge_hard_flag: hardFlag,
+    recent_surge_label: hardFlag ? "과열 급등" : softFlag ? "급등 주의" : null,
+    recent_surge_tone: hardFlag ? "drag" : softFlag ? "watch" : null,
+    recent_surge_detail: signals.length ? signals.join(" / ") : null,
+    ret_5d: ret5d,
+    ret_10d: ret10d,
+    mom_20: mom20,
+    rsi_14: rsi14,
+  };
+}
+
 function formatPct(value, digits = 1) {
   const n = toNum(value);
   if (!Number.isFinite(n)) return "-";
@@ -629,6 +669,13 @@ function normalizeManualCandidate(item, rankingByCode) {
   const rankRow = rankingByCode.get(String(security.code || "").trim()) || null;
   const liveRank = rankRow ? getLiveRank(rankRow) : null;
   const shadowRank = rankRow ? getQualityRiskGuardShadowRank(rankRow) : null;
+  const surgeMeta = buildRecentSurgeMeta({
+    ret_5d: marketSignals.ret_5d,
+    ret_10d: marketSignals.ret_10d,
+    mom_20: marketSignals.mom_20,
+    rsi_14: marketSignals.rsi_14,
+    recent_surge_soft_flag: selection.recent_surge_soft_flag,
+  });
   return {
     code: String(security.code || "").trim(),
     name: security.name || null,
@@ -659,7 +706,14 @@ function normalizeManualCandidate(item, rankingByCode) {
     prob_top20_60d: toNum(marketSignals.prob_top20_60d),
     pred_mdd_60d: toNum(marketSignals.pred_mdd_60d),
     regime: marketSignals.regime || null,
-    recent_surge_soft_flag: Boolean(selection.recent_surge_soft_flag),
+    recent_surge_soft_flag: surgeMeta.recent_surge_soft_flag,
+    recent_surge_hard_flag: surgeMeta.recent_surge_hard_flag,
+    recent_surge_label: surgeMeta.recent_surge_label,
+    recent_surge_detail: surgeMeta.recent_surge_detail,
+    ret_5d: surgeMeta.ret_5d,
+    ret_10d: surgeMeta.ret_10d,
+    mom_20: surgeMeta.mom_20,
+    rsi_14: surgeMeta.rsi_14,
     entry_rule_pass: Boolean(selection.entry_rule_pass),
   };
 }
@@ -2151,9 +2205,22 @@ async function buildScoreCheckPayload(targetDate) {
 }
 
 async function getFeatureStatsForCodes(codes) {
-  if (!codes || !codes.length) return { latestClose: new Map(), ret3m: new Map() };
+  if (!codes || !codes.length) {
+    return {
+      latestClose: new Map(),
+      ret3m: new Map(),
+      ret5d: new Map(),
+      ret10d: new Map(),
+      mom20: new Map(),
+      rsi14: new Map(),
+    };
+  }
   const latestClose = new Map();
   const ret3m = new Map();
+  const ret5d = new Map();
+  const ret10d = new Map();
+  const mom20 = new Map();
+  const rsi14 = new Map();
 
   try {
     const rows = await queryRows(
@@ -2161,6 +2228,10 @@ async function getFeatureStatsForCodes(codes) {
       WITH ranked AS (
         SELECT
           code,
+          ret_5d,
+          ret_10d,
+          mom_20,
+          rsi_14,
           close,
           ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
         FROM features
@@ -2169,7 +2240,11 @@ async function getFeatureStatsForCodes(codes) {
       SELECT
         code,
         MAX(CASE WHEN rn = 1 THEN close END) AS latest_close,
-        MAX(CASE WHEN rn = 60 THEN close END) AS close_60
+        MAX(CASE WHEN rn = 60 THEN close END) AS close_60,
+        MAX(CASE WHEN rn = 1 THEN ret_5d END) AS ret_5d,
+        MAX(CASE WHEN rn = 1 THEN ret_10d END) AS ret_10d,
+        MAX(CASE WHEN rn = 1 THEN mom_20 END) AS mom_20,
+        MAX(CASE WHEN rn = 1 THEN rsi_14 END) AS rsi_14
       FROM ranked
       WHERE rn IN (1, 60)
       GROUP BY code
@@ -2182,13 +2257,17 @@ async function getFeatureStatsForCodes(codes) {
       const lastClose = toNum(row.latest_close);
       const prevClose = toNum(row.close_60);
       if (code) latestClose.set(code, lastClose);
+      if (code) ret5d.set(code, toNum(row.ret_5d));
+      if (code) ret10d.set(code, toNum(row.ret_10d));
+      if (code) mom20.set(code, toNum(row.mom_20));
+      if (code) rsi14.set(code, toNum(row.rsi_14));
       if (Number.isFinite(prevClose) && Number.isFinite(lastClose) && prevClose !== 0) {
         ret3m.set(code, lastClose / prevClose - 1);
       } else if (code) {
         ret3m.set(code, null);
       }
     }
-    return { latestClose, ret3m };
+    return { latestClose, ret3m, ret5d, ret10d, mom20, rsi14 };
   } catch (e) {
     console.warn("[feature-stats] DB load fail:", e.message);
   }
@@ -2202,6 +2281,10 @@ async function getFeatureStatsForCodes(codes) {
     if (!buffer.length || !current) return;
     const last = buffer[buffer.length - 1];
     latestClose.set(current, toNum(last.close));
+    ret5d.set(current, toNum(last.ret_5d));
+    ret10d.set(current, toNum(last.ret_10d));
+    mom20.set(current, toNum(last.mom_20));
+    rsi14.set(current, toNum(last.rsi_14));
     if (buffer.length >= 60) {
       const prev = buffer[buffer.length - 60];
       const prevClose = toNum(prev.close);
@@ -2227,7 +2310,7 @@ async function getFeatureStatsForCodes(codes) {
     buffer.push(row);
   }
   flush();
-  return { latestClose, ret3m };
+  return { latestClose, ret3m, ret5d, ret10d, mom20, rsi14 };
 }
 
 // ---------------------
@@ -3159,7 +3242,7 @@ app.get("/api/ranking", async (req, res) => {
     const { date, rows } = rankingRes;
 
     const codes = rows.map((r) => r.code);
-    const { latestClose, ret3m } = await getFeatureStatsForCodes(codes);
+    const { latestClose, ret3m, ret5d, ret10d, mom20, rsi14 } = await getFeatureStatsForCodes(codes);
 
     let marketUp = true;
     if (rows.length && rows[0].market_up !== undefined) {
@@ -3172,6 +3255,13 @@ app.get("/api/ranking", async (req, res) => {
 
     let data = rows.map((r) => {
       const code = r.code;
+      const surgeMeta = buildRecentSurgeMeta({
+        ...r,
+        ret_5d: toNum(r.ret_5d) ?? ret5d.get(code) ?? null,
+        ret_10d: toNum(r.ret_10d) ?? ret10d.get(code) ?? null,
+        mom_20: toNum(r.mom_20) ?? mom20.get(code) ?? null,
+        rsi_14: toNum(r.rsi_14) ?? rsi14.get(code) ?? null,
+      });
       return {
         date: r.date,
         code,
@@ -3233,6 +3323,14 @@ app.get("/api/ranking", async (req, res) => {
         regime: r.regime || null,
         regime_reason: r.regime_reason || null,
         weight_profile: r.weight_profile || null,
+        ret_5d: surgeMeta.ret_5d,
+        ret_10d: surgeMeta.ret_10d,
+        mom_20: surgeMeta.mom_20,
+        rsi_14: surgeMeta.rsi_14,
+        recent_surge_soft_flag: surgeMeta.recent_surge_soft_flag,
+        recent_surge_hard_flag: surgeMeta.recent_surge_hard_flag,
+        recent_surge_label: surgeMeta.recent_surge_label,
+        recent_surge_detail: surgeMeta.recent_surge_detail,
         contrib_ret: toNum(r.contrib_ret),
         contrib_prob: toNum(r.contrib_prob),
         contrib_qual: toNum(r.contrib_qual),

@@ -83,6 +83,13 @@ function quoteSourceMeta(item) {
   return { label: "NONE", cls: "is-bad" };
 }
 
+function buildRecentSurgeChip(item) {
+  if (!item?.recent_surge_label) return "";
+  const cls = item.recent_surge_hard_flag ? "is-bad" : "is-warn";
+  const detail = item.recent_surge_detail ? ` title="${escapeHtml(item.recent_surge_detail)}"` : "";
+  return `<span class="chip ${cls}"${detail}>${escapeHtml(item.recent_surge_label)}</span>`;
+}
+
 function fmtMoneyShort(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
@@ -310,6 +317,7 @@ function renderCandidates(targetId, items, emptyText) {
           <span class="chip ${chipClass(item.buyability_status)}">${escapeHtml(item.buyability_status || "-")}</span>
           <span class="chip ${chipClass(item.watchlist_tier)}">${escapeHtml(item.watchlist_tier || "-")}</span>
           <span class="chip ${chipClass(item.confidence_state_v2)}">${escapeHtml(item.confidence_state_v2 || "-")}</span>
+          ${buildRecentSurgeChip(item)}
           <span class="chip ${quoteSource.cls}">시세 ${escapeHtml(quoteSource.label)}</span>
         </div>
         <div class="card-detail">${escapeHtml(buildScoreRoleLine(item))}</div>

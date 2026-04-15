@@ -46,8 +46,43 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ### CSV 백업 / 복구
 
 powershell
-python python\backup_csv_md_zip.py --output backups\csv_backup_20260414.zip --overwrite
+python python\backup_csv_md_zip.py --output backups\csv_backup_20260415.zip --overwrite --keep-latest 1
+
 python python\restore_csv_md_zip.py --zip backups\csv_backup_20260414.zip --overwrite
+
+### GitHub Actions용 최소 복원 백업
+
+```powershell
+python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260415.zip --overwrite --keep-latest 1
+```
+
+이 백업은 GitHub 업로드용 최소 세트만 포함합니다.
+
+- `data/prices_daily_adjusted.csv`
+- `data/features.csv`
+- `data/labels.csv`
+- `data/universe.csv`
+- `data/fundamentals.csv`
+
+### GitHub Actions 긴 이력 보호
+로컬 저장 
+python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260415.zip --overwrite --keep-latest 1
+
+
+`close-batch`는 이제 캐시 복원 뒤 아래 보호를 먼저 수행합니다.
+
+- `backups/git_restore_backup_*.zip` 중 최신 파일이 있으면, `prices_daily_adjusted.csv`, `features.csv`, `labels.csv`가 없을 때 자동 복원
+- 배치 실행 전 이력 길이 검증
+  - `data/prices_daily_adjusted.csv`: 최소 `100000`행, 시작일 `2024-01-01` 이전
+  - `data/features.csv`: 최소 `100000`행, 시작일 `2024-01-01` 이전
+  - `data/labels.csv`: 최소 `50000`행, 시작일 `2024-01-01` 이전
+- 조건을 못 맞추면 GitHub Actions 배치를 실패시켜 짧은 이력 산출물을 막음
+
+운영 원칙:
+
+- 장기 이력이 정상인 날에는 로컬에서 `backups/git_restore_backup_YYYYMMDD.zip`를 갱신하고 `--keep-latest 1`로 최신 1개만 유지
+- GitHub Actions는 캐시 미스가 나더라도 이 zip으로 기본 이력을 먼저 복원
+- `features.csv`, `labels.csv`, `universe.csv`도 캐시에 포함해 다음 실행부터 누적 상태를 최대한 유지
 
 
 ## DB->CSV
@@ -161,6 +196,7 @@ git pull --rebase origin main
 powershell
 # 1. 배포용 복사본 생성
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
+
 
 # 2. 배포용 git 작업 디렉토리로 이동
 cd D:\ai\git\lee_trader

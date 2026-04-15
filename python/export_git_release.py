@@ -43,7 +43,6 @@ EXCLUDED_DIR_NAMES = {
     ".venv",
     "__pycache__",
     "artifacts",
-    "backups",
     "data",
     "logs",
     "models",
@@ -92,6 +91,9 @@ logs/
 output/
 outputs/
 backups/
+!backups/
+backups/*
+!backups/git_restore_backup_*.zip
 artifacts/
 models/
 serving/
@@ -131,6 +133,8 @@ def parse_args() -> argparse.Namespace:
 
 def should_exclude(path: Path) -> bool:
     name = path.name
+    if path.is_file() and path.parent.name == "backups" and fnmatch.fnmatch(name, "git_restore_backup_*.zip"):
+        return False
     if path.is_dir() and name in EXCLUDED_DIR_NAMES:
         return True
     if path.is_file() and name in EXCLUDED_FILE_NAMES:
@@ -138,6 +142,18 @@ def should_exclude(path: Path) -> bool:
     if any(fnmatch.fnmatch(name, pattern) for pattern in EXCLUDED_GLOBS):
         return True
     return False
+
+
+def find_latest_backup_zip(root: Path) -> Path | None:
+    backup_dir = root / "backups"
+    if not backup_dir.exists():
+        return None
+    backups = sorted(
+        backup_dir.glob("git_restore_backup_*.zip"),
+        key=lambda path: (path.stat().st_mtime, path.name),
+        reverse=True,
+    )
+    return backups[0] if backups else None
 
 
 def ensure_parent(path: Path, dry_run: bool, stats: CopyStats) -> None:
@@ -240,6 +256,13 @@ def main() -> int:
         else:
             print(f"SKIP missing: {candidate}")
             stats.skipped_paths += 1
+
+    latest_backup = find_latest_backup_zip(source)
+    if latest_backup:
+      selected_roots.append(latest_backup)
+    else:
+      print(f"SKIP missing: {source / 'backups' / 'git_restore_backup_*.zip'}")
+      stats.skipped_paths += 1
 
     for selected in selected_roots:
         for src_path in iter_copyable_files(source, selected):

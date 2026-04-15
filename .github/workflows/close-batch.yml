@@ -50,6 +50,9 @@ jobs:
             data/prices_daily_raw.csv
             data/prices_daily_clean.csv
             data/prices_daily_adjusted.csv
+            data/features.csv
+            data/labels.csv
+            data/universe.csv
             data/ranking_snapshot_archive.csv
             data/live_account_holdings.csv
             data/paper_trading_nav.csv
@@ -70,6 +73,80 @@ jobs:
       - name: Install Python packages
         run: python -m pip install --upgrade pip && pip install -r python/requirements.txt
 
+      - name: Restore git-safe snapshot fallback
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          root = Path(".").resolve()
+          backups = sorted((root / "backups").glob("git_restore_backup_*.zip"))
+          if not backups:
+              print("No git restore backup zip found under backups/. Skipping snapshot restore.")
+              raise SystemExit(0)
+
+          latest = backups[-1]
+          required = [
+              root / "data" / "prices_daily_adjusted.csv",
+              root / "data" / "features.csv",
+              root / "data" / "labels.csv",
+          ]
+          missing = [str(path.relative_to(root)) for path in required if not path.exists()]
+          if missing:
+              print(f"Missing key CSVs {missing}. Restoring from {latest.name}")
+              subprocess.run(
+                  [sys.executable, "python/restore_csv_md_zip.py", "--zip", str(latest), "--overwrite"],
+                  check=True,
+              )
+          else:
+              print("Key CSVs already present. Snapshot restore not required.")
+          PY
+
+      - name: Validate history depth before batch
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          ROOT = Path(".").resolve()
+          checks = [
+              ("data/prices_daily_adjusted.csv", 100000, "2024-01-01"),
+              ("data/features.csv", 100000, "2024-01-01"),
+              ("data/labels.csv", 50000, "2024-01-01"),
+          ]
+          failures = []
+
+          for rel_path, min_rows, max_min_date in checks:
+              path = ROOT / rel_path
+              if not path.exists():
+                  failures.append(f"{rel_path}: file missing")
+                  continue
+              rows = 0
+              min_date = None
+              with path.open("r", encoding="utf-8-sig", newline="") as fh:
+                  reader = csv.DictReader(fh)
+                  for row in reader:
+                      rows += 1
+                      date_value = (row.get("date") or "").strip()
+                      if date_value and (min_date is None or date_value < min_date):
+                          min_date = date_value
+              print(f"{rel_path}: rows={rows}, min_date={min_date}")
+              if rows < min_rows:
+                  failures.append(f"{rel_path}: rows {rows} < {min_rows}")
+              if not min_date:
+                  failures.append(f"{rel_path}: min_date missing")
+              elif min_date > max_min_date:
+                  failures.append(f"{rel_path}: min_date {min_date} is later than {max_min_date}")
+
+          if failures:
+              print("History depth validation failed:")
+              for item in failures:
+                  print(f" - {item}")
+              raise SystemExit(1)
+          print("History depth validation passed.")
+          PY
+
       - name: Run close batch
         run: >
           python python/run_scheduled_job.py
@@ -88,6 +165,9 @@ jobs:
             data/prices_daily_raw.csv
             data/prices_daily_clean.csv
             data/prices_daily_adjusted.csv
+            data/features.csv
+            data/labels.csv
+            data/universe.csv
             data/ranking_snapshot_archive.csv
             data/live_account_holdings.csv
             data/paper_trading_nav.csv

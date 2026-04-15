@@ -842,6 +842,12 @@ th.score-col { text-align: center; }
   background: rgba(250, 204, 21, 0.1);
 }
 
+.reason-chip.danger {
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(248, 113, 113, 0.12);
+}
+
 .reason-chip.muted { color: var(--color-text-secondary); }
 
 .reason-col { min-width: 140px; }

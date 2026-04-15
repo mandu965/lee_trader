@@ -19,6 +19,7 @@ PROJECT_ROOT = SCRIPT_PATH.parents[1]
 DEFAULT_BACKUP_DIR = PROJECT_ROOT / "backups"
 ALLOWED_SUFFIXES = {".csv"}
 MANIFEST_PATH = "_backup_manifest.json"
+BACKUP_GLOB = "csv_backup_*.zip"
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +46,12 @@ def parse_args() -> argparse.Namespace:
         "--overwrite",
         action="store_true",
         help="Overwrite the output ZIP if it already exists.",
+    )
+    parser.add_argument(
+        "--keep-latest",
+        type=int,
+        default=None,
+        help="If set, keep only the newest N backup ZIP files matching csv_backup_*.zip in the output directory.",
     )
     return parser.parse_args()
 
@@ -100,6 +107,24 @@ def write_zip(root: Path, files: list[Path], output_path: Path, manifest: dict[s
             zf.write(path, arcname=arcname)
 
 
+def prune_old_backups(output_path: Path, keep_latest: int | None) -> list[Path]:
+    if keep_latest is None:
+        return []
+    if keep_latest < 1:
+        raise ValueError("--keep-latest must be at least 1")
+
+    backup_dir = output_path.parent
+    backups = sorted(
+        backup_dir.glob(BACKUP_GLOB),
+        key=lambda path: (path.stat().st_mtime, path.name),
+        reverse=True,
+    )
+    to_delete = backups[keep_latest:]
+    for path in to_delete:
+        path.unlink(missing_ok=True)
+    return to_delete
+
+
 def main() -> int:
     args = parse_args()
     root = Path(args.root)
@@ -122,11 +147,15 @@ def main() -> int:
 
     manifest = build_manifest(root, files, excluded_dirs)
     write_zip(root, files, output_path, manifest)
+    removed_backups = prune_old_backups(output_path, args.keep_latest)
 
     print(f"backup root: {root}")
     print(f"backup zip: {output_path}")
     print(f"file count: {len(files)}")
     print("included suffixes: .csv")
+    if args.keep_latest is not None:
+        print(f"keep latest: {args.keep_latest}")
+        print(f"pruned backups: {len(removed_backups)}")
     return 0
 
 

@@ -158,6 +158,13 @@ function buildQualityRiskGuardChip(row) {
   return "";
 }
 
+function buildRecentSurgeChip(row) {
+  if (!row?.recent_surge_label) return "";
+  const cls = row.recent_surge_hard_flag ? "drag" : "watch";
+  const detail = row?.recent_surge_detail ? ` title="${escapeHtml(row.recent_surge_detail)}"` : "";
+  return `<span class="chip ${cls}"${detail}>${escapeHtml(row.recent_surge_label)}</span>`;
+}
+
 function normalizeSentence(text, fallback) {
   const value = String(text || "").trim();
   return value || fallback;
@@ -380,7 +387,7 @@ function buildMiniCard(row) {
       <div class="mini-card-meta">${escapeHtml(buildScoreRoleText(row.code, row.final_score))}</div>
       <div class="mini-card-meta">${escapeHtml(buildQualityRiskGuardText(row))}</div>
       <div class="mini-card-thesis">${escapeHtml(buildThesis(row))}</div>
-      <div class="chip-row">${buildBuyEligibilityChip(row.code)}${buildIntradayOverlayChip(row.code)}${buildQualityRiskGuardChip(row)}</div>
+      <div class="chip-row">${buildBuyEligibilityChip(row.code)}${buildIntradayOverlayChip(row.code)}${buildQualityRiskGuardChip(row)}${buildRecentSurgeChip(row)}</div>
       ${buildMetricPills(row)}
       <div class="mini-card-meta">${escapeHtml(buildActionText(row))}</div>
     </article>
@@ -433,6 +440,7 @@ function buildCandidateCard(row) {
         ${buildBuyEligibilityChip(row.code)}
         ${buildIntradayOverlayChip(row.code)}
         ${buildQualityRiskGuardChip(row)}
+        ${buildRecentSurgeChip(row)}
         ${row.score_driver_1 ? `<span class="chip driver">${escapeHtml(explainLabel(row.score_driver_1))}</span>` : ""}
         ${row.score_driver_2 ? `<span class="chip driver">${escapeHtml(explainLabel(row.score_driver_2))}</span>` : ""}
         ${row.score_drag_1 ? `<span class="chip drag">${escapeHtml(explainLabel(row.score_drag_1))}</span>` : ""}
@@ -461,7 +469,7 @@ function buildTopIdeaCard(row, index) {
       <div class="section-sub">${escapeHtml(buildScoreRoleText(row.code, row.final_score))}</div>
       <div class="section-sub">${escapeHtml(buildQualityRiskGuardText(row))}</div>
       <div class="idea-thesis">${escapeHtml(buildThesis(row))}</div>
-      <div class="chip-row">${buildBuyEligibilityChip(row.code)}${buildIntradayOverlayChip(row.code)}${buildQualityRiskGuardChip(row)}</div>
+      <div class="chip-row">${buildBuyEligibilityChip(row.code)}${buildIntradayOverlayChip(row.code)}${buildQualityRiskGuardChip(row)}${buildRecentSurgeChip(row)}</div>
         <div class="idea-stats">
           <span>기대수익 ${fmtPct(row.pred_return_60d)}</span>
           <span>예상 MDD ${fmtPct(row.pred_mdd_60d)}</span>

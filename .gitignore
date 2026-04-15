@@ -13,6 +13,9 @@ logs/
 output/
 outputs/
 backups/
+!backups/
+backups/*
+!backups/git_restore_backup_*.zip
 artifacts/
 models/
 serving/
