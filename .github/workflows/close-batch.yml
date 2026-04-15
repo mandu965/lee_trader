@@ -76,6 +76,7 @@ jobs:
       - name: Restore git-safe snapshot fallback
         run: |
           python - <<'PY'
+          import csv
           from pathlib import Path
           import subprocess
           import sys
@@ -87,20 +88,49 @@ jobs:
               raise SystemExit(0)
 
           latest = backups[-1]
-          required = [
-              root / "data" / "prices_daily_adjusted.csv",
-              root / "data" / "features.csv",
-              root / "data" / "labels.csv",
+          checks = [
+              ("data/prices_daily_adjusted.csv", 100000, "2024-01-01"),
+              ("data/features.csv", 100000, "2024-01-01"),
+              ("data/labels.csv", 50000, "2024-01-01"),
           ]
-          missing = [str(path.relative_to(root)) for path in required if not path.exists()]
-          if missing:
-              print(f"Missing key CSVs {missing}. Restoring from {latest.name}")
+
+          restore_reasons = []
+          for rel_path, min_rows, max_min_date in checks:
+              path = root / rel_path
+              if not path.exists():
+                  restore_reasons.append(f"{rel_path}: missing")
+                  continue
+
+              rows = 0
+              min_date = None
+              with path.open("r", encoding="utf-8-sig", newline="") as fh:
+                  reader = csv.DictReader(fh)
+                  for row in reader:
+                      rows += 1
+                      date_value = (row.get("date") or "").strip()
+                      if date_value and (min_date is None or date_value < min_date):
+                          min_date = date_value
+
+              print(f"Pre-restore check {rel_path}: rows={rows}, min_date={min_date}")
+              if rows < min_rows:
+                  restore_reasons.append(f"{rel_path}: rows {rows} < {min_rows}")
+              if not min_date:
+                  restore_reasons.append(f"{rel_path}: min_date missing")
+              elif min_date > max_min_date:
+                  restore_reasons.append(
+                      f"{rel_path}: min_date {min_date} is later than {max_min_date}"
+                  )
+
+          if restore_reasons:
+              print(f"Restoring from {latest.name} because:")
+              for reason in restore_reasons:
+                  print(f" - {reason}")
               subprocess.run(
                   [sys.executable, "python/restore_csv_md_zip.py", "--zip", str(latest), "--overwrite"],
                   check=True,
               )
           else:
-              print("Key CSVs already present. Snapshot restore not required.")
+              print("Key CSVs already satisfy history requirements. Snapshot restore not required.")
           PY
 
       - name: Validate history depth before batch

@@ -669,16 +669,7 @@
         return;
       }
       const overall = getMonitorStatusLabel(summary.overall_status);
-      const wf = getScoreKpiMetric("walkforward_top20_avg_return_60d");
-      const confidenceHit = getScoreKpiMetric("confidence_high_bucket_hit_rate_60d");
-      const calibrationCount = getScoreKpiMetric("confidence_calibration_usable_bucket_count");
-      const calibrationSource = getScoreKpiMetric("confidence_calibration_source_mode");
-      box.innerHTML = [
-        `<div class="ops-card is-${String(summary.overall_status || '').toLowerCase()}"><div class="ops-card__label">운용 톤</div><div class="ops-card__value">${escapeHtml(overall)}</div><div class="ops-card__detail">오늘 추천을 얼마나 보수적으로 볼지 요약합니다.</div></div>`,
-        `<div class="ops-card"><div class="ops-card__label">최근 검증 성과</div><div class="ops-card__value">${escapeHtml(fmtKpiValue("walkforward_top20_avg_return_60d", wf))}</div><div class="ops-card__detail">최근 검증 구간의 상위 후보 평균 성과입니다.</div></div>`,
-        `<div class="ops-card"><div class="ops-card__label">신뢰 구간</div><div class="ops-card__value">${escapeHtml(fmtKpiValue("confidence_high_bucket_hit_rate_60d", confidenceHit))}</div><div class="ops-card__detail">해석 가능한 최상단 구간의 적중 흐름입니다.</div></div>`,
-        `<div class="ops-card"><div class="ops-card__label">해석 기준</div><div class="ops-card__value">${escapeHtml(getMonitorSourceLabel(calibrationSource?.value_display || calibrationSource?.value))}</div><div class="ops-card__detail">현재 해석 가능한 구간 ${escapeHtml(fmtKpiValue("confidence_calibration_usable_bucket_count", calibrationCount))}개</div></div>`,
-      ].join("");
+      box.innerHTML = `<div class="ops-card is-${String(summary.overall_status || "").toLowerCase()}"><div class="ops-card__label">운용 톤</div><div class="ops-card__value">${escapeHtml(overall)}</div><div class="ops-card__detail">오늘 추천을 얼마나 보수적으로 볼지 요약합니다.</div></div>`;
     }
 
     function syncMobileFilterState(forceOpen) {

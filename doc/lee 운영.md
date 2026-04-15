@@ -47,8 +47,14 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 powershell
 python python\backup_csv_md_zip.py --output backups\csv_backup_20260415.zip --overwrite --keep-latest 1
-
 python python\restore_csv_md_zip.py --zip backups\csv_backup_20260414.zip --overwrite
+
+-git 용
+python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260415.zip --overwrite --keep-latest 1
+
+-배포
+python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
+
 
 ### GitHub Actions용 최소 복원 백업
 
@@ -71,7 +77,7 @@ python python\backup_git_restore_zip.py --output backups\git_restore_backup_2026
 
 `close-batch`는 이제 캐시 복원 뒤 아래 보호를 먼저 수행합니다.
 
-- `backups/git_restore_backup_*.zip` 중 최신 파일이 있으면, `prices_daily_adjusted.csv`, `features.csv`, `labels.csv`가 없을 때 자동 복원
+- `backups/git_restore_backup_*.zip` 중 최신 파일이 있으면, `prices_daily_adjusted.csv`, `features.csv`, `labels.csv`가 없거나 이력이 너무 짧을 때 자동 복원
 - 배치 실행 전 이력 길이 검증
   - `data/prices_daily_adjusted.csv`: 최소 `100000`행, 시작일 `2024-01-01` 이전
   - `data/features.csv`: 최소 `100000`행, 시작일 `2024-01-01` 이전
@@ -215,12 +221,6 @@ git push -u origin main
 
 ### 이미 원격 저장소가 연결된 이후
 
-powershell
-cd D:\ai\git\lee_trader
-
-## git 파일 복사
- python python/export_git_release.py
-
 # 작업 전에 최신 원격 반영
 git fetch origin
 git switch main
@@ -231,7 +231,7 @@ git pull --ff-only origin main
 cd D:\ai\Lee_trader
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
 
-
+git reset --soft origin/main
 cd D:\ai\git\lee_trader
 git status
 git add --all
