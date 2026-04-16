@@ -23,6 +23,7 @@ DEFAULT_FILES = [
     "data/model.pkl",
     "data/paper_trading_positions.csv",
     "data/paper_trading_nav.csv",
+    "data/trades.csv",
     "data/score_kpi_monitor.json",
     "data/confidence_score_v2.json",
     "data/theme_overlay_acceptance_report.md",

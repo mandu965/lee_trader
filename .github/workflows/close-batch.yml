@@ -230,6 +230,11 @@ jobs:
           --daily-time 16:00
           --trigger-source github_actions
 
+      - name: Sync web display DB
+        if: ${{ success() && env.DATABASE_URL != '' }}
+        run: |
+          python python/sync_web_display_data.py
+
       - name: Save scheduler state cache
         if: always()
         uses: actions/cache/save@v4
@@ -268,5 +273,6 @@ jobs:
             data/prices_daily_adjusted.csv
             data/market_status.csv
             data/quality.csv
+            data/trades.csv
             output/stock_theme_daily.csv
           if-no-files-found: warn

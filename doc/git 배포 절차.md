@@ -72,6 +72,8 @@ python python\export_trades_csv.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
+이 파일이 있으면 `git_runtime_snapshot.zip`에도 같이 포함되고, GitHub Actions에서 웹 DB 동기화 시 `trades` 테이블까지 반영된다.
+
 ## 5. Git 커밋 및 푸시
 
 ```powershell
@@ -105,10 +107,24 @@ GitHub 저장소에서 아래 순서로 실행한다.
 
 웹 화면이 로컬 결과와 같아야 할 경우 표시용 데이터만 웹 DB에 반영한다.
 
+로컬에서 웹 DB 통신이 가능하면 직접 실행할 수 있다.
+
 ```powershell
 python python\sync_web_display_data.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
+
+로컬에서 웹 DB 통신이 안 되더라도, GitHub Actions의 `close-batch`는 `Run close batch` 뒤에 자동으로 아래를 실행한다.
+
+```powershell
+python python\sync_web_display_data.py
+```
+
+조건:
+
+- GitHub Actions `DATABASE_URL` secret이 설정되어 있어야 한다.
+- `runtime_snapshot` 모드에서는 복원된 CSV/JSON 기준으로 웹 DB가 갱신된다.
+- `trades`는 `data/trades.csv`가 있을 때만 반영된다.
 
 동기화 대상:
 
@@ -137,6 +153,9 @@ docker compose run --rm python-pipeline
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 python python\run_operational_refresh.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+python python\export_trades_csv.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260416.zip --overwrite --keep-latest 1
