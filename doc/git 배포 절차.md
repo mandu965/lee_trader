@@ -143,6 +143,13 @@ python python\sync_web_display_data.py --skip-trades
 python python\sync_web_display_data.py --skip-paper-trading
 ```
 
+
+### CSV 백업 / 복구
+
+powershell
+python python\backup_csv_md_zip.py --output backups\csv_backup_20260415.zip --overwrite --keep-latest 1
+python python\restore_csv_md_zip.py --zip backups\csv_backup_20260415.zip --overwrite
+
 ## 권장 전체 순서
 
 ```powershell
@@ -167,5 +174,14 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
+
+```powershell
+cd D:\ai\git\lee_trader
+git status
+git add --all
+git commit -m "update deploy package"
+git push origin main
+```
+
 
 그 다음 `D:\ai\git\lee_trader`에서 `git add / commit / push`를 수행한다.

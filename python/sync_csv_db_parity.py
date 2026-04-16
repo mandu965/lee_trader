@@ -270,27 +270,15 @@ def normalize_for_pg_table(df: pd.DataFrame, table: str, columns: list[str]) -> 
 
 
 def upsert_stocks(df: pd.DataFrame) -> None:
-    engine = get_engine()
     out = df.copy()
     for col in ["listed_at", "delisted_at"]:
         if col in out.columns:
-            out[col] = pd.to_datetime(out[col], errors="coerce").dt.date.astype(object)
-            out.loc[out[col].isna(), col] = None
-    records = out.astype(object).where(pd.notna(out), None).to_dict(orient="records")
-    stmt = text(
-        """
-        INSERT INTO stocks (code, name, market, sector, listed_at, delisted_at)
-        VALUES (:code, :name, :market, :sector, :listed_at, :delisted_at)
-        ON CONFLICT (code) DO UPDATE SET
-            name = EXCLUDED.name,
-            market = EXCLUDED.market,
-            sector = EXCLUDED.sector,
-            listed_at = EXCLUDED.listed_at,
-            delisted_at = EXCLUDED.delisted_at
-        """
+            out[col] = pd.to_datetime(out[col], errors="coerce").dt.strftime("%Y-%m-%d")
+    replace_table_rows_pg(
+        "stocks",
+        out,
+        columns=["code", "name", "market", "sector", "listed_at", "delisted_at"],
     )
-    with engine.begin() as conn:
-        conn.execute(stmt, records)
 
 
 def sync_table(spec: dict[str, object]) -> dict[str, object]:
