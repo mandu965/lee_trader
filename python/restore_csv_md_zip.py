@@ -8,6 +8,7 @@ target root while preserving the original directory layout.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from zipfile import ZipFile
@@ -87,6 +88,31 @@ def restore_archive(zip_path: Path, root: Path, overwrite: bool, dry_run: bool) 
     return restored_count, skipped_count
 
 
+def verify_manifest(root: Path, manifest: dict[str, object]) -> tuple[int, list[str]]:
+    verified_count = 0
+    failures: list[str] = []
+    entries = manifest.get("file_entries")
+    if not isinstance(entries, list):
+        return 0, failures
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        rel = str(entry.get("path") or "").strip()
+        expected = str(entry.get("sha256") or "").strip().lower()
+        if not rel or not expected:
+            continue
+        target = root / Path(rel)
+        if not target.exists():
+            failures.append(f"{rel}: restored file missing")
+            continue
+        digest = hashlib.sha256(target.read_bytes()).hexdigest().lower()
+        if digest != expected:
+            failures.append(f"{rel}: sha256 mismatch")
+            continue
+        verified_count += 1
+    return verified_count, failures
+
+
 def main() -> int:
     args = parse_args()
     zip_path = Path(args.zip)
@@ -115,6 +141,12 @@ def main() -> int:
             overwrite=args.overwrite,
             dry_run=args.dry_run,
         )
+        verified_count = 0
+        verification_failures: list[str] = []
+        if not args.dry_run:
+            verified_count, verification_failures = verify_manifest(root, manifest)
+            if verification_failures:
+                raise ValueError("manifest verification failed: " + "; ".join(verification_failures[:5]))
     except Exception as exc:
         print(f"RESTORE_ERROR: {exc}")
         return 1
@@ -125,6 +157,8 @@ def main() -> int:
     print(f"archive member count: {member_count}")
     print(f"restored count: {restored_count}")
     print(f"skipped count: {skipped_count}")
+    if not args.dry_run:
+        print(f"verified count: {verified_count}")
     print(f"dry run: {args.dry_run}")
     return 0
 

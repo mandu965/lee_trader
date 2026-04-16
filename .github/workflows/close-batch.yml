@@ -6,13 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       execution_mode:
-        description: "pipeline=recompute, runtime_snapshot=restore local runtime outputs"
+        description: "runtime_snapshot=restore local runtime outputs, pipeline=recompute"
         required: false
-        default: "pipeline"
+        default: "runtime_snapshot"
         type: choice
         options:
-          - pipeline
           - runtime_snapshot
+          - pipeline
 
 permissions:
   contents: read
@@ -41,6 +41,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Resolve execution mode
+        run: |
+          MODE="runtime_snapshot"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.execution_mode }}" ]; then
+            MODE="${{ github.event.inputs.execution_mode }}"
+          fi
+          echo "LEE_EXECUTION_MODE=$MODE" >> "$GITHUB_ENV"
+          echo "Resolved execution mode: $MODE"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -143,7 +152,7 @@ jobs:
           PY
 
       - name: Restore runtime snapshot
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.execution_mode == 'runtime_snapshot' }}
+        if: ${{ env.LEE_EXECUTION_MODE == 'runtime_snapshot' }}
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -167,7 +176,7 @@ jobs:
           PY
 
       - name: Apply runtime snapshot environment
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.execution_mode == 'runtime_snapshot' }}
+        if: ${{ env.LEE_EXECUTION_MODE == 'runtime_snapshot' }}
         run: cat runtime_snapshot_env.txt >> "$GITHUB_ENV"
 
       - name: Validate history depth before batch
@@ -252,8 +261,12 @@ jobs:
           name: close-batch-output-${{ github.run_id }}
           path: |
             data/ranking_final.csv
+            data/predictions.csv
             data/features.csv
             data/labels.csv
             data/universe.csv
             data/prices_daily_adjusted.csv
+            data/market_status.csv
+            data/quality.csv
+            output/stock_theme_daily.csv
           if-no-files-found: warn

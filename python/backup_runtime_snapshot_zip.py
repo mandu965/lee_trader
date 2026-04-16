@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -20,7 +21,16 @@ DEFAULT_FILES = [
     "data/predictions.csv",
     "data/ranking_final.csv",
     "data/model.pkl",
+    "data/paper_trading_positions.csv",
+    "data/paper_trading_nav.csv",
+    "data/score_kpi_monitor.json",
+    "data/confidence_score_v2.json",
     "output/stock_theme_daily.csv",
+    "outputs/score_kpi_monitor.md",
+    "outputs/paper_trading_report.md",
+    "outputs/top20_meaningfulness_report.json",
+    "outputs/top20_buyability_report.json",
+    "outputs/operational_buy_gate.json",
     "serving/daily_recommendations.json",
     "serving/model_portfolio.json",
     "serving/buy_gate_status.json",
@@ -74,11 +84,17 @@ def prune_old_backups(output_path: Path, keep_latest: int) -> list[Path]:
 
 
 def build_manifest(root: Path, files: list[Path]) -> dict[str, object]:
+    file_entries = []
+    for path in files:
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        file_entries.append({"path": rel, "sha256": digest, "size": path.stat().st_size})
     return {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "project_root": str(root),
         "file_count": len(files),
-        "files": [str(path.relative_to(root)).replace("\\", "/") for path in files],
+        "files": [entry["path"] for entry in file_entries],
+        "file_entries": file_entries,
         "backup_type": "git_runtime_snapshot",
     }
 

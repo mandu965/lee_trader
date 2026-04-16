@@ -334,6 +334,11 @@
       border-top: 1px solid rgba(148, 163, 184, 0.14);
       background: rgba(2, 8, 23, 0.72);
     }
+    .mobile-inline-summary,
+    .mobile-reasons,
+    .mobile-action-note {
+      display: none;
+    }
     .center {
       text-align: center !important;
       color: var(--muted);
@@ -365,8 +370,12 @@
       }
       thead { display: none; }
       tbody tr {
-        padding: 12px;
+        padding: 14px 14px 12px;
         border-bottom: 1px solid rgba(17, 24, 39, 0.95);
+        border-radius: 14px;
+        margin: 0 10px 10px;
+        display: grid;
+        gap: 4px;
       }
       td {
         padding: 6px 0;
@@ -383,6 +392,78 @@
       .review-cell,
       .reason-cell {
         min-width: 0;
+      }
+      td[data-label="검토 이유"],
+      td[data-label="권장 액션"] {
+        display: none;
+      }
+      .review-note,
+      .reason-cell .tag:nth-child(n+3),
+      .metric-row .chip:nth-child(n+3),
+      .subtext-strong,
+      .subtext:last-child {
+        display: none;
+      }
+      .mobile-inline-summary,
+      .mobile-reasons,
+      .mobile-action-note {
+        display: block;
+      }
+      .name-cell {
+        gap: 4px;
+      }
+      .name-main {
+        font-size: 16px;
+      }
+      .name-sub {
+        font-size: 12px;
+      }
+      .metric-row {
+        gap: 5px;
+      }
+      .chip,
+      .priority-badge,
+      .tag {
+        font-size: 10px;
+        padding: 3px 7px;
+      }
+      .mobile-inline-summary {
+        margin-top: 8px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .mobile-inline-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px 10px;
+      }
+      .mobile-inline-item {
+        min-width: 0;
+      }
+      .mobile-inline-label {
+        color: var(--muted);
+        font-size: 10px;
+        margin-bottom: 4px;
+      }
+      .mobile-inline-value {
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+      .mobile-reasons {
+        margin-top: 8px;
+      }
+      .mobile-action-note {
+        margin-top: 8px;
+        color: #dbe7ff;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .helper {
+        font-size: 11px;
+        padding: 10px 12px;
       }
     }
   </style>
@@ -735,6 +816,28 @@
                     <span class="chip confidence">${confidenceText(item.confidence_score)}</span>
                     <span class="chip ${delta.cls}">${delta.text}</span>
                     ${Number.isFinite(modelScore) ? `<span class="chip score">모델 ${modelScore.toFixed(1)}</span>` : '<span class="chip score">모델 -</span>'}
+                  </div>
+                  <div class="mobile-inline-summary">
+                    <div class="mobile-inline-grid">
+                      <div class="mobile-inline-item">
+                        <div class="mobile-inline-label">수익률</div>
+                        <div class="mobile-inline-value ${pnlClass}">${fmtPct(unrealizedPct)}</div>
+                      </div>
+                      <div class="mobile-inline-item">
+                        <div class="mobile-inline-label">보유</div>
+                        <div class="mobile-inline-value">${Number.isFinite(Number(item.holding_days)) ? `${fmtNumber(Number(item.holding_days))}일` : "-"}</div>
+                      </div>
+                      <div class="mobile-inline-item">
+                        <div class="mobile-inline-label">검토</div>
+                        <div class="mobile-inline-value">${review.label}</div>
+                      </div>
+                      <div class="mobile-inline-item">
+                        <div class="mobile-inline-label">우선순위</div>
+                        <div class="mobile-inline-value">${priority.text}</div>
+                      </div>
+                    </div>
+                    <div class="mobile-reasons">${reasonHtml}</div>
+                    <div class="mobile-action-note">${item.system_action_note || "-"}</div>
                   </div>
                 </div>
               </td>

@@ -26,18 +26,49 @@ powershell
 python python\backup_csv_md_zip.py --output backups\csv_backup_20260415.zip --overwrite --keep-latest 1
 python python\restore_csv_md_zip.py --zip backups\csv_backup_20260415.zip --overwrite
 
--git 용
-python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260415.zip --overwrite --keep-latest 1
+### Git 배포 필수 3단계
 
--배포
+`GitHub Actions` 운영 배치는 이제 `runtime_snapshot` 기준이 기본입니다.  
+즉 `close-batch`는 로컬에서 만든 산출물을 복원해 사용해야 하며, 로컬 snapshot 없이 원격에서 다시 계산한 결과를 운영 기준으로 쓰지 않습니다.
+
+아래 3개 명령을 순서대로 모두 실행합니다.
+
+python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260416.zip --overwrite --keep-latest 1
+
+python python\backup_runtime_snapshot_zip.py --output backups\git_runtime_snapshot_20260416.zip --overwrite --keep-latest 1
+
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
+
+역할:
+
+- `backup_git_restore_zip.py`
+  - 장기 이력 복원용
+  - `prices_daily_adjusted.csv`, `features.csv`, `labels.csv` 등 학습 이력 보존
+- `backup_runtime_snapshot_zip.py`
+  - 로컬 운영 결과 재현용
+  - `ranking_final.csv`, `predictions.csv`, `model.pkl`, `output/stock_theme_daily.csv` 등 로컬 결과 보존
+- `export_git_release.py`
+  - 위 두 zip을 포함해 `D:\ai\git\lee_trader` 배포본 생성
+
+운영 원칙:
+
+- 로컬 운영본이 기준본입니다.
+- `GitHub Actions` 결과도 로컬과 같은 수준이어야 하므로, 기본 실행은 `runtime_snapshot` 복원 기준으로 운영합니다.
+- `pipeline` 모드는 참고용 재계산/진단용으로만 사용합니다.
+- `runtime_snapshot` 복원 후 해시 검증이 실패하면 배치를 실패시켜야 합니다.
 
 ### GitHub Actions 긴 이력 보호
 로컬 저장 
 python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260415.zip --overwrite --keep-latest 1
 
+`close-batch`는 이제 기본적으로 `runtime_snapshot` 모드로 실행합니다.
 
-`close-batch`는 이제 캐시 복원 뒤 아래 보호를 먼저 수행합니다.
+- `backups/git_runtime_snapshot_*.zip` 중 최신 파일을 먼저 복원
+- 복원된 파일은 manifest 해시 기준으로 검증
+- 검증 실패 또는 snapshot 부재 시 배치를 실패
+- 그 다음 후속 운영/배포 단계만 실행
+
+장기 이력 보호용으로는 캐시 복원 뒤 아래 보호도 같이 수행합니다.
 
 - `backups/git_restore_backup_*.zip` 중 최신 파일이 있으면, `prices_daily_adjusted.csv`, `features.csv`, `labels.csv`가 없거나 이력이 너무 짧을 때 자동 복원
 - 배치 실행 전 이력 길이 검증
@@ -49,7 +80,8 @@ python python\backup_git_restore_zip.py --output backups\git_restore_backup_2026
 운영 원칙:
 
 - 장기 이력이 정상인 날에는 로컬에서 `backups/git_restore_backup_YYYYMMDD.zip`를 갱신하고 `--keep-latest 1`로 최신 1개만 유지
-- GitHub Actions는 캐시 미스가 나더라도 이 zip으로 기본 이력을 먼저 복원
+- 로컬 결과를 배포하는 날에는 `backups/git_runtime_snapshot_YYYYMMDD.zip`도 같이 갱신하고 `--keep-latest 1`로 최신 1개만 유지
+- GitHub Actions는 캐시 미스가 나더라도 `git_restore_backup`으로 학습 이력을 먼저 복원하고, 운영 실행은 `git_runtime_snapshot` 기준으로 로컬 결과를 재현
 - `features.csv`, `labels.csv`, `universe.csv`도 캐시에 포함해 다음 실행부터 누적 상태를 최대한 유지
 
 ## DB->CSV
@@ -192,8 +224,11 @@ git pull --ff-only origin main
 # 로컬 배포본 다시 생성 후 커밋
 cd D:\ai\Lee_trader
 
---표본 옮기기
+-- 장기 이력 복원용
 python python\backup_git_restore_zip.py --output backups\git_restore_backup.zip --overwrite --keep-latest 1
+
+-- 로컬 결과 재현용
+python python\backup_runtime_snapshot_zip.py --output backups\git_runtime_snapshot.zip --overwrite --keep-latest 1
 
 -- 배포파일 옮기기
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
@@ -212,4 +247,6 @@ git push origin main
 - `git clone` 방식과 `git init + remote add origin` 방식은 같이 쓰지 않습니다.
 - `D:\ai\git\lee_trader`가 이미 `git clone`으로 만들어진 폴더라면 `git init`, `git remote add origin`은 다시 하지 않습니다.
 - 실제 비밀값은 `.env`에 두고, git에는 `.env.example`, `.env.render.example`만 올립니다.
-- `data`, `logs`, `outputs`, `backups` 같은 산출물은 git에 올리지 않습니다.
+- `git_restore_backup_*.zip`, `git_runtime_snapshot_*.zip`은 운영 복원용이므로 배포본에 포함합니다.
+- `runtime_snapshot`이 없는 상태에서 `close-batch`를 돌리면 로컬과 동일한 운영 결과를 보장할 수 없습니다.
+- 운영 기준 검증은 `runtime_snapshot` 결과를 우선으로 보고, `pipeline` 재계산 결과는 참고용으로만 해석합니다.

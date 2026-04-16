@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
@@ -73,11 +74,17 @@ def prune_old_backups(output_path: Path, keep_latest: int) -> list[Path]:
 
 
 def build_manifest(root: Path, files: list[Path]) -> dict[str, object]:
+    file_entries = []
+    for path in files:
+        rel = str(path.relative_to(root)).replace("\\", "/")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        file_entries.append({"path": rel, "sha256": digest, "size": path.stat().st_size})
     return {
         "created_at": datetime.now().isoformat(timespec="seconds"),
         "project_root": str(root),
         "file_count": len(files),
-        "files": [str(path.relative_to(root)).replace("\\", "/") for path in files],
+        "files": [entry["path"] for entry in file_entries],
+        "file_entries": file_entries,
         "backup_type": "git_restore_minimal",
     }
 
