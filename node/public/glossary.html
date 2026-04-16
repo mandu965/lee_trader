@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
@@ -60,7 +60,7 @@
           </article>
           <article class="summary-card">
             <h3>장중과 종가는 역할이 다릅니다</h3>
-            <p><span class="term term--accent"><a class="term-link" href="#intraday-refresh">장중 refresh</a></span>는 오후 대응을 위한 보조 점검이고, 종가 배치는 공식 마감 기준입니다.</p>
+            <p><span class="term term--accent"><a class="term-link" href="#intraday-refresh">장중 refresh</a></span>는 운영자가 필요 시 수동 배포하는 오후 대응용 보조 데이터이고, 마감 기준 데이터가 공식 기준본입니다.</p>
           </article>
           <article class="summary-card">
             <h3>shadow는 참고용입니다</h3>
@@ -122,7 +122,7 @@
           <article class="definition-card" id="intraday-refresh">
             <span class="definition-card__term">장중 refresh</span>
             <h3>오후장 대응을 위해 점심 무렵 다시 확인하는 보조 점검</h3>
-            <p>장중 refresh는 종가 배치를 다시 만드는 작업이 아닙니다. 오후장에 다시 봐야 할 후보와 제외할 후보를 정리하는 중간 점검에 가깝습니다.</p>
+            <p>장중 refresh는 종가 기준 데이터를 다시 만들어내는 작업이 아닙니다. 운영자가 필요 시 수동 배포하는 장중 기준 데이터로 오후장에 다시 봐야 할 후보와 제외할 후보를 정리하는 보조 점검에 가깝습니다.</p>
             <span class="definition-card__why">왜 중요한가: 종가 기준 해석과 장중 기준 해석을 섞지 않게 해 줍니다.</span>
           </article>
         </div>
@@ -144,3 +144,5 @@
   <script src="/site-shell.js"></script>
 </body>
 </html>
+
+

@@ -1,4 +1,4 @@
-const express = require("express");
+﻿const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
@@ -847,14 +847,14 @@ async function buildManualTradingSummary(options = {}) {
       market_regime: gate.market_regime || null,
       manual_mode: {
         label: "오후장 대응",
-        note: intraday.summary?.reason || "12시 장중 시세와 거래대금 기준으로 오후장 대응 후보를 다시 선별합니다.",
+        note: intraday.summary?.reason || "운영자가 수동 배포한 장중 기준 데이터로 오후장 대응 후보를 다시 정리합니다.",
       },
       source_status: intraday.status || "current",
       ranking_latest_date: rankingLatestDate,
       recommendations_stale: false,
       execution_basis: {
         label: intraday.basis_label || "장중 기준",
-        note: "장중 시세를 반영한 오후장 대응용 후보입니다.",
+        note: "운영자가 수동 배포한 장중 기준 데이터입니다.",
       },
       intraday_summary: intradaySummary,
       checklist: Array.isArray(intraday.checklist) ? intraday.checklist : [],
@@ -1418,8 +1418,8 @@ async function buildOpsReadinessSummary() {
     label: latestScheduler.role === "intraday" ? "장중 기준" : "마감 기준",
     description:
       latestScheduler.role === "intraday"
-        ? "12:00 장중 refresh 결과입니다. 오후장 대응용 판단으로 읽어야 합니다."
-        : "16:00 마감 배치 결과입니다. 다음 영업일 기준본으로 읽습니다.",
+        ? "운영자가 수동 배포한 장중 기준 결과입니다. 오후장 대응용 판단으로 읽어야 합니다."
+        : "운영자가 수동 배포한 마감 기준 결과입니다. 다음 영업일 기준본으로 읽습니다.",
     source_scheduler: latestScheduler.role === "intraday" ? "scheduler-recovery" : "scheduler",
     expected_daily_time: latestScheduler.expected_daily_time || null,
     last_refresh_at: latestArtifactRefresh || latestScheduler.last_success_at || null,
@@ -1432,7 +1432,7 @@ async function buildOpsReadinessSummary() {
     .filter((item) => item.configured_daily_time && item.expected_daily_time && item.configured_daily_time !== item.expected_daily_time)
     .map((item) => {
       const schedulerName = item.role === "intraday" ? "scheduler-recovery" : "scheduler";
-      return `${schedulerName} 상태 파일이 아직 ${item.configured_daily_time} 기준입니다. 기대값은 ${item.expected_daily_time}이며 컨테이너 재시작 후 갱신됩니다.`;
+      return `${schedulerName} 상태 파일 기준 시각이 ${item.configured_daily_time}로 남아 있습니다. 기대 기준은 ${item.expected_daily_time}이며 수동 배포 후 다시 확인해야 합니다.`;
     });
 
   const goReasons = [];
@@ -4604,3 +4604,7 @@ app.get("/api/debug/data-dir", (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
+
+
+

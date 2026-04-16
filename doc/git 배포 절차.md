@@ -5,6 +5,8 @@
 - 로컬에서 계산한 최신 산출물을 Git 배포 디렉터리로 옮긴다.
 - GitHub Actions가 로컬 결과를 그대로 복원해서 사용하게 한다.
 - 기본 운영 기준은 `runtime_snapshot` 모드다.
+- 자동 배치는 중지되어 있으며, GitHub Actions는 수동 실행만 사용한다.
+- `close-batch`, `intraday-refresh` 모두 자동 스케줄 없이 수동 실행만 사용한다.
 
 ## 1. 로컬 산출물 생성
 
@@ -84,7 +86,7 @@ git commit -m "update deploy package"
 git push origin main
 ```
 
-## 6. GitHub Actions 실행
+## 6. GitHub Actions 수동 실행
 
 GitHub 저장소에서 아래 순서로 실행한다.
 

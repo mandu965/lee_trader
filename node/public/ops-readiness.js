@@ -1,4 +1,4 @@
-const fmtNum = (value, digits = 0) => {
+﻿const fmtNum = (value, digits = 0) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
   return n.toLocaleString("ko-KR", {
@@ -709,14 +709,14 @@ async function loadOpsReadiness() {
       ["실행 모드", scheduler.mode || "-"],
       ["시간대", scheduler.timezone || "-"],
       ["현재 기준", scheduler.current_label || basis.label || "-"],
-      ["예상 마감 시각", schedulers.primary?.expected_daily_time || "-"],
-      ["예상 장중 시각", schedulers.intraday?.expected_daily_time || "-"],
-      ["상태 마감 시각", schedulers.primary?.configured_daily_time || "-"],
-      ["상태 장중 시각", schedulers.intraday?.configured_daily_time || "-"],
+      ["권장 마감 기준", schedulers.primary?.expected_daily_time || "-"],
+      ["권장 장중 기준", schedulers.intraday?.expected_daily_time || "-"],
+      ["배포된 마감 기준", schedulers.primary?.configured_daily_time || "-"],
+      ["배포된 장중 기준", schedulers.intraday?.configured_daily_time || "-"],
       ["catch-up 생략", scheduler.skip_catchup_on_start === null || scheduler.skip_catchup_on_start === undefined ? "-" : (scheduler.skip_catchup_on_start ? "예" : "아니오")],
-      ["최근 자동 성공", scheduler.last_success_at || "-"],
-      ["자동 마감 성공", schedulers.primary?.last_success_at || "-"],
-      ["자동 장중 성공", schedulers.intraday?.last_success_at || "-"],
+      ["최근 배포 반영", scheduler.last_success_at || "-"],
+      ["최근 마감 반영", schedulers.primary?.last_success_at || "-"],
+      ["최근 장중 반영", schedulers.intraday?.last_success_at || "-"],
       ["최근 실패", scheduler.last_failure_at || "-"],
       ["메모", scheduler.status_note || "-"],
     ]);
@@ -801,3 +801,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   loadOpsReadiness().catch((error) => console.error(error));
 });
+
+
+
+
+
+
+
