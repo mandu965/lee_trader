@@ -233,7 +233,7 @@ jobs:
       - name: Sync web display DB
         if: ${{ success() && env.DATABASE_URL != '' }}
         run: |
-          python python/sync_web_display_data.py
+          python python/sync_web_display_data.py --reset-first
 
       - name: Save scheduler state cache
         if: always()

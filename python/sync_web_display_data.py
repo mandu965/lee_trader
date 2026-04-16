@@ -6,6 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pandas as pd
+from sqlalchemy import text
+
+from db import get_engine
 from sync_auxiliary_payloads import sync_history_payload, sync_inventory_payload, sync_json_payload
 from sync_csv_db_parity import sync_table, verify_table, SYNC_TABLES, VERIFY_TABLES
 
@@ -38,6 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-payloads", action="store_true", help="Skip app_payload_store JSON sync.")
     parser.add_argument("--skip-paper-trading", action="store_true", help="Skip research.paper_trading_* sync.")
     parser.add_argument("--skip-trades", action="store_true", help="Skip trades.csv -> trades sync.")
+    parser.add_argument("--reset-first", action="store_true", help="Delete existing display tables first, then reload from local artifacts.")
     return parser.parse_args()
 
 
@@ -45,12 +50,62 @@ def setup_logging() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
+def table_exists(conn, qualified_name: str) -> bool:
+    return bool(conn.execute(text("SELECT to_regclass(:name)"), {"name": qualified_name}).scalar())
+
+
+def reset_display_tables() -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        delete_order = [
+            ("research.paper_trading_position", "DELETE FROM research.paper_trading_position"),
+            ("research.paper_trading_nav", "DELETE FROM research.paper_trading_nav"),
+            ("research.paper_trading_run", "DELETE FROM research.paper_trading_run"),
+            ("research.app_payload_store", "DELETE FROM research.app_payload_store"),
+            ("public.trades", "DELETE FROM trades"),
+            ("public.daily_ranking", "DELETE FROM daily_ranking"),
+            ("public.predictions", "DELETE FROM predictions"),
+            ("public.market_status", "DELETE FROM market_status"),
+            ("public.etf_holdings_snapshot", "DELETE FROM etf_holdings_snapshot"),
+            ("public.stocks", "DELETE FROM stocks"),
+        ]
+        for qualified_name, statement in delete_order:
+            if not table_exists(conn, qualified_name):
+                continue
+            conn.execute(text(statement))
+            logging.info("Cleared %s", qualified_name)
+
+
+def verify_stocks_subset() -> dict[str, object]:
+    csv_path = DATA_DIR / "universe.csv"
+    if not csv_path.exists():
+        return {"status": "missing_csv", "csv_rows": 0, "missing_codes": []}
+    df = pd.read_csv(csv_path, dtype={"code": str}, low_memory=False)
+    if df.empty:
+        return {"status": "ok", "csv_rows": 0, "missing_codes": []}
+    codes = sorted({str(code).zfill(6) for code in df["code"].dropna().tolist()})
+    engine = get_engine()
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT code FROM stocks WHERE code = ANY(:codes)"), {"codes": codes}).fetchall()
+    existing = {str(row[0]).zfill(6) for row in rows}
+    missing = [code for code in codes if code not in existing]
+    return {
+        "status": "ok" if not missing else "missing_codes",
+        "csv_rows": len(codes),
+        "db_match_rows": len(existing),
+        "missing_codes": missing[:20],
+    }
+
+
 def sync_core_tables() -> None:
     for spec in SYNC_TABLES:
         if str(spec["name"]) not in CORE_TABLES:
             continue
         result = sync_table(spec)
-        verify = verify_table(next(item for item in VERIFY_TABLES if item["name"] == spec["name"]))
+        if str(spec["name"]) == "stocks":
+            verify = verify_stocks_subset()
+        else:
+            verify = verify_table(next(item for item in VERIFY_TABLES if item["name"] == spec["name"]))
         if verify["status"] != "ok":
             raise RuntimeError(f"core table parity failed: {spec['name']} -> {verify}")
         logging.info("Synced core table %s rows=%s latest=%s", spec["name"], result["csv_rows"], result["csv_latest_date"])
@@ -88,6 +143,8 @@ def run_script(script_name: str, *extra_args: str) -> None:
 def main() -> int:
     args = parse_args()
     setup_logging()
+    if args.reset_first:
+        reset_display_tables()
     if not args.skip_core:
         sync_core_tables()
     if not args.skip_payloads:

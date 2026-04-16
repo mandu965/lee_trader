@@ -110,14 +110,14 @@ GitHub 저장소에서 아래 순서로 실행한다.
 로컬에서 웹 DB 통신이 가능하면 직접 실행할 수 있다.
 
 ```powershell
-python python\sync_web_display_data.py
+python python\sync_web_display_data.py --reset-first
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 로컬에서 웹 DB 통신이 안 되더라도, GitHub Actions의 `close-batch`는 `Run close batch` 뒤에 자동으로 아래를 실행한다.
 
 ```powershell
-python python\sync_web_display_data.py
+python python\sync_web_display_data.py --reset-first
 ```
 
 조건:
@@ -125,6 +125,7 @@ python python\sync_web_display_data.py
 - GitHub Actions `DATABASE_URL` secret이 설정되어 있어야 한다.
 - `runtime_snapshot` 모드에서는 복원된 CSV/JSON 기준으로 웹 DB가 갱신된다.
 - `trades`는 `data/trades.csv`가 있을 때만 반영된다.
+- `--reset-first`가 적용되므로 표시용 테이블은 먼저 비우고 로컬 기준으로 다시 적재된다.
 
 동기화 대상:
 
