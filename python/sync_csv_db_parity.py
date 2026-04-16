@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 from functools import lru_cache
@@ -114,6 +115,19 @@ VERIFY_TABLES = [
     {"name": "predictions", "csv_path": DATA_DIR / "predictions.csv", "table": "predictions", "date_col": "date"},
     {"name": "daily_ranking", "csv_path": DATA_DIR / "ranking_final.csv", "table": "daily_ranking", "date_col": "date"},
 ]
+
+VALID_TABLE_NAMES = {str(spec["name"]) for spec in SYNC_TABLES}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Sync CSV outputs into Postgres and verify parity.")
+    parser.add_argument(
+        "--only",
+        nargs="*",
+        default=[],
+        help="Optional table names to limit sync/verify scope. Example: market_status predictions daily_ranking",
+    )
+    return parser.parse_args()
 
 
 def setup_logging() -> None:
@@ -371,11 +385,26 @@ def build_markdown(rows: list[dict[str, object]]) -> str:
     return "\n".join(lines)
 
 
+def select_specs(names: list[str]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    if not names:
+        return SYNC_TABLES, VERIFY_TABLES
+    normalized = [str(name).strip() for name in names if str(name).strip()]
+    unknown = sorted(set(normalized) - VALID_TABLE_NAMES)
+    if unknown:
+        raise ValueError(f"unknown table names: {', '.join(unknown)}")
+    selected = set(normalized)
+    sync_specs = [spec for spec in SYNC_TABLES if str(spec["name"]) in selected]
+    verify_specs = [spec for spec in VERIFY_TABLES if str(spec["name"]) in selected]
+    return sync_specs, verify_specs
+
+
 def main() -> int:
+    args = parse_args()
     setup_logging()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    sync_specs, verify_specs = select_specs(args.only)
     rows: list[dict[str, object]] = []
-    for spec in SYNC_TABLES:
+    for spec in sync_specs:
         try:
             rows.append(sync_table(spec))
         except Exception as exc:
@@ -392,7 +421,7 @@ def main() -> int:
                     "error": str(exc),
                 }
             )
-    for spec in VERIFY_TABLES:
+    for spec in verify_specs:
         rows.append(verify_table(spec))
     REPORT_JSON.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
     REPORT_MD.write_text(build_markdown(rows), encoding="utf-8")
