@@ -225,10 +225,11 @@ def main() -> int:
             ("operational_buy_gate", [PYTHON, str(BUY_GATE_SCRIPT)], True),
         ]
     )
-    if not args.skip_paper_trading:
+    skip_paper_trading_ledger = args.skip_paper_trading or runtime_snapshot_mode
+    if not skip_paper_trading_ledger:
         steps.append(("paper_trading_ledger", [PYTHON, str(PAPER_TRADING_SCRIPT)], False))
-        if not args.skip_paper_trading_db:
-            steps.append(("paper_trading_db_sync", [PYTHON, str(PAPER_TRADING_DB_SYNC_SCRIPT)], False))
+    if not args.skip_paper_trading_db:
+        steps.append(("paper_trading_db_sync", [PYTHON, str(PAPER_TRADING_DB_SYNC_SCRIPT)], False))
     if args.with_live_account:
         steps.append(("live_account_holdings_sync", [PYTHON, str(LIVE_SYNC_SCRIPT)], False))
         if not args.skip_live_preview:

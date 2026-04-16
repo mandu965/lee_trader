@@ -27,9 +27,18 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("intraday_recommendations", SERVING_DIR / "intraday_recommendations.json", "asof_date"),
     ("operational_buy_gate", OUTPUT_DIR / "operational_buy_gate.json", "asof_date"),
     ("walkforward_acceptance", OUTPUT_DIR / "walkforward_acceptance.json", "asof_date"),
+    ("auto_ops_scheduler_status", OUTPUT_DIR / "auto_ops_scheduler_status.json", None),
+    ("auto_ops_recovery_scheduler_status", OUTPUT_DIR / "auto_ops_recovery_scheduler_status.json", None),
+    ("operational_daily_cycle_status", OUTPUT_DIR / "operational_daily_cycle_status.json", None),
+    ("ops_operator_notes", OUTPUT_DIR / "ops_operator_notes.json", None),
     ("score_kpi_monitor", DATA_DIR / "score_kpi_monitor.json", "asof_date"),
     ("top20_meaningfulness_report", OUTPUT_DIR / "top20_meaningfulness_report.json", "asof_date"),
     ("top20_buyability_report", OUTPUT_DIR / "top20_buyability_report.json", "asof_date"),
+    (
+        "shadow_quality_risk_guard_repeatability_report",
+        OUTPUT_DIR / "shadow_quality_risk_guard_repeatability_report.json",
+        "summary",
+    ),
     ("buy_gate_status", SERVING_DIR / "buy_gate_status.json", "asof_date"),
     ("model_portfolio", SERVING_DIR / "model_portfolio.json", "asof_date"),
     ("performance_summary", SERVING_DIR / "performance_summary.json", "asof_date"),
@@ -114,12 +123,6 @@ def sync_core_tables() -> None:
 def sync_payloads() -> None:
     for payload_key, path, asof_field in JSON_PAYLOADS:
         sync_json_payload(payload_key, path, asof_field=asof_field)
-    sync_json_payload("operational_daily_cycle_status", OUTPUT_DIR / "operational_daily_cycle_status.json")
-    sync_json_payload(
-        "shadow_quality_risk_guard_repeatability_report",
-        OUTPUT_DIR / "shadow_quality_risk_guard_repeatability_report.json",
-        asof_field="summary",
-    )
     sync_history_payload(
         "operational_buy_gate_history",
         DATA_DIR / "history" / "operational_buy_gate_history.csv",

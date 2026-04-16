@@ -274,5 +274,18 @@ jobs:
             data/market_status.csv
             data/quality.csv
             data/trades.csv
+            outputs/auto_ops_scheduler_status.json
+            outputs/auto_ops_recovery_scheduler_status.json
+            outputs/operational_daily_cycle_status.json
+            outputs/ops_operator_notes.json
+            outputs/operational_buy_gate.json
+            outputs/walkforward_acceptance.json
+            outputs/shadow_quality_risk_guard_repeatability_report.json
+            data/history/ranking_snapshot_inventory.csv
+            data/history/ranking_snapshot_inventory.md
+            data/history/operational_buy_gate_history.csv
+            data/history/score_kpi_monitor_history.csv
+            serving/daily_recommendations.json
+            serving/intraday_recommendations.json
             output/stock_theme_daily.csv
           if-no-files-found: warn
