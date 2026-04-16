@@ -24,7 +24,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 powershell
 python python\backup_csv_md_zip.py --output backups\csv_backup_20260415.zip --overwrite --keep-latest 1
-python python\restore_csv_md_zip.py --zip backups\csv_backup_20260414.zip --overwrite
+python python\restore_csv_md_zip.py --zip backups\csv_backup_20260415.zip --overwrite
 
 -git 용
 python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260415.zip --overwrite --keep-latest 1
