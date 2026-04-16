@@ -30,10 +30,11 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
         return [
             ("run_intraday_refresh", [sys.executable, str(ROOT / "python" / "run_intraday_refresh.py")]),
         ]
-    return [
-        ("run_pipeline", [sys.executable, str(ROOT / "python" / "run_pipeline.py")]),
-        ("run_operational_refresh", [sys.executable, str(ROOT / "python" / "run_operational_refresh.py")]),
-    ]
+    steps: list[tuple[str, list[str]]] = []
+    if str(os.environ.get("SCHEDULER_SKIP_PIPELINE", "0")).strip().lower() not in {"1", "true", "yes", "on"}:
+        steps.append(("run_pipeline", [sys.executable, str(ROOT / "python" / "run_pipeline.py")]))
+    steps.append(("run_operational_refresh", [sys.executable, str(ROOT / "python" / "run_operational_refresh.py")]))
+    return steps
 
 
 def _scheduler_mode() -> str:

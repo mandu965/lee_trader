@@ -16,7 +16,7 @@ from zipfile import ZipFile
 SCRIPT_PATH = Path(__file__).resolve()
 PROJECT_ROOT = SCRIPT_PATH.parents[1]
 MANIFEST_PATH = "_backup_manifest.json"
-ALLOWED_SUFFIXES = {".csv"}
+ALLOWED_SUFFIXES = {".csv", ".json", ".md", ".pkl"}
 
 
 def parse_args() -> argparse.Namespace:

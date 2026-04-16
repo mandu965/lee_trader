@@ -16,6 +16,7 @@ backups/
 !backups/
 backups/*
 !backups/git_restore_backup_*.zip
+!backups/git_runtime_snapshot_*.zip
 artifacts/
 models/
 serving/

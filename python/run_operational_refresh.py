@@ -203,10 +203,19 @@ def append_operational_history() -> None:
 
 def main() -> int:
     args = parse_args()
+    runtime_snapshot_mode = str(os.environ.get("OPS_REFRESH_USE_RUNTIME_SNAPSHOT", "0")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
     steps: list[tuple[str, list[str], bool]] = []
     if not args.skip_theme_shadow:
-        steps.append(("theme_shadow_daily", [PYTHON, str(THEME_SHADOW_SCRIPT)], False))
+        command = [PYTHON, str(THEME_SHADOW_SCRIPT)]
+        if runtime_snapshot_mode:
+            command.extend(["--skip-compute-theme-etf", "--skip-build-theme", "--skip-ranking"])
+        steps.append(("theme_shadow_daily", command, False))
     steps.extend(
         [
             ("buy_candidate_builder", [PYTHON, str(BUY_CANDIDATE_SCRIPT)], True),

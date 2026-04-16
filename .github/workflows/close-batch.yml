@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: "0 7 * * 1-5"
   workflow_dispatch:
+    inputs:
+      execution_mode:
+        description: "pipeline=recompute, runtime_snapshot=restore local runtime outputs"
+        required: false
+        default: "pipeline"
+        type: choice
+        options:
+          - pipeline
+          - runtime_snapshot
 
 permissions:
   contents: read
@@ -132,6 +141,34 @@ jobs:
           else:
               print("Key CSVs already satisfy history requirements. Snapshot restore not required.")
           PY
+
+      - name: Restore runtime snapshot
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.execution_mode == 'runtime_snapshot' }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          root = Path(".").resolve()
+          snapshots = sorted((root / "backups").glob("git_runtime_snapshot_*.zip"))
+          if not snapshots:
+              raise SystemExit("No git_runtime_snapshot_*.zip found under backups/.")
+
+          latest = snapshots[-1]
+          print(f"Restoring runtime snapshot: {latest.name}")
+          subprocess.run(
+              [sys.executable, "python/restore_csv_md_zip.py", "--zip", str(latest), "--overwrite"],
+              check=True,
+          )
+          with (root / "runtime_snapshot_env.txt").open("w", encoding="utf-8") as fh:
+              fh.write("SCHEDULER_SKIP_PIPELINE=1\n")
+              fh.write("OPS_REFRESH_USE_RUNTIME_SNAPSHOT=1\n")
+          PY
+
+      - name: Apply runtime snapshot environment
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.execution_mode == 'runtime_snapshot' }}
+        run: cat runtime_snapshot_env.txt >> "$GITHUB_ENV"
 
       - name: Validate history depth before batch
         run: |
