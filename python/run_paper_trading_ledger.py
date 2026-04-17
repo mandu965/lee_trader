@@ -24,6 +24,8 @@ TARGET_SIZES = [5, 8, 10]
 HOLDING_POLICY_CODE = "FIXED_HOLD_TRADING_DAYS"
 ENTRY_ACTION_CODE = "BUY_NEW_COHORT"
 ENTRY_ACTION_REASON = "selected_from_daily_snapshot"
+ENTRY_ACTION_CODE_REPLACEMENT = "BUY_REPLACEMENT"
+ENTRY_ACTION_REASON_REPLACEMENT = "filled_vacancy_after_exit"
 OPEN_ACTION_CODE = "HOLD_ACTIVE"
 OPEN_ACTION_REASON = "planned_holding_period_not_reached"
 OPEN_ACTION_CODE_NEW = "HOLD_NEW_ENTRY"
@@ -87,6 +89,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exit-fee-bps", type=float, default=0.0)
     parser.add_argument("--entry-slippage-bps", type=float, default=0.0)
     parser.add_argument("--exit-slippage-bps", type=float, default=0.0)
+    parser.add_argument("--replacement-mode", action="store_true", help="Keep active positions near target_size by filling vacancies after exits.")
     return parser.parse_args()
 
 
@@ -420,8 +423,23 @@ def run_strategy_ledger(
                 )
                 tranche_budget = min(cash, nav_before_entry / float(args.hold_days))
                 if tranche_budget > 0:
-                    per_name_budget = tranche_budget / float(len(tradable))
-                    for _, row in tradable.iterrows():
+                    tradable_entries = tradable.copy()
+                    entry_action_code = ENTRY_ACTION_CODE
+                    entry_action_reason = ENTRY_ACTION_REASON
+                    if args.replacement_mode:
+                        vacancy_count = max(target_size - len(active_positions), 0)
+                        if vacancy_count <= 0:
+                            tradable_entries = tradable_entries.iloc[0:0].copy()
+                        else:
+                            tradable_entries = tradable_entries.head(vacancy_count).copy()
+                            desired_slot_budget = nav_before_entry / float(max(target_size, 1))
+                            tranche_budget = min(cash, desired_slot_budget * float(vacancy_count))
+                            entry_action_code = ENTRY_ACTION_CODE_REPLACEMENT
+                            entry_action_reason = ENTRY_ACTION_REASON_REPLACEMENT
+                    if tradable_entries.empty or tranche_budget <= 0:
+                        tradable_entries = tradable_entries.iloc[0:0].copy()
+                    per_name_budget = tranche_budget / float(len(tradable_entries)) if len(tradable_entries) else 0.0
+                    for _, row in tradable_entries.iterrows():
                         close_price = float(row["current_close"])
                         entry_exec_price = close_price * (1.0 + entry_slip_rate)
                         if entry_exec_price <= 0:
@@ -457,8 +475,8 @@ def run_strategy_ledger(
                             holding_age_trading_days=0,
                             remaining_holding_days=args.hold_days,
                             holding_policy_code=HOLDING_POLICY_CODE,
-                            entry_action_code=ENTRY_ACTION_CODE,
-                            entry_action_reason=ENTRY_ACTION_REASON,
+                            entry_action_code=entry_action_code,
+                            entry_action_reason=entry_action_reason,
                         )
                         active_positions.append(pos)
                         cash -= total_cash_use
@@ -659,10 +677,15 @@ def build_report(
         f"- exit_fee_bps: {args.exit_fee_bps}",
         f"- entry_slippage_bps: {args.entry_slippage_bps}",
         f"- exit_slippage_bps: {args.exit_slippage_bps}",
+        f"- replacement_mode: {'on' if args.replacement_mode else 'off'}",
         "",
         "## Trading Rules",
         "- Each signal date reconstructs `buy_candidates_top5/top8/top10` from the stored ranking snapshot using the current operational buy-candidate rules.",
-        f"- Each strategy deploys roughly `1/{args.hold_days}` of current NAV into the day cohort and holds each position for {args.hold_days} trading days.",
+        (
+            f"- Replacement mode: keep active positions near target_size by filling daily vacancies from the latest candidate set."
+            if args.replacement_mode
+            else f"- Each strategy deploys roughly `1/{args.hold_days}` of current NAV into the day cohort and holds each position for {args.hold_days} trading days."
+        ),
         "- Duplicate entry rule: if a code is already open in the same strategy, the new signal is skipped until the existing position exits.",
         "- Entry and exit are both modeled at daily close with optional fee/slippage adjustments.",
         "",

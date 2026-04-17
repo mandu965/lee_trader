@@ -3182,6 +3182,7 @@ function sendPublicPage(res, fileName) {
 
 app.get("/operator-login", (req, res) => sendPublicPage(res, "operator-login.html"));
 app.get("/ops-readiness.html", operatorAccess.pageGuard, (req, res) => sendPublicPage(res, "ops-readiness.html"));
+app.get("/live-auto-trading.html", operatorAccess.pageGuard, (req, res) => sendPublicPage(res, "live-auto-trading.html"));
 app.get("/holdings.html", (req, res) => sendPublicPage(res, "holdings.html"));
 app.get("/trade-history.html", (req, res) => sendPublicPage(res, "trade-history.html"));
 app.get("/score-check", operatorAccess.pageGuard, (req, res) => sendPublicPage(res, "score-check.html"));
@@ -4795,6 +4796,32 @@ app.get("/api/live-account/order-preview", operatorAccess.apiGuard, (req, res) =
     res.json(preview);
   } catch (e) {
     console.error("GET /api/live-account/order-preview error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/trade-intents", operatorAccess.apiGuard, (req, res) => {
+  try {
+    const payload = readJson(path.join(OUTPUTS_DIR, "trade_intents.json"));
+    if (!payload) {
+      return res.status(404).json({ error: "trade intents not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/trade-intents error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/order-requests-preview", operatorAccess.apiGuard, (req, res) => {
+  try {
+    const payload = readJson(path.join(OUTPUTS_DIR, "order_requests_preview.json"));
+    if (!payload) {
+      return res.status(404).json({ error: "order requests preview not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/order-requests-preview error", e);
     res.status(500).json({ error: "internal error" });
   }
 });

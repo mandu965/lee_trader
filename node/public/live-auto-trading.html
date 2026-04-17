@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>실자동매매 운영</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .live-page { max-width: 1480px; margin: 0 auto; padding: 24px 20px 48px; }
+      .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+      .page-title { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+      .page-subtitle { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; max-width: 860px; }
+      .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .page-actions button { flex: 0 0 auto; }
+      .page-actions button.is-active {
+        border-color: rgba(34, 197, 94, 0.44);
+        background: rgba(34, 197, 94, 0.12);
+        color: #86efac;
+      }
+      .page-actions button.is-secondary { opacity: 0.86; }
+      .panel-block { margin-bottom: 16px; padding: 16px; }
+      .hero-grid,
+      .status-grid,
+      .board-grid {
+        display: grid;
+        gap: 12px;
+      }
+      .hero-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .board-grid { grid-template-columns: 1.2fr 1fr; }
+      .panel-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: rgba(255,255,255,0.03);
+        padding: 14px;
+      }
+      .hero-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: rgba(255,255,255,0.03);
+        padding: 14px;
+        min-height: 132px;
+      }
+      .card-label {
+        font-size: 11px;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .card-value {
+        margin-top: 6px;
+        font-size: 24px;
+        font-weight: 800;
+      }
+      .card-detail {
+        margin-top: 8px;
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--color-text-secondary);
+      }
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .section-title { margin: 0; font-size: 17px; }
+      .section-note { color: var(--color-text-secondary); font-size: 12px; }
+      .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        white-space: nowrap;
+      }
+      .chip.good { color: #86efac; border-color: rgba(34,197,94,0.28); background: rgba(34,197,94,0.10); }
+      .chip.watch { color: #93c5fd; border-color: rgba(96,165,250,0.26); background: rgba(96,165,250,0.10); }
+      .chip.warn { color: #fde68a; border-color: rgba(250,204,21,0.26); background: rgba(250,204,21,0.10); }
+      .chip.bad { color: #fca5a5; border-color: rgba(248,113,113,0.28); background: rgba(248,113,113,0.10); }
+      .kv { display: grid; gap: 8px; }
+      .kv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+      .kv-row strong { text-align: right; }
+      .table-wrap { overflow-x: auto; }
+      .table-wrap table { min-width: 980px; }
+      .table-wrap table.holdings-table { min-width: 1100px; }
+      .table-wrap table.preview-table { min-width: 1160px; }
+      .table-wrap table.intents-table { min-width: 980px; }
+      .table-wrap table.status-table { min-width: 760px; }
+      .empty-state {
+        padding: 18px;
+        border: 1px dashed var(--border);
+        border-radius: var(--radius-lg);
+        color: var(--color-text-secondary);
+        text-align: center;
+      }
+      .state-line { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); }
+      .mono { font-family: Consolas, "SFMono-Regular", monospace; }
+      .right { text-align: right; }
+      .pos { color: #86efac; }
+      .neg { color: #fca5a5; }
+      .muted { color: var(--color-text-secondary); }
+      @media (max-width: 1100px) {
+        .page-header { flex-direction: column; }
+        .hero-grid, .status-grid, .board-grid { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 640px) {
+        .live-page { padding: 18px 12px 36px; }
+        .page-title { font-size: 24px; }
+        .page-actions {
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          padding-bottom: 4px;
+          -webkit-overflow-scrolling: touch;
+        }
+        .panel-block { padding: 12px; }
+        .card-value { font-size: 22px; }
+        .kv-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+        .kv-row strong { text-align: left; }
+      }
+      @media (max-width: 430px) {
+        .live-page { padding: 14px 10px 28px; }
+        .page-title { font-size: 22px; }
+        .page-subtitle, .card-detail, .section-note, .state-line, .kv-row { font-size: 11px; }
+        .hero-card, .panel-card { padding: 12px; }
+        .card-value { font-size: 20px; }
+      }
+      @media (max-width: 390px) {
+        .page-actions button { min-height: 38px; font-size: 12px; }
+        .chip { font-size: 10px; padding: 2px 7px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="live-page">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">실자동매매 운영</h1>
+          <p class="page-subtitle">실주문 엔진 자체를 여기서 돌리는 것이 아니라, 오늘의 intent, 주문 초안, 실계좌 보유 상태를 한 화면에서 보는 운영 보드입니다.</p>
+          <p class="page-subtitle">현재 주문 초안은 dry-run 기준입니다. `executable now`가 `false`이면 실제 제출 전 데이터 정합성부터 맞춰야 합니다.</p>
+        </div>
+      </header>
+
+      <section class="panel panel-block">
+        <div class="page-actions">
+          <button type="button" onclick="location.href='/app'">메인</button>
+          <button type="button" class="is-secondary" onclick="location.href='./ranking.html'">리서치 랭킹</button>
+          <button type="button" class="is-secondary" onclick="location.href='./meaningfulness.html'">리서치 리뷰</button>
+          <button type="button" onclick="location.href='./ops-readiness.html'">운영자</button>
+          <button type="button" onclick="location.href='./manual-trading.html'">수동매매</button>
+          <button type="button" onclick="location.href='./holdings.html'">보유종목</button>
+          <button type="button" onclick="location.href='./paper-trading.html'">모의투자</button>
+          <button type="button" onclick="location.href='./trade-history.html'">매매 기록</button>
+          <button type="button" class="is-active" onclick="location.href='./live-auto-trading.html'">실자동매매</button>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="hero-grid" id="heroGrid"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="status-grid" id="statusGrid"></div>
+      </section>
+
+      <section class="board-grid">
+        <section class="panel panel-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">실행 상태 요약</h2>
+              <div class="section-note">gate, intent, 주문 초안이 서로 맞는지 먼저 확인합니다.</div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="kv" id="runSummaryKv"></div>
+            <div class="chip-row" id="runSummaryChips"></div>
+            <div class="state-line" id="runSummaryHelp"></div>
+          </div>
+        </section>
+        <section class="panel panel-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">운영 메모</h2>
+              <div class="section-note">자동매매 화면에서 가장 먼저 봐야 할 포인트만 짧게 묶어둡니다.</div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="kv" id="focusKv"></div>
+            <div class="chip-row" id="focusChips"></div>
+            <div class="state-line" id="focusHelp"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Trade Intents</h2>
+            <div class="section-note">전략 판단 결과입니다. 실행 후보와 설명용 review를 구분해서 봅니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap" id="intentsWrap">
+          <table class="intents-table">
+            <thead>
+              <tr>
+                <th>상태</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>Intent</th>
+                <th>우선순위</th>
+                <th class="right">목표비중</th>
+                <th>사유</th>
+              </tr>
+            </thead>
+            <tbody id="intentsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Order Requests Preview</h2>
+            <div class="section-note">`submit_live_orders.py` dry-run 결과입니다. 실제 주문 전송은 아직 막혀 있습니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap" id="previewWrap">
+          <table class="preview-table">
+            <thead>
+              <tr>
+                <th>상태</th>
+                <th>요청ID</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>매수/매도</th>
+                <th>Intent</th>
+                <th class="right">요청수량</th>
+                <th class="right">허용수량</th>
+                <th>차단사유</th>
+                <th>사유</th>
+              </tr>
+            </thead>
+            <tbody id="previewTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">실계좌 보유 상태</h2>
+            <div class="section-note">실계좌 보유 CSV 기준입니다. 주문 초안에서 `holding_qty_missing`가 뜨면 이 표와 먼저 맞춰야 합니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap" id="holdingsWrap">
+          <table class="holdings-table">
+            <thead>
+              <tr>
+                <th>상태</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th class="right">수량</th>
+                <th class="right">평균단가</th>
+                <th class="right">현재가</th>
+                <th class="right">평가금액</th>
+                <th class="right">손익</th>
+                <th class="right">손익률</th>
+                <th class="right">비중</th>
+              </tr>
+            </thead>
+            <tbody id="holdingsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="state-line" id="pageState"></div>
+    </div>
+    <script src="./live-auto-trading.js"></script>
+  </body>
+</html>

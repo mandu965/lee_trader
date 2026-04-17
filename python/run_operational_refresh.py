@@ -30,6 +30,7 @@ QUALITY_RISK_GUARD_PROMOTION_REPORT_SCRIPT = ROOT / "python" / "build_quality_ri
 SYNC_AUXILIARY_PAYLOADS_SCRIPT = ROOT / "python" / "sync_auxiliary_payloads.py"
 LIVE_SYNC_SCRIPT = ROOT / "python" / "sync_live_account_holdings.py"
 LIVE_PREVIEW_SCRIPT = ROOT / "python" / "build_live_order_preview.py"
+TRADE_INTENTS_SCRIPT = ROOT / "python" / "build_trade_intents.py"
 OUTPUTS_DIR = ROOT / "outputs"
 DATA_HISTORY_DIR = ROOT / "data" / "history"
 BUY_GATE_JSON = OUTPUTS_DIR / "operational_buy_gate.json"
@@ -223,6 +224,7 @@ def main() -> int:
             ("score_kpi_monitor", [PYTHON, str(SCORE_KPI_MONITOR_SCRIPT)], True),
             ("market_status_validation", [PYTHON, str(MARKET_STATUS_VALIDATION_SCRIPT)], True),
             ("operational_buy_gate", [PYTHON, str(BUY_GATE_SCRIPT)], True),
+            ("trade_intents", [PYTHON, str(TRADE_INTENTS_SCRIPT)], True),
         ]
     )
     skip_paper_trading_ledger = args.skip_paper_trading or runtime_snapshot_mode

@@ -76,7 +76,8 @@ async function fetchJson(url) {
   return res.json();
 }
 
-function buildExplainGrid() {
+function buildExplainGrid(run) {
+  const replacementMode = String(run?.source_mode || "").includes("replacement");
   document.getElementById("explainGrid").innerHTML = `
     <article class="explain-card">
       <div class="card-label">전략 구조</div>
@@ -85,13 +86,13 @@ function buildExplainGrid() {
     </article>
     <article class="explain-card">
       <div class="card-label">매일 처리</div>
-      <div class="card-value">신규만 추가</div>
-      <div class="card-detail">매일 순위가 바뀌어도 기존 보유를 전량 교체하지 않고, 그날 새 후보만 코호트로 추가합니다.</div>
+      <div class="card-value">${replacementMode ? "빈자리 보충" : "신규만 추가"}</div>
+      <div class="card-detail">${replacementMode ? "조기 청산이나 만기 청산으로 빈자리가 생기면, 그날 후보군에서 상위 대체 종목을 다시 채웁니다." : "매일 순위가 바뀌어도 기존 보유를 전량 교체하지 않고, 그날 새 후보만 코호트로 추가합니다."}</div>
     </article>
     <article class="explain-card">
       <div class="card-label">보유 방식</div>
       <div class="card-value">20거래일 보유</div>
-      <div class="card-detail">한번 진입한 종목은 기본적으로 20거래일 보유합니다. 그래서 top5 전략도 현재 보유 종목 수는 5개를 넘을 수 있습니다.</div>
+      <div class="card-detail">${replacementMode ? "한번 진입한 종목은 기본적으로 20거래일 보유하되, 조기 종료 규칙과 대체 편입 규칙이 함께 적용됩니다." : "한번 진입한 종목은 기본적으로 20거래일 보유합니다. 그래서 top5 전략도 현재 보유 종목 수는 5개를 넘을 수 있습니다."}</div>
     </article>
     <article class="explain-card">
       <div class="card-label">중복 처리</div>
@@ -445,7 +446,7 @@ async function loadPaperTrading() {
       summary.run
     );
 
-    buildExplainGrid();
+    buildExplainGrid(summary.run);
     buildMetaStrip(summary.run, summary.strategies || [], strategyLabel);
     buildStrategyCards(summary.strategies || []);
     buildStatusStrip(computeFocusSummary(summary.run, nav.items || [], openItems), strategyLabel);
