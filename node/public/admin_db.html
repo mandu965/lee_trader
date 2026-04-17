@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin DB Viewer</title>
+  <link rel="stylesheet" href="/admin_db.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Admin DB Viewer</h1>
+      <div class="token">
+        <label for="admin-token">Admin Token</label>
+        <input type="password" id="admin-token" placeholder="x-admin-token">
+        <button id="save-token">저장</button>
+      </div>
+    </header>
+
+    <section class="panel">
+      <h2>테이블 목록</h2>
+      <div class="controls">
+        <button id="refresh-tables">새로고침</button>
+      </div>
+      <select id="table-list" size="10"></select>
+    </section>
+
+    <section class="panel">
+      <h2>테이블 미리보기</h2>
+      <div class="controls">
+        <label>필터</label>
+        <input type="text" id="table-filter" placeholder="LIKE 필터 (모든 컬럼)">
+        <label>Limit</label>
+        <input type="number" id="table-limit" value="100" min="1" max="1000">
+        <button id="load-table">로드</button>
+      </div>
+      <div id="table-result" class="result"></div>
+    </section>
+
+    <section class="panel">
+      <h2>SELECT 쿼리 실행</h2>
+      <textarea id="sql-input" rows="6" placeholder="SELECT * FROM ... LIMIT 10"></textarea>
+      <div class="controls">
+        <button id="run-query">실행</button>
+      </div>
+      <div id="query-result" class="result"></div>
+    </section>
+  </div>
+
+  <script src="/admin_db.js"></script>
+</body>
+</html>

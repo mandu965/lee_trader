@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>실자동매매 운영</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .live-page { max-width: 1480px; margin: 0 auto; padding: 24px 20px 48px; }
+      .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+      .page-title { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+      .page-subtitle { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; max-width: 860px; }
+      .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .page-actions button { flex: 0 0 auto; }
+      .page-actions button.is-active {
+        border-color: rgba(34, 197, 94, 0.44);
+        background: rgba(34, 197, 94, 0.12);
+        color: #86efac;
+      }
+      .page-actions button.is-secondary { opacity: 0.86; }
+      .panel-block { margin-bottom: 16px; padding: 16px; }
+      .hero-grid,
+      .status-grid,
+      .board-grid {
+        display: grid;
+        gap: 12px;
+      }
+      .hero-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .board-grid { grid-template-columns: 1.2fr 1fr; }
+      .panel-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: rgba(255,255,255,0.03);
+        padding: 14px;
+      }
+      .hero-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: rgba(255,255,255,0.03);
+        padding: 14px;
+        min-height: 132px;
+      }
+      .card-label {
+        font-size: 11px;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .card-value {
+        margin-top: 6px;
+        font-size: 24px;
+        font-weight: 800;
+      }
+      .card-detail {
+        margin-top: 8px;
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--color-text-secondary);
+      }
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .section-title { margin: 0; font-size: 17px; }
+      .section-note { color: var(--color-text-secondary); font-size: 12px; }
+      .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        white-space: nowrap;
+      }
+      .chip.good { color: #86efac; border-color: rgba(34,197,94,0.28); background: rgba(34,197,94,0.10); }
+      .chip.watch { color: #93c5fd; border-color: rgba(96,165,250,0.26); background: rgba(96,165,250,0.10); }
+      .chip.warn { color: #fde68a; border-color: rgba(250,204,21,0.26); background: rgba(250,204,21,0.10); }
+      .chip.bad { color: #fca5a5; border-color: rgba(248,113,113,0.28); background: rgba(248,113,113,0.10); }
+      .kv { display: grid; gap: 8px; }
+      .kv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+      .kv-row strong { text-align: right; }
+      .table-wrap { overflow-x: auto; }
+      .table-wrap table { min-width: 980px; }
+      .table-wrap table.holdings-table { min-width: 1100px; }
+      .table-wrap table.preview-table { min-width: 1160px; }
+      .table-wrap table.intents-table { min-width: 980px; }
+      .table-wrap table.status-table { min-width: 760px; }
+      .empty-state {
+        padding: 18px;
+        border: 1px dashed var(--border);
+        border-radius: var(--radius-lg);
+        color: var(--color-text-secondary);
+        text-align: center;
+      }
+      .state-line { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); }
+      .mono { font-family: Consolas, "SFMono-Regular", monospace; }
+      .right { text-align: right; }
+      .pos { color: #86efac; }
+      .neg { color: #fca5a5; }
+      .muted { color: var(--color-text-secondary); }
+      @media (max-width: 1100px) {
+        .page-header { flex-direction: column; }
+        .hero-grid, .status-grid, .board-grid { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 640px) {
+        .live-page { padding: 18px 12px 36px; }
+        .page-title { font-size: 24px; }
+        .page-actions {
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          padding-bottom: 4px;
+          -webkit-overflow-scrolling: touch;
+        }
+        .panel-block { padding: 12px; }
+        .card-value { font-size: 22px; }
+        .kv-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+        .kv-row strong { text-align: left; }
+      }
+      @media (max-width: 430px) {
+        .live-page { padding: 14px 10px 28px; }
+        .page-title { font-size: 22px; }
+        .page-subtitle, .card-detail, .section-note, .state-line, .kv-row { font-size: 11px; }
+        .hero-card, .panel-card { padding: 12px; }
+        .card-value { font-size: 20px; }
+      }
+      @media (max-width: 390px) {
+        .page-actions button { min-height: 38px; font-size: 12px; }
+        .chip { font-size: 10px; padding: 2px 7px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="live-page">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">실자동매매 운영</h1>
+          <p class="page-subtitle">실주문 엔진 자체를 여기서 돌리는 것이 아니라, 오늘의 intent, 주문 초안, 최근 제출 결과, 실계좌 보유 상태를 한 화면에서 보는 운영 보드입니다.</p>
+          <p class="page-subtitle">기본 흐름은 `16:00 종가 배치`, `12:00 장중 갱신`, `12:10 자동매수 사이클`입니다. 자동매수 스케줄러는 기본적으로 preview만 돌고, 명시적 env 스위치가 없으면 실주문을 실행하지 않습니다.</p>
+        </div>
+      </header>
+
+      <section class="panel panel-block">
+        <div class="page-actions" data-unified-ops-nav data-nav-class="" data-nav-active="live-auto-trading" data-nav-secondary-class="is-secondary"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="hero-grid" id="heroGrid"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="status-grid" id="statusGrid"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">계좌 잔고 상세</h2>
+            <div class="section-note">예수금, 증권평가, 매입원가, 총자산, 현금비중을 실계좌 기준으로 확인합니다.</div>
+          </div>
+        </div>
+        <div class="hero-grid" id="accountDetailGrid"></div>
+      </section>
+
+      <section class="board-grid">
+        <section class="panel panel-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">실행 상태 요약</h2>
+              <div class="section-note">gate, intent, 주문 초안이 서로 맞는지 먼저 확인합니다.</div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="kv" id="runSummaryKv"></div>
+            <div class="chip-row" id="runSummaryChips"></div>
+            <div class="state-line" id="runSummaryHelp"></div>
+          </div>
+        </section>
+        <section class="panel panel-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">운영 메모</h2>
+              <div class="section-note">자동매매 화면에서 가장 먼저 봐야 할 포인트만 짧게 묶어둡니다.</div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="kv" id="focusKv"></div>
+            <div class="chip-row" id="focusChips"></div>
+            <div class="state-line" id="focusHelp"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Trade Intents</h2>
+            <div class="section-note">전략 판단 결과입니다. 실행 후보와 설명용 review를 구분해서 봅니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap" id="intentsWrap">
+          <table class="intents-table">
+            <thead>
+              <tr>
+                <th>상태</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>Intent</th>
+                <th>우선순위</th>
+                <th class="right">목표비중</th>
+                <th>사유</th>
+              </tr>
+            </thead>
+            <tbody id="intentsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Order Requests Preview</h2>
+            <div class="section-note">`submit_live_orders.py` preview 결과입니다. blocked가 아닌 항목만 guarded submit 대상으로 넘어갑니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap" id="previewWrap">
+          <table class="preview-table">
+            <thead>
+              <tr>
+                <th>상태</th>
+                <th>요청ID</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>매수/매도</th>
+                <th>Intent</th>
+                <th class="right">요청수량</th>
+                <th class="right">허용수량</th>
+                <th>차단사유</th>
+                <th>사유</th>
+              </tr>
+            </thead>
+            <tbody id="previewTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Order Execution</h2>
+            <div class="section-note">가장 최근 guarded submit 결과입니다. preview와 달리 실제 제출 시도 여부와 차단 사유를 확인합니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap" id="executionWrap">
+          <table class="preview-table">
+            <thead>
+              <tr>
+                <th>상태</th>
+                <th>요청ID</th>
+                <th>코드</th>
+                <th>매수/매도</th>
+                <th class="right">수량</th>
+                <th>주문번호</th>
+                <th>스킵/오류 사유</th>
+              </tr>
+            </thead>
+            <tbody id="executionTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Scheduler Runtime</h2>
+            <div class="section-note">종가, 장중, 자동매수 스케줄러의 마지막 성공 시각과 현재 상태를 확인합니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap" id="runtimeWrap">
+          <table class="status-table">
+            <thead>
+              <tr>
+                <th>스케줄러</th>
+                <th>상태</th>
+                <th>마지막 성공일</th>
+                <th>마지막 성공시각</th>
+                <th>최근 오류</th>
+              </tr>
+            </thead>
+            <tbody id="runtimeTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">실계좌 보유 상태</h2>
+            <div class="section-note">실계좌 보유 CSV 기준입니다. 주문 초안에서 `holding_qty_missing`가 뜨면 이 표와 먼저 맞춰야 합니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap" id="holdingsWrap">
+          <table class="holdings-table">
+            <thead>
+              <tr>
+                <th>상태</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th class="right">수량</th>
+                <th class="right">평균단가</th>
+                <th class="right">현재가</th>
+                <th class="right">평가금액</th>
+                <th class="right">손익</th>
+                <th class="right">손익률</th>
+                <th class="right">비중</th>
+              </tr>
+            </thead>
+            <tbody id="holdingsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="state-line" id="pageState"></div>
+    </div>
+    <script src="./ops-unified-nav.js"></script>
+    <script src="./live-auto-trading.js"></script>
+  </body>
+</html>

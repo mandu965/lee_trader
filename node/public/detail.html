@@ -1,0 +1,1398 @@
+﻿
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>종목 상세</title>
+  <link rel="stylesheet" href="./ui-components.css">
+  <style>
+    :root {
+      --bg: #020617;
+      --bg2: #0b1120;
+      --s: #071121;
+      --s2: #0b172a;
+      --b: #1e293b;
+      --t: #e5e7eb;
+      --ts: #9ca3af;
+      --info: #60a5fa;
+      --success: #4ade80;
+      --warning: #fde047;
+      --danger: #fca5a5;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: radial-gradient(circle at top, var(--bg2) 0, var(--bg) 55%);
+      color: var(--t);
+      font-family: "Noto Sans KR", system-ui, sans-serif;
+    }
+    a { color: var(--info); text-decoration: none; }
+    .container { max-width: 1400px; margin: 24px auto; padding: 0 16px 32px; }
+    .top { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+    .top-actions { display: grid; gap: 10px; justify-items: end; }
+    .top-nav-links, .top-trade-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .top-nav-more { display: contents; }
+    .top-nav-more summary { display: none; }
+    .title { margin: 0; font-size: 22px; }
+    .sub { margin-top: 6px; color: var(--ts); font-size: 13px; }
+    .badge, .pill, .chip { display: inline-flex; align-items: center; min-height: 28px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--b); background: rgba(255,255,255,.04); color: var(--ts); font-size: 12px; font-weight: 600; }
+    .action-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.04);
+      color: var(--t);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .action-btn.buy { border-color: rgba(34,197,94,.28); background: rgba(34,197,94,.12); color: #86efac; }
+    .action-btn.sell { border-color: rgba(239,68,68,.28); background: rgba(239,68,68,.12); color: #fca5a5; }
+    .action-btn.nav-active { border-color: rgba(96,165,250,.34); background: rgba(96,165,250,.12); color: #bfdbfe; }
+    .layout { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 16px; align-items: start; }
+    .col { display: grid; gap: 16px; align-content: start; }
+    .panel { background: linear-gradient(135deg, var(--s) 0, var(--s2) 100%); border: 1px solid rgba(255,255,255,.05); border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px rgba(2,6,23,.45); align-self: start; }
+    .body { padding: 18px; }
+    .pt { margin: 0 0 14px; font-size: 15px; font-weight: 700; }
+    .hero-head, .metric-grid, .h-grid, .split, .reason-system, .score-explain-layout, .decision-grid, .quick-tech-grid, .raw-score-strip { display: grid; gap: 12px; }
+    .hero-head { grid-template-columns: 1fr auto; }
+    .metric-grid, .h-grid, .reason-system { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .decision-grid { grid-template-columns: 1.1fr .9fr; }
+    .split { grid-template-columns: 1.1fr .9fr; gap: 16px; }
+    .score-explain-layout { grid-template-columns: 1.15fr .85fr; }
+    .name { font-size: 24px; font-weight: 800; line-height: 1.1; }
+    .code, .meta, .date { margin-top: 4px; color: var(--ts); font-size: 13px; }
+    .scorebox, .metric, .hcard, .explain, .warnbox, .reason-box, .risk-warning, .confidence-note, .decision-box, .decision-kpi, .raw-score-item { padding: 14px 16px; border-radius: 12px; border: 1px solid var(--b); background: rgba(255,255,255,.03); }
+    .wide { grid-column: 1 / -1; }
+    .sl { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--ts); }
+    .sn { margin-top: 8px; font-size: 34px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .sc { margin-top: 6px; color: var(--ts); font-size: 12px; }
+    .high { color: var(--success); }
+    .medium { color: var(--warning); }
+    .low { color: var(--danger); }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip.good { color: var(--success); border-color: rgba(34,197,94,.3); background: rgba(34,197,94,.1); }
+    .chip.warn { color: var(--warning); border-color: rgba(250,204,21,.3); background: rgba(250,204,21,.1); }
+    .chip.bad { color: var(--danger); border-color: rgba(239,68,68,.3); background: rgba(239,68,68,.12); }
+    .explain, .warnbox, .confidence-note { color: var(--ts); font-size: 13px; line-height: 1.6; }
+    .reason-box.positive { border-color: rgba(34,197,94,.2); background: rgba(34,197,94,.06); }
+    .reason-box.caution { border-color: rgba(239,68,68,.2); background: rgba(239,68,68,.06); }
+    .reason-box.neutral { border-color: rgba(96,165,250,.18); background: rgba(96,165,250,.06); }
+    .reason-list { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+    .reason-list li { font-size: 13px; line-height: 1.55; }
+    .mv { margin-top: 8px; font-size: 22px; line-height: 1.1; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .ms { margin-top: 6px; font-size: 12px; color: var(--ts); line-height: 1.5; }
+    .hr { margin-top: 8px; font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .sm { margin-top: 10px; display: grid; gap: 8px; font-size: 13px; color: var(--ts); }
+    .sr { display: grid; grid-template-columns: 92px 1fr; gap: 12px; align-items: baseline; }
+    .sr strong { justify-self: end; color: var(--t); font-variant-numeric: tabular-nums; }
+    .factor-list { display: grid; gap: 8px; }
+    .factor-item { display: grid; grid-template-columns: 1fr 64px; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--b); border-radius: 12px; background: rgba(255,255,255,.03); }
+    .factor-main { display: grid; gap: 6px; }
+    .factor-head { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+    .factor-name { font-weight: 600; }
+    .factor-bar { height: 8px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; }
+    .factor-bar-fill { height: 100%; border-radius: 999px; }
+    .factor-item.positive .factor-bar-fill { background: linear-gradient(90deg, #22c55e, #60a5fa); }
+    .factor-item.negative .factor-bar-fill { background: linear-gradient(90deg, #fb7185, #ef4444); }
+    .factor-value { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .factor-empty { color: var(--ts); font-size: 13px; }
+    .rp.bull { color: var(--success); border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.12); }
+    .rp.defensive { color: var(--danger); border-color: rgba(239,68,68,.35); background: rgba(239,68,68,.12); }
+    .rp.neutral { color: var(--warning); border-color: rgba(250,204,21,.35); background: rgba(250,204,21,.10); }
+    .confidence-note { background: rgba(255,255,255,.02); }
+    .risk-warning { border-color: rgba(239,68,68,.24); background: linear-gradient(135deg, rgba(239,68,68,.08) 0, rgba(15,23,42,.22) 100%); }
+    .risk-warning__list { display: grid; gap: 8px; margin-top: 10px; }
+    .risk-warning__item { display: flex; gap: 8px; align-items: flex-start; color: var(--t); font-size: 13px; line-height: 1.5; }
+    .risk-warning__dot { width: 7px; height: 7px; margin-top: 6px; border-radius: 50%; background: rgba(248,113,113,.85); flex-shrink: 0; }
+    .risk-warning.good .risk-warning__dot { background: rgba(74,222,128,.8); }
+    .risk-warning.warn .risk-warning__dot { background: rgba(250,204,21,.85); }
+    .decision-box { background: linear-gradient(135deg, rgba(96,165,250,.08) 0, rgba(15,23,42,.24) 100%); border-color: rgba(96,165,250,.16); }
+    .decision-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .decision-title { display: grid; gap: 8px; }
+    .decision-label {
+      display: inline-flex;
+      align-items: center;
+      min-height: 30px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid currentColor;
+      width: fit-content;
+    }
+    .decision-label.review { color: var(--success); background: rgba(34,197,94,.10); }
+    .decision-label.watch { color: #7dd3fc; background: rgba(96,165,250,.10); }
+    .decision-label.caution { color: var(--warning); background: rgba(250,204,21,.10); }
+    .decision-label.hold { color: var(--danger); background: rgba(239,68,68,.10); }
+    .decision-line { font-size: 18px; font-weight: 800; line-height: 1.35; }
+    .decision-detail { color: var(--ts); font-size: 13px; line-height: 1.6; }
+    .decision-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .decision-kpi { background: rgba(255,255,255,.02); }
+    .decision-kpi__value { margin-top: 8px; font-size: 24px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .decision-kpi__meta { margin-top: 6px; color: var(--ts); font-size: 12px; line-height: 1.45; }
+    .decision-kpi__value.good { color: var(--success); }
+    .decision-kpi__value.warn { color: var(--warning); }
+    .decision-kpi__value.bad { color: var(--danger); }
+    .decision-kpi__value.soft { color: var(--t); }
+    .decision-side { display: grid; gap: 12px; }
+    .callout { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--b); font-size: 13px; line-height: 1.55; color: var(--t); }
+    .callout.good { border-color: rgba(34,197,94,.24); background: rgba(34,197,94,.08); }
+    .callout.warn { border-color: rgba(250,204,21,.22); background: rgba(250,204,21,.08); }
+    .callout.bad { border-color: rgba(239,68,68,.22); background: rgba(239,68,68,.08); }
+    .callout.info { border-color: rgba(125,211,252,.24); background: rgba(125,211,252,.08); }
+    .metric-grid.compact { gap: 10px; }
+    .metric-grid.compact .metric { padding: 12px 14px; }
+    .metric-grid.compact .mv { margin-top: 6px; font-size: 18px; }
+    .metric-grid.compact .ms { margin-top: 4px; font-size: 11px; line-height: 1.4; }
+    .metric-grid.compact .sl { font-size: 10px; }
+    .metric-grid.compact .metric.wide { padding: 12px 14px; }
+    .metric-inline {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+    .metric-inline .mv {
+      margin-top: 0;
+      font-size: 16px;
+    }
+    .metric-inline .ms {
+      margin-top: 0;
+    }
+    .calibration-note {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid rgba(125, 211, 252, 0.22);
+      background: rgba(125, 211, 252, 0.08);
+      color: var(--t);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .calibration-note strong { color: #7dd3fc; }
+    .raw-score-strip { grid-template-columns: 1fr 1fr; }
+    .raw-score-item { background: rgba(255,255,255,.02); }
+    .raw-score-item__value { margin-top: 8px; font-size: 22px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+    .raw-score-item__meta { margin-top: 6px; color: var(--ts); font-size: 12px; line-height: 1.5; }
+    .quick-tech-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .quick-tech { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--b); background: rgba(255,255,255,.02); }
+    .quick-tech__value { margin-top: 8px; font-size: 20px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+    .quick-tech__meta { margin-top: 6px; color: var(--ts); font-size: 12px; line-height: 1.45; }
+    .chart-shell { display: grid; gap: 10px; }
+    .chart-copy { color: var(--ts); font-size: 12px; line-height: 1.55; }
+    .history-details { border: 1px solid var(--b); border-radius: 12px; background: rgba(255,255,255,.02); overflow: hidden; }
+    .history-summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      color: var(--t);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .history-summary::-webkit-details-marker { display: none; }
+    .history-summary::after {
+      content: "펼치기";
+      color: var(--ts);
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .history-details[open] .history-summary::after { content: "접기"; }
+    .history-body { padding: 0 14px 14px; }
+    canvas { width: 100%; display: block; background: rgba(255,255,255,.02); border-radius: 12px; border: 1px solid var(--b); }
+    .legend { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 12px; color: var(--ts); font-size: 12px; }
+    .dot { display: inline-flex; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+    .wrap { max-height: 340px; overflow: auto; border: 1px solid var(--b); border-radius: 12px; background: rgba(255,255,255,.02); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.05); text-align: left; }
+    th { position: sticky; top: 0; background: #08111f; color: var(--ts); font-weight: 600; }
+    .status { margin-top: 10px; color: var(--ts); font-size: 12px; }
+    @media (max-width: 1080px) { .layout, .split, .reason-system, .score-explain-layout, .decision-grid, .decision-kpis, .quick-tech-grid, .raw-score-strip { grid-template-columns: 1fr; } }
+    @media (max-width: 768px) {
+      .container { padding: 0 12px 24px; }
+      .top { margin-bottom: 14px; }
+      .title { font-size: 20px; }
+      .body { padding: 14px; }
+      .name { font-size: 20px; }
+      .metric-grid, .h-grid { grid-template-columns: 1fr; }
+      .hero-head { grid-template-columns: 1fr; }
+      .mv, .hr { font-size: 20px; }
+      .decision-line { font-size: 16px; }
+      .wrap { max-height: 260px; }
+      th, td { padding: 9px 10px; }
+      .chip, .pill, .badge { min-height: 36px; }
+      .factor-item { grid-template-columns: 1fr 54px; }
+      .legend { gap: 8px; }
+      .top-actions { justify-items: stretch; }
+      .top-nav-links, .top-trade-actions {
+        justify-content: flex-start;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        padding-bottom: 4px;
+        -webkit-overflow-scrolling: touch;
+      }
+      .top-nav-links > *, .top-trade-actions > * { flex: 0 0 auto; }
+      .top-nav-more {
+        display: block;
+        width: 100%;
+        border: 1px solid rgba(255,255,255,.08);
+        border-radius: 12px;
+        background: rgba(255,255,255,.03);
+        overflow: hidden;
+      }
+      .top-nav-more summary {
+        display: block;
+        cursor: pointer;
+        padding: 10px 12px;
+        color: var(--ts);
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .top-nav-more summary::-webkit-details-marker { display: none; }
+      .top-nav-more[open] summary { border-bottom: 1px solid rgba(255,255,255,.08); }
+      .top-nav-links {
+        padding: 10px 12px 12px;
+      }
+    }
+    @media (max-width: 640px) { .sr { grid-template-columns: 86px 1fr; } }
+    @media (max-width: 430px) {
+      .container { margin: 14px auto; padding: 0 10px 20px; }
+      .title { font-size: 18px; }
+      .sub, .code, .meta, .date, .ms, .sc, .decision-detail, .raw-score-item__meta, .quick-tech__meta { font-size: 11px; }
+      .body, .scorebox, .metric, .hcard, .explain, .warnbox, .reason-box, .risk-warning, .confidence-note, .decision-box, .decision-kpi, .raw-score-item, .callout, .quick-tech {
+        padding: 12px;
+      }
+      .name { font-size: 18px; }
+      .sn { font-size: 26px; }
+      .decision-kpi__value, .raw-score-item__value, .quick-tech__value { font-size: 18px; }
+      .action-btn { min-height: 36px; padding: 0 12px; font-size: 12px; }
+    }
+    @media (max-width: 390px) {
+      .top-nav-links, .top-trade-actions { gap: 6px; }
+      .action-btn { min-height: 34px; padding: 0 10px; font-size: 11px; }
+      .chip, .pill, .badge { min-height: 30px; font-size: 11px; }
+      .decision-line { font-size: 15px; }
+      .reason-list li { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="top">
+      <div>
+        <h1 class="title"><a href="/app">오늘의 종목 추천</a> / 종목 상세</h1>
+        <div class="sub">이 종목을 오늘 어떻게 볼지, 왜 그런지, 어디를 조심해야 하는지 순서대로 읽습니다.</div>
+      </div>
+      <div class="top-actions">
+        <details class="top-nav-more" open>
+          <summary>화면 이동</summary>
+          <div class="top-nav-links">
+            <span class="action-btn nav-active">상세</span>
+            <a class="action-btn" href="/app">메인</a>
+            <a class="action-btn" href="./ranking.html">리서치 랭킹</a>
+            <a class="action-btn" href="./meaningfulness.html">리서치 리뷰</a>
+            <a id="detailOpsBtn" class="action-btn" href="./ops-readiness.html">운영자</a>
+            <a class="action-btn" href="./manual-trading.html">수동매매</a>
+            <a id="detailHoldingsBtn" class="action-btn" href="./holdings.html">보유종목</a>
+            <a class="action-btn" href="./paper-trading.html">모의투자</a>
+            <a id="detailTradeHistoryBtn" class="action-btn" href="./trade-history.html">매매 기록</a>
+            <button id="detailOperatorLoginBtn" class="action-btn" type="button" style="display:none;">운영자 로그인</button>
+          </div>
+        </details>
+        <div class="top-trade-actions">
+          <button id="detailBuyBtn" class="action-btn buy" type="button">매수</button>
+          <button id="detailSellBtn" class="action-btn sell" type="button">매도</button>
+          <div id="titleBadge" class="badge">종목코드: -</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <section class="col">
+        <article class="panel">
+          <div class="body">
+            <div class="hero-head">
+              <div>
+                <div id="stockName" class="name">-</div>
+                <div id="stockCode" class="code">-</div>
+                <div id="stockMeta" class="meta">-</div>
+                <div id="dataDate" class="date">기준일 -</div>
+              </div>
+              <div id="regimePill" class="pill rp">상태 없음</div>
+            </div>
+
+            <div class="decision-grid" style="margin-top:14px">
+              <div class="decision-box">
+                <div class="decision-head">
+                  <div class="decision-title">
+                    <div class="sl">오늘 판단</div>
+                    <div id="decisionBadge" class="decision-label caution">판단 계산 중</div>
+                    <div id="decisionLine" class="decision-line">현재 종목 판단을 정리하는 중입니다.</div>
+                    <div id="decisionDetail" class="decision-detail">점수, 신뢰도, 리스크를 함께 읽어 오늘 판단을 정리합니다.</div>
+                  </div>
+                </div>
+              </div>
+              <div class="decision-side">
+                <div id="marketGuideBox" class="callout warn">시장 상태와 종목 상태를 함께 해석하는 중입니다.</div>
+                <div id="riskGuideBox" class="callout bad">리스크 포인트를 정리하는 중입니다.</div>
+                <div id="buyEligibilityBox" class="callout info">절대 매수 판단 정보를 확인하는 중입니다.</div>
+                <div id="shadowGuardBox" class="callout info">shadow quality/risk guard 비교를 확인하는 중입니다.</div>
+                <div id="opsGuideBox" class="callout info">운영 기준선 상태를 확인하는 중입니다.</div>
+              </div>
+            </div>
+
+            <div class="decision-kpis" style="margin-top:12px">
+              <div class="decision-kpi">
+                <div class="sl">최종 점수</div>
+                <div id="finalScoreKpi" class="decision-kpi__value">-</div>
+                <div class="decision-kpi__meta">현재 추천 점수. 종목 간 상대순위 기준입니다.</div>
+              </div>
+              <div class="decision-kpi">
+                <div class="sl">신뢰도</div>
+                <div id="confidenceKpi" class="decision-kpi__value">-</div>
+                <div id="confidenceKpiMeta" class="decision-kpi__meta">모델 신뢰도 해석</div>
+                <div id="confidenceCalibrationNote" class="calibration-note">보정 해석 정보를 확인하는 중입니다.</div>
+              </div>
+              <div class="decision-kpi">
+                <div class="sl">60일 손익 예상</div>
+                <div id="rewardRiskKpi" class="decision-kpi__value">-</div>
+                <div id="rewardRiskKpiMeta" class="decision-kpi__meta">기대수익과 예상 MDD를 함께 봅니다.</div>
+              </div>
+            </div>
+
+            <div class="raw-score-strip">
+              <div class="raw-score-item">
+                <div class="sl">원본 점수 확인</div>
+                <div id="finalScore" class="raw-score-item__value">-</div>
+                <div class="raw-score-item__meta">최종 점수 원본값</div>
+              </div>
+              <div class="raw-score-item">
+                <div class="sl">원본 신뢰도 확인</div>
+                <div id="confidenceRaw" class="raw-score-item__value">-</div>
+                <div id="confidenceStatusText" class="raw-score-item__meta">모델 신뢰도 상태를 계산 중입니다.</div>
+              </div>
+            </div>
+
+            <h2 class="pt">핵심 근거</h2>
+            <div id="reasonChips" class="chips"></div>
+
+            <h2 class="pt">좋은 점과 주의할 점</h2>
+            <div class="reason-system">
+              <div class="reason-box positive">
+                <div class="sl">좋은 점</div>
+                <ul id="reasonPositive" class="reason-list"><li>추천 이유를 계산 중입니다.</li></ul>
+              </div>
+              <div class="reason-box caution">
+                <div class="sl">주의할 점</div>
+                <ul id="reasonCaution" class="reason-list"><li>주의 요인을 계산 중입니다.</li></ul>
+              </div>
+            </div>
+
+            <h2 class="pt">종합 해석</h2>
+            <div id="scoreExplain" class="explain">설명 정보가 없습니다.</div>
+
+            <h2 class="pt">리스크 요약</h2>
+            <div id="warningBox" class="risk-warning">
+              <div class="sl">주의 신호</div>
+              <div id="warningList" class="risk-warning__list">
+                <div class="risk-warning__item"><span class="risk-warning__dot"></span><span>경고 정보를 계산 중입니다.</span></div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="body">
+            <h2 class="pt">Horizon별 예측 요약</h2>
+            <div class="h-grid">
+              <div class="hcard">
+                <div class="sl">60일 기준</div>
+                <div id="pred60" class="hr">-</div>
+                <div class="sm">
+                  <div class="sr"><span>예상 수익률</span><strong id="pred60Echo">-</strong></div>
+                  <div class="sr"><span>상위 20 진입 확률</span><strong id="prob60">-</strong></div>
+                  <div class="sr"><span>예상 MDD</span><strong id="mdd60">-</strong></div>
+                </div>
+              </div>
+              <div class="hcard">
+                <div class="sl">90일 기준</div>
+                <div id="pred90" class="hr">-</div>
+                <div class="sm">
+                  <div class="sr"><span>예상 수익률</span><strong id="pred90Echo">-</strong></div>
+                  <div class="sr"><span>상위 20 진입 확률</span><strong id="prob90">-</strong></div>
+                  <div class="sr"><span>예상 MDD</span><strong id="mdd90">-</strong></div>
+                </div>
+              </div>
+            </div>
+            <div class="metric wide" style="margin-top:12px">
+              <div class="sl">예측 해석</div>
+              <div id="predExplain" class="ms">예측 요약 정보가 없습니다.</div>
+            </div>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="body">
+            <h2 class="pt">점수 기여도 분해</h2>
+            <div id="scoreBreakdownWidget"></div>
+            <div class="score-explain-layout" style="margin-top:12px">
+              <div>
+                <div class="sl">가산 요인</div>
+                <div id="positiveFactors" class="factor-list"></div>
+              </div>
+              <div>
+                <div class="sl">감점 요인</div>
+                <div id="negativeFactors" class="factor-list"></div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="col">
+        <article class="panel">
+          <div class="body">
+            <h2 class="pt">세부 해석 대시보드</h2>
+            <div class="metric-grid compact">
+              <div class="metric">
+                <div class="sl">차트/추세 해석</div>
+                <div id="techScoreMetric" class="mv">-</div>
+                <div id="techExplain" class="ms">기술 점수 정보 없음</div>
+              </div>
+              <div class="metric">
+                <div class="sl">기초체력</div>
+                <div id="qualScoreMetric" class="mv">-</div>
+                <div id="qualExplain" class="ms">품질 점수 정보 없음</div>
+              </div>
+              <div class="metric">
+                <div class="sl">연구 참고 점수</div>
+                <div id="predScoreMetric" class="mv">-</div>
+                <div id="predScoreExplain" class="ms">보조 비교값 정보 없음</div>
+              </div>
+              <div class="metric">
+                <div class="sl">감점 요인</div>
+                <div id="riskPenaltyMetric" class="mv">-</div>
+                <div id="riskPenaltyExplain" class="ms">리스크 패널티 정보 없음</div>
+              </div>
+              <div class="metric wide metric-inline">
+                <div>
+                  <div class="sl">신뢰도 설명</div>
+                  <div id="confidenceExplainScore" class="mv">-</div>
+                </div>
+                <div id="confidenceExplain" class="ms">신뢰도 설명 정보를 계산 중입니다.</div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="body">
+            <h2 class="pt">기술 상태와 가격 흐름</h2>
+            <div class="quick-tech-grid" style="margin-bottom:12px">
+              <div class="quick-tech">
+                <div class="sl">현재가</div>
+                <div id="closePriceQuick" class="quick-tech__value">-</div>
+                <div id="closeMetaQuick" class="quick-tech__meta">가격 기준 정보 없음</div>
+              </div>
+              <div class="quick-tech">
+                <div class="sl">이동평균 정렬</div>
+                <div id="maSummaryQuick" class="quick-tech__value">-</div>
+                <div id="maExplainQuick" class="quick-tech__meta">이평 상태를 해석합니다.</div>
+              </div>
+              <div class="quick-tech">
+                <div class="sl">RSI(14)</div>
+                <div id="rsiQuick" class="quick-tech__value">-</div>
+                <div id="rsiQuickMeta" class="quick-tech__meta">과열/중립/과매도를 봅니다.</div>
+              </div>
+              <div class="quick-tech">
+                <div class="sl">변동성(20)</div>
+                <div id="volQuick" class="quick-tech__value">-</div>
+                <div id="volQuickMeta" class="quick-tech__meta">진입 부담과 흔들림을 봅니다.</div>
+              </div>
+            </div>
+            <div class="split">
+              <div>
+                <div class="chart-shell">
+                  <div class="chart-copy">차트는 현재 판단을 보조 검증하는 용도입니다. 우선은 위 숫자 요약을 먼저 읽고, 그 다음 추세 정렬을 확인하는 흐름이 적절합니다.</div>
+                  <canvas id="chart" width="900" height="300"></canvas>
+                  <div class="legend">
+                    <span><span class="dot" style="background:#e5e7eb"></span>Close</span>
+                    <span><span class="dot" style="background:#60a5fa"></span>MA5</span>
+                    <span><span class="dot" style="background:#f59e0b"></span>MA20</span>
+                    <span><span class="dot" style="background:#22c55e"></span>MA60</span>
+                  </div>
+                </div>
+              </div>
+              <div class="metric-grid">
+                <div class="metric">
+                  <div class="sl">현재가</div>
+                  <div id="closePrice" class="mv">-</div>
+                  <div id="closeMeta" class="ms">가격 기준 정보 없음</div>
+                </div>
+                <div class="metric">
+                  <div class="sl">MA5 / MA20 / MA60</div>
+                  <div id="maSummary" class="mv">-</div>
+                  <div class="ms">이동평균 정렬 상태 확인</div>
+                </div>
+                <div class="metric">
+                  <div class="sl">RSI(14)</div>
+                  <div id="rsiValue" class="mv">-</div>
+                  <div id="rsiExplain" class="ms">RSI 정보 없음</div>
+                </div>
+                <div class="metric">
+                  <div class="sl">변동성(20)</div>
+                  <div id="volValue" class="mv">-</div>
+                  <div id="volExplain" class="ms">변동성 정보 없음</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="body">
+            <h2 class="pt">원시 가격 데이터</h2>
+            <details class="history-details">
+              <summary class="history-summary">가격 히스토리 펼쳐보기</summary>
+              <div class="history-body">
+                <div class="chart-copy" style="margin-bottom:10px">이 구간은 세부 검증용입니다. 일일 가격과 RSI 숫자를 직접 확인해야 할 때만 펼쳐서 보면 됩니다.</div>
+                <div class="wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>날짜</th>
+                        <th style="text-align:right;">종가</th>
+                        <th style="text-align:right;">MA20</th>
+                        <th style="text-align:right;">RSI</th>
+                      </tr>
+                    </thead>
+                    <tbody id="priceTable"></tbody>
+                  </table>
+                </div>
+              </div>
+            </details>
+            <div id="status" class="status">/api/stocks/:code 불러오는 중..</div>
+          </div>
+        </article>
+      </section>
+    </div>
+  </div>
+
+  <div id="tradeOverlay" style="display:none;position:fixed;inset:0;background:rgba(2,6,23,.72);z-index:1000;padding:16px;">
+    <div class="panel" style="width:min(420px, calc(100vw - 24px)); margin:auto;">
+      <div class="body">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+          <div id="tradeModalTitle" class="title" style="font-size:18px;">매수 입력</div>
+          <button class="action-btn" type="button" onclick="closeTradeModal()">닫기</button>
+        </div>
+        <div id="tradeInfo" class="sub" style="margin-top:10px;">-</div>
+        <div style="display:grid;gap:10px;margin-top:16px;">
+          <label>
+            <div class="sub" style="margin-bottom:6px;">날짜</div>
+            <input id="tradeDate" type="date" style="width:100%;min-height:40px;border-radius:10px;border:1px solid var(--b);background:rgba(255,255,255,.03);color:var(--t);padding:0 12px;">
+          </label>
+          <label>
+            <div class="sub" style="margin-bottom:6px;">수량</div>
+            <input id="tradeQty" type="number" min="1" style="width:100%;min-height:40px;border-radius:10px;border:1px solid var(--b);background:rgba(255,255,255,.03);color:var(--t);padding:0 12px;">
+          </label>
+          <label>
+            <div class="sub" style="margin-bottom:6px;">가격</div>
+            <input id="tradePrice" type="number" min="1" style="width:100%;min-height:40px;border-radius:10px;border:1px solid var(--b);background:rgba(255,255,255,.03);color:var(--t);padding:0 12px;">
+          </label>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+          <button class="action-btn" type="button" onclick="closeTradeModal()">취소</button>
+          <button class="action-btn buy" type="button" onclick="saveTrade()">저장</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./ui-components.js"></script>
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const q = (n) => new URLSearchParams(location.search).get(n);
+    let tradeCtx = { side: "BUY", code: "", name: "" };
+    let operatorAuth = { enabled: false, authorized: true };
+    const escapeHtml = (value) => String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll("\"", "&quot;")
+      .replaceAll("'", "&#39;");
+    const fmtNum = (x) => Number.isFinite(Number(x)) ? Number(x).toLocaleString("ko-KR") : "-";
+    const fmt1 = (x) => Number.isFinite(Number(x)) ? Number(x).toFixed(1) : "-";
+    const fmt2 = (x) => Number.isFinite(Number(x)) ? Number(x).toFixed(2) : "-";
+    const fmtPct = (x) => Number.isFinite(Number(x)) ? `${(Number(x) * 100).toFixed(1)}%` : "-";
+    const fmtDateLabel = (value) => {
+      if (!value) return "-";
+      const raw = String(value);
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return raw.slice(0, 10);
+      return new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "Asia/Seoul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(date);
+    };
+    function operatorLoginUrl() {
+      return `/operator-login?next=${encodeURIComponent(location.pathname + location.search)}`;
+    }
+    function applyOperatorUi() {
+      const showOperator = !operatorAuth.enabled || operatorAuth.authorized;
+      ["detailOpsBtn", "detailBuyBtn", "detailSellBtn"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = showOperator ? "" : "none";
+      });
+      const loginBtn = document.getElementById("detailOperatorLoginBtn");
+      if (loginBtn) {
+        loginBtn.style.display = operatorAuth.enabled ? "" : "none";
+        loginBtn.textContent = operatorAuth.authorized ? "운영자 로그아웃" : "운영자 로그인";
+      }
+    }
+    async function fetchOperatorAuthStatus() {
+      try {
+        const res = await fetch("/api/operator-auth/status");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        operatorAuth = await res.json();
+      } catch (e) {
+        console.warn("operator auth status load fail", e);
+        operatorAuth = { enabled: false, authorized: true };
+      }
+      applyOperatorUi();
+    }
+    async function operatorLogout() {
+      try {
+        await fetch("/api/operator-auth/logout", { method: "POST" });
+      } catch (e) {
+        console.warn("operator logout fail", e);
+      }
+      operatorAuth = { enabled: true, authorized: false };
+      applyOperatorUi();
+    }
+    const tone = (v) => {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return "";
+      if (n >= 75) return "high";
+      if (n >= 50) return "medium";
+      return "low";
+    };
+    const rsiBand = (r) => !Number.isFinite(r) ? "정보 없음" : r < 30 ? "과매도" : r > 70 ? "과열" : "중립";
+    const volBand = (v) => !Number.isFinite(v) ? "정보 없음" : v >= .04 ? "높음" : v >= .025 ? "보통" : "낮음";
+    const probBand = (p) => !Number.isFinite(p) ? "정보 없음" : p >= .7 ? "높음" : p >= .4 ? "중간" : "낮음";
+    const explainLabels = {
+      contrib_ret: "예측 수익률",
+      contrib_prob: "상위 진입 확률",
+      contrib_qual: "품질 점수",
+      contrib_tech: "기술 점수",
+      contrib_safety: "안정성",
+      contrib_liquidity: "유동성",
+      contrib_penalty: "리스크 패널티"
+    };
+    let confidenceCalibration = null;
+    let scoreKpiMonitor = null;
+
+    function confidenceFallbackText(d) {
+      const raw = String(d.confidence_explain_text || "").trim();
+      if (raw) return raw;
+      const score = Number(d.confidence_score);
+      if (!Number.isFinite(score)) return "설명 데이터 부족";
+      if (score <= 0) return "모델 신뢰도 초기 단계입니다.";
+      if (score < 50) return "백테스트 축적이 부족해 보수적으로 봐야 합니다.";
+      return "추가 데이터 축적 필요";
+    }
+
+    function getCalibrationBucket(score) {
+      const items = Array.isArray(confidenceCalibration?.bucket_map) ? confidenceCalibration.bucket_map : [];
+      const n = Number(score);
+      if (!Number.isFinite(n)) return null;
+      return items.find((item) => {
+        const low = Number(item.bucket_low);
+        const high = Number(item.bucket_high);
+        if (!Number.isFinite(low) || !Number.isFinite(high)) return false;
+        return low === 0 ? n >= low && n <= high : n > low && n <= high;
+      }) || null;
+    }
+
+    function getCalibrationView(score) {
+      const summary = confidenceCalibration?.summary;
+      const bucket = getCalibrationBucket(score);
+      if (!summary || !bucket) return null;
+      return {
+        sourceMode: String(summary.source_mode || ""),
+        sourceLabel: String(summary.source_label || ""),
+        confidenceKind: String(summary.confidence_kind || ""),
+        calibratedScore: Number(bucket.calibrated_confidence_score),
+        band: String(bucket.calibrated_confidence_band || "unknown").toLowerCase(),
+        bucketLabel: String(bucket.bucket_label || ""),
+        status: String(bucket.status || ""),
+        isProvisional: String(summary.source_mode || "") === "walkforward_provisional",
+      };
+    }
+
+    function calibrationBandText(view) {
+      if (!view) return "정보 없음";
+      if (view.band === "high") return "보정상 높음";
+      if (view.band === "medium") return "보정상 중간";
+      if (view.band === "low") return "보정상 낮음";
+      return "보정 정보 없음";
+    }
+
+    function getScoreKpiMetric(metric) {
+      return scoreKpiMonitor?.metric_map?.[metric] || null;
+    }
+
+    function getOverallStatusText(status) {
+      if (status === "GOOD") return "안정";
+      if (status === "WATCH") return "경계";
+      if (status === "ALERT") return "점검 필요";
+      return "정보 없음";
+    }
+
+    function getCalibrationSourceText(sourceMode) {
+      if (sourceMode === "walkforward_provisional") return "WF 임시 보정";
+      if (sourceMode === "snapshot_operational") return "일일 스냅샷";
+      return sourceMode || "정보 없음";
+    }
+
+    function formatKpiValue(metric) {
+      if (!metric) return "-";
+      const raw = Number(metric.value);
+      if (Number.isFinite(raw)) {
+        if (String(metric.metric || "").includes("return") || String(metric.metric || "").includes("rate")) {
+          return fmtPct(raw);
+        }
+        return Number.isInteger(raw) ? `${raw}` : raw.toFixed(2);
+      }
+      return String(metric.value_display || "-");
+    }
+
+    function getRegimeMeta(regimeRaw) {
+      const regime = String(regimeRaw || "").toLowerCase();
+      if (regime === "bull") return { key: "bull", label: "강세 장세", guide: "상방 후보를 더 적극적으로 볼 수 있는 구간입니다." };
+      if (regime === "defensive") return { key: "defensive", label: "방어 장세", guide: "추격보다 선별과 방어를 우선하는 구간입니다." };
+      return { key: "neutral", label: "중립 장세", guide: "공격과 방어를 균형 있게 보는 구간입니다." };
+    }
+
+    function getActionState(d) {
+      const score = Number(d.final_score_rank);
+      const confidence = Number(d.confidence_score);
+      const penalty = Number(d.risk_penalty);
+      const ret60 = Number(d.pred_return_60d);
+      const calibration = getCalibrationView(d.confidence_score);
+      if (calibration?.isProvisional && calibration.band === "low" && Number.isFinite(confidence) && confidence < 65) {
+        return { label: "보조 검토", cls: "caution", detail: "원 신뢰도는 있으나 provisional 보정상 확신은 아직 보조 수준입니다." };
+      }
+      if (Number.isFinite(score) && Number.isFinite(confidence) && Number.isFinite(penalty) && Number.isFinite(ret60)) {
+        if (score >= 68 && confidence >= 80 && penalty < 6 && ret60 >= 0.10) {
+          return { label: "우선 검토", cls: "review", detail: "점수, 신뢰도, 손익비 균형이 가장 양호한 편입니다." };
+        }
+        if (confidence >= 72 && penalty < 10 && ret60 >= 0.06) {
+          return { label: "관심 유지", cls: "watch", detail: "좋은 후보지만 바로 추격보다 보조 지표 확인이 더 필요합니다." };
+        }
+      }
+      if (Number.isFinite(penalty) && penalty >= 10) {
+        return { label: "주의 관찰", cls: "hold", detail: "감점 요인이 커서 지금은 관찰 우선으로 보는 편이 맞습니다." };
+      }
+      return { label: "보조 검토", cls: "caution", detail: "핵심 후보는 아니지만 추적 가치는 있는 종목입니다." };
+    }
+
+    function buildDecisionLine(d) {
+      const action = getActionState(d);
+      const ret60 = Number(d.pred_return_60d);
+      const mdd = Number(d.pred_mdd_60d);
+      const shadowDelta = Number(d.shadow_quality_risk_guard_rank_delta);
+      const parts = [action.detail];
+      if (Number.isFinite(ret60)) parts.push(`60일 기대수익 ${fmtPct(ret60)}`);
+      if (Number.isFinite(mdd)) parts.push(`예상 MDD ${fmtPct(mdd)}`);
+      if (Number.isFinite(shadowDelta) && shadowDelta > 0) parts.push(`shadow guard +${Math.round(shadowDelta)}위 개선`);
+      return parts.join(" · ");
+    }
+
+    function confidenceTone(score) {
+      if (!Number.isFinite(score)) return "soft";
+      if (score >= 80) return "good";
+      if (score >= 60) return "warn";
+      return "bad";
+    }
+
+    function rewardRiskTone(ret60, mdd60) {
+      if (!Number.isFinite(ret60) || !Number.isFinite(mdd60)) return "soft";
+      if (ret60 >= 0.10 && mdd60 > -0.15) return "good";
+      if (ret60 >= 0.05 && mdd60 > -0.20) return "warn";
+      return "bad";
+    }
+
+    function reasons(d) {
+      const items = [
+        { label: "예측 수익", value: Number(d.ret_score) },
+        { label: "확률", value: Number(d.prob_score) },
+        { label: "품질", value: Number(d.qual_score) },
+        { label: "기술", value: Number(d.tech_score) }
+      ];
+      const shadowDelta = Number(d.shadow_quality_risk_guard_rank_delta);
+      const shadowPenalty = Number(d.shadow_quality_risk_guard_penalty);
+      if (Number.isFinite(shadowDelta) && shadowDelta > 0) {
+        items.push({ label: "Shadow 개선", value: Math.min(99, 60 + shadowDelta) });
+      }
+      if (Number.isFinite(shadowPenalty) && shadowPenalty > 0) {
+        items.push({ label: "Guard 경고", value: Math.max(0, 70 - shadowPenalty * 3) });
+      }
+      return items.filter((x) => Number.isFinite(x.value))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 3)
+        .map((x) => {
+          if (x.label === "Guard 경고") return { ...x, cls: "bad" };
+          if (x.label === "Shadow 개선") return { ...x, cls: "good" };
+          return { ...x, cls: x.value >= 70 ? "good" : x.value >= 50 ? "warn" : "" };
+        });
+    }
+
+    function warns(d) {
+      const items = [];
+      const rp = Number(d.risk_penalty);
+      const m60 = Number(d.pred_mdd_60d);
+      const c = Number(d.confidence_score);
+      const p60 = Number(d.prob_top20_60d);
+      if (Number.isFinite(c) && c < 50) items.push({ text: "신뢰도가 낮아 숫자를 그대로 믿기보다 보수 해석이 필요합니다.", cls: "bad" });
+      else if (!Number.isFinite(c)) items.push({ text: "신뢰도 정보가 부족해 보조 판단이 필요합니다.", cls: "warn" });
+      if (!String(d.confidence_explain_text || "").trim()) items.push({ text: confidenceFallbackText(d), cls: "warn" });
+      if (Number.isFinite(p60) && p60 < .3) items.push({ text: "상위권 유지 확률이 낮아 순위 변동 가능성이 있습니다.", cls: "warn" });
+      if (Number.isFinite(rp) && rp >= 10) items.push({ text: `리스크 패널티 ${rp.toFixed(1)}점이 반영돼 감점 영향이 큽니다.`, cls: "bad" });
+      if (Number.isFinite(m60) && m60 <= -.2) items.push({ text: `60일 예상 MDD가 ${fmtPct(m60)}로 커서 추격 진입은 부담이 있습니다.`, cls: "warn" });
+      if (!items.length) items.push({ text: "현재 확인된 주요 리스크 경고는 제한적입니다.", cls: "good" });
+      return items.slice(0, 4);
+    }
+
+    function buildReasonSystem(d) {
+      const positive = [];
+      const caution = [];
+      const reg = (d.regime || "").toString().toLowerCase();
+      const ret = Number(d.ret_score);
+      const prob = Number(d.prob_score);
+      const qual = Number(d.qual_score);
+      const tech = Number(d.tech_score);
+      const safe = Number(d.safety_score);
+      const conf = Number(d.confidence_score);
+      const pen = Number(d.risk_penalty);
+      if (Number.isFinite(qual) && qual >= 80) positive.push("높은 품질 점수");
+      if (Number.isFinite(ret) && ret >= 70) positive.push("예측 수익 기대치 우수");
+      if (Number.isFinite(safe) && safe >= 80) positive.push("안정성 점수 우수");
+      if (reg === "defensive" && Number.isFinite(safe) && safe >= 70) positive.push("방어 장세에 상대적으로 유리");
+      if (Number.isFinite(prob) && prob >= 65) positive.push("상위 진입 확률 양호");
+      if (Number.isFinite(tech) && tech >= 65) positive.push("기술 신호 양호");
+      if (Number.isFinite(Number(d.shadow_quality_risk_guard_rank_delta)) && Number(d.shadow_quality_risk_guard_rank_delta) > 0) {
+        positive.push(`shadow guard 기준 순위 개선 여지 +${Math.round(Number(d.shadow_quality_risk_guard_rank_delta))}`);
+      }
+      if (Number.isFinite(prob) && prob < 35) caution.push("확률 신호는 보조 수준");
+      if (Number.isFinite(tech) && tech < 45) caution.push("기술 신호는 보조 수준");
+      if (Number.isFinite(conf) && conf < 50) caution.push("신뢰도가 낮아 보수적 해석이 필요");
+      if (!Number.isFinite(conf)) caution.push("신뢰도 데이터가 부족함");
+      if (Number.isFinite(pen) && pen >= 8) caution.push("감점 요인이 반영됨");
+      if (Number.isFinite(Number(d.shadow_quality_risk_guard_penalty)) && Number(d.shadow_quality_risk_guard_penalty) > 0) {
+        caution.push(`shadow guard 추가 penalty ${Number(d.shadow_quality_risk_guard_penalty).toFixed(1)} 확인 필요`);
+      }
+      if (!positive.length && d.top_positive_factor) positive.push("상위 기여 요인 중심");
+      if (!caution.length && d.top_negative_factor) caution.push("주의 요인 확인 필요");
+      return { positive: positive.slice(0, 3), caution: caution.slice(0, 3) };
+    }
+
+    function renderReasonSystem(d) {
+      const info = buildReasonSystem(d);
+      const pos = $("#reasonPositive");
+      const cau = $("#reasonCaution");
+      if (pos) pos.innerHTML = info.positive.length ? info.positive.map((x) => `<li>${x}</li>`).join("") : "<li>추천 이유 데이터가 부족합니다.</li>";
+      if (cau) cau.innerHTML = info.caution.length ? info.caution.map((x) => `<li>${x}</li>`).join("") : "<li>현재 확인된 주의 요인은 제한적입니다.</li>";
+    }
+
+    function predExplain(d) {
+      const parts = [];
+      const p60 = Number(d.pred_return_60d);
+      const p90 = Number(d.pred_return_90d);
+      const pr = Number(d.prob_top20_60d);
+      const m = Number(d.pred_mdd_60d);
+      if (Number.isFinite(p60)) parts.push(`60일 기대수익은 ${fmtPct(p60)}입니다.`);
+      if (Number.isFinite(p90)) parts.push(`90일 기대수익은 ${fmtPct(p90)}입니다.`);
+      if (Number.isFinite(pr)) parts.push(`Top20 진입 확률은 ${probBand(pr)} 구간입니다.`);
+      if (Number.isFinite(m)) parts.push(`60일 예상 하락폭은 ${fmtPct(m)} 수준입니다.`);
+      return parts.length ? parts.join(" ") : "예측 관련 필드가 아직 없습니다.";
+    }
+    function techExplain(lat) {
+      if (!lat) return "기술 지표 데이터가 없습니다.";
+      const a = Number(lat.ma_5);
+      const b = Number(lat.ma_20);
+      const c = Number(lat.ma_60);
+      const r = Number(lat.rsi_14);
+      const parts = [];
+      if ([a, b, c].every(Number.isFinite)) {
+        if (a >= b && b >= c) parts.push("이동평균은 정배열에 가깝습니다.");
+        else if (a < b && b < c) parts.push("이동평균은 역배열에 가깝습니다.");
+        else parts.push("이동평균은 혼조 상태입니다.");
+      }
+      if (Number.isFinite(r)) parts.push(`RSI는 ${rsiBand(r)} 구간입니다.`);
+      return parts.length ? parts.join(" ") : "기술 지표 해석 정보가 부족합니다.";
+    }
+
+    function maAlignmentText(lat) {
+      const a = Number(lat?.ma_5);
+      const b = Number(lat?.ma_20);
+      const c = Number(lat?.ma_60);
+      if (![a, b, c].every(Number.isFinite)) return "정보 없음";
+      if (a >= b && b >= c) return "정배열";
+      if (a < b && b < c) return "역배열";
+      return "혼조";
+    }
+
+    function explainFactors(d) {
+      const keys = ["contrib_ret", "contrib_prob", "contrib_qual", "contrib_tech", "contrib_safety", "contrib_liquidity", "contrib_penalty"];
+      return keys.map((k) => ({ key: k, label: explainLabels[k] || k, value: Number(d[k]) }))
+        .filter((x) => Number.isFinite(x.value));
+    }
+
+    function renderFactorList(elId, items, type) {
+      const el = $(elId);
+      if (!el) return;
+      if (!items.length) {
+        el.innerHTML = '<div class="factor-empty">표시할 기여도 정보가 없습니다.</div>';
+        return;
+      }
+      const max = Math.max(...items.map((x) => Math.abs(x.value)), 1);
+      el.innerHTML = items.map((item) => {
+        const width = Math.max(8, (Math.abs(item.value) / max) * 100);
+        return `
+          <div class="factor-item ${type}">
+            <div class="factor-main">
+              <div class="factor-head">
+                <span class="factor-name">${item.label}</span>
+                <span>${item.value >= 0 ? "+" : ""}${item.value.toFixed(1)}</span>
+              </div>
+              <div class="factor-bar"><div class="factor-bar-fill" style="width:${width}%"></div></div>
+            </div>
+            <div class="factor-value">${item.value >= 0 ? "+" : ""}${item.value.toFixed(1)}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function renderExplainability(d) {
+      const factors = explainFactors(d);
+      const positive = factors.filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
+      const negative = factors.filter((x) => x.value < 0).sort((a, b) => a.value - b.value);
+      renderFactorList("#positiveFactors", positive, "positive");
+      renderFactorList("#negativeFactors", negative, "negative");
+    }
+
+    function drawGrid(ctx, w, h) {
+      ctx.strokeStyle = "rgba(148,163,184,0.15)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i <= 5; i++) {
+        const y = Math.round((h / 5) * i);
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+      }
+      ctx.stroke();
+    }
+
+    function scaleY(values, h, pad = 24) {
+      const arr = values.filter(Number.isFinite);
+      const min = Math.min(...arr);
+      const max = Math.max(...arr);
+      const span = max - min || 1;
+      return (v) => !Number.isFinite(v) ? null : Math.round((1 - (v - min) / span) * (h - pad * 2) + pad);
+    }
+
+    function drawSeries(ctx, xs, ys, color, width = 1.6) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      let started = false;
+      for (let i = 0; i < xs.length; i++) {
+        const y = ys[i];
+        if (y == null) { started = false; continue; }
+        if (!started) { ctx.moveTo(xs[i], y); started = true; }
+        else ctx.lineTo(xs[i], y);
+      }
+      ctx.stroke();
+    }
+
+    function renderChart(rows) {
+      const c = $("#chart");
+      if (!c || !rows.length) return;
+      const ctx = c.getContext("2d");
+      const w = c.width;
+      const h = c.height;
+      ctx.clearRect(0, 0, w, h);
+      drawGrid(ctx, w, h);
+      const close = rows.map((r) => Number(r.close));
+      const ma5 = rows.map((r) => Number(r.ma_5));
+      const ma20 = rows.map((r) => Number(r.ma_20));
+      const ma60 = rows.map((r) => Number(r.ma_60));
+      const all = [...close, ...ma5, ...ma20, ...ma60].filter(Number.isFinite);
+      const toY = scaleY(all, h);
+      const padX = 32;
+      const step = (w - padX * 2) / Math.max(1, rows.length - 1);
+      const xs = Array.from({ length: rows.length }, (_, i) => Math.round(padX + i * step));
+      drawSeries(ctx, xs, ma60.map((v) => toY(v)), "#22c55e");
+      drawSeries(ctx, xs, ma20.map((v) => toY(v)), "#f59e0b");
+      drawSeries(ctx, xs, ma5.map((v) => toY(v)), "#60a5fa");
+      drawSeries(ctx, xs, close.map((v) => toY(v)), "#e5e7eb", 1.9);
+    }
+
+    async function fetchDetail(code) {
+      $("#status").textContent = "/api/stocks/:code 불러오는 중..";
+      try {
+        const res = await fetch(`/api/stocks/${encodeURIComponent(code)}?limit=90`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        $("#status").textContent = `최근 ${data.count}개 가격 데이터`;
+        return data;
+      } catch (e) {
+        $("#status").textContent = `오류: ${e.message}`;
+        return null;
+      }
+    }
+
+    async function fetchConfidenceCalibration() {
+      try {
+        const res = await fetch("/api/confidence-calibration");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        confidenceCalibration = await res.json();
+      } catch (e) {
+        console.warn("confidence calibration load fail", e);
+        confidenceCalibration = null;
+      }
+    }
+
+    async function fetchScoreKpiMonitor() {
+      try {
+        const res = await fetch("/api/score-kpi-monitor");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        scoreKpiMonitor = await res.json();
+      } catch (e) {
+        console.warn("score kpi monitor load fail", e);
+        scoreKpiMonitor = null;
+      }
+    }
+
+    function openTradeModal(side, code, name) {
+      if (operatorAuth.enabled && !operatorAuth.authorized) {
+        location.href = operatorLoginUrl();
+        return;
+      }
+      tradeCtx = { side, code, name };
+      const today = new Date();
+      $("#tradeModalTitle").textContent = side === "BUY" ? "매수 입력" : "매도 입력";
+      $("#tradeInfo").textContent = `${name} (${code})`;
+      $("#tradeDate").value = today.toISOString().slice(0, 10);
+      $("#tradeQty").value = "";
+      $("#tradePrice").value = "";
+      $("#tradeOverlay").style.display = "flex";
+    }
+
+    function closeTradeModal() {
+      $("#tradeOverlay").style.display = "none";
+    }
+
+    function buyEligibilityLabel(status) {
+      if (status === "BUY_ALLOWED") return "매수 가능";
+      if (status === "WATCH") return "관찰";
+      if (status === "BLOCK") return "차단";
+      return "미정";
+    }
+
+    function buyEligibilityTone(status) {
+      if (status === "BUY_ALLOWED") return "good";
+      if (status === "WATCH") return "warn";
+      if (status === "BLOCK") return "bad";
+      return "info";
+    }
+
+    function buildBuyEligibilityView(d) {
+      const status = String(d.buy_eligibility_status || "").toUpperCase();
+      const score = Number(d.buy_eligibility_score);
+      const hard = Array.isArray(d.buy_eligibility_hard_block_reasons) ? d.buy_eligibility_hard_block_reasons : [];
+      const caution = Array.isArray(d.buy_eligibility_caution_reasons) ? d.buy_eligibility_caution_reasons : [];
+      const primaryReasons = (hard.length ? hard : caution).slice(0, 2);
+      const selectionStatus = String(d.buyability_status || "").toUpperCase();
+      const selectionTier = String(d.buyability_watchlist_tier || "").toUpperCase();
+
+      let summary = "절대 매수 판단 정보가 아직 없습니다.";
+      if (status === "BUY_ALLOWED") {
+        summary = "추천 점수뿐 아니라 절대 기준도 통과한 상태입니다.";
+      } else if (status === "WATCH") {
+        summary = "추천 순위는 높을 수 있어도 지금은 바로 매수보다 관찰이 우선입니다.";
+      } else if (status === "BLOCK") {
+        summary = "상대 순위와 별개로 절대 매수 기준은 아직 미달입니다.";
+      }
+
+      let detail = primaryReasons.length ? primaryReasons.join(" / ") : "추가 사유 없음";
+      if (status === "WATCH" && selectionStatus === "BLOCK") {
+        detail = `절대 기준은 관찰이지만 실제 진입 규칙은 아직 차단입니다. ${detail}`;
+      } else if (status === "WATCH" && selectionStatus === "WATCHLIST" && selectionTier) {
+        detail = `${selectionTier} 단계 후보입니다. ${detail}`;
+      }
+
+      return {
+        label: buyEligibilityLabel(status),
+        tone: buyEligibilityTone(status),
+        scoreText: Number.isFinite(score) ? score.toFixed(1) : "-",
+        summary,
+        detail,
+      };
+    }
+
+    function buildShadowGuardView(d) {
+      const liveRank = Number(d.live_rank);
+      const shadowRank = Number(d.shadow_quality_risk_guard_rank);
+      const penalty = Number(d.shadow_quality_risk_guard_penalty);
+      const delta = Number(d.shadow_quality_risk_guard_rank_delta);
+      const shadowScore = Number(d.shadow_quality_risk_guard_score);
+
+      if (!Number.isFinite(shadowRank) && !Number.isFinite(penalty)) {
+        return {
+          tone: "info",
+          title: "Shadow guard 정보 없음",
+          summary: "quality/risk guard shadow 비교 데이터가 아직 없습니다.",
+          detail: "ranking 산출물을 다시 확인해 주세요.",
+        };
+      }
+
+      const liveRankText = Number.isFinite(liveRank) ? `${Math.round(liveRank)}위` : "-";
+      const shadowRankText = Number.isFinite(shadowRank) ? `${Math.round(shadowRank)}위` : "-";
+      const deltaText = Number.isFinite(delta) && delta > 0 ? `+${Math.round(delta)}` : Number.isFinite(delta) ? `${Math.round(delta)}` : "-";
+      const penaltyText = Number.isFinite(penalty) ? penalty.toFixed(1) : "-";
+      const shadowScoreText = Number.isFinite(shadowScore) ? shadowScore.toFixed(1) : "-";
+
+      if (Number.isFinite(delta) && delta > 0) {
+        return {
+          tone: "good",
+          title: "Shadow guard 개선 후보",
+          summary: `quality/risk guard shadow를 적용하면 순위가 ${liveRankText}에서 ${shadowRankText}로 ${deltaText}계단 개선됩니다.`,
+          detail: `shadow score ${shadowScoreText} · 추가 penalty ${penaltyText}`,
+        };
+      }
+
+      if (Number.isFinite(penalty) && penalty > 0) {
+        return {
+          tone: "warn",
+          title: "Shadow guard 경고",
+          summary: `quality 또는 risk penalty ${penaltyText}가 추가로 걸리는 후보입니다.`,
+          detail: `현재 순위 ${liveRankText} / shadow 순위 ${shadowRankText} · shadow score ${shadowScoreText}`,
+        };
+      }
+
+      return {
+        tone: "info",
+        title: "Shadow guard 중립",
+        summary: "quality/risk guard shadow 기준으로도 현재 순위 해석이 크게 바뀌지 않습니다.",
+        detail: `현재 순위 ${liveRankText} / shadow 순위 ${shadowRankText} · shadow score ${shadowScoreText}`,
+      };
+    }
+
+    async function saveTrade() {
+      const date = $("#tradeDate")?.value;
+      const qty = Number($("#tradeQty")?.value);
+      const price = Number($("#tradePrice")?.value);
+      if (!date || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) {
+        alert("날짜/수량/가격을 올바르게 입력해 주세요");
+        return;
+      }
+      try {
+        const res = await fetch("/api/trades", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ side: tradeCtx.side, code: tradeCtx.code, date, qty, price }),
+        });
+        if (res.status === 401) {
+          location.href = operatorLoginUrl();
+          return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        alert("저장되었습니다.");
+        closeTradeModal();
+      } catch (err) {
+        console.error(err);
+        alert(`저장 실패: ${err.message}`);
+      }
+    }
+
+    function renderDetail(d) {
+      if (!d || !Array.isArray(d.rows) || !d.rows.length) {
+        $("#status").textContent = "표시할 데이터가 없습니다.";
+        return;
+      }
+      const rows = Array.isArray(d.rows) ? d.rows.slice() : [];
+      const lat = rows
+        .slice()
+        .sort((a, b) => String(a?.date || "").localeCompare(String(b?.date || "")))
+        .slice(-1)[0] || d.latest || null;
+      const rs = reasons(d);
+      const ws = warns(d);
+      const regimeMeta = getRegimeMeta(d.regime);
+      const conf = Number(d.confidence_score);
+      const confidenceText = confidenceFallbackText(d);
+      const calibration = getCalibrationView(d.confidence_score);
+      const action = getActionState(d);
+      const ret60 = Number(d.pred_return_60d);
+      const mdd60 = Number(d.pred_mdd_60d);
+      const buyEligibility = buildBuyEligibilityView(d);
+      const shadowGuard = buildShadowGuardView(d);
+
+      $("#titleBadge").textContent = `종목코드: ${d.code}`;
+      $("#stockName").textContent = d.name || d.code || "-";
+      $("#stockCode").textContent = d.code || "-";
+      $("#stockMeta").textContent = `${(d.market || "-").toUpperCase()} / ${d.sector || "분야 정보 없음"}`;
+      $("#dataDate").textContent = `기준일 ${fmtDateLabel(lat?.date)}`;
+      $("#finalScore").textContent = fmt1(d.final_score_rank);
+      $("#confidenceRaw").textContent = fmt1(d.confidence_score);
+      $("#finalScoreKpi").textContent = fmt1(d.final_score_rank);
+      $("#confidenceKpi").textContent = fmt1(d.confidence_score);
+      $("#confidenceKpiMeta").textContent = calibration?.isProvisional
+        ? `${confidenceText} 임시 보정 해석을 함께 봅니다.`
+        : confidenceText;
+      $("#rewardRiskKpi").textContent = `${fmtPct(ret60)} / ${fmtPct(mdd60)}`;
+      $("#rewardRiskKpiMeta").textContent = "기대수익과 하락 부담";
+      $("#confidenceStatusText").textContent = calibration?.isProvisional
+        ? `${confidenceText} / ${calibrationBandText(calibration)}`
+        : confidenceText;
+      $("#confidenceCalibrationNote").innerHTML = calibration?.isProvisional
+        ? `<strong>WF 임시 보정</strong> 기준 ${calibration.bucketLabel} 구간, 보정 점수 ${fmt1(calibration.calibratedScore)}, 해석은 ${calibrationBandText(calibration)}입니다. 정식 운영 보정이 아니라 참고용입니다.`
+        : "정식 일일 스냅샷 보정 표본이 아직 부족해 원래 신뢰도를 먼저 봅니다.";
+      $("#finalScoreKpi").className = `decision-kpi__value ${action.cls === "review" ? "good" : action.cls === "watch" ? "warn" : action.cls === "hold" ? "bad" : "soft"}`;
+      $("#confidenceKpi").className = `decision-kpi__value ${confidenceTone(conf)}`;
+      $("#rewardRiskKpi").className = `decision-kpi__value ${rewardRiskTone(ret60, mdd60)}`;
+      $("#decisionBadge").textContent = action.label;
+      $("#decisionBadge").className = `decision-label ${action.cls}`;
+      $("#decisionLine").textContent = buildDecisionLine(d);
+      $("#decisionDetail").textContent = Number.isFinite(conf) && conf < 50
+        ? "수익 기대는 보여도 신뢰도 축적이 약해 선별적으로 보는 편이 맞습니다."
+        : "점수와 리스크를 함께 본 오늘 기준 한 줄 판단입니다.";
+      $("#marketGuideBox").className = `callout ${regimeMeta.key === "bull" ? "good" : regimeMeta.key === "defensive" ? "warn" : "warn"}`;
+      $("#marketGuideBox").textContent = `${regimeMeta.label}: ${regimeMeta.guide}`;
+      $("#riskGuideBox").className = `callout ${ws.some((x) => x.cls === "bad") ? "bad" : ws.some((x) => x.cls === "warn") ? "warn" : "good"}`;
+      $("#riskGuideBox").textContent = ws[0]?.text || "현재 확인된 리스크는 제한적입니다.";
+      $("#buyEligibilityBox").className = `callout ${buyEligibility.tone}`;
+      $("#buyEligibilityBox").innerHTML = `<strong>절대 매수 판단 ${buyEligibility.label}</strong> · score ${buyEligibility.scoreText}<br>추천 점수는 상대순위이고, 절대 매수 판단은 실제 진입 기준입니다.<br>${escapeHtml(buyEligibility.summary)}<br>${escapeHtml(buyEligibility.detail)}`;
+      $("#shadowGuardBox").className = `callout ${shadowGuard.tone}`;
+      $("#shadowGuardBox").innerHTML = `<strong>${escapeHtml(shadowGuard.title)}</strong><br>현재 production 점수는 그대로 유지하고 shadow 기준만 비교합니다.<br>${escapeHtml(shadowGuard.summary)}<br>${escapeHtml(shadowGuard.detail)}`;
+      const opsSummary = scoreKpiMonitor?.summary;
+      const wfMetric = getScoreKpiMetric("walkforward_top20_avg_return_60d");
+      const calibrationSource = getScoreKpiMetric("confidence_calibration_source_mode");
+      const opsGuide = $("#opsGuideBox");
+      if (opsGuide) {
+        const opsClass = opsSummary?.overall_status === "GOOD" ? "good" : opsSummary?.overall_status === "WATCH" ? "warn" : opsSummary?.overall_status === "ALERT" ? "bad" : "info";
+        opsGuide.className = `callout ${opsClass}`;
+        opsGuide.textContent = opsSummary
+          ? `운영 기준선 ${getOverallStatusText(opsSummary.overall_status)} · WF 60일 상위 20 ${formatKpiValue(wfMetric)} · 보정 소스 ${getCalibrationSourceText(calibrationSource?.value_display || calibrationSource?.value)}`
+          : "운영 기준선 리포트가 아직 없어 현재 종목 점수와 리스크를 우선 해석합니다.";
+      }
+
+      const rp = $("#regimePill");
+      rp.textContent = regimeMeta.label;
+      rp.className = `pill rp ${regimeMeta.key}`.trim();
+
+      $("#reasonChips").innerHTML = rs.length
+        ? rs.map((x) => `<span class="chip ${x.cls}">${x.label} ${x.value.toFixed(1)}</span>`).join("")
+        : '<span class="chip">추천 근거 데이터 없음</span>';
+
+      renderReasonSystem(d);
+      $("#scoreExplain").textContent = d.explain_text || "종합 해석 문장이 아직 없어 점수와 리스크를 중심으로 읽어야 합니다.";
+
+      const warningBox = $("#warningBox");
+      const warningList = $("#warningList");
+      warningBox.className = `risk-warning ${ws[0]?.cls === "good" ? "good" : ws[0]?.cls === "warn" ? "warn" : ""}`.trim();
+      warningList.innerHTML = ws.map((x) => `<div class="risk-warning__item"><span class="risk-warning__dot"></span><span>${x.text}</span></div>`).join("");
+
+      $("#pred60").textContent = fmtPct(d.pred_return_60d);
+      $("#pred90").textContent = fmtPct(d.pred_return_90d);
+      $("#pred60Echo").textContent = fmtPct(d.pred_return_60d);
+      $("#pred90Echo").textContent = fmtPct(d.pred_return_90d);
+      $("#prob60").textContent = Number.isFinite(Number(d.prob_top20_60d)) ? fmtPct(d.prob_top20_60d) : "-";
+      $("#prob90").textContent = Number.isFinite(Number(d.prob_top20_90d)) ? fmtPct(d.prob_top20_90d) : "-";
+      $("#mdd60").textContent = fmtPct(d.pred_mdd_60d);
+      $("#mdd90").textContent = fmtPct(d.pred_mdd_90d);
+      $("#predExplain").textContent = predExplain(d);
+
+      if (window.ScoreExplainUI) {
+        $("#scoreBreakdownWidget").innerHTML = window.ScoreExplainUI.render(d, { title: "최종 점수 분해" });
+      } else {
+        $("#scoreBreakdownWidget").innerHTML = '<div class="explain">하위 점수 시각화 정보를 불러오지 못했습니다.</div>';
+      }
+      renderExplainability(d);
+
+      $("#techScoreMetric").textContent = fmt1(d.tech_score);
+      $("#qualScoreMetric").textContent = fmt1(d.qual_score);
+      $("#predScoreMetric").textContent = fmt1(d.pred_score);
+      $("#riskPenaltyMetric").textContent = fmt1(d.risk_penalty);
+      $("#techExplain").textContent = techExplain(lat);
+      $("#qualExplain").textContent = Number.isFinite(Number(d.qual_score))
+        ? (Number(d.qual_score) >= 70 ? "기초체력이 좋아 장기 보유 관점의 버팀목이 있습니다." : "기초체력은 중립 수준이라 강한 확신 근거로 보긴 어렵습니다.")
+        : "품질 점수 필드가 없습니다.";
+      $("#predScoreExplain").textContent = Number.isFinite(Number(d.pred_score))
+        ? `운영 결론을 뒤집는 값이 아니라 참고 비교용 수치입니다.`
+        : "연구용 모델 점수 필드가 없습니다.";
+      $("#riskPenaltyExplain").textContent = Number.isFinite(Number(d.risk_penalty))
+        ? `높을수록 바로 진입보다 관찰이 우선입니다.`
+        : "리스크 패널티 필드가 없습니다.";
+      $("#confidenceExplain").textContent = calibration?.isProvisional
+        ? `${confidenceText} 현재 보조 해석은 ${calibrationBandText(calibration)}이며 소스는 WF 임시 보정입니다.`
+        : confidenceText;
+      $("#confidenceExplainScore").textContent = fmt1(d.confidence_score);
+
+      $("#closePrice").textContent = fmtNum(lat?.close);
+      $("#closeMeta").textContent = lat?.date ? `${fmtDateLabel(lat.date)} 종가 기준` : "가격 기준 정보 없음";
+      $("#maSummary").textContent = [fmtNum(lat?.ma_5), fmtNum(lat?.ma_20), fmtNum(lat?.ma_60)].join(" / ");
+      $("#rsiValue").textContent = fmt2(lat?.rsi_14);
+      $("#rsiExplain").textContent = `RSI 상태: ${rsiBand(Number(lat?.rsi_14))}`;
+      $("#volValue").textContent = fmt2(lat?.vol_20);
+      $("#volExplain").textContent = `변동성 수준: ${volBand(Number(lat?.vol_20))}`;
+      $("#closePriceQuick").textContent = fmtNum(lat?.close);
+      $("#closeMetaQuick").textContent = lat?.date ? `${fmtDateLabel(lat.date)} 종가 기준` : "가격 기준 정보 없음";
+      $("#maSummaryQuick").textContent = maAlignmentText(lat);
+      $("#maExplainQuick").textContent = techExplain(lat);
+      $("#rsiQuick").textContent = fmt2(lat?.rsi_14);
+      $("#rsiQuickMeta").textContent = `RSI 상태: ${rsiBand(Number(lat?.rsi_14))}`;
+      $("#volQuick").textContent = fmt2(lat?.vol_20);
+      $("#volQuickMeta").textContent = `변동성 수준: ${volBand(Number(lat?.vol_20))}`;
+
+      renderChart(rows);
+      $("#priceTable").innerHTML = rows.slice().reverse().map((r) => `
+        <tr>
+          <td>${fmtDateLabel(r.date)}</td>
+          <td style="text-align:right;">${fmtNum(r.close)}</td>
+          <td style="text-align:right;">${fmtNum(r.ma_20)}</td>
+          <td style="text-align:right;">${fmt2(r.rsi_14)}</td>
+        </tr>
+      `).join("");
+    }
+
+    (async function () {
+      const code = q("code") || "005930";
+      await fetchOperatorAuthStatus();
+      $("#detailOperatorLoginBtn")?.addEventListener("click", () => {
+        if (operatorAuth.authorized) {
+          operatorLogout().catch(() => {});
+          return;
+        }
+        location.href = operatorLoginUrl();
+      });
+      $("#detailBuyBtn")?.addEventListener("click", () => openTradeModal("BUY", code, $("#stockName")?.textContent || code));
+      $("#detailSellBtn")?.addEventListener("click", () => openTradeModal("SELL", code, $("#stockName")?.textContent || code));
+      await fetchConfidenceCalibration();
+      await fetchScoreKpiMonitor();
+      renderDetail(await fetchDetail(code));
+    })();
+  </script>
+</body>
+</html>

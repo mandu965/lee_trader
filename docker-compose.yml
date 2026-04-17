@@ -1,0 +1,173 @@
+x-python-runtime: &python-runtime
+  image: lee_trader-python-runtime:latest
+  build:
+    context: .
+    dockerfile: ./python/Dockerfile
+  depends_on:
+    postgres:
+      condition: service_healthy
+  working_dir: /app
+  env_file:
+    - .env
+  environment:
+    DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+    TZ: Asia/Seoul
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: lee_trader_pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lee_trader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lee_trader_pw}
+      POSTGRES_DB: ${POSTGRES_DB:-lee_trader}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./postgres/initdb.d:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lee_trader} -d ${POSTGRES_DB:-lee_trader}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  python-pipeline:
+    <<: *python-runtime
+    container_name: lee_trader_pipeline
+    command: ["python", "python/run_pipeline.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      USE_SQLITE_MIRROR: ${USE_SQLITE_MIRROR:-0}
+      USE_SQLITE_FALLBACK_WRITES: ${USE_SQLITE_FALLBACK_WRITES:-0}
+      USE_KIS_UNIVERSE: ${USE_KIS_UNIVERSE:-0}
+      RUN_PIPELINE_SKIP_FLOW_INGESTION: ${RUN_PIPELINE_SKIP_FLOW_INGESTION:-1}
+      DART_REFRESH_RECENT_YEARS: ${DART_REFRESH_RECENT_YEARS:-1}
+
+  scheduler:
+    <<: *python-runtime
+    container_name: lee_trader_scheduler
+    restart: unless-stopped
+    command: ["python", "python/run_daily_scheduler.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./output:/app/output
+      - ./outputs:/app/outputs
+      - ./serving:/app/serving
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      USE_SQLITE_MIRROR: ${USE_SQLITE_MIRROR:-0}
+      USE_SQLITE_FALLBACK_WRITES: ${USE_SQLITE_FALLBACK_WRITES:-0}
+      USE_KIS_UNIVERSE: ${USE_KIS_UNIVERSE:-0}
+      SCHEDULER_TIMEZONE: Asia/Seoul
+      SCHEDULER_DAILY_TIME: ${SCHEDULER_DAILY_TIME:-16:00}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_POLL_SECONDS:-30}
+      SCHEDULER_SKIP_CATCHUP_ON_START: ${SCHEDULER_SKIP_CATCHUP_ON_START:-1}
+      SCHEDULER_RUN_POLICY: ${SCHEDULER_RUN_POLICY:-always}
+
+  scheduler-recovery:
+    <<: *python-runtime
+    container_name: lee_trader_scheduler_recovery
+    restart: unless-stopped
+    command: ["python", "python/run_daily_scheduler.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./output:/app/output
+      - ./outputs:/app/outputs
+      - ./serving:/app/serving
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      SCHEDULER_TIMEZONE: Asia/Seoul
+      SCHEDULER_COMMAND_SET: intraday
+      SCHEDULER_DAILY_TIME: ${SCHEDULER_RECOVERY_DAILY_TIME:-12:00}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_RECOVERY_POLL_SECONDS:-30}
+      SCHEDULER_SKIP_CATCHUP_ON_START: ${SCHEDULER_RECOVERY_SKIP_CATCHUP_ON_START:-1}
+      SCHEDULER_RUN_POLICY: ${SCHEDULER_RECOVERY_RUN_POLICY:-always}
+      SCHEDULER_STATUS_PATH: ${SCHEDULER_RECOVERY_STATUS_PATH:-outputs/auto_ops_recovery_scheduler_status.json}
+      SCHEDULER_LOG_PATH: ${SCHEDULER_RECOVERY_LOG_PATH:-logs/auto_ops_recovery_scheduler.log}
+      SCHEDULER_PRIMARY_STATUS_PATH: ${SCHEDULER_PRIMARY_STATUS_PATH:-outputs/auto_ops_scheduler_status.json}
+      SCHEDULER_PRIMARY_MAX_AGE_HOURS: ${SCHEDULER_PRIMARY_MAX_AGE_HOURS:-20}
+
+  scheduler-auto-buy:
+    <<: *python-runtime
+    container_name: lee_trader_scheduler_auto_buy
+    restart: unless-stopped
+    command: ["python", "python/run_daily_scheduler.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./output:/app/output
+      - ./outputs:/app/outputs
+      - ./serving:/app/serving
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      SCHEDULER_TIMEZONE: Asia/Seoul
+      SCHEDULER_COMMAND_SET: auto_buy
+      SCHEDULER_DAILY_TIME: ${SCHEDULER_AUTO_BUY_DAILY_TIME:-09:30}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_AUTO_BUY_POLL_SECONDS:-30}
+      SCHEDULER_SKIP_CATCHUP_ON_START: ${SCHEDULER_AUTO_BUY_SKIP_CATCHUP_ON_START:-1}
+      SCHEDULER_RUN_POLICY: ${SCHEDULER_AUTO_BUY_RUN_POLICY:-always}
+      SCHEDULER_STATUS_PATH: ${SCHEDULER_AUTO_BUY_STATUS_PATH:-outputs/auto_ops_auto_buy_scheduler_status.json}
+      SCHEDULER_LOG_PATH: ${SCHEDULER_AUTO_BUY_LOG_PATH:-logs/auto_ops_auto_buy_scheduler.log}
+      AUTO_TRADE_EXECUTE: ${AUTO_TRADE_EXECUTE:-0}
+      AUTO_TRADE_ALLOW_BUY: ${AUTO_TRADE_ALLOW_BUY:-0}
+      AUTO_TRADE_BUY_APPROVAL_REQUIRED: ${AUTO_TRADE_BUY_APPROVAL_REQUIRED:-1}
+      AUTO_TRADE_FORCE_RESUBMIT: ${AUTO_TRADE_FORCE_RESUBMIT:-0}
+      AUTO_TRADE_SKIP_THEME_SHADOW: ${AUTO_TRADE_SKIP_THEME_SHADOW:-1}
+      AUTO_TRADE_SKIP_PAPER_TRADING: ${AUTO_TRADE_SKIP_PAPER_TRADING:-1}
+      AUTO_TRADE_SKIP_PAPER_TRADING_DB: ${AUTO_TRADE_SKIP_PAPER_TRADING_DB:-1}
+      AUTO_TRADE_CONFIRM_TEXT: ${AUTO_TRADE_CONFIRM_TEXT:-}
+
+  scheduler-live-account-sync:
+    <<: *python-runtime
+    container_name: lee_trader_scheduler_live_account_sync
+    restart: unless-stopped
+    command: ["python", "python/run_daily_scheduler.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./output:/app/output
+      - ./outputs:/app/outputs
+      - ./serving:/app/serving
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      SCHEDULER_TIMEZONE: Asia/Seoul
+      SCHEDULER_COMMAND_SET: live_sync
+      SCHEDULER_INTERVAL_HOURS: ${SCHEDULER_LIVE_SYNC_INTERVAL_HOURS:-3}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_LIVE_SYNC_POLL_SECONDS:-30}
+      SCHEDULER_RUN_POLICY: ${SCHEDULER_LIVE_SYNC_RUN_POLICY:-always}
+      SCHEDULER_STATUS_PATH: ${SCHEDULER_LIVE_SYNC_STATUS_PATH:-outputs/auto_ops_live_account_sync_scheduler_status.json}
+      SCHEDULER_LOG_PATH: ${SCHEDULER_LIVE_SYNC_LOG_PATH:-logs/auto_ops_live_account_sync_scheduler.log}
+
+  node-api:
+    build:
+      context: .
+      dockerfile: ./node/Dockerfile
+    container_name: lee_trader_api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    working_dir: /app
+    command: ["npm", "run", "start"]
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./outputs:/app/outputs
+      - ./serving:/app/serving
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul

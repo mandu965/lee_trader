@@ -1,0 +1,37 @@
+# Runtime secrets
+.env
+.env.local
+.env.production
+.env.development
+
+# Generated data
+data/
+!data/
+!data/fundamentals.csv
+!data/interest_universe.csv
+logs/
+output/
+outputs/
+backups/
+!backups/
+backups/*
+!backups/git_restore_backup_*.zip
+!backups/git_runtime_snapshot_*.zip
+artifacts/
+models/
+serving/
+
+# Local dependencies / caches
+node_modules/
+node/node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

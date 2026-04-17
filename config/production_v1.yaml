@@ -1,0 +1,96 @@
+metadata:
+  release_package: production_v1
+  released_at: "2026-03-31"
+  runtime_mode: operational
+  score_formula_version: ranking_builder_v8_return_prob_tech_regime
+  candidate_selection_version: buy_candidate_builder_v1
+  gate_version: operational_buy_gate_v1
+  portfolio_version: model_portfolio_constructor_v1
+  confidence_calibration_version: confidence_four_axis_v1
+  execution_policy_version: execution_policy_v1
+
+runtime:
+  mode: operational
+  freeze_versions: true
+  allow_experimental_features: false
+
+ranking:
+  theme_factor_version: theme_factor_v1
+  theme_overlay:
+    enabled: false
+    mode: off
+    validation_enabled: false
+  experiments:
+    theme_risk_soft: false
+    risk_curve: false
+    feature_candidate: false
+
+buy_candidate:
+  min_confidence: 80.0
+  min_liquidity_score: 15.0
+  min_trading_value: 5000000000.0
+  sector_cap_ratio: 0.30
+  theme_cap_ratio: 0.30
+  no_theme_cap_ratio: 0.50
+  soft_surge_ret5d: 0.12
+  soft_surge_ret10d: 0.20
+  soft_surge_rsi: 70.0
+  hard_surge_ret5d: 0.20
+  hard_surge_ret10d: 0.35
+  hard_surge_rsi: 80.0
+
+portfolio:
+  cash_buffer: 0.05
+  max_weight_top5: 0.24
+  max_weight_top8: 0.17
+  max_weight_top10: 0.13
+  sector_cap: 0.35
+  theme_cap: 0.35
+  no_theme_cap: 0.60
+  min_keep_weight: 0.03
+  turnover_keep_slots: 2
+  keep_rank_buffer: 3
+  liquidity_score_low: 20.0
+  liquidity_score_very_low: 10.0
+  trading_value_low: 8000000000.0
+  trading_value_very_low: 4000000000.0
+
+buy_gate:
+  primary_bucket: 5
+  min_matured_benchmark_dates: 3
+  max_liquidity_risk_ratio: 0.30
+  max_very_low_liquidity_ratio: 0.20
+  max_relaxed_selection_ratio: 0.60
+  max_sector_top_share: 0.40
+  max_overheat_ratio: 0.20
+  min_confidence_score: 82.0
+  min_quality_delta_vs_raw: 0.0
+  block_negative_excess_return: -0.01
+
+confidence_calibration:
+  min_bucket_rows_snapshot: 20
+  min_bucket_rows_operational: 20
+  provisional_map_horizon_days: 60
+
+execution_policy:
+  max_holdings: 5
+  max_position_weight: 0.24
+  sector_cap: 0.35
+  theme_cap: 0.35
+  cash_minimum: 0.05
+  min_entry_confidence: 55.0
+  min_hold_confidence: 55.0
+  force_exit_confidence: 55.0
+  confidence_block_below: 55.0
+  confidence_reduced_below: 70.0
+  confidence_standard_below: 85.0
+  confidence_reduced_weight_scale: 0.45
+  confidence_standard_weight_scale: 1.00
+  confidence_expanded_weight_scale: 1.15
+  confidence_reduced_position_cap_scale: 0.50
+  confidence_standard_position_cap_scale: 1.00
+  confidence_expanded_position_cap_scale: 1.15
+  max_hold_rank: 8
+  min_replace_score_gap: 3.0
+  max_replacements_per_cycle: 2
+  reentry_cooldown_days: 10

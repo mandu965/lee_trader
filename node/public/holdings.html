@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>보유 종목 현황 - Lee Trader</title>
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: rgba(15, 23, 42, 0.9);
+      --panel-soft: rgba(15, 23, 42, 0.76);
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --border: #1f2937;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans KR", system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #0b1120, #020617 58%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1420px;
+      margin: 0 auto;
+      padding: 20px 20px 48px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 30px;
+      letter-spacing: -0.02em;
+    }
+    .subline {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .btn {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      background: rgba(17, 24, 39, 0.92);
+      color: var(--text);
+    }
+    .btn:hover { filter: brightness(1.08); }
+    .btn.primary {
+      border-color: rgba(34, 197, 94, 0.44);
+      background: rgba(34, 197, 94, 0.12);
+      color: #86efac;
+    }
+    .btn.secondary { opacity: 0.86; }
+    .guide,
+    .summary {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .guide { grid-template-columns: 1.1fr 1fr; }
+    .summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .panel,
+    .summary-card,
+    .table-wrap {
+      background: var(--panel);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 16px;
+      box-shadow: 0 18px 50px rgba(2, 6, 23, 0.28);
+    }
+    .panel { padding: 16px 18px; }
+    .panel h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+    }
+    .panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .guide-list {
+      margin: 10px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+    .summary-card {
+      padding: 14px 16px;
+      min-height: 112px;
+    }
+    .summary-title {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .summary-value {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+    }
+    .summary-sub {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .summary-breakdown {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .summary-mini {
+      background: rgba(15, 23, 42, 0.72);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 12px;
+      padding: 8px 10px;
+      min-height: 62px;
+    }
+    .summary-mini-label {
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+    .summary-mini-value {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .summary-mini.immediate .summary-mini-value { color: #fda4af; }
+    .summary-mini.watch .summary-mini-value { color: #fde68a; }
+    .summary-mini.keep .summary-mini-value { color: #86efac; }
+    .table-wrap { overflow: hidden; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    thead { background: rgba(2, 8, 23, 0.96); }
+    th, td {
+      padding: 12px 10px;
+      border-bottom: 1px solid rgba(17, 24, 39, 0.95);
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    tbody tr {
+      background: var(--panel-soft);
+      cursor: pointer;
+    }
+    tbody tr:nth-child(odd) { background: rgba(15, 23, 42, 0.88); }
+    tbody tr:hover { background: rgba(30, 41, 59, 0.95); }
+    .name-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .name-main {
+      font-weight: 700;
+      font-size: 14px;
+      line-height: 1.35;
+    }
+    .name-sub,
+    .subtext {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .subtext-strong {
+      color: #dbe7ff;
+      font-size: 11px;
+      line-height: 1.45;
+      font-weight: 600;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      font-size: 11px;
+      font-weight: 700;
+      margin-right: 6px;
+      margin-bottom: 6px;
+    }
+    .priority-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 5px 9px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      margin-top: 4px;
+    }
+    .priority-low {
+      color: #cbd5e1;
+      background: rgba(148, 163, 184, 0.14);
+      border-color: rgba(148, 163, 184, 0.24);
+    }
+    .priority-mid {
+      color: #fde68a;
+      background: rgba(250, 204, 21, 0.14);
+      border-color: rgba(250, 204, 21, 0.34);
+    }
+    .priority-high {
+      color: #fecaca;
+      background: rgba(248, 113, 113, 0.18);
+      border-color: rgba(248, 113, 113, 0.42);
+      box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.14);
+    }
+    .keep {
+      color: #cbd5e1;
+      background: rgba(148, 163, 184, 0.14);
+      border-color: rgba(148, 163, 184, 0.24);
+    }
+    .review {
+      color: #fde68a;
+      background: rgba(250, 204, 21, 0.14);
+      border-color: rgba(250, 204, 21, 0.32);
+    }
+    .exit {
+      color: #fda4af;
+      background: rgba(248, 113, 113, 0.14);
+      border-color: rgba(248, 113, 113, 0.34);
+    }
+    .score {
+      color: #7dd3fc;
+      background: rgba(56, 189, 248, 0.1);
+      border-color: rgba(56, 189, 248, 0.28);
+    }
+    .confidence {
+      color: #c4b5fd;
+      background: rgba(167, 139, 250, 0.12);
+      border-color: rgba(167, 139, 250, 0.28);
+    }
+    .delta {
+      color: #e2e8f0;
+      background: rgba(226, 232, 240, 0.08);
+      border-color: rgba(226, 232, 240, 0.18);
+    }
+    .delta-up {
+      color: #86efac;
+      background: rgba(34, 197, 94, 0.12);
+      border-color: rgba(34, 197, 94, 0.3);
+    }
+    .delta-down {
+      color: #fca5a5;
+      background: rgba(248, 113, 113, 0.14);
+      border-color: rgba(248, 113, 113, 0.32);
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 7px;
+      border-radius: 999px;
+      font-size: 10px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      margin-right: 6px;
+      margin-bottom: 6px;
+    }
+    .pos { color: #4ade80; }
+    .neg { color: #f87171; }
+    .metric-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      margin-top: 2px;
+    }
+    .metric-row .chip,
+    .metric-row .priority-badge {
+      margin-right: 0;
+      margin-bottom: 0;
+    }
+    .review-cell {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .review-main {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+    .review-note {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .reason-cell {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-content: flex-start;
+    }
+    .action-cell {
+      color: #dbe7ff;
+      line-height: 1.55;
+      font-size: 12px;
+      min-width: 220px;
+    }
+    .helper {
+      padding: 12px 14px;
+      color: var(--muted);
+      font-size: 12px;
+      border-top: 1px solid rgba(148, 163, 184, 0.14);
+      background: rgba(2, 8, 23, 0.72);
+    }
+    .mobile-inline-summary,
+    .mobile-reasons,
+    .mobile-action-note {
+      display: none;
+    }
+    .center {
+      text-align: center !important;
+      color: var(--muted);
+      padding: 22px 12px;
+    }
+    @media (max-width: 1180px) {
+      .guide,
+      .summary {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+    @media (max-width: 860px) {
+      .guide,
+      .summary {
+        grid-template-columns: 1fr;
+      }
+      .summary-breakdown {
+        grid-template-columns: 1fr;
+      }
+      .summary-card {
+        min-height: auto;
+      }
+      .toolbar {
+        width: 100%;
+        justify-content: flex-start;
+      }
+      table, thead, tbody, tr, th, td {
+        display: block;
+      }
+      thead { display: none; }
+      tbody tr {
+        padding: 14px 14px 12px;
+        border-bottom: 1px solid rgba(17, 24, 39, 0.95);
+        border-radius: 14px;
+        margin: 0 10px 10px;
+        display: grid;
+        gap: 4px;
+      }
+      td {
+        padding: 6px 0;
+        border-bottom: none;
+      }
+      td::before {
+        content: attr(data-label);
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        margin-bottom: 4px;
+      }
+      .action-cell,
+      .review-cell,
+      .reason-cell {
+        min-width: 0;
+      }
+      td[data-label="검토 이유"],
+      td[data-label="권장 액션"] {
+        display: none;
+      }
+      .review-note,
+      .reason-cell .tag:nth-child(n+3),
+      .metric-row .chip:nth-child(n+3),
+      .subtext-strong,
+      .subtext:last-child {
+        display: none;
+      }
+      .mobile-inline-summary,
+      .mobile-reasons,
+      .mobile-action-note {
+        display: block;
+      }
+      .name-cell {
+        gap: 4px;
+      }
+      .name-main {
+        font-size: 16px;
+      }
+      .name-sub {
+        font-size: 12px;
+      }
+      .metric-row {
+        gap: 5px;
+      }
+      .chip,
+      .priority-badge,
+      .tag {
+        font-size: 10px;
+        padding: 3px 7px;
+      }
+      .mobile-inline-summary {
+        margin-top: 8px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .mobile-inline-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px 10px;
+      }
+      .mobile-inline-item {
+        min-width: 0;
+      }
+      .mobile-inline-label {
+        color: var(--muted);
+        font-size: 10px;
+        margin-bottom: 4px;
+      }
+      .mobile-inline-value {
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.35;
+      }
+      .mobile-reasons {
+        margin-top: 8px;
+      }
+      .mobile-action-note {
+        margin-top: 8px;
+        color: #dbe7ff;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .helper {
+        font-size: 11px;
+        padding: 10px 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>보유 종목 현황</h1>
+        <div class="subline">
+          실제 입력한 매수/매도 기록을 기준으로 현재 보유 중인 종목을 집계합니다.
+          보유 유지 여부와 매도 검토 우선순위를 먼저 보는 화면입니다.
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="btn" onclick="location.href='/app'">메인</button>
+        <button class="btn secondary" onclick="location.href='ranking.html'">리서치 랭킹</button>
+        <button class="btn secondary" onclick="location.href='meaningfulness.html'">리서치 리뷰</button>
+        <button class="btn" onclick="location.href='ops-readiness.html'">운영자</button>
+        <button class="btn" onclick="location.href='manual-trading.html'">수동매매</button>
+        <button class="btn primary" onclick="location.href='holdings.html'">보유종목</button>
+        <button class="btn" onclick="location.href='paper-trading.html'">모의투자</button>
+        <button class="btn" onclick="location.href='trade-history.html'">매매 기록</button>
+        <button class="btn" onclick="location.href='live-auto-trading.html'">실자동매매</button>
+      </div>
+    </header>
+
+    <section class="guide">
+      <div class="panel">
+        <h2>이 화면을 보는 법</h2>
+        <p>지금은 신규 매수보다 기존 보유 종목을 시스템 기준으로 정리하는 단계입니다.</p>
+        <ul class="guide-list">
+          <li>`즉시 검토`: 손실 확대나 점수 약화로 오늘 먼저 확인해야 하는 종목입니다.</li>
+          <li>`분할 축소 검토`: 수익 구간이거나 비중을 줄여볼 만한 종목입니다.</li>
+          <li>`관찰 유지 / 계속보유`: 신규 진입 직후이거나 보유 근거가 아직 유지되는 상태입니다.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h2>현재 운영 기준</h2>
+        <p id="opsNote">20일 도달은 기본 점검 신호입니다. 손실 확대, 점수 약화, 최신 가격 흐름을 함께 보면서 매도 검토 우선순위를 잡습니다.</p>
+      </div>
+    </section>
+
+    <section class="guide">
+      <div class="panel" id="policyStrip"></div>
+      <div class="panel" id="holdingRules"></div>
+    </section>
+
+    <section class="summary">
+      <div class="summary-card">
+        <div class="summary-title">총 평가금액</div>
+        <div class="summary-value" id="sumValue">-</div>
+        <div class="summary-sub" id="sumCount">보유 종목 0개</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-title">총 평가손익</div>
+        <div class="summary-value" id="sumPnl">-</div>
+        <div class="summary-sub" id="sumPnlPct">보유 종목 종가 기준 미실현 손익</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-title">평균 보유일</div>
+        <div class="summary-value" id="sumHoldDays">-</div>
+        <div class="summary-sub" id="sumHoldMeta">최신 진입일 -</div>
+      </div>
+      <div class="summary-card">
+        <div class="summary-title">시스템 점검</div>
+        <div class="summary-value" id="sumActionCount">-</div>
+        <div class="summary-sub" id="sumActionNote">관찰 필요나 매도 검토 종목을 먼저 봅니다.</div>
+        <div class="summary-breakdown">
+          <div class="summary-mini immediate">
+            <div class="summary-mini-label">즉시 검토</div>
+            <div class="summary-mini-value" id="sumImmediateCount">-</div>
+          </div>
+          <div class="summary-mini watch">
+            <div class="summary-mini-label">관찰 필요</div>
+            <div class="summary-mini-value" id="sumWatchCount">-</div>
+          </div>
+          <div class="summary-mini keep">
+            <div class="summary-mini-label">계속보유</div>
+            <div class="summary-mini-value" id="sumKeepCount">-</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>종목</th>
+            <th>시스템 점검</th>
+            <th>수익 현황</th>
+            <th>보유 현황</th>
+            <th>검토 이유</th>
+            <th>권장 액션</th>
+          </tr>
+        </thead>
+        <tbody id="holdBody">
+          <tr><td colspan="6" class="center">불러오는 중...</td></tr>
+        </tbody>
+      </table>
+      <div class="helper">행을 누르면 상세 화면으로 이동합니다. 가로 스크롤 없이 핵심 판단만 먼저 보이도록 정리한 화면입니다.</div>
+    </section>
+  </div>
+
+  <script src="./trading-policy-ui.js"></script>
+  <script>
+    function fmtNumber(v, digits = 0) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return "-";
+      return n.toLocaleString("ko-KR", {
+        minimumFractionDigits: digits,
+        maximumFractionDigits: digits,
+      });
+    }
+
+    function fmtPrice(v) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return "-";
+      return fmtNumber(n, 0);
+    }
+
+    function fmtPct(v) {
+      const n = Number(v);
+      if (!Number.isFinite(n)) return "-";
+      const fixed = Math.abs(n) >= 10 ? 1 : 2;
+      return `${n > 0 ? "+" : ""}${n.toFixed(fixed)}%`;
+    }
+
+    function fmtDate(v) {
+      return v ? String(v) : "-";
+    }
+
+    function reviewMeta(item) {
+      const status = String(item.system_review_status || "KEEP");
+      const reasons = Array.isArray(item.system_review_reasons) ? item.system_review_reasons : [];
+      const hasProfitReview = reasons.includes("profit_above_15pct");
+      const isNewPosition = reasons.includes("new_position");
+
+      if (status === "EXIT_REVIEW") {
+        return { label: hasProfitReview ? "분할 축소 검토" : "즉시 검토", cls: "exit" };
+      }
+      if (status === "REVIEW") {
+        return { label: hasProfitReview ? "분할 축소 검토" : "관찰 필요", cls: "review" };
+      }
+      return { label: isNewPosition ? "관찰 유지" : "계속보유", cls: "keep" };
+    }
+
+    function priorityMeta(value) {
+      const score = Number(value);
+      if (!Number.isFinite(score)) return { text: "Priority -", cls: "priority-low" };
+      if (score >= 80) return { text: `Priority ${Math.round(score)}`, cls: "priority-high" };
+      if (score >= 55) return { text: `Priority ${Math.round(score)}`, cls: "priority-mid" };
+      return { text: `Priority ${Math.round(score)}`, cls: "priority-low" };
+    }
+
+    function confidenceText(value) {
+      const score = Number(value);
+      if (!Number.isFinite(score)) return "신뢰도 -";
+      return `신뢰도 ${Math.round(score)}`;
+    }
+
+    function deltaMeta(value) {
+      const score = Number(value);
+      if (!Number.isFinite(score)) return { text: "점수 변화 -", cls: "delta" };
+      if (score > 0) return { text: `점수 변화 +${score.toFixed(1)}`, cls: "delta-up" };
+      if (score < 0) return { text: `점수 변화 ${score.toFixed(1)}`, cls: "delta-down" };
+      return { text: "점수 변화 0.0", cls: "delta" };
+    }
+
+    function reasonLabel(code) {
+      const map = {
+        hold_day_20_reached: "20일 도달",
+        profit_above_15pct: "수익 +15%",
+        loss_below_minus_8pct: "손실 -8%",
+        final_score_weak: "최종점수 약화",
+        score_delta_down: "점수 하락",
+        ret_score_weak: "ret_score 약화",
+        prob_score_weak: "prob_score 약화",
+        confidence_low: "신뢰도 저하",
+        risk_penalty_high: "risk_penalty 높음",
+        latest_price_missing: "가격 누락",
+        new_position: "신규 포지션",
+        holding_support_maintained: "보유 근거 유지",
+      };
+      return map[code] || code || "-";
+    }
+
+    function holdingRuleBadges(item) {
+      const badges = [];
+      const holdingDays = Number(item.holding_days);
+      const pnlPct = Number(item.unrealized_pnl_pct);
+      const reasons = Array.isArray(item.system_review_reasons) ? item.system_review_reasons : [];
+
+      if (reasons.includes("new_position") || (Number.isFinite(holdingDays) && holdingDays <= 3)) {
+        badges.push("신규 3일 유예");
+      }
+      if (Number.isFinite(pnlPct) && pnlPct <= -8) {
+        badges.push("-8% 손실 관리");
+      }
+      if (Number.isFinite(pnlPct) && pnlPct >= 15) {
+        badges.push("+15% 수익 점검");
+      }
+      if (Number.isFinite(holdingDays) && holdingDays >= 20) {
+        badges.push("20일 보유 점검");
+      }
+      return badges;
+    }
+
+    function fmtPriceMaybe(value) {
+      return Number.isFinite(Number(value)) ? fmtPrice(Number(value)) : "-";
+    }
+
+    function fmtNumberMaybe(value, digits = 0) {
+      return Number.isFinite(Number(value)) ? fmtNumber(Number(value), digits) : "-";
+    }
+
+    async function fetchTradingPolicySafe() {
+      try {
+        const res = await fetch("/api/trading-policy");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return await res.json();
+      } catch (error) {
+        console.warn("trading policy unavailable", error);
+        return null;
+      }
+    }
+
+    async function fetchManualSummarySafe() {
+      try {
+        const res = await fetch("/api/manual-trading/summary");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return await res.json();
+      } catch (error) {
+        console.warn("manual summary unavailable", error);
+        return null;
+      }
+    }
+
+    function renderTradingPolicy(policy) {
+      if (!window.TradingPolicyUI || !policy) return;
+      window.TradingPolicyUI.renderStrip("policyStrip", policy.banner || []);
+      window.TradingPolicyUI.renderRuleSection("holdingRules", {
+        title: "보유 전략 규칙",
+        note: "보유 유지, 분할 축소, 매도 검토 기준을 같은 화면에서 확인합니다.",
+        items: (policy.page_rules?.holdings || []).concat(policy.page_rules?.portfolio || []),
+      });
+      const opsNote = document.getElementById("opsNote");
+      if (opsNote && policy.mode?.note) opsNote.textContent = policy.mode.note;
+    }
+
+    async function loadHoldings() {
+      const body = document.getElementById("holdBody");
+      try {
+        const [policy, manualSummary] = await Promise.all([
+          fetchTradingPolicySafe(),
+          fetchManualSummarySafe(),
+        ]);
+        if (policy) {
+          renderTradingPolicy(policy);
+        } else if (window.TradingPolicyUI) {
+          window.TradingPolicyUI.renderStrip("policyStrip", []);
+          window.TradingPolicyUI.renderRuleSection("holdingRules", {
+            title: "보유 전략 규칙",
+            note: "전략 정책을 불러오지 못해 기본 보유 화면만 표시합니다.",
+            items: [],
+          });
+        }
+
+        const intradayMap = new Map([
+          ...((manualSummary?.priority_candidates || []).map((item) => [String(item.code || "").trim(), item])),
+          ...((manualSummary?.caution_candidates || []).map((item) => [String(item.code || "").trim(), item])),
+        ]);
+        const payload = await fetch("/api/holdings").then((res) => {
+          if (!res.ok) throw new Error("HTTP " + res.status);
+          return res.json();
+        });
+        const items = Array.isArray(payload.items) ? payload.items : [];
+
+        document.getElementById("sumValue").textContent = fmtNumber(payload.total_value);
+        document.getElementById("sumCount").textContent = `보유 종목 ${items.length}개`;
+
+        const pnl = Number(payload.total_pnl);
+        const pnlPct = Number(payload.total_pnl_pct);
+        const pnlEl = document.getElementById("sumPnl");
+        const pnlPctEl = document.getElementById("sumPnlPct");
+        pnlEl.textContent = Number.isFinite(pnl) ? `${pnl > 0 ? "+" : ""}${fmtNumber(pnl)}` : "-";
+        pnlEl.className = pnl > 0 ? "summary-value pos" : pnl < 0 ? "summary-value neg" : "summary-value";
+        pnlPctEl.textContent = Number.isFinite(pnlPct) ? fmtPct(pnlPct) : "-";
+        pnlPctEl.className = pnlPct > 0 ? "summary-sub pos" : pnlPct < 0 ? "summary-sub neg" : "summary-sub";
+
+        const validHoldDays = items.map((item) => Number(item.holding_days)).filter(Number.isFinite);
+        const avgHoldDays = validHoldDays.length
+          ? validHoldDays.reduce((acc, cur) => acc + cur, 0) / validHoldDays.length
+          : null;
+        const latestFirstBuyDate = items.map((item) => item.first_buy_date || "").filter(Boolean).sort().slice(-1)[0] || null;
+        document.getElementById("sumHoldDays").textContent = Number.isFinite(avgHoldDays) ? `${avgHoldDays.toFixed(1)}일` : "-";
+        document.getElementById("sumHoldMeta").textContent = latestFirstBuyDate ? `최신 진입일 ${latestFirstBuyDate}` : "최신 진입일 -";
+
+        const reviewItems = items.filter((item) => item.system_review_status === "REVIEW");
+        const exitItems = items.filter((item) => item.system_review_status === "EXIT_REVIEW");
+        const keepItems = items.filter((item) => item.system_review_status === "KEEP");
+        document.getElementById("sumActionCount").textContent = `${reviewItems.length + exitItems.length}개`;
+        document.getElementById("sumImmediateCount").textContent = `${exitItems.length}개`;
+        document.getElementById("sumWatchCount").textContent = `${reviewItems.length}개`;
+        document.getElementById("sumKeepCount").textContent = `${keepItems.length}개`;
+        document.getElementById("sumActionNote").textContent =
+          exitItems.length > 0
+            ? `즉시 검토 ${exitItems.length}개, 관찰 필요 ${reviewItems.length}개`
+            : reviewItems.length > 0
+              ? `관찰 필요 ${reviewItems.length}개`
+              : "지금은 계속보유 종목이 더 많습니다.";
+
+        if (manualSummary?.intraday_summary?.headline) {
+          document.getElementById("opsNote").textContent = `${manualSummary.intraday_summary.headline} ${manualSummary.intraday_summary.action_guide || ""}`;
+        }
+
+        if (!items.length) {
+          body.innerHTML = '<tr><td colspan="6" class="center">보유 중인 종목이 없습니다. 거래 기록에서 실제 매수 기록을 먼저 입력해 주세요.</td></tr>';
+          return;
+        }
+
+        body.innerHTML = items.map((item) => {
+          const url = `holdingsDetail.html?code=${encodeURIComponent(item.code)}`;
+          const review = reviewMeta(item);
+          const priority = priorityMeta(item.sell_priority_score);
+          const delta = deltaMeta(item.score_delta);
+          const unrealizedPct = Number(item.unrealized_pnl_pct);
+          const pnlClass = unrealizedPct > 0 ? "pos" : unrealizedPct < 0 ? "neg" : "";
+          const reasons = Array.isArray(item.system_review_reasons) ? item.system_review_reasons : [];
+          const reasonHtml = reasons.length
+            ? reasons.map((reason) => `<span class="tag">${reasonLabel(reason)}</span>`).join("")
+            : '<span class="tag">보유 근거 유지</span>';
+          const ruleBadgeHtml = holdingRuleBadges(item).map((label) => `<span class="tag">${label}</span>`).join("");
+          const primaryReason = reasons.length ? reasonLabel(reasons[0]) : "보유 근거 유지";
+          const secondaryReason = reasons.length > 1 ? reasonLabel(reasons[1]) : null;
+          const modelScore = Number(item.final_score);
+          const nameBits = [item.market, item.sector].filter(Boolean).join(" · ");
+          const intraday = intradayMap.get(String(item.code || "").trim()) || null;
+          const intradayTags = [];
+          if (intraday?.intraday_verdict) intradayTags.push(`장중 ${intraday.intraday_verdict}`);
+          if (Number.isFinite(Number(intraday?.intraday_quote?.change_pct))) intradayTags.push(`변동 ${(Number(intraday.intraday_quote.change_pct) * 100).toFixed(1)}%`);
+
+          return `
+            <tr onclick="location.href='${url}'">
+              <td data-label="종목">
+                <div class="name-cell">
+                  <span class="name-main">${item.name || item.code}</span>
+                  <span class="name-sub">${item.code}${nameBits ? ` · ${nameBits}` : ""}</span>
+                  <div class="metric-row">
+                    <span class="chip confidence">${confidenceText(item.confidence_score)}</span>
+                    <span class="chip ${delta.cls}">${delta.text}</span>
+                    ${Number.isFinite(modelScore) ? `<span class="chip score">모델 ${modelScore.toFixed(1)}</span>` : '<span class="chip score">모델 -</span>'}
+                  </div>
+                  <div class="mobile-inline-summary">
+                    <div class="mobile-inline-grid">
+                      <div class="mobile-inline-item">
+                        <div class="mobile-inline-label">수익률</div>
+                        <div class="mobile-inline-value ${pnlClass}">${fmtPct(unrealizedPct)}</div>
+                      </div>
+                      <div class="mobile-inline-item">
+                        <div class="mobile-inline-label">보유</div>
+                        <div class="mobile-inline-value">${Number.isFinite(Number(item.holding_days)) ? `${fmtNumber(Number(item.holding_days))}일` : "-"}</div>
+                      </div>
+                      <div class="mobile-inline-item">
+                        <div class="mobile-inline-label">검토</div>
+                        <div class="mobile-inline-value">${review.label}</div>
+                      </div>
+                      <div class="mobile-inline-item">
+                        <div class="mobile-inline-label">우선순위</div>
+                        <div class="mobile-inline-value">${priority.text}</div>
+                      </div>
+                    </div>
+                    <div class="mobile-reasons">${reasonHtml}</div>
+                    <div class="mobile-action-note">${item.system_action_note || "-"}</div>
+                  </div>
+                </div>
+              </td>
+              <td data-label="시스템 점검">
+                <div class="review-cell">
+                  <div class="review-main">
+                    <span class="chip ${review.cls}">${review.label}</span>
+                    <span class="priority-badge ${priority.cls}">${priority.text}</span>
+                  </div>
+                  <div class="review-note">${secondaryReason ? `${primaryReason} · ${secondaryReason}` : primaryReason}</div>
+                  ${ruleBadgeHtml ? `<div class="reason-cell">${ruleBadgeHtml}</div>` : ""}
+                </div>
+              </td>
+              <td data-label="수익 현황" class="${pnlClass}">
+                <div class="name-cell">
+                  <span class="name-main ${pnlClass}">${fmtPct(unrealizedPct)}</span>
+                  <span class="subtext-strong ${pnlClass}">평가손익 ${fmtNumberMaybe(item.unrealized_pnl)}</span>
+                  <span class="subtext">현재가 ${fmtPriceMaybe(item.current_price)} / 평균단가 ${fmtPriceMaybe(item.avg_buy_price)}</span>
+                </div>
+              </td>
+              <td data-label="보유 현황">
+                <div class="name-cell">
+                  <span class="name-main">${fmtDate(item.first_buy_date)} · ${Number.isFinite(Number(item.holding_days)) ? `${fmtNumber(Number(item.holding_days))}일` : "-"}</span>
+                  <span class="subtext">수량 ${fmtNumber(Number(item.current_qty), 2)}</span>
+                  <span class="subtext">최근 거래 ${fmtDate(item.last_trade_date)}</span>
+                </div>
+              </td>
+              <td data-label="검토 이유"><div class="reason-cell">${reasonHtml}${intradayTags.map((label) => `<span class="tag">${label}</span>`).join("")}</div></td>
+              <td data-label="권장 액션" class="action-cell">${item.system_action_note || "-"}</td>
+            </tr>
+          `;
+        }).join("");
+      } catch (error) {
+        console.error(error);
+        if (window.TradingPolicyUI) {
+          window.TradingPolicyUI.renderStrip("policyStrip", []);
+          window.TradingPolicyUI.renderRuleSection("holdingRules", {
+            title: "보유 전략 규칙",
+            note: "전략 정책을 불러오지 못했습니다.",
+            items: [],
+          });
+        }
+        body.innerHTML = `<tr><td colspan="6" class="center">/api/holdings 조회 실패: ${error.message}</td></tr>`;
+      }
+    }
+
+    loadHoldings();
+  </script>
+</body>
+</html>

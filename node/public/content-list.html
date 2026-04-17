@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>콘텐츠 목록 | Lee Trader Lab</title>
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body class="site-body" data-page-type="">
+  <header class="site-header">
+    <div class="site-container site-header__inner">
+      <a class="site-brand" href="/">
+        <div class="site-brand__mark">LT</div>
+        <div>
+          <p class="site-brand__title">Lee Trader Lab</p>
+          <p class="site-brand__subtitle">국내 주식 운영 해석과 시장 해설</p>
+        </div>
+      </a>
+      <button class="site-nav-toggle" type="button" aria-expanded="false" aria-controls="siteNav">메뉴</button>
+      <nav id="siteNav" class="site-nav">
+        <a href="/">홈</a>
+        <a href="/about">소개</a>
+        <a href="/methodology">방법론</a>
+        <a href="/glossary">용어 해설</a>
+        <a id="navReports" href="/reports">시장 해설</a>
+        <a id="navBlog" href="/blog">블로그</a>
+        <a class="site-nav__app" href="/app">운영 앱</a>
+        <a class="site-nav__minor" href="/contact">문의</a>
+      </nav>
+    </div>
+  </header>
+  <main class="site-main">
+    <div class="site-container">
+      <section class="page-hero page-hero--split">
+        <div>
+          <p class="section__eyebrow" id="listEyebrow">Library</p>
+          <h1 id="listTitle">콘텐츠 라이브러리</h1>
+          <p id="listLead">운영 판단, 데이터 해석, 시장 브리프를 일반 방문자도 읽기 쉽도록 정리한 공개 콘텐츠 목록입니다.</p>
+          <div class="chip-row">
+            <span class="chip" id="listChipPrimary">운영 판단 해설</span>
+            <span class="chip chip--accent" id="listChipSecondary">처음 방문해도 읽기 쉬운 글</span>
+            <span class="chip chip--good" id="listChipTertiary">보고서와 개념 글을 분리 제공</span>
+          </div>
+        </div>
+        <aside class="hero__card hero__card--compact">
+          <div class="hero__stat">
+            <span class="hero__stat-label">전체 글 수</span>
+            <strong class="hero__stat-value" id="heroTotalCount">0개</strong>
+          </div>
+          <div class="hero__stat">
+            <span class="hero__stat-label">가장 많은 주제</span>
+            <strong class="hero__stat-value" id="heroTopCategory">-</strong>
+          </div>
+          <div class="hero__stat">
+            <span class="hero__stat-label">이 페이지에서 할 일</span>
+            <strong class="hero__stat-value" id="heroFocusText">공개 리서치 목록 읽기</strong>
+          </div>
+        </aside>
+      </section>
+
+      <section class="section">
+        <div class="section__head">
+          <div>
+            <p class="section__eyebrow">Start With</p>
+            <h2 class="section__title" id="starterTitle">처음 읽을 글</h2>
+            <p class="section__desc" id="starterDesc">이 페이지를 처음 보는 방문자에게 먼저 권할 글입니다.</p>
+          </div>
+        </div>
+        <div id="starterStrip" class="featured-strip"></div>
+      </section>
+
+      <section class="section">
+        <div class="section__head">
+          <div>
+            <p class="section__eyebrow">Reader Guide</p>
+            <h2 class="section__title">이렇게 읽으면 빠릅니다</h2>
+            <p class="section__desc">시장 해설은 오늘의 시장을 읽는 용도이고, 블로그는 용어와 판단 기준을 이해하는 용도입니다.</p>
+          </div>
+        </div>
+        <div class="quick-guide-grid">
+          <article class="guide-card">
+            <span class="guide-card__step">1</span>
+            <h3>처음 방문했다면</h3>
+            <p>소개와 방법론을 먼저 읽고, 그다음 시장 해설이나 블로그로 들어가면 전체 흐름을 더 빠르게 이해할 수 있습니다.</p>
+          </article>
+          <article class="guide-card">
+            <span class="guide-card__step">2</span>
+            <h3>오늘 시장이 궁금하다면</h3>
+            <p>시장 해설에서 현재 시장 구도, 운영 제한, 상위 후보를 어떤 순서로 읽어야 하는지 먼저 확인하세요.</p>
+          </article>
+          <article class="guide-card">
+            <span class="guide-card__step">3</span>
+            <h3>용어가 어려우면</h3>
+            <p>블로그와 용어 해설에서 관찰 후보, 매수 가드, 신뢰도 해석, 리스크 방어 같은 표현을 일반 언어로 다시 읽을 수 있습니다.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="list-header">
+          <div>
+            <h2 class="section__title">목록</h2>
+            <p class="section__desc" id="listTitleNote">0개 글</p>
+          </div>
+          <div class="filter-pills" id="listFilters"></div>
+        </div>
+        <div id="featuredStrip" class="featured-strip" style="display:none;"></div>
+        <div id="contentList" class="article-grid article-grid--wide"></div>
+      </section>
+    </div>
+  </main>
+  <script src="/site-library.js"></script>
+  <script src="/site-shell.js"></script>
+  <script src="/site-app.js"></script>
+  <script>
+    (function () {
+      const path = location.pathname;
+      const body = document.body;
+      const filters = document.getElementById("listFilters");
+      const items = Array.isArray(window.SiteLibrary) ? window.SiteLibrary : [];
+      const section = path.startsWith("/reports") ? "report" : path.startsWith("/blog") ? "blog" : "all";
+      body.dataset.pageType = section;
+      if (section === "report") {
+        document.title = "시장 해설 | Lee Trader Lab";
+        document.getElementById("listEyebrow").textContent = "Market Briefs";
+        document.getElementById("listTitle").textContent = "시장 해설";
+        document.getElementById("listLead").textContent = "시장, 모델, 데이터 이슈, 운영 상태를 읽기 쉽게 정리한 공개 해설 모음입니다.";
+        document.getElementById("listChipPrimary").textContent = "시장 흐름 진단";
+        document.getElementById("listChipSecondary").textContent = "운영 판단과 해석";
+        document.getElementById("listChipTertiary").textContent = "마감 기준과 장중 기준 구분";
+        document.getElementById("heroFocusText").textContent = "오늘 시장과 운영 판단 읽기";
+        document.getElementById("navReports").classList.add("is-active");
+      } else if (section === "blog") {
+        document.title = "블로그 | Lee Trader Lab";
+        document.getElementById("listEyebrow").textContent = "Blog";
+        document.getElementById("listTitle").textContent = "블로그";
+        document.getElementById("listLead").textContent = "운영 철학, 용어, 모델 설명을 다루는 블로그 글 모음입니다.";
+        document.getElementById("listChipPrimary").textContent = "철학과 판단 기준";
+        document.getElementById("listChipSecondary").textContent = "비전문가도 읽기 쉬운 글";
+        document.getElementById("listChipTertiary").textContent = "수동매매와 점수 구조 해설";
+        document.getElementById("heroFocusText").textContent = "개념과 판단 언어 이해";
+        document.getElementById("navBlog").classList.add("is-active");
+      }
+      const sectionItems = items.filter((item) => item.section === section);
+      const categories = [...new Set(sectionItems.map((item) => item.category))];
+      filters.innerHTML = [`<button class="filter-pill is-active" data-filter="all">전체</button>`]
+        .concat(categories.map((category) => `<button class="filter-pill" data-filter="${category}">${category}</button>`))
+        .join("");
+    })();
+  </script>
+</body>
+</html>

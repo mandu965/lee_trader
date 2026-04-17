@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>종목 상세 - Lee Trader</title>
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #020817;
+      --panel-soft: #020c1f;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --danger: #f97373;
+      --warn: #facc15;
+      --border: #1e293b;
+      --table-header: #020b1b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #020617 0, #000 45%, #020617 100%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 24px auto 48px;
+      padding: 0 20px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 16px;
+      gap: 12px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0.03em;
+    }
+    .summary-sub {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    button {
+      border-radius: 999px;
+      border: 1px solid #4b5563;
+      background: rgba(15,23,42,0.8);
+      color: var(--text);
+      padding: 6px 12px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    button:hover {
+      border-color: var(--accent);
+    }
+    .btn-accent {
+      background: var(--accent);
+      color: #020617;
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* 상단 카드 영역 */
+    .panel-row {
+      display: grid;
+      grid-template-columns: 2.2fr 1.8fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .panel {
+      background: radial-gradient(circle at top left, #020c1f 0, #020617 55%, #000 100%);
+      border-radius: 16px;
+      border: 1px solid rgba(148,163,184,0.1);
+      padding: 16px 18px 14px;
+      box-shadow: 0 18px 40px rgba(15,23,42,0.8);
+    }
+    .panel + .panel { box-shadow: 0 16px 32px rgba(15,23,42,0.8); }
+
+    .stock-title {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+    .stock-sub {
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      border: 1px solid #334155;
+      margin-right: 4px;
+      margin-top: 4px;
+    }
+    .pill.accent {
+      border-color: rgba(34,197,94,0.7);
+      background: rgba(34,197,94,0.08);
+      color: var(--accent);
+    }
+    .pill.danger {
+      border-color: rgba(248,113,113,0.7);
+      background: rgba(248,113,113,0.08);
+      color: var(--danger);
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .metric {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .metric-label {
+      margin-bottom: 2px;
+    }
+    .metric-value {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .metric-value.pos { color: var(--accent); }
+    .metric-value.neg { color: var(--danger); }
+
+    /* 목표 진행률 바 */
+    .target-block {
+      margin-top: 10px;
+      font-size: 12px;
+    }
+    .prog-wrap {
+      width: 100%;
+      height: 7px;
+      border-radius: 999px;
+      background: #020617;
+      border: 1px solid #1f2937;
+      overflow: hidden;
+      margin: 4px 0;
+    }
+    .prog-bar {
+      height: 100%;
+      background: linear-gradient(to right, #22c55e, #16a34a);
+      transition: width 0.3s ease;
+      width: 0;
+    }
+    .prog-label {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    /* 아래 두 패널: 모델 정보 / 매매 이력 */
+    .panel-row-2 {
+      display: grid;
+      grid-template-columns: 1.4fr 1.6fr;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .panel-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .panel-desc {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    thead {
+      background: var(--table-header);
+    }
+    th, td {
+      padding: 6px 8px;
+      border-bottom: 1px solid #111827;
+      text-align: right;
+      white-space: nowrap;
+    }
+    th:first-child,
+    td:first-child {
+      text-align: left;
+    }
+    th {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    tbody tr:hover {
+      background: rgba(15,23,42,0.7);
+    }
+    .text-muted { color: var(--muted); }
+    .text-pos { color: var(--accent); }
+    .text-neg { color: var(--danger); }
+    .center {
+      text-align: center;
+      padding: 18px 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .badge-small {
+      display: inline-block;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: 10px;
+      border: 1px solid #374151;
+      color: var(--muted);
+      margin-left: 4px;
+    }
+
+    @media (max-width: 900px) {
+      .panel-row, .panel-row-2 {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>종목 상세 리포트</h1>
+        <div class="summary-sub">보유 종목과 모델 정보를 한 화면에서 확인할 수 있습니다.</div>
+      </div>
+      <div class="toolbar">
+        <button onclick="location.href='holdings.html'">← 보유 종목</button>
+        <button onclick="location.href='index.html'" class="btn-accent">랭킹 보기</button>
+      </div>
+    </header>
+
+    <!-- 상단 요약 패널 -->
+    <div class="panel-row">
+      <div class="panel">
+        <div id="stockTitle" class="stock-title">-</div>
+        <div id="stockSub" class="stock-sub">-</div>
+        <div style="margin-top:6px;">
+          <span id="pillMarket" class="pill">시장 -</span>
+          <span id="pillSector" class="pill">섹터 -</span>
+          <span id="pillScore" class="pill accent">점수 -</span>
+        </div>
+
+        <div class="metrics-grid">
+          <div class="metric">
+            <div class="metric-label">보유 수량</div>
+            <div class="metric-value" id="mQty">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">평단가</div>
+            <div class="metric-value" id="mAvgBuy">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">현재가</div>
+            <div class="metric-value" id="mCurPrice">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">평가금액</div>
+            <div class="metric-value" id="mCurValue">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">평가손익</div>
+            <div class="metric-value" id="mUnreal" class="text-pos">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">수익률</div>
+            <div class="metric-value" id="mUnrealPct">-</div>
+          </div>
+        </div>
+
+        <div class="target-block">
+          <div>목표가(20%) <span id="mTargetPrice" class="badge-small">-</span></div>
+          <div class="prog-wrap">
+            <div id="mProgBar" class="prog-bar"></div>
+          </div>
+          <div class="prog-label" id="mProgLabel">-</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">실현손익 / 모델 요약</div>
+        <div class="panel-desc">해당 종목의 누적 실현손익과 모델이 바라보는 예측 수익률입니다.</div>
+
+        <div class="metrics-grid">
+          <div class="metric">
+            <div class="metric-label">누적 실현손익</div>
+            <div class="metric-value" id="mRealized">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">실현손익률</div>
+            <div class="metric-value" id="mRealizedPct">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">3개월 수익률</div>
+            <div class="metric-value" id="mRet3m">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">예측 수익률(60d)</div>
+            <div class="metric-value" id="mPred60">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">예측 수익률(90d)</div>
+            <div class="metric-value" id="mPred90">-</div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">예상 MDD(60d)</div>
+            <div class="metric-value" id="mMdd60">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 모델 상세 + 매매 이력 -->
+    <div class="panel-row-2">
+      <div class="panel">
+        <div class="panel-title">모델 상세 지표</div>
+        <div class="panel-desc">스코어, 품질 점수, 리스크 감점 등 모델이 산출한 세부 지표입니다.</div>
+        <table>
+          <tbody id="modelBody">
+            <tr><td class="center" colspan="2">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">매매 이력</div>
+        <div class="panel-desc">실제 매수/매도 내역과 각 거래별 포지션 변화를 보여줍니다.</div>
+        <table>
+          <thead>
+            <tr>
+              <th>일자</th>
+              <th>구분</th>
+              <th>수량</th>
+              <th>단가</th>
+              <th>금액</th>
+              <th>실현손익</th>
+              <th>누적손익</th>
+              <th>잔여수량</th>
+              <th>평단가</th>
+            </tr>
+          </thead>
+          <tbody id="tradeBody">
+            <tr><td colspan="9" class="center">로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== 공통 포맷 함수 =====
+    function fmtNumber(v) {
+      if (v === null || v === undefined || isNaN(v)) return "-";
+      return Number(v).toLocaleString("ko-KR");
+    }
+    function fmtPrice(v) {
+      if (v === null || v === undefined || isNaN(v)) return "-";
+      return Number(v).toLocaleString("ko-KR");
+    }
+    function fmtSigned(v) {
+      if (v === null || v === undefined || isNaN(v)) return "-";
+      const n = Number(v);
+      const s = n.toLocaleString("ko-KR");
+      return n > 0 ? "+" + s : s;
+    }
+    function fmtPct(v, digits = 2) {
+      if (v === null || v === undefined || isNaN(v)) return "-";
+      const n = Number(v) * (Math.abs(v) < 1.1 ? 100 : 1); // 이미 %인지 비율인지 헷갈리지 않게 방어
+      return (n > 0 ? "+" : "") + n.toFixed(digits) + "%";
+    }
+
+    function getQueryCode() {
+      const p = new URLSearchParams(location.search);
+      return (p.get("code") || "").trim();
+    }
+
+    async function loadDetail() {
+      const code = getQueryCode();
+      if (!code) {
+        document.body.innerHTML = "<div class='center'>code 파라미터가 없습니다.</div>";
+        return;
+      }
+
+      try {
+        const [holdRes, tradeRes, rankRes] = await Promise.all([
+          fetch("/api/holdings"),
+          fetch("/api/trades"),
+          fetch("/api/ranking"),
+        ]);
+
+        const holdingsPayload = await holdRes.json();
+        const tradesPayload = await tradeRes.json();
+        const rankingPayload = await rankRes.json();
+
+        const holding = (holdingsPayload.items || []).find(
+          (h) => (h.code || "").trim() === code
+        );
+
+        const tradesRaw = (tradesPayload.items || []).filter(
+          (t) => (t.code || "").trim() === code
+        );
+
+        const rank = (rankingPayload || []).find(
+          (r) => (r.code || "").trim() === code
+        );
+
+        renderSummary(code, holding, rank, tradesRaw);
+        renderModel(rank);
+        renderTrades(tradesRaw, holding);
+      } catch (e) {
+        console.error(e);
+        document.getElementById("tradeBody").innerHTML =
+          "<tr><td colspan='9' class='center'>데이터 로딩 실패: " + e.message + "</td></tr>";
+      }
+    }
+
+    function renderSummary(code, holding, rank, tradesRaw) {
+      const title = document.getElementById("stockTitle");
+      const sub   = document.getElementById("stockSub");
+      const pillMarket = document.getElementById("pillMarket");
+      const pillSector = document.getElementById("pillSector");
+      const pillScore  = document.getElementById("pillScore");
+
+      const name   = holding?.name || rank?.name || code;
+      const market = (holding?.market || rank?.market || "").toUpperCase();
+      const sector = holding?.sector || rank?.sector || "-";
+
+      title.textContent = name;
+      sub.textContent   = `${code} · ${market || "시장 정보 없음"}`;
+
+      pillMarket.textContent = market ? `시장 ${market}` : "시장 -";
+      pillSector.textContent = sector ? `섹터 ${sector}` : "섹터 -";
+
+      const score = (rank && (rank.final_score ?? rank.score)) ?? holding?.final_score ?? null;
+      pillScore.textContent = "점수 " + (score != null ? score.toFixed(1) : "-");
+
+      // 상단 숫자들
+      const mQty       = document.getElementById("mQty");
+      const mAvgBuy    = document.getElementById("mAvgBuy");
+      const mCurPrice  = document.getElementById("mCurPrice");
+      const mCurValue  = document.getElementById("mCurValue");
+      const mUnreal    = document.getElementById("mUnreal");
+      const mUnrealPct = document.getElementById("mUnrealPct");
+      const mTargetPrice = document.getElementById("mTargetPrice");
+      const mProgBar   = document.getElementById("mProgBar");
+      const mProgLabel = document.getElementById("mProgLabel");
+
+      if (!holding) {
+        mQty.textContent = "-";
+        mAvgBuy.textContent = "-";
+        mCurPrice.textContent = "-";
+        mCurValue.textContent = "-";
+        mUnreal.textContent = "-";
+        mUnrealPct.textContent = "-";
+        mTargetPrice.textContent = "-";
+        mProgBar.style.width = "0%";
+        mProgLabel.textContent = "보유 포지션 없음";
+      } else {
+        mQty.textContent = fmtNumber(holding.current_qty);
+        mAvgBuy.textContent = fmtPrice(holding.avg_buy_price);
+        mCurPrice.textContent = fmtPrice(holding.current_price);
+        mCurValue.textContent = fmtNumber(holding.current_value);
+        mUnreal.textContent = fmtSigned(holding.unrealized_pnl);
+        mUnreal.classList.toggle("text-pos", holding.unrealized_pnl > 0);
+        mUnreal.classList.toggle("text-neg", holding.unrealized_pnl < 0);
+
+        const upct = holding.unrealized_pnl_pct;
+        mUnrealPct.textContent =
+          upct != null && !isNaN(upct)
+            ? (upct > 0 ? "+" : "") + upct.toFixed(2) + "%"
+            : "-";
+
+        mTargetPrice.textContent = holding.target_price
+          ? fmtPrice(holding.target_price)
+          : "-";
+
+        const prog = holding.progress_to_target ?? 0;
+        mProgBar.style.width = Math.max(0, Math.min(100, prog)) + "%";
+        mProgLabel.textContent =
+          holding.target_price && holding.progress_to_target != null
+            ? `목표까지 ${Math.max(0, 100 - prog).toFixed(0)}% 남음`
+            : "목표가 정보 없음";
+      }
+
+      // 오른쪽 패널 요약
+      const mRealized    = document.getElementById("mRealized");
+      const mRealizedPct = document.getElementById("mRealizedPct");
+      const mRet3m       = document.getElementById("mRet3m");
+      const mPred60      = document.getElementById("mPred60");
+      const mPred90      = document.getElementById("mPred90");
+      const mMdd60       = document.getElementById("mMdd60");
+
+      const realized = holding?.realized_pnl ?? 0;
+      const realizedPct = holding?.realized_pnl_pct ?? null;
+      mRealized.textContent = fmtSigned(realized);
+      mRealized.classList.toggle("text-pos", realized > 0);
+      mRealized.classList.toggle("text-neg", realized < 0);
+
+      mRealizedPct.textContent =
+        realizedPct != null && !isNaN(realizedPct)
+          ? (realizedPct > 0 ? "+" : "") + realizedPct.toFixed(2) + "%"
+          : "-";
+
+      const ret3m = rank?.ret_3m ?? null;
+      mRet3m.textContent = ret3m != null ? fmtPct(ret3m, 2) : "-";
+      mRet3m.classList.toggle("text-pos", ret3m > 0);
+      mRet3m.classList.toggle("text-neg", ret3m < 0);
+
+      const pred60 = rank?.pred_return_60d ?? null;
+      const pred90 = rank?.pred_return_90d ?? null;
+      const mdd60  = rank?.pred_mdd_60d ?? null;
+
+      mPred60.textContent = pred60 != null ? fmtPct(pred60, 2) : "-";
+      mPred90.textContent = pred90 != null ? fmtPct(pred90, 2) : "-";
+      mMdd60.textContent  = mdd60  != null ? fmtPct(mdd60, 2) : "-";
+
+      mPred60.classList.toggle("text-pos", pred60 > 0);
+      mPred60.classList.toggle("text-neg", pred60 < 0);
+      mPred90.classList.toggle("text-pos", pred90 > 0);
+      mPred90.classList.toggle("text-neg", pred90 < 0);
+      mMdd60.classList.toggle("text-pos", mdd60 > 0);
+      mMdd60.classList.toggle("text-neg", mdd60 < 0);
+    }
+
+    function renderModel(rank) {
+      const tbody = document.getElementById("modelBody");
+      if (!rank) {
+        tbody.innerHTML = "<tr><td class='center' colspan='2'>모델 데이터가 없습니다.</td></tr>";
+        return;
+      }
+      const rows = [];
+
+      function row(label, value, cls) {
+        rows.push(
+          `<tr><td>${label}</td><td class="${cls || ""}" style="text-align:right;">${value}</td></tr>`
+        );
+      }
+
+      row("최종 점수", rank.final_score != null ? rank.final_score.toFixed(2) : "-");
+      row("기술 점수", rank.tech_score != null ? rank.tech_score.toFixed(2) : "-");
+      row("품질 점수", rank.qual_score != null ? rank.qual_score.toFixed(2) : "-");
+      row("3개월 수익률", rank.ret_3m != null ? fmtPct(rank.ret_3m, 2) : "-");
+      row("예측 수익률(60d)", rank.pred_return_60d != null ? fmtPct(rank.pred_return_60d, 2) : "-");
+      row("예측 수익률(90d)", rank.pred_return_90d != null ? fmtPct(rank.pred_return_90d, 2) : "-");
+      row("예상 MDD(60d)", rank.pred_mdd_60d != null ? fmtPct(rank.pred_mdd_60d, 2) : "-");
+      row("예상 MDD(90d)", rank.pred_mdd_90d != null ? fmtPct(rank.pred_mdd_90d, 2) : "-");
+      row("Top20 확률(60d)", rank.prob_top20_60d != null ? (rank.prob_top20_60d * 100).toFixed(1) + "%" : "-");
+      row("Top20 확률(90d)", rank.prob_top20_90d != null ? (rank.prob_top20_90d * 100).toFixed(1) + "%" : "-");
+      row("리스크 감점", rank.risk_penalty != null ? rank.risk_penalty.toFixed(2) : "-");
+
+      tbody.innerHTML = rows.join("");
+    }
+
+    function renderTrades(tradesRaw, holding) {
+      const tbody = document.getElementById("tradeBody");
+      if (!tradesRaw || tradesRaw.length === 0) {
+        tbody.innerHTML = "<tr><td colspan='9' class='center'>매매 이력이 없습니다.</td></tr>";
+        return;
+      }
+
+      // 날짜 + created_at + trade_id 순으로 정렬
+      const list = [...tradesRaw].sort((a, b) => {
+        const da = String(a.date || "");
+        const db = String(b.date || "");
+        if (da < db) return -1;
+        if (da > db) return 1;
+        const ca = String(a.created_at || "");
+        const cb = String(b.created_at || "");
+        if (ca < cb) return -1;
+        if (ca > cb) return 1;
+        const ia = Number(a.trade_id);
+        const ib = Number(b.trade_id);
+        if (Number.isFinite(ia) && Number.isFinite(ib)) return ia - ib;
+        return 0;
+      });
+
+      let qty = 0;
+      let avg = 0;
+      let realizedCum = 0;
+
+      const rows = list.map((t) => {
+        const side = (t.side || "").toUpperCase();
+        const q = Number(t.qty);
+        const p = Number(t.price);
+        if (!Number.isFinite(q) || !Number.isFinite(p) || q <= 0 || p <= 0) {
+          return "";
+        }
+
+        let realized = 0;
+
+        if (side === "BUY") {
+          const newQty = qty + q;
+          avg = (avg * qty + p * q) / newQty;
+          qty = newQty;
+        } else if (side === "SELL" && qty > 0) {
+          const sellQty = Math.min(q, qty);
+          realized = (p - avg) * sellQty;
+          realizedCum += realized;
+          qty -= sellQty;
+        }
+
+        const amount = q * p;
+        const clsSide = side === "BUY" ? "text-pos" : "text-neg";
+        const clsReal = realized > 0 ? "text-pos" : realized < 0 ? "text-neg" : "";
+
+        return `
+          <tr>
+            <td>${t.date || ""}</td>
+            <td class="${clsSide}">${side}</td>
+            <td>${fmtNumber(q)}</td>
+            <td>${fmtPrice(p)}</td>
+            <td>${fmtPrice(amount)}</td>
+            <td class="${clsReal}">${realized ? fmtSigned(realized) : "-"}</td>
+            <td class="${realizedCum ? (realizedCum > 0 ? "text-pos" : "text-neg") : ""}">
+              ${realizedCum ? fmtSigned(realizedCum) : "-"}
+            </td>
+            <td>${fmtNumber(qty)}</td>
+            <td>${qty > 0 ? fmtPrice(avg) : "-"}</td>
+          </tr>
+        `;
+      }).join("");
+
+      tbody.innerHTML = rows || "<tr><td colspan='9' class='center'>유효한 매매 이력이 없습니다.</td></tr>";
+    }
+
+    loadDetail();
+  </script>
+</body>
+</html>

@@ -1,0 +1,295 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>운영자 페이지</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .ops-page { max-width: 1380px; margin: 0 auto; padding: 24px 20px 48px; }
+      .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+      .page-title { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+      .page-subtitle { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.65; max-width: 860px; }
+      .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .page-actions button { flex: 0 0 auto; }
+      .page-actions button.is-active { border-color: rgba(56, 189, 248, 0.44); background: rgba(56, 189, 248, 0.12); color: #bae6fd; }
+      .section { margin-bottom: 18px; }
+      .grid-hero { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+      .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+      .card { border: 1px solid var(--border); border-radius: 18px; background: rgba(255,255,255,0.03); padding: 16px; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16); }
+      .card h2, .card h3 { margin: 0 0 10px; }
+      .eyebrow { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.08em; }
+      .big-value { margin-top: 8px; font-size: 30px; font-weight: 800; }
+      .muted { color: var(--color-text-secondary); }
+      .kv { display: grid; gap: 8px; margin-top: 12px; }
+      .kv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+      .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+      .chip { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); }
+      .chip.good { color: #86efac; border-color: rgba(34,197,94,0.28); background: rgba(34,197,94,0.12); }
+      .chip.watch { color: #fde68a; border-color: rgba(250,204,21,0.28); background: rgba(250,204,21,0.12); }
+      .chip.bad { color: #fca5a5; border-color: rgba(248,113,113,0.28); background: rgba(248,113,113,0.12); }
+      .chip.info { color: #93c5fd; border-color: rgba(96,165,250,0.28); background: rgba(96,165,250,0.12); }
+      .metric-list, .reason-list, .candidate-list, .check-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
+      .note-box { width: 100%; min-height: 132px; border-radius: 14px; border: 1px solid var(--border); background: rgba(15,23,42,0.45); color: var(--color-text-primary); padding: 12px 14px; font: inherit; resize: vertical; }
+      .note-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; }
+      .note-meta { font-size: 12px; color: var(--color-text-secondary); }
+      .candidate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+      .candidate-card { border: 1px solid var(--border); border-radius: 16px; background: rgba(255,255,255,0.03); padding: 14px; }
+      .candidate-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+      .candidate-name { margin: 0; font-size: 18px; }
+      .candidate-meta { margin-top: 6px; font-size: 12px; color: var(--color-text-secondary); }
+      .candidate-score { font-size: 24px; font-weight: 800; }
+      .empty-state { padding: 18px; border: 1px dashed var(--border); border-radius: 16px; color: var(--color-text-secondary); text-align: center; }
+      .state-line { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); }
+      .chart-bg { fill: rgba(148, 163, 184, 0.06); stroke: rgba(148, 163, 184, 0.14); }
+      .chart-axis { stroke: rgba(148, 163, 184, 0.22); stroke-width: 1; }
+      .chart-line-a { fill: none; stroke: #38bdf8; stroke-width: 3; }
+      .chart-line-b { fill: none; stroke: #f59e0b; stroke-width: 3; }
+      .chart-dot-a { fill: #38bdf8; }
+      .chart-dot-b { fill: #f59e0b; }
+      .chart-label { fill: #94a3b8; font-size: 11px; }
+      @media (max-width: 1100px) { .grid-hero, .grid-2, .grid-3, .candidate-grid { grid-template-columns: 1fr; } .page-header { flex-direction: column; } }
+      @media (max-width: 640px) {
+        .ops-page { padding: 18px 12px 36px; }
+        .page-title { font-size: 24px; }
+        .card { padding: 14px; }
+        .big-value { font-size: 24px; }
+        .kv-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+        .page-actions {
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          padding-bottom: 4px;
+          -webkit-overflow-scrolling: touch;
+        }
+        .note-actions { align-items: stretch; flex-direction: column; }
+        .note-actions > * { width: 100%; }
+      }
+      @media (max-width: 430px) {
+        .ops-page { padding: 14px 10px 28px; }
+        .page-title { font-size: 22px; }
+        .page-subtitle, .muted, .state-line, .kv-row, .metric-list, .reason-list, .candidate-list, .check-list { font-size: 11px; }
+        .card { padding: 12px; border-radius: 14px; }
+        .big-value { font-size: 22px; }
+        .candidate-name { font-size: 16px; }
+        .candidate-score { font-size: 20px; }
+      }
+      @media (max-width: 390px) {
+        .page-actions button { min-height: 38px; font-size: 12px; }
+        .chip { font-size: 10px; padding: 3px 8px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ops-page">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">운영자 페이지</h1>
+          <p class="page-subtitle">운영 readiness, buy gate, KPI, 산출물 최신 상태와 오늘 수동 검토 후보를 한 화면에서 확인하는 운영 대시보드입니다.</p>
+        </div>
+        <div class="page-actions" data-unified-ops-nav data-nav-class="" data-nav-active="operator"></div>
+      </header>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">Score Check</div>
+          <h2>점수 검증 바로가기</h2>
+          <div class="page-actions">
+            <button type="button" onclick="location.href='/score-check'">점수 검증 열기</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="section grid-hero" id="heroGrid"></section>
+      <section class="section"><div id="policyStrip"></div></section>
+      <section class="section"><div id="opsPolicyRules"></div></section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">운영 해석</div>
+          <h2>오늘 해석</h2>
+          <div id="interpretationChips" class="chip-row"></div>
+          <div class="kv" id="interpretationKv"></div>
+        </article>
+      </section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">핵심 사유</div>
+          <h2>꼭 확인할 사유</h2>
+          <ul id="criticalReasons" class="reason-list"></ul>
+        </article>
+      </section>
+
+      <section class="section grid-2">
+        <article class="card">
+          <div class="eyebrow">준비 상태</div>
+          <h2>이력 축적 상태</h2>
+          <div class="kv" id="readinessKv"></div>
+          <div id="readinessHelp" class="state-line"></div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">집행 판단</div>
+          <h2>운영 전환 판단</h2>
+          <div id="goChipRow" class="chip-row"></div>
+          <ul id="goReasons" class="reason-list"></ul>
+          <div id="transitionHelp" class="state-line"></div>
+        </article>
+      </section>
+
+      <section class="section grid-3">
+        <article class="card">
+          <div class="eyebrow">매수 gate</div>
+          <h3>운영 gate</h3>
+          <div id="gateChipRow" class="chip-row"></div>
+          <div class="kv" id="gateKv"></div>
+          <div id="gateHelp" class="state-line"></div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">시장 국면</div>
+          <h3>시장 국면</h3>
+          <div id="marketRegimeChipRow" class="chip-row"></div>
+          <div class="kv" id="marketRegimeKv"></div>
+          <div id="marketRegimeHelp" class="state-line"></div>
+          <div id="marketRegimeStance" class="state-line"></div>
+          <ul id="marketRegimeActions" class="reason-list"></ul>
+        </article>
+        <article class="card">
+          <div class="eyebrow">Score KPI</div>
+          <h3>KPI 상태</h3>
+          <div id="kpiChipRow" class="chip-row"></div>
+          <div class="kv" id="kpiKv"></div>
+          <div id="kpiHelp" class="state-line"></div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">산출물</div>
+          <h3>산출물 최신 상태</h3>
+          <div class="kv" id="outputsKv"></div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">스케줄러</div>
+          <h3>수동 배포 상태</h3>
+          <div id="schedulerChipRow" class="chip-row"></div>
+          <div class="kv" id="schedulerKv"></div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">Visitors</div>
+          <h3>방문 집계</h3>
+          <div id="visitorChipRow" class="chip-row"></div>
+          <div class="kv" id="visitorKv"></div>
+          <ul id="visitorTopPages" class="candidate-list"></ul>
+        </article>
+      </section>
+
+      <section class="section grid-2">
+        <article class="card">
+          <div class="eyebrow">알림</div>
+          <h3>지금 걸리는 항목</h3>
+          <ul id="alertMetrics" class="metric-list"></ul>
+        </article>
+        <article class="card">
+          <div class="eyebrow">체크리스트</div>
+          <h3>오늘 확인 사항</h3>
+          <ul id="dailyChecklist" class="check-list"></ul>
+        </article>
+        </section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">7??Visitors</div>
+          <h3>방문 추이</h3>
+          <svg id="visitorTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="방문 추이 차트"></svg>
+          <div id="visitorTrendBadges" class="chip-row"></div>
+          <div class="state-line">최근 7일 페이지뷰와 순방문자 추이입니다.</div>
+        </article>
+      </section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">장중 대응</div>
+          <h2>장중 대응 변화</h2>
+          <div class="candidate-grid" id="intradayOpsGrid"></div>
+        </article>
+      </section>
+
+      <section class="section grid-2">
+        <article class="card">
+          <div class="eyebrow">추이</div>
+          <h3>스냅샷 / 성숙도 추이</h3>
+          <svg id="readinessTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="준비 상태 추이 차트"></svg>
+          <div id="recentStateBadges" class="chip-row"></div>
+          <div class="state-line">최근 스냅샷 누적과 60일 성숙도 흐름입니다.</div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">전환 점검</div>
+          <h3>운영 전환 체크</h3>
+          <div id="transitionSummary" class="chip-row"></div>
+          <ul id="transitionChecklist" class="check-list"></ul>
+        </article>
+      </section>
+
+      <section class="section grid-2">
+        <article class="card">
+          <div class="eyebrow">7일 gate</div>
+          <h3>매수 gate 최근 7일</h3>
+          <svg id="gateTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="매수 gate 추이 차트"></svg>
+          <div id="gateTrendBadges" class="chip-row"></div>
+          <div class="state-line">신뢰 비율, 성숙 벤치마크 수, 관찰 후보 흐름을 함께 봅니다.</div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">7일 KPI</div>
+          <h3>KPI 최근 7일</h3>
+          <svg id="kpiTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="KPI 추이 차트"></svg>
+          <div id="kpiTrendBadges" class="chip-row"></div>
+          <div class="state-line">신뢰도, 워크포워드, 경고 지표 수 추이를 함께 봅니다.</div>
+        </article>
+      </section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">운영 메모</div>
+          <h2>운영 메모</h2>
+          <textarea id="operatorMemo" class="note-box" placeholder="오늘 파이프라인 상태, 수동 검토 메모, 보류 사유를 기록합니다."></textarea>
+          <div class="note-actions">
+            <div id="operatorMemoMeta" class="note-meta">아직 저장한 메모가 없습니다.</div>
+            <button type="button" id="saveOperatorMemoBtn">메모 저장</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">오늘 후보</div>
+          <h2>오늘 수동 검토 후보</h2>
+          <div class="candidate-grid" id="candidateGrid"></div>
+        </article>
+      </section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">Shadow</div>
+          <h2>Shadow 개선 후보 상위 5개</h2>
+          <div class="candidate-grid" id="shadowCandidateGrid"></div>
+        </article>
+      </section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">Shadow Repeatability</div>
+          <h2>Shadow 반복 유효성 확인</h2>
+          <div id="shadowRepeatabilityChips" class="chip-row"></div>
+          <div class="kv" id="shadowRepeatabilityKv"></div>
+          <div id="shadowRepeatabilityHelp" class="state-line"></div>
+          <ul id="shadowRepeatabilityList" class="candidate-list"></ul>
+        </article>
+      </section>
+
+      <div id="pageState" class="state-line"></div>
+    </div>
+    <script src="./trading-policy-ui.js"></script>
+    <script src="./ops-unified-nav.js"></script>
+    <script src="./ops-readiness.js"></script>
+  </body>
+</html>
+
+
