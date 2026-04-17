@@ -20,7 +20,7 @@ OUTPUT_DIR = ROOT / "outputs"
 SERVING_DIR = ROOT / "serving"
 PYTHON = sys.executable
 
-CORE_TABLES = {"stocks", "market_status", "predictions", "daily_ranking"}
+CORE_TABLES = {"stocks", "market_status", "features", "predictions", "daily_ranking"}
 
 JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("daily_recommendations", SERVING_DIR / "daily_recommendations.json", "asof_date"),

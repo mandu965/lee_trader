@@ -171,6 +171,10 @@
       .table-wrap {
         overflow-x: auto;
       }
+      .table-wrap--nav {
+        max-height: 480px;
+        overflow-y: auto;
+      }
       .table-wrap table {
         min-width: 1040px;
       }
@@ -236,6 +240,9 @@
         .status-strip,
         .strategy-grid {
           grid-template-columns: 1fr;
+        }
+        .table-wrap--nav {
+          max-height: 360px;
         }
       }
     </style>
@@ -323,7 +330,7 @@
             <div class="section-note">선택한 전략의 최근 NAV 흐름</div>
           </div>
         </div>
-        <div class="table-wrap">
+        <div class="table-wrap table-wrap--nav">
           <table>
             <thead>
               <tr>

@@ -150,7 +150,7 @@ python python\sync_web_display_data.py --skip-paper-trading
 ### CSV 백업 / 복구
 
 powershell
-python python\backup_csv_md_zip.py --output backups\csv_backup_20260415.zip --overwrite --keep-latest 1
+python python\backup_csv_md_zip.py --output backups\csv_backup_20260416.zip --overwrite --keep-latest 1
 python python\restore_csv_md_zip.py --zip backups\csv_backup_20260415.zip --overwrite
 
 ## 권장 전체 순서
@@ -165,6 +165,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 python python\run_operational_refresh.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+docker compose up -d --build node-api
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 python python\export_trades_csv.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -176,6 +179,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+
 ```
 
 ```powershell

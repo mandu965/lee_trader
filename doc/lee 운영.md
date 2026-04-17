@@ -23,8 +23,8 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ### CSV 백업 / 복구
 
 powershell
-python python\backup_csv_md_zip.py --output backups\csv_backup_20260415.zip --overwrite --keep-latest 1
-python python\restore_csv_md_zip.py --zip backups\csv_backup_20260415.zip --overwrite
+python python\backup_csv_md_zip.py --output backups\csv_backup_20260416.zip --overwrite --keep-latest 1
+python python\restore_csv_md_zip.py --zip backups\csv_backup_20260416.zip --overwrite
 
 ### Git 배포 필수 3단계
 

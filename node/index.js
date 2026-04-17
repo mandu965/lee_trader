@@ -472,6 +472,37 @@ function getLiveScoreSource(row) {
   return source || "final_score";
 }
 
+function getConfidenceScore(row) {
+  if (!row) return null;
+  return (
+    toNum(row.confidence_score) ??
+    toNum(row.confidence_score_operational) ??
+    toNum(row.confidence_score_research) ??
+    toNum(row.raw_confidence_v2)
+  );
+}
+
+function getConfidenceLabel(row) {
+  if (!row) return null;
+  return (
+    row.confidence_grade ||
+    row.confidence_label ||
+    row.confidence_label_operational ||
+    row.confidence_label_research ||
+    null
+  );
+}
+
+function getConfidenceExplainText(row) {
+  if (!row) return null;
+  return (
+    row.confidence_explain_text ||
+    row.score_explain_confidence ||
+    row.confidence_reason ||
+    null
+  );
+}
+
 function getQualityRiskGuardShadowScore(row) {
   if (!row) return null;
   return toNum(row.shadow_final_score_quality_risk_guard);
@@ -1260,7 +1291,7 @@ async function buildOpsReadinessSummary() {
         shadow_quality_risk_guard_rank: shadowRank,
         shadow_quality_risk_guard_penalty: getQualityRiskGuardPenalty(row),
         shadow_quality_risk_guard_rank_delta: rankDelta,
-        confidence_score: toNum(row.confidence_score),
+        confidence_score: getConfidenceScore(row),
         risk_penalty: toNum(row.risk_penalty),
         qual_score: toNum(row.qual_score),
         dominant_theme: row.dominant_theme || null,
@@ -3305,14 +3336,30 @@ app.get("/api/stocks/:code", async (req, res) => {
       )
     )[0];
     const dailyRecommendation = await getDailyRecommendationItem(code);
+    const dailySecurity = dailyRecommendation?.security || {};
     const buyEligibility = dailyRecommendation?.buy_eligibility || {};
     const selection = dailyRecommendation?.selection || {};
+    const resolvedName =
+      (typeof getName(code) === "string" && getName(code).trim()) ||
+      (typeof dailySecurity.name === "string" && dailySecurity.name.trim()) ||
+      (typeof rank?.name === "string" && rank.name.trim()) ||
+      null;
+    const resolvedMarket =
+      (typeof rank?.market === "string" && rank.market.trim()) ||
+      (typeof dailySecurity.market === "string" && dailySecurity.market.trim()) ||
+      (typeof getMarket(code) === "string" && getMarket(code).trim()) ||
+      null;
+    const resolvedSector =
+      (typeof rank?.sector === "string" && rank.sector.trim()) ||
+      (typeof dailySecurity.sector === "string" && dailySecurity.sector.trim()) ||
+      (typeof getSector(code) === "string" && getSector(code).trim()) ||
+      null;
 
     res.json({
       code,
-      name: getName(code),
-      market: rank ? (rank.market || getMarket(code) || null) : (getMarket(code) || null),
-      sector: rank ? (rank.sector || getSector(code) || null) : (getSector(code) || null),
+      name: resolvedName,
+      market: resolvedMarket,
+      sector: resolvedSector,
       count: rows.length,
       latest,
       volatility_20: latest ? toNum(latest.vol_20) : null,
@@ -3342,10 +3389,10 @@ app.get("/api/stocks/:code", async (req, res) => {
         rank && Number.isFinite(getLiveRank(rank)) && Number.isFinite(getQualityRiskGuardShadowRank(rank))
           ? getLiveRank(rank) - getQualityRiskGuardShadowRank(rank)
           : null,
-      confidence_score: rank ? toNum(rank.confidence_score) : null,
-      confidence_grade: rank ? (rank.confidence_grade || null) : null,
+      confidence_score: rank ? getConfidenceScore(rank) : null,
+      confidence_grade: rank ? getConfidenceLabel(rank) : null,
       explain_text: rank ? (rank.explain_text || null) : null,
-      confidence_explain_text: rank ? (rank.confidence_explain_text || null) : null,
+      confidence_explain_text: rank ? getConfidenceExplainText(rank) : null,
       contrib_ret: rank ? toNum(rank.contrib_ret) : null,
       contrib_prob: rank ? toNum(rank.contrib_prob) : null,
       contrib_qual: rank ? toNum(rank.contrib_qual) : null,
@@ -3439,12 +3486,12 @@ app.get("/api/ranking", async (req, res) => {
         pred_score: toNum(r.pred_score),
         safety_score: toNum(r.safety_score),
         liquidity_score: toNum(r.liquidity_score),
-        confidence_score: toNum(r.confidence_score),
-        confidence_label: r.confidence_label || null,
-        confidence_grade: r.confidence_grade || null,
+        confidence_score: getConfidenceScore(r),
+        confidence_label: getConfidenceLabel(r),
+        confidence_grade: getConfidenceLabel(r),
         confidence_reason: r.confidence_reason || null,
         explain_text: r.explain_text || null,
-        confidence_explain_text: r.confidence_explain_text || null,
+        confidence_explain_text: getConfidenceExplainText(r),
         score_explain_summary: r.score_explain_summary || null,
         score_explain_strengths: r.score_explain_strengths || null,
         score_explain_risks: r.score_explain_risks || null,
@@ -4473,7 +4520,7 @@ app.get("/api/paper-trading/positions", async (req, res) => {
       source_rank: toNum(row.source_rank),
       selection_stage: row.selection_stage || null,
         dominant_theme: row.dominant_theme || null,
-        confidence_score: toNum(row.confidence_score),
+        confidence_score: getConfidenceScore(row),
         live_score: getLiveScore(rankRow) ?? toNum(row.final_score),
         live_rank: getLiveRank(rankRow),
         live_score_source: getLiveScoreSource(rankRow),
