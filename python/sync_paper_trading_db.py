@@ -44,6 +44,15 @@ POSITION_COLUMNS = [
     "dominant_theme",
     "confidence_score",
     "final_score",
+    "holding_age_trading_days",
+    "remaining_holding_days",
+    "holding_policy_code",
+    "entry_action_code",
+    "entry_action_reason",
+    "current_action_code",
+    "current_action_reason",
+    "exit_action_code",
+    "exit_action_reason",
     "status",
 ]
 
@@ -115,7 +124,19 @@ def normalize_positions(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
     work["strategy"] = work.get("strategy", pd.Series("", index=work.index)).fillna("").astype(str)
     work["code"] = work.get("code", pd.Series("", index=work.index)).astype(str).str.zfill(6)
-    for col in ["name", "selection_stage", "dominant_theme", "status"]:
+    for col in [
+        "name",
+        "selection_stage",
+        "dominant_theme",
+        "holding_policy_code",
+        "entry_action_code",
+        "entry_action_reason",
+        "current_action_code",
+        "current_action_reason",
+        "exit_action_code",
+        "exit_action_reason",
+        "status",
+    ]:
         work[col] = work.get(col, pd.Series("", index=work.index)).map(_clean_text)
     for col in ["entry_date", "planned_exit_date", "exit_date"]:
         work[col] = pd.to_datetime(work.get(col, pd.Series(pd.NA, index=work.index)), errors="coerce").dt.date
@@ -135,6 +156,8 @@ def normalize_positions(df: pd.DataFrame) -> pd.DataFrame:
         "final_score",
     ]:
         work[col] = pd.to_numeric(work.get(col, pd.Series(pd.NA, index=work.index)), errors="coerce")
+    for col in ["holding_age_trading_days", "remaining_holding_days"]:
+        work[col] = pd.to_numeric(work.get(col, pd.Series(pd.NA, index=work.index)), errors="coerce").astype("Int64")
     work["source_rank"] = pd.to_numeric(work.get("source_rank", pd.Series(pd.NA, index=work.index)), errors="coerce").astype("Int64")
     work = work.drop_duplicates(subset=["strategy", "code", "entry_date"], keep="last").reset_index(drop=True)
     return work
@@ -239,6 +262,15 @@ def ensure_tables() -> None:
                     dominant_theme TEXT,
                     confidence_score NUMERIC,
                     final_score NUMERIC,
+                    holding_age_trading_days INTEGER,
+                    remaining_holding_days INTEGER,
+                    holding_policy_code TEXT,
+                    entry_action_code TEXT,
+                    entry_action_reason TEXT,
+                    current_action_code TEXT,
+                    current_action_reason TEXT,
+                    exit_action_code TEXT,
+                    exit_action_reason TEXT,
                     status TEXT,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     PRIMARY KEY (paper_run_id, strategy, code, entry_date)
@@ -246,6 +278,15 @@ def ensure_tables() -> None:
                 """
             )
         )
+        conn.execute(text("ALTER TABLE research.paper_trading_position ADD COLUMN IF NOT EXISTS holding_age_trading_days INTEGER"))
+        conn.execute(text("ALTER TABLE research.paper_trading_position ADD COLUMN IF NOT EXISTS remaining_holding_days INTEGER"))
+        conn.execute(text("ALTER TABLE research.paper_trading_position ADD COLUMN IF NOT EXISTS holding_policy_code TEXT"))
+        conn.execute(text("ALTER TABLE research.paper_trading_position ADD COLUMN IF NOT EXISTS entry_action_code TEXT"))
+        conn.execute(text("ALTER TABLE research.paper_trading_position ADD COLUMN IF NOT EXISTS entry_action_reason TEXT"))
+        conn.execute(text("ALTER TABLE research.paper_trading_position ADD COLUMN IF NOT EXISTS current_action_code TEXT"))
+        conn.execute(text("ALTER TABLE research.paper_trading_position ADD COLUMN IF NOT EXISTS current_action_reason TEXT"))
+        conn.execute(text("ALTER TABLE research.paper_trading_position ADD COLUMN IF NOT EXISTS exit_action_code TEXT"))
+        conn.execute(text("ALTER TABLE research.paper_trading_position ADD COLUMN IF NOT EXISTS exit_action_reason TEXT"))
         conn.execute(
             text(
                 """

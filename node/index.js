@@ -2236,6 +2236,115 @@ function computeFinalScoreCheck(row) {
   };
 }
 
+function classifyPaperPositionReview({
+  holdingAgeTradingDays,
+  remainingHoldingDays,
+  currentReturn,
+  liveScore,
+  confidenceScore,
+  liveRank,
+  currentPrice,
+  latestPriceDate,
+  currentActionCode,
+}) {
+  const reasons = [];
+  const pushReason = (reason) => {
+    if (reason && !reasons.includes(reason)) reasons.push(reason);
+  };
+
+  let status = "KEEP";
+  let label = "계속보유";
+  let priority = 1;
+
+  const setReview = (reason) => {
+    if (priority < 2) {
+      status = "REVIEW";
+      label = "점검필요";
+      priority = 2;
+    }
+    pushReason(reason);
+  };
+  const setExitReview = (reason) => {
+    status = "EXIT_REVIEW";
+    label = "청산검토";
+    priority = 3;
+    pushReason(reason);
+  };
+  const setBlock = (reason) => {
+    status = "BLOCK";
+    label = "차단";
+    priority = 4;
+    pushReason(reason);
+  };
+
+  const inGracePeriod = Number.isFinite(holdingAgeTradingDays) && holdingAgeTradingDays <= 3;
+
+  if (!Number.isFinite(currentPrice) || !latestPriceDate) {
+    setReview("latest_price_missing");
+  }
+
+  if (currentActionCode === "EXIT_REVIEW_SOON") {
+    setReview("planned_exit_near");
+  }
+
+  if (!inGracePeriod && Number.isFinite(currentReturn) && currentReturn <= -0.08) {
+    setExitReview("loss_below_minus_8pct");
+  }
+
+  if (!inGracePeriod && Number.isFinite(liveScore) && liveScore < 45) {
+    setExitReview("live_score_weak");
+  }
+
+  if (!inGracePeriod && Number.isFinite(confidenceScore) && confidenceScore < 55) {
+    setBlock("confidence_blocked");
+  } else if (!inGracePeriod && Number.isFinite(confidenceScore) && confidenceScore < 70) {
+    setReview("confidence_low");
+  }
+
+  if (!inGracePeriod && Number.isFinite(liveRank) && liveRank > 10) {
+    setReview("rank_outside_top10");
+  }
+
+  if (Number.isFinite(holdingAgeTradingDays) && holdingAgeTradingDays >= 20 && priority < 3) {
+    setExitReview("hold_day_20_reached");
+  }
+
+  if (!reasons.length) {
+    pushReason("holding_support_maintained");
+  }
+
+  let actionNote = "보유 근거가 유지되고 있습니다. 현재 포지션을 크게 흔들기보다 추적을 이어갑니다.";
+  if (status === "BLOCK") {
+    actionNote = "신뢰도 차단 구간입니다. 신규 대응보다 보수적 관리와 노출 축소를 우선 검토합니다.";
+  } else if (status === "EXIT_REVIEW") {
+    if (reasons.includes("hold_day_20_reached")) {
+      actionNote = "20거래일 보유 기준에 도달했습니다. 고정 보유 정책상 청산 검토 우선순위가 높습니다.";
+    } else if (reasons.includes("loss_below_minus_8pct")) {
+      actionNote = "손실 관리 기준을 이탈했습니다. 계속 보유보다 청산 검토가 우선입니다.";
+    } else {
+      actionNote = "포지션 약화 신호가 강합니다. 청산 또는 교체 검토가 필요합니다.";
+    }
+  } else if (status === "REVIEW") {
+    if (reasons.includes("planned_exit_near")) {
+      actionNote = "예정 청산일이 임박했습니다. 신규 행동보다 종료 준비와 대체 후보 점검이 우선입니다.";
+    } else if (reasons.includes("confidence_low")) {
+      actionNote = "신뢰도 지지가 약해졌습니다. 추가 보유 근거를 다시 확인해야 합니다.";
+    } else if (reasons.includes("rank_outside_top10")) {
+      actionNote = "현재 우선순위가 약화되었습니다. 대기 후보와의 상대 우위를 다시 봐야 합니다.";
+    } else {
+      actionNote = "관찰 구간입니다. 즉시 행동보다 보유 근거 재확인이 우선입니다.";
+    }
+  }
+
+  return {
+    system_review_status: status,
+    system_review_label: label,
+    system_review_priority: priority,
+    system_review_reasons: reasons,
+    system_action_note: actionNote,
+  };
+}
+
 async function buildScoreCheckPayload(targetDate) {
   const ranking = await getRanking(targetDate);
   if (!ranking || !Array.isArray(ranking.rows) || !ranking.rows.length) {
@@ -4514,6 +4623,15 @@ app.get("/api/paper-trading/positions", async (req, res) => {
         dominant_theme,
         confidence_score,
         final_score,
+        holding_age_trading_days,
+        remaining_holding_days,
+        holding_policy_code,
+        entry_action_code,
+        entry_action_reason,
+        current_action_code,
+        current_action_reason,
+        exit_action_code,
+        exit_action_reason,
         status
       FROM research.paper_trading_position
       WHERE paper_run_id = $1
@@ -4545,6 +4663,21 @@ app.get("/api/paper-trading/positions", async (req, res) => {
         entryNotionalGross > 0
           ? currentPnlAmount / entryNotionalGross
           : null;
+      const confidenceScore = getConfidenceScore(row);
+      const liveScore = getLiveScore(rankRow) ?? toNum(row.final_score);
+      const liveRank = getLiveRank(rankRow);
+      const currentActionCode = row.current_action_code || null;
+      const review = classifyPaperPositionReview({
+        holdingAgeTradingDays: toNum(row.holding_age_trading_days),
+        remainingHoldingDays: toNum(row.remaining_holding_days),
+        currentReturn,
+        liveScore,
+        confidenceScore,
+        liveRank,
+        currentPrice,
+        latestPriceDate: toIsoDate(rankRow.date),
+        currentActionCode,
+      });
 
       return {
         strategy: row.strategy,
@@ -4567,17 +4700,31 @@ app.get("/api/paper-trading/positions", async (req, res) => {
       source_rank: toNum(row.source_rank),
       selection_stage: row.selection_stage || null,
         dominant_theme: row.dominant_theme || null,
-        confidence_score: getConfidenceScore(row),
-        live_score: getLiveScore(rankRow) ?? toNum(row.final_score),
-        live_rank: getLiveRank(rankRow),
+        confidence_score: confidenceScore,
+        live_score: liveScore,
+        live_rank: liveRank,
         live_score_source: getLiveScoreSource(rankRow),
         final_score: toNum(row.final_score),
+        holding_age_trading_days: toNum(row.holding_age_trading_days),
+        remaining_holding_days: toNum(row.remaining_holding_days),
+        holding_policy_code: row.holding_policy_code || null,
+        entry_action_code: row.entry_action_code || null,
+        entry_action_reason: row.entry_action_reason || null,
+        current_action_code: currentActionCode,
+        current_action_reason: row.current_action_reason || null,
+        exit_action_code: row.exit_action_code || null,
+        exit_action_reason: row.exit_action_reason || null,
         status: row.status || "OPEN",
         current_price: currentPrice,
         current_value: currentValue,
         current_pnl_amount: currentPnlAmount,
         current_return: currentReturn,
         latest_price_date: toIsoDate(rankRow.date),
+        system_review_status: review.system_review_status,
+        system_review_label: review.system_review_label,
+        system_review_priority: review.system_review_priority,
+        system_review_reasons: review.system_review_reasons,
+        system_action_note: review.system_action_note,
       };
     });
 

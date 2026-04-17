@@ -21,6 +21,16 @@ const getToneClass = (value) => {
   return "";
 };
 
+const ACTION_LABELS = {
+  BUY_NEW_COHORT: "신규 코호트",
+  HOLD_NEW_ENTRY: "신규 보유",
+  HOLD_ACTIVE: "일반 보유",
+  HOLD_REVIEW_SOON: "점검 임박",
+  EXIT_REVIEW_SOON: "청산 임박",
+  EXIT_HOLD_D20: "20거래일 청산",
+  POSITION_CLOSED: "청산 완료",
+};
+
 function toDate(value) {
   if (!value) return null;
   const d = new Date(value);
@@ -255,6 +265,15 @@ function buildPositionsTable(items) {
     return;
   }
   const statusChip = (row) => {
+    if (row.system_review_status === "BLOCK") {
+      return `<span class="chip is-loss">차단</span>`;
+    }
+    if (row.system_review_status === "EXIT_REVIEW") {
+      return `<span class="chip is-near">청산검토</span>`;
+    }
+    if (row.system_review_status === "REVIEW") {
+      return `<span class="chip is-watch">점검필요</span>`;
+    }
     if (row.remaining_days !== null && row.remaining_days <= 5) {
       return `<span class="chip is-near">곧 마감</span>`;
     }
@@ -296,8 +315,12 @@ function enrichPositions(items, run) {
   const asofDate = run?.asof_date || null;
   const holdDays = Number(run?.hold_days) || 20;
   return items.map((item) => {
-    const heldDays = diffBusinessDays(item.entry_date, asofDate);
-    const remainingDays = Number.isFinite(heldDays) ? Math.max(0, holdDays - heldDays) : null;
+    const heldDays = Number.isFinite(Number(item.holding_age_trading_days))
+      ? Number(item.holding_age_trading_days)
+      : diffBusinessDays(item.entry_date, asofDate);
+    const remainingDays = Number.isFinite(Number(item.remaining_holding_days))
+      ? Number(item.remaining_holding_days)
+      : (Number.isFinite(heldDays) ? Math.max(0, holdDays - heldDays) : null);
     const expectedExitDate = item.planned_exit_date || addBusinessDays(item.entry_date, holdDays);
     return {
       ...item,
@@ -319,6 +342,7 @@ function buildPositionsTable(items) {
       <th>종목명</th>
       <th>진입일</th>
       <th>예상 마감일</th>
+      <th>행동 코드</th>
       <th class="right">보유일수</th>
       <th class="right">잔여일수</th>
       <th class="right">진입가</th>
@@ -332,11 +356,20 @@ function buildPositionsTable(items) {
   }
 
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="15" class="center">포지션 데이터가 없습니다.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="16" class="center">포지션 데이터가 없습니다.</td></tr>`;
     return;
   }
 
   const statusChip = (row) => {
+    if (row.system_review_status === "BLOCK") {
+      return `<span class="chip is-loss">차단</span>`;
+    }
+    if (row.system_review_status === "EXIT_REVIEW") {
+      return `<span class="chip is-near">청산검토</span>`;
+    }
+    if (row.system_review_status === "REVIEW") {
+      return `<span class="chip is-watch">점검필요</span>`;
+    }
     if (row.remaining_days !== null && row.remaining_days <= 5) {
       return `<span class="chip is-near">곧 마감</span>`;
     }
@@ -362,6 +395,12 @@ function buildPositionsTable(items) {
         <div class="date-stack">
           <div class="date-stack__main">${row.expected_exit_date || "-"}</div>
           <div class="date-stack__sub">20거래일 기준</div>
+        </div>
+      </td>
+      <td>
+        <div class="date-stack">
+          <div class="date-stack__main">${ACTION_LABELS[row.current_action_code || row.entry_action_code] || row.current_action_code || row.entry_action_code || "-"}</div>
+          <div class="date-stack__sub">${row.system_review_label || row.current_action_reason || row.entry_action_reason || "-"}</div>
         </div>
       </td>
       <td class="right">${fmtNum(row.held_days)}</td>

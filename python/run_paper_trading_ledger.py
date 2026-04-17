@@ -21,6 +21,27 @@ NAV_CSV = DATA_DIR / "paper_trading_nav.csv"
 REPORT_MD = OUTPUT_DIR / "paper_trading_report.md"
 
 TARGET_SIZES = [5, 8, 10]
+HOLDING_POLICY_CODE = "FIXED_HOLD_TRADING_DAYS"
+ENTRY_ACTION_CODE = "BUY_NEW_COHORT"
+ENTRY_ACTION_REASON = "selected_from_daily_snapshot"
+OPEN_ACTION_CODE = "HOLD_ACTIVE"
+OPEN_ACTION_REASON = "planned_holding_period_not_reached"
+OPEN_ACTION_CODE_NEW = "HOLD_NEW_ENTRY"
+OPEN_ACTION_REASON_NEW = "newly_opened_position"
+OPEN_ACTION_CODE_REVIEW = "HOLD_REVIEW_SOON"
+OPEN_ACTION_REASON_REVIEW = "approaching_holding_review_window"
+OPEN_ACTION_CODE_NEAR_EXIT = "EXIT_REVIEW_SOON"
+OPEN_ACTION_REASON_NEAR_EXIT = "near_planned_exit_date"
+EXIT_ACTION_CODE = "EXIT_HOLD_D20"
+EXIT_ACTION_REASON = "planned_holding_period_reached"
+EXIT_ACTION_CODE_STOP_LOSS = "EXIT_STOP_LOSS"
+EXIT_ACTION_REASON_STOP_LOSS = "loss_below_minus_8pct"
+EXIT_ACTION_CODE_CONFIDENCE = "EXIT_CONFIDENCE_BLOCK"
+EXIT_ACTION_REASON_CONFIDENCE = "confidence_below_55"
+EXIT_ACTION_CODE_SCORE = "EXIT_SCORE_WEAK"
+EXIT_ACTION_REASON_SCORE = "final_score_below_45"
+EXIT_ACTION_CODE_RANK_FADE = "EXIT_RANK_FADE"
+EXIT_ACTION_REASON_RANK_FADE = "rank_outside_top10_with_confidence_weak"
 
 
 @dataclass
@@ -40,6 +61,11 @@ class Position:
     dominant_theme: str
     confidence_score: float | None
     final_score: float | None
+    holding_age_trading_days: int = 0
+    remaining_holding_days: int | None = None
+    holding_policy_code: str = HOLDING_POLICY_CODE
+    entry_action_code: str = ENTRY_ACTION_CODE
+    entry_action_reason: str = ENTRY_ACTION_REASON
     exit_date: pd.Timestamp | None = None
     exit_price_close: float | None = None
     exit_exec_price: float | None = None
@@ -128,10 +154,11 @@ def load_price_panel(prices_csv: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     return prices, panel
 
 
-def build_candidate_history(history_dir: Path) -> tuple[dict[int, dict[pd.Timestamp, pd.DataFrame]], pd.DataFrame]:
+def build_candidate_history(history_dir: Path) -> tuple[dict[int, dict[pd.Timestamp, pd.DataFrame]], pd.DataFrame, dict[pd.Timestamp, pd.DataFrame]]:
     args = default_candidate_args()
     candidate_history: dict[int, dict[pd.Timestamp, pd.DataFrame]] = {size: {} for size in TARGET_SIZES}
     signal_rows: list[dict[str, object]] = []
+    snapshot_history: dict[pd.Timestamp, pd.DataFrame] = {}
 
     for path in sorted(_resolve(history_dir).glob("*_ranking_final.csv")):
         df = pd.read_csv(path, dtype={"code": str}, low_memory=False)
@@ -161,6 +188,7 @@ def build_candidate_history(history_dir: Path) -> tuple[dict[int, dict[pd.Timest
             if col not in latest.columns:
                 latest[col] = default
         latest_norm = normalize_input(latest, asof_date=latest_date.strftime("%Y-%m-%d"), args=args)
+        snapshot_history[latest_date.normalize()] = latest_norm.copy()
         for target_size in TARGET_SIZES:
             selected, summary = select_candidates(
                 latest_norm,
@@ -181,7 +209,7 @@ def build_candidate_history(history_dir: Path) -> tuple[dict[int, dict[pd.Timest
                 }
             )
 
-    return candidate_history, pd.DataFrame(signal_rows).sort_values(["date", "target_size"]).reset_index(drop=True)
+    return candidate_history, pd.DataFrame(signal_rows).sort_values(["date", "target_size"]).reset_index(drop=True), snapshot_history
 
 
 def compute_exit_date(price_dates_by_code: dict[str, list[pd.Timestamp]], code: str, entry_date: pd.Timestamp, hold_days: int) -> pd.Timestamp | None:
@@ -198,11 +226,70 @@ def compute_exit_date(price_dates_by_code: dict[str, list[pd.Timestamp]], code: 
     return dates[exit_idx]
 
 
+def compute_holding_age_trading_days(
+    price_dates_by_code: dict[str, list[pd.Timestamp]],
+    code: str,
+    entry_date: pd.Timestamp,
+    asof_date: pd.Timestamp | None,
+) -> int | None:
+    if asof_date is None:
+        return None
+    dates = price_dates_by_code.get(code)
+    if not dates:
+        return None
+    try:
+        entry_idx = dates.index(entry_date)
+        asof_idx = dates.index(asof_date)
+    except ValueError:
+        return None
+    if asof_idx < entry_idx:
+        return 0
+    return int(asof_idx - entry_idx)
+
+
+def resolve_open_action(holding_age_trading_days: int | None, remaining_holding_days: int | None) -> tuple[str, str]:
+    if holding_age_trading_days is None:
+        return OPEN_ACTION_CODE, OPEN_ACTION_REASON
+    if holding_age_trading_days <= 1:
+        return OPEN_ACTION_CODE_NEW, OPEN_ACTION_REASON_NEW
+    if remaining_holding_days is not None and remaining_holding_days <= 3:
+        return OPEN_ACTION_CODE_NEAR_EXIT, OPEN_ACTION_REASON_NEAR_EXIT
+    if holding_age_trading_days >= 15:
+        return OPEN_ACTION_CODE_REVIEW, OPEN_ACTION_REASON_REVIEW
+    return OPEN_ACTION_CODE, OPEN_ACTION_REASON
+
+
+def classify_early_exit(
+    *,
+    holding_age_trading_days: int | None,
+    planned_exit_date: pd.Timestamp | None,
+    current_date: pd.Timestamp,
+    current_return: float | None,
+    final_score: float | None,
+    confidence_score: float | None,
+    live_rank: float | None,
+) -> tuple[str, str] | None:
+    if pd.notna(holding_age_trading_days) and float(holding_age_trading_days) >= 5:
+        if pd.notna(current_return) and float(current_return) <= -0.08:
+            return EXIT_ACTION_CODE_STOP_LOSS, EXIT_ACTION_REASON_STOP_LOSS
+        if pd.notna(confidence_score) and float(confidence_score) < 55:
+            return EXIT_ACTION_CODE_CONFIDENCE, EXIT_ACTION_REASON_CONFIDENCE
+        if pd.notna(final_score) and float(final_score) < 45:
+            return EXIT_ACTION_CODE_SCORE, EXIT_ACTION_REASON_SCORE
+    if pd.notna(holding_age_trading_days) and float(holding_age_trading_days) >= 10:
+        if pd.notna(live_rank) and float(live_rank) > 10 and pd.notna(confidence_score) and float(confidence_score) < 70:
+            return EXIT_ACTION_CODE_RANK_FADE, EXIT_ACTION_REASON_RANK_FADE
+    if planned_exit_date is not None and planned_exit_date == current_date:
+        return EXIT_ACTION_CODE, EXIT_ACTION_REASON
+    return None
+
+
 def run_strategy_ledger(
     *,
     strategy_name: str,
     target_size: int,
     candidates_by_date: dict[pd.Timestamp, pd.DataFrame],
+    snapshot_by_date: dict[pd.Timestamp, pd.DataFrame],
     price_panel: pd.DataFrame,
     price_dates_by_code: dict[str, list[pd.Timestamp]],
     args: argparse.Namespace,
@@ -228,55 +315,89 @@ def run_strategy_ledger(
     for current_date in trading_dates:
         current_date = pd.Timestamp(current_date).normalize()
         day_prices = price_panel.loc[current_date]
+        day_snapshot = snapshot_by_date.get(current_date, pd.DataFrame())
+        snapshot_lookup = (
+            day_snapshot.sort_values(["code"]).drop_duplicates("code", keep="last").set_index("code")
+            if not day_snapshot.empty and "code" in day_snapshot.columns
+            else pd.DataFrame()
+        )
 
         remaining_positions: list[Position] = []
         for pos in active_positions:
-            if pos.planned_exit_date is not None and pos.planned_exit_date == current_date:
-                close_price = pd.to_numeric(day_prices.get(pos.code), errors="coerce")
-                if pd.isna(close_price):
-                    remaining_positions.append(pos)
-                    continue
-                exit_exec_price = float(close_price) * (1.0 - exit_slip_rate)
-                exit_notional = pos.shares * exit_exec_price
-                exit_cost = exit_notional * exit_fee_rate
-                cash += exit_notional - exit_cost
-                pos.exit_date = current_date
-                pos.exit_price_close = float(close_price)
-                pos.exit_exec_price = exit_exec_price
-                pos.exit_notional_net = exit_notional - exit_cost
-                pos.exit_cost_amount = exit_cost
-                pos.status = "CLOSED"
-                gross_return = (float(close_price) / pos.entry_price_close - 1.0) if pos.entry_price_close else None
-                net_return = ((pos.exit_notional_net or 0.0) / pos.entry_notional_gross - 1.0) if pos.entry_notional_gross else None
-                closed_rows.append(
-                    {
-                        "strategy": strategy_name,
-                        "code": pos.code,
-                        "name": pos.name,
-                        "entry_date": pos.entry_date.strftime("%Y-%m-%d"),
-                        "planned_exit_date": pos.planned_exit_date.strftime("%Y-%m-%d") if pos.planned_exit_date is not None else None,
-                        "exit_date": pos.exit_date.strftime("%Y-%m-%d"),
-                        "entry_price_close": pos.entry_price_close,
-                        "entry_exec_price": pos.entry_exec_price,
-                        "exit_price_close": pos.exit_price_close,
-                        "exit_exec_price": pos.exit_exec_price,
-                        "shares": pos.shares,
-                        "entry_notional_gross": pos.entry_notional_gross,
-                        "exit_notional_net": pos.exit_notional_net,
-                        "entry_cost_amount": pos.entry_cost_amount,
-                        "exit_cost_amount": pos.exit_cost_amount,
-                        "gross_return": gross_return,
-                        "net_return": net_return,
-                        "source_rank": pos.source_rank,
-                        "selection_stage": pos.selection_stage,
-                        "dominant_theme": pos.dominant_theme,
-                        "confidence_score": pos.confidence_score,
-                        "final_score": pos.final_score,
-                        "status": "CLOSED",
-                    }
-                )
-            else:
+            close_price = pd.to_numeric(day_prices.get(pos.code), errors="coerce")
+            if pd.isna(close_price):
                 remaining_positions.append(pos)
+                continue
+            holding_age_trading_days = compute_holding_age_trading_days(
+                price_dates_by_code,
+                pos.code,
+                pos.entry_date,
+                current_date,
+            )
+            snapshot_row = snapshot_lookup.loc[pos.code] if not snapshot_lookup.empty and pos.code in snapshot_lookup.index else pd.Series(dtype="object")
+            current_return = (float(close_price) / pos.entry_price_close - 1.0) if pos.entry_price_close else None
+            exit_decision = classify_early_exit(
+                holding_age_trading_days=holding_age_trading_days,
+                planned_exit_date=pos.planned_exit_date,
+                current_date=current_date,
+                current_return=current_return,
+                final_score=pd.to_numeric(snapshot_row.get("final_score"), errors="coerce") if not snapshot_row.empty else pd.NA,
+                confidence_score=pd.to_numeric(snapshot_row.get("confidence_score"), errors="coerce") if not snapshot_row.empty else pd.NA,
+                live_rank=pd.to_numeric(snapshot_row.get("rank_source"), errors="coerce") if not snapshot_row.empty else pd.NA,
+            )
+            if not exit_decision:
+                remaining_positions.append(pos)
+                continue
+
+            exit_action_code, exit_action_reason = exit_decision
+            exit_exec_price = float(close_price) * (1.0 - exit_slip_rate)
+            exit_notional = pos.shares * exit_exec_price
+            exit_cost = exit_notional * exit_fee_rate
+            cash += exit_notional - exit_cost
+            pos.exit_date = current_date
+            pos.exit_price_close = float(close_price)
+            pos.exit_exec_price = exit_exec_price
+            pos.exit_notional_net = exit_notional - exit_cost
+            pos.exit_cost_amount = exit_cost
+            pos.status = "CLOSED"
+            gross_return = (float(close_price) / pos.entry_price_close - 1.0) if pos.entry_price_close else None
+            net_return = ((pos.exit_notional_net or 0.0) / pos.entry_notional_gross - 1.0) if pos.entry_notional_gross else None
+            closed_rows.append(
+                {
+                    "strategy": strategy_name,
+                    "code": pos.code,
+                    "name": pos.name,
+                    "entry_date": pos.entry_date.strftime("%Y-%m-%d"),
+                    "planned_exit_date": pos.planned_exit_date.strftime("%Y-%m-%d") if pos.planned_exit_date is not None else None,
+                    "exit_date": pos.exit_date.strftime("%Y-%m-%d"),
+                    "entry_price_close": pos.entry_price_close,
+                    "entry_exec_price": pos.entry_exec_price,
+                    "exit_price_close": pos.exit_price_close,
+                    "exit_exec_price": pos.exit_exec_price,
+                    "shares": pos.shares,
+                    "entry_notional_gross": pos.entry_notional_gross,
+                    "exit_notional_net": pos.exit_notional_net,
+                    "entry_cost_amount": pos.entry_cost_amount,
+                    "exit_cost_amount": pos.exit_cost_amount,
+                    "gross_return": gross_return,
+                    "net_return": net_return,
+                    "source_rank": pos.source_rank,
+                    "selection_stage": pos.selection_stage,
+                    "dominant_theme": pos.dominant_theme,
+                    "confidence_score": pos.confidence_score,
+                    "final_score": pos.final_score,
+                    "holding_age_trading_days": holding_age_trading_days,
+                    "remaining_holding_days": 0,
+                    "holding_policy_code": pos.holding_policy_code,
+                    "entry_action_code": pos.entry_action_code,
+                    "entry_action_reason": pos.entry_action_reason,
+                    "current_action_code": "POSITION_CLOSED",
+                    "current_action_reason": exit_action_reason,
+                    "exit_action_code": exit_action_code,
+                    "exit_action_reason": exit_action_reason,
+                    "status": "CLOSED",
+                }
+            )
         active_positions = remaining_positions
 
         candidates = candidates_by_date.get(current_date, pd.DataFrame())
@@ -333,6 +454,11 @@ def run_strategy_ledger(
                             dominant_theme=str(row.get("dominant_theme", "(none)")),
                             confidence_score=pd.to_numeric(row.get("confidence_score"), errors="coerce"),
                             final_score=pd.to_numeric(row.get("final_score"), errors="coerce"),
+                            holding_age_trading_days=0,
+                            remaining_holding_days=args.hold_days,
+                            holding_policy_code=HOLDING_POLICY_CODE,
+                            entry_action_code=ENTRY_ACTION_CODE,
+                            entry_action_reason=ENTRY_ACTION_REASON,
                         )
                         active_positions.append(pos)
                         cash -= total_cash_use
@@ -381,6 +507,17 @@ def run_strategy_ledger(
     for pos in active_positions:
         mark_price = pd.to_numeric(last_prices.get(pos.code), errors="coerce")
         unrealized_return = (float(mark_price) / pos.entry_price_close - 1.0) if pd.notna(mark_price) and pos.entry_price_close else None
+        holding_age_trading_days = compute_holding_age_trading_days(
+            price_dates_by_code,
+            pos.code,
+            pos.entry_date,
+            last_date,
+        )
+        remaining_holding_days = max(args.hold_days - holding_age_trading_days, 0) if holding_age_trading_days is not None else None
+        current_action_code, current_action_reason = resolve_open_action(
+            holding_age_trading_days,
+            remaining_holding_days,
+        )
         open_rows.append(
             {
                 "strategy": strategy_name,
@@ -405,6 +542,15 @@ def run_strategy_ledger(
                 "dominant_theme": pos.dominant_theme,
                 "confidence_score": pos.confidence_score,
                 "final_score": pos.final_score,
+                "holding_age_trading_days": holding_age_trading_days,
+                "remaining_holding_days": remaining_holding_days,
+                "holding_policy_code": pos.holding_policy_code,
+                "entry_action_code": pos.entry_action_code,
+                "entry_action_reason": pos.entry_action_reason,
+                "current_action_code": current_action_code,
+                "current_action_reason": current_action_reason,
+                "exit_action_code": None,
+                "exit_action_reason": None,
                 "status": "OPEN",
             }
         )
@@ -456,6 +602,7 @@ def build_report(
 ) -> str:
     generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     strategy_rows: list[dict[str, object]] = []
+    exit_action_rollup_rows: list[dict[str, object]] = []
     for strategy, nav_df in nav.groupby("strategy", sort=True):
         pos_df = positions.loc[positions["strategy"] == strategy].copy()
         closed = pos_df.loc[pos_df["status"] == "CLOSED"].copy()
@@ -472,7 +619,22 @@ def build_report(
                 "duplicate_skips_total": int(pd.to_numeric(nav_df["duplicate_skip_count"], errors="coerce").fillna(0).sum()),
             }
         )
+        if not closed.empty and "exit_action_code" in closed.columns:
+            exit_counts = (
+                closed.assign(exit_action_code=closed["exit_action_code"].fillna("UNKNOWN"))
+                .groupby("exit_action_code", as_index=False)
+                .agg(count=("code", "count"))
+            )
+            for _, row in exit_counts.iterrows():
+                exit_action_rollup_rows.append(
+                    {
+                        "strategy": strategy,
+                        "exit_action_code": row["exit_action_code"],
+                        "count": int(row["count"]),
+                    }
+                )
     strategy_summary = pd.DataFrame(strategy_rows)
+    exit_action_rollup = pd.DataFrame(exit_action_rollup_rows)
 
     signal_rollup = (
         signal_summary.groupby("strategy", as_index=False)
@@ -533,6 +695,18 @@ def build_report(
         ]
     )
 
+    if not exit_action_rollup.empty:
+        lines.extend(
+            [
+                "",
+                "## Exit Action Summary",
+                _markdown_table(
+                    exit_action_rollup.sort_values(["strategy", "count", "exit_action_code"], ascending=[True, False, True]),
+                    ["strategy", "exit_action_code", "count"],
+                ),
+            ]
+        )
+
     open_positions = positions.loc[positions["status"] == "OPEN"].copy()
     if not open_positions.empty:
         open_positions["gross_return"] = open_positions["gross_return"].map(_fmt_pct)
@@ -542,7 +716,7 @@ def build_report(
                 "## Open Positions",
                 _markdown_table(
                     open_positions.sort_values(["strategy", "entry_date", "code"]),
-                    ["strategy", "code", "name", "entry_date", "planned_exit_date", "selection_stage", "gross_return"],
+                    ["strategy", "code", "name", "entry_date", "planned_exit_date", "current_action_code", "selection_stage", "gross_return"],
                 ),
             ]
         )
@@ -557,7 +731,7 @@ def main() -> int:
         for code, group in prices.groupby("code", sort=False)
     }
 
-    candidate_history, _ = build_candidate_history(args.history_dir)
+    candidate_history, _, snapshot_history = build_candidate_history(args.history_dir)
 
     all_positions: list[pd.DataFrame] = []
     all_nav: list[pd.DataFrame] = []
@@ -567,6 +741,7 @@ def main() -> int:
             strategy_name=f"top{size}",
             target_size=size,
             candidates_by_date=candidate_history[size],
+            snapshot_by_date=snapshot_history,
             price_panel=price_panel,
             price_dates_by_code=price_dates_by_code,
             args=args,
