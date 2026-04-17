@@ -12,6 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const SITE_BASE_URL = (process.env.SITE_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
 const GA_MEASUREMENT_ID = (process.env.GA_MEASUREMENT_ID || "G-TSJDVJKDFQ").trim();
+const NAVER_ANALYTICS_WA = (process.env.NAVER_ANALYTICS_WA || "1680ec0ed78cdb0").trim();
 
 // ---------------------
 // Env / Postgres Pool
@@ -144,6 +145,24 @@ function renderGoogleAnalyticsSnippet() {
   </script>`;
 }
 
+function renderNaverAnalyticsSnippet() {
+  if (!NAVER_ANALYTICS_WA) return "";
+  const wa = escapeHtml(NAVER_ANALYTICS_WA);
+  return `
+  <script type="text/javascript" src="https://wcs.pstatic.net/wcslog.js"></script>
+  <script type="text/javascript">
+    if (!window.wcs_add) window.wcs_add = {};
+    window.wcs_add["wa"] = "${wa}";
+    if (window.wcs) {
+      window.wcs_do();
+    }
+  </script>`;
+}
+
+function renderAnalyticsHeadSnippet() {
+  return `${renderGoogleAnalyticsSnippet()}${renderNaverAnalyticsSnippet()}`;
+}
+
 function injectHeadSnippet(html, snippet) {
   if (!snippet) return html;
   return html.replace("</head>", `${snippet}\n</head>`);
@@ -174,7 +193,7 @@ function renderArticlePage(item, section) {
   <meta name="twitter:title" content="${escapeHtml(item.title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
   <link rel="stylesheet" href="/site.css">
-${renderGoogleAnalyticsSnippet()}
+${renderAnalyticsHeadSnippet()}
 </head>
 <body class="site-body">
   <header class="site-header">
@@ -3045,7 +3064,7 @@ function sendPublicPage(res, fileName) {
   const filePath = path.join(PUBLIC_DIR, fileName);
   try {
     const html = fs.readFileSync(filePath, "utf-8");
-    return res.type("html").send(injectHeadSnippet(html, renderGoogleAnalyticsSnippet()));
+    return res.type("html").send(injectHeadSnippet(html, renderAnalyticsHeadSnippet()));
   } catch (e) {
     console.error("sendPublicPage error", fileName, e);
     return res.sendFile(filePath);
