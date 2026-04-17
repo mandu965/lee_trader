@@ -142,32 +142,13 @@
       <header class="page-header">
         <div>
           <h1 class="page-title">실자동매매 운영</h1>
-<<<<<<< HEAD
           <p class="page-subtitle">실주문 엔진 자체를 여기서 돌리는 것이 아니라, 오늘의 intent, 주문 초안, 최근 제출 결과, 실계좌 보유 상태를 한 화면에서 보는 운영 보드입니다.</p>
           <p class="page-subtitle">기본 흐름은 `16:00 종가 배치`, `12:00 장중 갱신`, `12:10 자동매수 사이클`입니다. 자동매수 스케줄러는 기본적으로 preview만 돌고, 명시적 env 스위치가 없으면 실주문을 실행하지 않습니다.</p>
-=======
-          <p class="page-subtitle">실주문 엔진 자체를 여기서 돌리는 것이 아니라, 오늘의 intent, 주문 초안, 실계좌 보유 상태를 한 화면에서 보는 운영 보드입니다.</p>
-          <p class="page-subtitle">현재 주문 초안은 dry-run 기준입니다. `executable now`가 `false`이면 실제 제출 전 데이터 정합성부터 맞춰야 합니다.</p>
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
         </div>
       </header>
 
       <section class="panel panel-block">
-<<<<<<< HEAD
         <div class="page-actions" data-unified-ops-nav data-nav-class="" data-nav-active="live-auto-trading" data-nav-secondary-class="is-secondary"></div>
-=======
-        <div class="page-actions">
-          <button type="button" onclick="location.href='/app'">메인</button>
-          <button type="button" class="is-secondary" onclick="location.href='./ranking.html'">리서치 랭킹</button>
-          <button type="button" class="is-secondary" onclick="location.href='./meaningfulness.html'">리서치 리뷰</button>
-          <button type="button" onclick="location.href='./ops-readiness.html'">운영자</button>
-          <button type="button" onclick="location.href='./manual-trading.html'">수동매매</button>
-          <button type="button" onclick="location.href='./holdings.html'">보유종목</button>
-          <button type="button" onclick="location.href='./paper-trading.html'">모의투자</button>
-          <button type="button" onclick="location.href='./trade-history.html'">매매 기록</button>
-          <button type="button" class="is-active" onclick="location.href='./live-auto-trading.html'">실자동매매</button>
-        </div>
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
       </section>
 
       <section class="panel panel-block">
@@ -178,7 +159,6 @@
         <div class="status-grid" id="statusGrid"></div>
       </section>
 
-<<<<<<< HEAD
       <section class="panel panel-block">
         <div class="section-head">
           <div>
@@ -189,8 +169,6 @@
         <div class="hero-grid" id="accountDetailGrid"></div>
       </section>
 
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
       <section class="board-grid">
         <section class="panel panel-block">
           <div class="section-head">
@@ -249,11 +227,7 @@
         <div class="section-head">
           <div>
             <h2 class="section-title">Order Requests Preview</h2>
-<<<<<<< HEAD
             <div class="section-note">`submit_live_orders.py` preview 결과입니다. blocked가 아닌 항목만 guarded submit 대상으로 넘어갑니다.</div>
-=======
-            <div class="section-note">`submit_live_orders.py` dry-run 결과입니다. 실제 주문 전송은 아직 막혀 있습니다.</div>
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
           </div>
         </div>
         <div class="table-wrap" id="previewWrap">
@@ -280,7 +254,6 @@
       <section class="panel panel-block">
         <div class="section-head">
           <div>
-<<<<<<< HEAD
             <h2 class="section-title">Order Execution</h2>
             <div class="section-note">가장 최근 guarded submit 결과입니다. preview와 달리 실제 제출 시도 여부와 차단 사유를 확인합니다.</div>
           </div>
@@ -329,8 +302,6 @@
       <section class="panel panel-block">
         <div class="section-head">
           <div>
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
             <h2 class="section-title">실계좌 보유 상태</h2>
             <div class="section-note">실계좌 보유 CSV 기준입니다. 주문 초안에서 `holding_qty_missing`가 뜨면 이 표와 먼저 맞춰야 합니다.</div>
           </div>
@@ -358,10 +329,7 @@
 
       <div class="state-line" id="pageState"></div>
     </div>
-<<<<<<< HEAD
     <script src="./ops-unified-nav.js"></script>
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     <script src="./live-auto-trading.js"></script>
   </body>
 </html>

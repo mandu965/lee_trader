@@ -31,10 +31,7 @@ SYNC_AUXILIARY_PAYLOADS_SCRIPT = ROOT / "python" / "sync_auxiliary_payloads.py"
 LIVE_SYNC_SCRIPT = ROOT / "python" / "sync_live_account_holdings.py"
 LIVE_PREVIEW_SCRIPT = ROOT / "python" / "build_live_order_preview.py"
 TRADE_INTENTS_SCRIPT = ROOT / "python" / "build_trade_intents.py"
-<<<<<<< HEAD
 LIVE_HOLDINGS_CSV = ROOT / "data" / "live_account_holdings.csv"
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 OUTPUTS_DIR = ROOT / "outputs"
 DATA_HISTORY_DIR = ROOT / "data" / "history"
 BUY_GATE_JSON = OUTPUTS_DIR / "operational_buy_gate.json"
@@ -216,13 +213,10 @@ def main() -> int:
     }
 
     steps: list[tuple[str, list[str], bool]] = []
-<<<<<<< HEAD
     trade_intents_command = [PYTHON, str(TRADE_INTENTS_SCRIPT)]
     if args.with_live_account:
         steps.append(("live_account_holdings_sync", [PYTHON, str(LIVE_SYNC_SCRIPT)], False))
         trade_intents_command.extend(["--holdings-csv", str(LIVE_HOLDINGS_CSV)])
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     if not args.skip_theme_shadow:
         command = [PYTHON, str(THEME_SHADOW_SCRIPT)]
         if runtime_snapshot_mode:
@@ -235,11 +229,7 @@ def main() -> int:
             ("score_kpi_monitor", [PYTHON, str(SCORE_KPI_MONITOR_SCRIPT)], True),
             ("market_status_validation", [PYTHON, str(MARKET_STATUS_VALIDATION_SCRIPT)], True),
             ("operational_buy_gate", [PYTHON, str(BUY_GATE_SCRIPT)], True),
-<<<<<<< HEAD
             ("trade_intents", trade_intents_command, True),
-=======
-            ("trade_intents", [PYTHON, str(TRADE_INTENTS_SCRIPT)], True),
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
         ]
     )
     skip_paper_trading_ledger = args.skip_paper_trading or runtime_snapshot_mode
@@ -247,15 +237,8 @@ def main() -> int:
         steps.append(("paper_trading_ledger", [PYTHON, str(PAPER_TRADING_SCRIPT)], False))
     if not args.skip_paper_trading_db:
         steps.append(("paper_trading_db_sync", [PYTHON, str(PAPER_TRADING_DB_SYNC_SCRIPT)], False))
-<<<<<<< HEAD
     if args.with_live_account and not args.skip_live_preview:
         steps.append(("live_order_preview", [PYTHON, str(LIVE_PREVIEW_SCRIPT)], False))
-=======
-    if args.with_live_account:
-        steps.append(("live_account_holdings_sync", [PYTHON, str(LIVE_SYNC_SCRIPT)], False))
-        if not args.skip_live_preview:
-            steps.append(("live_order_preview", [PYTHON, str(LIVE_PREVIEW_SCRIPT)], False))
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     steps.append(("export_serving_payloads", [PYTHON, str(EXPORT_SCRIPT)], True))
     steps.append(("shadow_quality_risk_guard_daily_report", [PYTHON, str(SHADOW_DAILY_REPORT_SCRIPT)], False))
     steps.append(("repair_shadow_ranking_snapshots", [PYTHON, str(REPAIR_SHADOW_SNAPSHOTS_SCRIPT)], False))

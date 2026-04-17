@@ -52,7 +52,6 @@ function intentStateChip(row) {
 function holdingStateChip(row) {
   const pnlPct = Number(row.pnl_pct);
   if (String(row.status || "").toUpperCase() !== "OPEN") return `<span class="chip warn">${escapeHtml(row.status || "closed")}</span>`;
-<<<<<<< HEAD
   if (Number.isFinite(pnlPct) && pnlPct > 0) return `<span class="chip good">수익</span>`;
   if (Number.isFinite(pnlPct) && pnlPct < 0) return `<span class="chip bad">손실</span>`;
   return `<span class="chip watch">보유중</span>`;
@@ -75,14 +74,6 @@ function schedulerStateChip(row) {
 }
 
 function renderHero(summary, intents, preview, holdings, execution) {
-=======
-  if (Number.isFinite(pnlPct) && pnlPct >= 0.1) return `<span class="chip good">수익</span>`;
-  if (Number.isFinite(pnlPct) && pnlPct <= -0.05) return `<span class="chip bad">손실</span>`;
-  return `<span class="chip watch">보유중</span>`;
-}
-
-function renderHero(summary, intents, preview, holdings) {
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
   const summaryInfo = summary?.summary || {};
   const heroGrid = document.getElementById("heroGrid");
   heroGrid.innerHTML = `
@@ -97,15 +88,9 @@ function renderHero(summary, intents, preview, holdings) {
       <div class="card-detail">${escapeHtml(intents?.gate_guidance || "gate 설명 정보 없음")}</div>
     </article>
     <article class="hero-card">
-<<<<<<< HEAD
       <div class="card-label">Intent / Preview / Execute</div>
       <div class="card-value">${fmtNum(intents?.intent_count)} / ${fmtNum(preview?.summary?.request_count)}</div>
       <div class="card-detail">실행 후보 ${fmtNum((intents?.intents || []).filter((item) => item.executable).length)}건 | preview ${fmtNum(summary?.order_preview_count ?? preview?.summary?.request_count)} | submitted ${fmtNum(execution?.summary?.submitted_count)}</div>
-=======
-      <div class="card-label">Intent / Preview</div>
-      <div class="card-value">${fmtNum(intents?.intent_count)} / ${fmtNum(preview?.summary?.request_count)}</div>
-      <div class="card-detail">실행 후보 ${fmtNum((intents?.intents || []).filter((item) => item.executable).length)}건 | dry-run 주문 ${fmtNum(summary?.order_preview_count ?? preview?.summary?.request_count)}</div>
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     </article>
     <article class="hero-card">
       <div class="card-label">실계좌 보유</div>
@@ -115,15 +100,9 @@ function renderHero(summary, intents, preview, holdings) {
   `;
 }
 
-<<<<<<< HEAD
 function renderStatus(summary, intents, preview, execution) {
   const summaryInfo = summary?.summary || {};
   const cash = summaryInfo?.cash_summary || {};
-=======
-function renderStatus(summary, intents, preview) {
-  const summaryInfo = summary?.summary || {};
-  const cash = summaryInfo?.output2 || summaryInfo?.cash || {};
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
   const cards = [
     {
       label: "계좌 요약",
@@ -140,14 +119,11 @@ function renderStatus(summary, intents, preview) {
       value: preview?.summary?.request_count,
       detail: `실행 가능 ${fmtNum((preview?.items || []).filter((item) => item.executable_now).length)} | 차단 ${fmtNum((preview?.items || []).filter((item) => item.blocked_reason).length)}`,
     },
-<<<<<<< HEAD
     {
       label: "최근 제출 결과",
       value: execution?.summary?.submitted_count,
       detail: `failed ${fmtNum(execution?.summary?.failed_count)} | skipped ${fmtNum(execution?.summary?.skipped_count)}`,
     },
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
   ];
 
   document.getElementById("statusGrid").innerHTML = cards.map((item) => `
@@ -159,7 +135,6 @@ function renderStatus(summary, intents, preview) {
   `).join("");
 }
 
-<<<<<<< HEAD
 function renderAccountDetails(summary, runtime) {
   const info = summary?.summary || {};
   const raw = info?.summary_row || {};
@@ -183,18 +158,12 @@ function renderAccountDetails(summary, runtime) {
 }
 
 function renderRunSummary(intents, preview, holdings, runtime) {
-=======
-function renderRunSummary(intents, preview, holdings) {
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
   const kv = document.getElementById("runSummaryKv");
   const chips = document.getElementById("runSummaryChips");
   const help = document.getElementById("runSummaryHelp");
   const blockedOrders = (preview?.items || []).filter((item) => item.blocked_reason);
   const missingHoldingQty = blockedOrders.filter((item) => item.blocked_reason === "holding_qty_missing").length;
-<<<<<<< HEAD
   const policy = runtime?.policy || {};
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
   kv.innerHTML = [
     ["policy version", intents?.policy_version || "-"],
     ["holdings source", intents?.holdings_source || "-"],
@@ -211,12 +180,9 @@ function renderRunSummary(intents, preview, holdings) {
     <span class="chip ${toneClass(intents?.gate_status)}">${escapeHtml(intents?.gate_status || "gate unknown")}</span>
     <span class="chip ${blockedOrders.length ? "bad" : "good"}">preview blocked ${fmtNum(blockedOrders.length)}</span>
     <span class="chip ${holdings?.count ? "good" : "bad"}">holdings ${fmtNum(holdings?.count)}</span>
-<<<<<<< HEAD
     <span class="chip ${policy.auto_trade_execute ? "bad" : "watch"}">execute ${policy.auto_trade_execute ? "ON" : "OFF"}</span>
     <span class="chip ${policy.auto_trade_allow_buy ? "watch" : "good"}">buy ${policy.auto_trade_allow_buy ? "allow" : "block"}</span>
     <span class="chip ${policy.buy_approval_required ? "good" : "warn"}">buy approval ${policy.buy_approval_required ? "req" : "free"}</span>
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
   `;
   help.textContent = missingHoldingQty
     ? `현재 주문 초안 중 ${missingHoldingQty}건이 holding_qty_missing 상태입니다. 실계좌 보유 CSV와 intent 대상 코드 정합성을 먼저 맞춰야 합니다.`
@@ -293,7 +259,6 @@ function renderPreview(preview) {
   `).join("");
 }
 
-<<<<<<< HEAD
 function renderExecution(execution) {
   const tbody = document.getElementById("executionTbody");
   const rows = execution?.items || [];
@@ -337,8 +302,6 @@ function renderRuntime(runtime) {
   `).join("");
 }
 
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 function renderHoldings(holdings) {
   const tbody = document.getElementById("holdingsTbody");
   const rows = holdings?.items || [];
@@ -366,7 +329,6 @@ async function main() {
   const state = document.getElementById("pageState");
   state.textContent = "실자동매매 데이터를 불러오는 중입니다.";
   try {
-<<<<<<< HEAD
     const [summary, intents, preview, execution, runtime, holdings] = await Promise.all([
       fetchJsonMaybe("/api/live-account/summary"),
       fetchJsonMaybe("/api/trade-intents"),
@@ -385,32 +347,14 @@ async function main() {
     renderPreview(preview);
     renderExecution(execution);
     renderRuntime(runtime);
-=======
-    const [summary, intents, preview, holdings] = await Promise.all([
-      fetchJsonMaybe("/api/live-account/summary"),
-      fetchJsonMaybe("/api/trade-intents"),
-      fetchJsonMaybe("/api/order-requests-preview"),
-      fetchJsonMaybe("/api/live-account/holdings"),
-    ]);
-
-    renderHero(summary, intents, preview, holdings);
-    renderStatus(summary, intents, preview);
-    renderRunSummary(intents, preview, holdings);
-    renderFocus(intents, preview, holdings);
-    renderIntents(intents);
-    renderPreview(preview);
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     renderHoldings(holdings);
 
     const loaded = [
       summary ? "summary" : null,
       intents ? "intents" : null,
       preview ? "preview" : null,
-<<<<<<< HEAD
       execution ? "execution" : null,
       runtime ? "runtime" : null,
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
       holdings ? "holdings" : null,
     ].filter(Boolean);
     state.textContent = loaded.length

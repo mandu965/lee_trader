@@ -68,7 +68,6 @@ def sync_json_payload(payload_key: str, path: Path, *, asof_field: str | None = 
     )
 
 
-<<<<<<< HEAD
 def sync_rows_payload(
     payload_key: str,
     path: Path,
@@ -98,8 +97,6 @@ def sync_rows_payload(
     )
 
 
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def sync_history_payload(payload_key: str, path: Path, *, asof_field: str) -> None:
     rows = read_csv_rows(path)
     if not rows:

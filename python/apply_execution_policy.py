@@ -267,15 +267,11 @@ def load_holdings(args: argparse.Namespace, candidates: pd.DataFrame, latest_sna
             frame["dominant_theme"] = frame.get("dominant_theme", pd.Series(index=frame.index, dtype="object"))
             frame["confidence_score"] = pd.to_numeric(frame.get("confidence_score"), errors="coerce")
             frame["final_score"] = pd.to_numeric(frame.get("final_score"), errors="coerce")
-<<<<<<< HEAD
             exit_series = frame.get("exit_date")
             if exit_series is None:
                 frame["exit_date"] = pd.Series(pd.NaT, index=frame.index, dtype="datetime64[ns]")
             else:
                 frame["exit_date"] = pd.to_datetime(exit_series, errors="coerce").dt.normalize()
-=======
-            frame["exit_date"] = pd.to_datetime(frame.get("exit_date"), errors="coerce").dt.normalize()
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 
             for idx, row in frame.iterrows():
                 code = row["code"]

@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import argparse
 import csv
 import io
@@ -9,18 +8,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-=======
-import argparse
-import csv
-import io
-import logging
-import time
-import zipfile
-from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 import numpy as np
 import pandas as pd
 import requests
@@ -39,26 +26,17 @@ except Exception:
     replace_table_rows_pg = None
     def use_sqlite_fallback_writes() -> bool:
         return False
-<<<<<<< HEAD
 
 DATA_DIR = Path("data")
 CACHE_DIR = DATA_DIR / "dart"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-=======
-
-DATA_DIR = Path("data")
-CACHE_DIR = DATA_DIR / "dart"
-CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 FUND_OUT = DATA_DIR / "fundamentals.csv"
 UNIVERSE_CSV = DATA_DIR / "universe.csv"
 FEATURES_CSV = DATA_DIR / "features.csv"
 DB_PATH = DATA_DIR / "lee_trader.db"
 FUNDAMENTALS_PK = ["date", "code"]
 FUNDAMENTALS_DB_COLUMNS = ["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"]
-<<<<<<< HEAD
 
 DART_CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 DART_FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
@@ -84,33 +62,6 @@ ACC_CANDIDATES = {
 DEFAULT_YEARS_BACK = 7  # 최근 7년(필요시 조정)
 
 
-=======
-
-DART_CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
-DART_FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
-
-# 보고서 코드: 11011(1Q), 11012(반기), 11013(3Q), 11014(사업보고서, 연말)
-REPRT_CODE_ANNUAL = "11014"  # 사업보고서(연말)만 사용하여 연간 값으로 일관성 유지
-
-# prefer 연결(CFS), fallback 별도(OFS)
-FS_ORDER = ["CFS", "OFS"]
-
-# 강건한 계정명 후보(한국어명 기준)
-ACC_CANDIDATES = {
-    "revenue": ["매출액", "영업수익", "매출"],
-    "op_income": ["영업이익"],
-    "net_income": ["당기순이익"],
-    "assets": ["자산총계"],
-    "equity": ["자본총계"],
-    "liabilities": ["부채총계"],
-    "ocf": ["영업활동으로인한현금흐름", "영업활동현금흐름", "영업활동으로 인한 현금흐름"],
-}
-
-# 수집 기간(연도)
-DEFAULT_YEARS_BACK = 7  # 최근 7년(필요시 조정)
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 DEFAULT_REFRESH_RECENT_YEARS = 0
 DEFAULT_SLEEP_SEC = 0.15
 DEFAULT_LOG_EVERY = 20
@@ -118,21 +69,12 @@ DEFAULT_CHECKPOINT_EVERY = 100
 
 
 def setup_logging() -> None:
-<<<<<<< HEAD
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
 
 
-=======
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-    )
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def load_api_key() -> str:
     load_dotenv()
     api_key = os.getenv("DART_API_KEY", "").strip()
@@ -179,7 +121,6 @@ def request_with_retry(
 
 
 def download_and_cache_corp_codes(api_key: str, session: requests.Session) -> Path:
-<<<<<<< HEAD
     cache_xml = CACHE_DIR / "corp_codes.xml"
     if (
         cache_xml.exists()
@@ -309,137 +250,6 @@ def fetch_annual_financials(
             "ocf": value_by_candidates(df, ACC_CANDIDATES["ocf"]),
         }
         return fin, fs_div, last_status
-=======
-    cache_xml = CACHE_DIR / "corp_codes.xml"
-    if (
-        cache_xml.exists()
-        and cache_xml.stat().st_size > 0
-        and (time.time() - cache_xml.stat().st_mtime) < 86400 * 7
-    ):
-        logging.info("Using cached corp_codes.xml: %s", cache_xml.resolve())
-        return cache_xml
-
-    logging.info("Downloading corpCode.zip from DART...")
-    content = request_with_retry(session, DART_CORP_CODE_URL, params={"crtfc_key": api_key}, expect_json=False)
-    with zipfile.ZipFile(io.BytesIO(content)) as zf:
-        xml_name = next((n for n in zf.namelist() if n.lower().endswith(".xml")), None)
-        if not xml_name:
-            raise RuntimeError("corpCode zip did not contain an XML file.")
-        with zf.open(xml_name) as f:
-            xml_bytes = f.read()
-    cache_xml.write_bytes(xml_bytes)
-    logging.info("Saved corp codes XML: %s", cache_xml.resolve())
-    return cache_xml
-
-
-def parse_corp_codes(xml_path: Path) -> pd.DataFrame:
-    # 반환: columns = corp_code, stock_code, corp_name
-    tree = ET.parse(xml_path)
-    root = tree.getroot()
-    rows = []
-    for el in root.findall(".//list"):
-        corp_code = (el.findtext("corp_code") or "").strip()
-        stock_code = (el.findtext("stock_code") or "").strip()  # 6자리 종목코드(없을 수도 있음)
-        corp_name = (el.findtext("corp_name") or "").strip()
-        if corp_code:
-            rows.append({"corp_code": corp_code, "stock_code": stock_code, "corp_name": corp_name})
-    df = pd.DataFrame(rows)
-    return df
-
-
-def get_target_codes() -> List[str]:
-    # 우선 universe.csv의 code 사용. 없으면 features.csv에서 고유 code 목록 사용.
-    if UNIVERSE_CSV.exists():
-        uni = pd.read_csv(UNIVERSE_CSV, dtype={"code": str})
-        if "code" in uni.columns:
-            codes = sorted(pd.Series(uni["code"].dropna().astype(str).str.zfill(6)).unique())
-            if codes:
-                return codes
-    if FEATURES_CSV.exists():
-        feats = pd.read_csv(FEATURES_CSV, dtype={"code": str})
-        if "code" in feats.columns:
-            codes = sorted(pd.Series(feats["code"].dropna().astype(str).str.zfill(6)).unique())
-            if codes:
-                return codes
-    raise RuntimeError("No target codes found in universe.csv or features.csv")
-
-
-def normalize_account_name(s: str) -> str:
-    return (s or "").replace(" ", "").replace("\u3000", "")  # remove spaces and ideographic space
-
-
-def parse_amount(x: str) -> Optional[float]:
-    if x is None:
-        return None
-    s = str(x).strip().replace(",", "")
-    if s in ("", "-", "NaN", "nan", "None"):
-        return None
-    try:
-        return float(s)
-    except Exception:
-        return None
-
-
-def value_by_candidates(df: pd.DataFrame, candidates: List[str]) -> Optional[float]:
-    if df.empty:
-        return None
-    m = df.copy()
-    m["acc"] = m["account_nm"].astype(str).map(normalize_account_name)
-    for c in candidates:
-        key = normalize_account_name(c)
-        hit = m[m["acc"].str.contains(key, na=False)]
-        if not hit.empty:
-            # thstrm_amount(당기) 우선
-            vals = hit["thstrm_amount"].map(parse_amount).dropna()
-            if not vals.empty:
-                return float(vals.iloc[0])
-    return None
-
-
-def fetch_annual_financials(
-    api_key: str, corp_code: str, year: int, session: requests.Session
-) -> Tuple[Optional[Dict[str, Optional[float]]], Optional[str], Optional[str]]:
-    """연간 재무 조회. (결과 dict, 사용된 fs_div, status) 반환"""
-    last_status: Optional[str] = None
-    for fs_div in FS_ORDER:
-        params = {
-            "crtfc_key": api_key,
-            "corp_code": corp_code,
-            "bsns_year": str(year),
-            "reprt_code": REPRT_CODE_ANNUAL,
-            "fs_div": fs_div,
-        }
-        try:
-            data = request_with_retry(session, DART_FNLTT_URL, params=params, expect_json=True)
-        except Exception as e:
-            logging.debug("request failed corp=%s year=%s fs=%s err=%s", corp_code, year, fs_div, e)
-            last_status = "REQ_ERR"
-            continue
-        if not isinstance(data, dict):
-            last_status = "RESP_NODICT"
-            continue
-        status = data.get("status")
-        last_status = status or "UNK"
-        if status != "000":
-            # 013: 조회 데이터 없음 등
-            continue
-        ls = data.get("list") or []
-        df = pd.DataFrame(ls)
-        if df.empty:
-            last_status = "EMPTY"
-            continue
-
-        fin = {
-            "revenue": value_by_candidates(df, ACC_CANDIDATES["revenue"]),
-            "op_income": value_by_candidates(df, ACC_CANDIDATES["op_income"]),
-            "net_income": value_by_candidates(df, ACC_CANDIDATES["net_income"]),
-            "assets": value_by_candidates(df, ACC_CANDIDATES["assets"]),
-            "equity": value_by_candidates(df, ACC_CANDIDATES["equity"]),
-            "liabilities": value_by_candidates(df, ACC_CANDIDATES["liabilities"]),
-            "ocf": value_by_candidates(df, ACC_CANDIDATES["ocf"]),
-        }
-        return fin, fs_div, last_status
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     return None, None, last_status
 
 
@@ -514,13 +324,8 @@ def merge_fundamentals_with_existing(
         .reset_index(drop=True)
     )
     return merged
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def build_fundamentals_from_dart(
     api_key: str,
     codes: List[str],
@@ -533,17 +338,10 @@ def build_fundamentals_from_dart(
 ) -> pd.DataFrame:
     session = build_http_session()
     xml_path = download_and_cache_corp_codes(api_key, session)
-<<<<<<< HEAD
     corp_df = parse_corp_codes(xml_path)
     corp_df["stock_code"] = corp_df["stock_code"].astype(str).str.zfill(6)
     code_map = dict(zip(corp_df["stock_code"], corp_df["corp_code"]))
 
-=======
-    corp_df = parse_corp_codes(xml_path)
-    corp_df["stock_code"] = corp_df["stock_code"].astype(str).str.zfill(6)
-    code_map = dict(zip(corp_df["stock_code"], corp_df["corp_code"]))
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     today = datetime.today()
     end_year = today.year
     start_year = end_year - (years_back - 1)
@@ -594,7 +392,6 @@ def build_fundamentals_from_dart(
         start_year,
         end_year,
     )
-<<<<<<< HEAD
 
     # raw 로그 설정
     csv_path: Optional[Path] = None
@@ -609,22 +406,6 @@ def build_fundamentals_from_dart(
             ["ts", "code", "corp_code", "year", "fs_used", "status", "duration_ms", "ok"]
         )
 
-=======
-
-    # raw 로그 설정
-    csv_path: Optional[Path] = None
-    csv_writer: Optional[csv.writer] = None
-    csv_file = None
-    if raw_log:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_path = CACHE_DIR / f"fetch_log_{ts}.csv"
-        csv_file = open(csv_path, "w", newline="", encoding="utf-8")
-        csv_writer = csv.writer(csv_file)
-        csv_writer.writerow(
-            ["ts", "code", "corp_code", "year", "fs_used", "status", "duration_ms", "ok"]
-        )
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     for code in codes:
         fetch_start_year = fetch_plan.get(code)
         if fetch_start_year is None:
@@ -638,7 +419,6 @@ def build_fundamentals_from_dart(
         for y in range(fetch_start_year, end_year + 1):
             t0 = time.perf_counter()
             fin, fs_used, status = fetch_annual_financials(api_key, corp_code, y, session)
-<<<<<<< HEAD
             dt_ms = (time.perf_counter() - t0) * 1000.0
             total_ms += dt_ms
             api_calls += 1
@@ -678,47 +458,6 @@ def build_fundamentals_from_dart(
                     s,
                     ok_count,
                     empty_count,
-=======
-            dt_ms = (time.perf_counter() - t0) * 1000.0
-            total_ms += dt_ms
-            api_calls += 1
-            iter_idx += 1
-
-            ok = fin is not None
-            if ok:
-                ok_count += 1
-                rows.append({"date": pd.Timestamp(f"{y}-12-31"), "code": code, **fin})
-            else:
-                # status가 EMPTY, 013 등일 수 있음
-                if status in {"EMPTY", "013"}:
-                    empty_count += 1
-                else:
-                    fail_count += 1
-
-            # 진행 로그(주기)
-            if (iter_idx % max(1, log_every)) == 0 or iter_idx == total_iters:
-                avg_ms = total_ms / max(1, api_calls)
-                remain = max(0, total_iters - iter_idx)
-                eta_sec = (avg_ms / 1000.0) * remain
-                m, s = divmod(int(eta_sec), 60)
-                h, m = divmod(m, 60)
-                pct = (iter_idx / total_iters) * 100.0
-                logging.info(
-                    "[DART] %d/%d (%.1f%%) code=%s year=%s fs=%s dt=%.0fms avg=%.0fms ETA=%02d:%02d:%02d ok=%d empty=%d fail=%d unmapped=%d cache_xml=on",
-                    iter_idx,
-                    total_iters,
-                    pct,
-                    code,
-                    y,
-                    fs_used or "-",
-                    dt_ms,
-                    avg_ms,
-                    h,
-                    m,
-                    s,
-                    ok_count,
-                    empty_count,
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
                     fail_count,
                     len(unmapped_codes),
                 )
@@ -737,7 +476,6 @@ def build_fundamentals_from_dart(
 
             # raw 로그 저장
             if csv_writer is not None:
-<<<<<<< HEAD
                 csv_writer.writerow(
                     [
                         datetime.now().isoformat(timespec="seconds"),
@@ -757,27 +495,6 @@ def build_fundamentals_from_dart(
     if csv_file is not None:
         csv_file.close()
         logging.info("Saved fetch raw log: %s", csv_path.resolve())
-=======
-                csv_writer.writerow(
-                    [
-                        datetime.now().isoformat(timespec="seconds"),
-                        code,
-                        corp_code,
-                        y,
-                        fs_used or "",
-                        status or "",
-                        f"{dt_ms:.0f}",
-                        1 if ok else 0,
-                    ]
-                )
-
-            # 요청 간 슬립(레이트리밋 완화)
-            time.sleep(sleep_sec)
-
-    if csv_file is not None:
-        csv_file.close()
-        logging.info("Saved fetch raw log: %s", csv_path.resolve())
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 
     elapsed = time.perf_counter() - start_ts
     # format elapsed as h:m:s to avoid missing-argument logging errors
@@ -799,27 +516,16 @@ def build_fundamentals_from_dart(
         m,
         s,
     )
-<<<<<<< HEAD
 
-=======
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     if not rows:
         if not existing_out.empty:
             logging.info("No missing fundamentals to fetch. Reusing existing fundamentals cache.")
             return existing_out.sort_values(["code", "date"]).reset_index(drop=True)
         raise RuntimeError("No financial rows fetched from DART.")
-<<<<<<< HEAD
 
     return merge_fundamentals_with_existing(existing_out, rows, fetch_plan)
 
 
-=======
-
-    return merge_fundamentals_with_existing(existing_out, rows, fetch_plan)
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def save_fundamentals(df: pd.DataFrame) -> None:
     out = df.copy()
     out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y-%m-%d")
@@ -881,13 +587,8 @@ def save_fundamentals(df: pd.DataFrame) -> None:
                 conn.close()
         except Exception:
             pass
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Fetch fundamentals via OpenDART and build fundamentals.csv")
     p.add_argument(
@@ -922,7 +623,6 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--raw-log", action="store_true", help="Write raw fetch log CSV under data/dart")
     return p.parse_args()
-<<<<<<< HEAD
 
 
 def main() -> None:
@@ -931,16 +631,6 @@ def main() -> None:
     api_key = load_api_key()
     codes = get_target_codes()
     logging.info("Target codes: %d", len(codes))
-=======
-
-
-def main() -> None:
-    setup_logging()
-    args = parse_args()
-    api_key = load_api_key()
-    codes = get_target_codes()
-    logging.info("Target codes: %d", len(codes))
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     df = build_fundamentals_from_dart(
         api_key,
         codes,
@@ -951,18 +641,9 @@ def main() -> None:
         checkpoint_every=args.checkpoint_every,
         raw_log=args.raw_log,
     )
-<<<<<<< HEAD
     save_fundamentals(df)
     logging.info("Done.")
 
 
 if __name__ == "__main__":
     main()
-=======
-    save_fundamentals(df)
-    logging.info("Done.")
-
-
-if __name__ == "__main__":
-    main()
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae

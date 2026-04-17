@@ -155,7 +155,6 @@ def _merge_price_history(current_df: pd.DataFrame) -> pd.DataFrame:
         f"Merged price history for adjustment: existing_rows={len(existing)} current_rows={len(current)} merged_rows={len(merged)}"
     )
     return merged
-<<<<<<< HEAD
 
 def detect_split_ratios(df):
     """
@@ -195,54 +194,12 @@ def apply_adjustment(df):
     return df
 
 
-=======
-
-def detect_split_ratios(df):
-    """
-    액면분할/병합 이벤트를 감지하여 누적 보정 계수를 계산한다.
-    기준:
-      - 이전 close 대비 다음 close가 일정 배수로 점프했을 때
-      - ratio > 1.5 or ratio < 0.7 (대략 30% 이상 단절)
-    """
-    df = df.sort_values("date").copy()
-    df["ratio"] = df["close"] / df["close"].shift(1)
-
-    # 분할/병합 이벤트로 판단되는 구간 탐지
-    events = df[(df["ratio"] > 1.5) | (df["ratio"] < 0.7)].copy()
-
-    # 누적 조정 계수
-    df["adj_factor"] = 1.0
-    cumulative = 1.0
-
-    for idx, row in events.iterrows():
-        ratio = row["ratio"]
-        # ratio > 1 → 액면병합 (가격이 급등)
-        # ratio < 1 → 액면분할 (가격이 급락)
-        cumulative *= ratio
-        df.loc[df.index >= idx, "adj_factor"] = cumulative
-
-    return df
-
-
-def apply_adjustment(df):
-    """
-    조정계수 적용하여 adjusted_close 생성
-    """
-    df["adj_close"] = df["close"] / df["adj_factor"]
-    df["adj_open"]  = df["open"]  / df["adj_factor"]
-    df["adj_high"]  = df["high"]  / df["adj_factor"]
-    df["adj_low"]   = df["low"]   / df["adj_factor"]
-    return df
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def main():
     df = pd.read_csv(INPUT, dtype={"code": str})
     df["date"] = pd.to_datetime(df["date"])
     df = _merge_price_history(df)
 
     out_list = []
-<<<<<<< HEAD
 
     for code, g in df.groupby("code"):
         g = g.sort_values("date").copy()
@@ -254,19 +211,6 @@ def main():
 
     final = pd.concat(out_list).reset_index(drop=True)
 
-=======
-
-    for code, g in df.groupby("code"):
-        g = g.sort_values("date").copy()
-
-        g = detect_split_ratios(g)
-        g = apply_adjustment(g)
-
-        out_list.append(g)
-
-    final = pd.concat(out_list).reset_index(drop=True)
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     # CSV 출력(조정가)
     csv_cols = ["date", "code", "adj_open", "adj_high", "adj_low", "adj_close", "volume"]
     csv_out = final[csv_cols].copy()
@@ -353,14 +297,7 @@ def main():
                 conn.close()
         except Exception:
             pass
-<<<<<<< HEAD
 
 
 if __name__ == "__main__":
     main()
-=======
-
-
-if __name__ == "__main__":
-    main()
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae

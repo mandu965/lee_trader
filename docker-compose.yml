@@ -97,7 +97,6 @@ services:
       SCHEDULER_PRIMARY_STATUS_PATH: ${SCHEDULER_PRIMARY_STATUS_PATH:-outputs/auto_ops_scheduler_status.json}
       SCHEDULER_PRIMARY_MAX_AGE_HOURS: ${SCHEDULER_PRIMARY_MAX_AGE_HOURS:-20}
 
-<<<<<<< HEAD
   scheduler-auto-buy:
     <<: *python-runtime
     container_name: lee_trader_scheduler_auto_buy
@@ -151,8 +150,6 @@ services:
       SCHEDULER_STATUS_PATH: ${SCHEDULER_LIVE_SYNC_STATUS_PATH:-outputs/auto_ops_live_account_sync_scheduler_status.json}
       SCHEDULER_LOG_PATH: ${SCHEDULER_LIVE_SYNC_LOG_PATH:-logs/auto_ops_live_account_sync_scheduler.log}
 
-=======
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
   node-api:
     build:
       context: .

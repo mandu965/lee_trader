@@ -1,24 +1,13 @@
-<<<<<<< HEAD
 """
 Single source of truth for daily ranking score construction.
 
 This file is responsible for the full ranking build pipeline:
-=======
-"""
-Single source of truth for daily ranking score construction.
-
-This file is responsible for the full ranking build pipeline:
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 1. Load and merge predictions, features, universe, technical scores, and market status.
 2. Compute per-stock component scores.
 3. Reflect market regime (bull / neutral / defensive) in the final weighted score.
 4. Reflect drawdown-based risk penalty.
 5. Produce final_score, final_score_v2, and rank outputs.
-<<<<<<< HEAD
 
-=======
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 Final score formula summary
 ---------------------------
 - Inputs:
@@ -49,27 +38,16 @@ Final score formula summary
   final_score    -> regime-aware weighted score after soft risk penalty
   final_score_v2 -> legacy fixed-weight reference score after soft risk penalty
   rank_final     -> per-date rank by final_score
-<<<<<<< HEAD
   rank_v2        -> per-date rank by final_score_v2 (comparison-only reference)
 """
-=======
-  rank_v2        -> per-date rank by final_score_v2 (comparison-only reference)
-"""
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 import argparse
 import json
 import logging
 import os
 import sqlite3
-<<<<<<< HEAD
 from datetime import datetime
 from pathlib import Path
 
-=======
-from datetime import datetime
-from pathlib import Path
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 import numpy as np
 import pandas as pd
 from sqlalchemy import bindparam, text
@@ -92,11 +70,7 @@ from scoring.final_score import (
     resolve_core_weight_profile,
 )
 from score_explainer import attach_score_explain_columns
-<<<<<<< HEAD
 
-=======
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 try:
     from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite, use_sqlite_fallback_writes
 except Exception:
@@ -106,11 +80,7 @@ except Exception:
     replace_table_rows_sqlite = None
     def use_sqlite_fallback_writes() -> bool:
         return False
-<<<<<<< HEAD
 
-=======
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 DATA_DIR = Path("data")
 OUTPUT_DIR = Path("outputs")
 COMPARE_OUTPUT_DIR = Path("output")
@@ -296,19 +266,11 @@ CORE_COMPONENT_COLUMNS = [
     "theme_score",
 ]
 DAILY_RANKING_STORE_COLUMNS = [
-<<<<<<< HEAD
     "date",
     "code",
     "close",
     "pred_return_60d",
     "pred_return_90d",
-=======
-    "date",
-    "code",
-    "close",
-    "pred_return_60d",
-    "pred_return_90d",
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     "pred_mdd_60d",
     "pred_mdd_90d",
     "prob_top20_60d",
@@ -323,7 +285,6 @@ DAILY_RANKING_STORE_COLUMNS = [
     "quality_missing_ratio",
     "quality_score_confidence",
     "vol_20",
-<<<<<<< HEAD
     "vol_60",
     "vol_ma_20",
     "volume",
@@ -333,23 +294,11 @@ DAILY_RANKING_STORE_COLUMNS = [
     "vol_ratio_20",
     "name",
     "market",
-=======
-    "vol_60",
-    "vol_ma_20",
-    "volume",
-    "mom_20",
-    "close_over_ma20",
-    "rsi_14",
-    "vol_ratio_20",
-    "name",
-    "market",
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     "sector",
     "regime",
     "regime_reason",
     "weight_profile",
     "tech_source",
-<<<<<<< HEAD
     "tech_trend_score",
     "tech_momentum_score",
     "tech_stability_score",
@@ -362,20 +311,6 @@ DAILY_RANKING_STORE_COLUMNS = [
     "pred_score_90",
     "ret_rank_90",
     "pred_return_90d_pct01",
-=======
-    "tech_trend_score",
-    "tech_momentum_score",
-    "tech_stability_score",
-    "tech_volume_score",
-    "tech_liquidity_guard",
-    "tech_score",
-    "pred_score_60",
-    "ret_rank_60",
-    "pred_return_60d_pct01",
-    "pred_score_90",
-    "ret_rank_90",
-    "pred_return_90d_pct01",
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     "pred_score",
     "ret_score",
     "return_score",
@@ -476,13 +411,8 @@ DAILY_RANKING_STORE_COLUMNS = [
     "score_contribution_theme",
     "score_contribution_risk",
     "contrib_tech",
-<<<<<<< HEAD
     "contrib_ret",
     "contrib_prob",
-=======
-    "contrib_ret",
-    "contrib_prob",
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     "contrib_qual",
     "contrib_safety",
     "contrib_liquidity",
@@ -526,7 +456,6 @@ DAILY_RANKING_STORE_COLUMNS = [
     "confidence_grade",
     "confidence_reason",
     "confidence_explain_text",
-<<<<<<< HEAD
     "market_up",
     "market_status_date",
     "market_kospi_close",
@@ -539,30 +468,12 @@ DAILY_RANKING_STORE_COLUMNS = [
 ]
 DAILY_RANKING_PK = ["date", "code"]
 
-=======
-    "market_up",
-    "market_status_date",
-    "market_kospi_close",
-    "market_kospi_ma20",
-    "market_vol_5d",
-    "market_foreign_5d",
-    "generated_at",
-    "model_version",
-    "score_formula_version",
-]
-DAILY_RANKING_PK = ["date", "code"]
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 # Fixed-weight legacy reference score.
 # Note: the legacy reference still uses ret_score as its return / prediction axis.
 WEIGHT_TECH = 0.15
 WEIGHT_PRED = 0.30
 WEIGHT_PROB = 0.25
-<<<<<<< HEAD
 WEIGHT_SAFETY = 0.15
-=======
-WEIGHT_SAFETY = 0.15
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 WEIGHT_QUAL = 0.10
 WEIGHT_LIQUIDITY = 0.05
 
@@ -611,7 +522,6 @@ DEFENSIVE_WEIGHT_PROFILE = {
     "valuation": 0.15,
     "risk_penalty": 0.80,
 }
-<<<<<<< HEAD
 
 # Risk penalty is handled as a subtraction from the weighted score.
 # The current policy is intentionally softer than the previous version to
@@ -627,23 +537,6 @@ REBALANCE_WEIGHT_TECH = 0.17
 REBALANCE_WEIGHT_PRED = 0.10
 REBALANCE_PRED_SCORE_DEFAULT = 60.0
 EXPLAIN_FACTOR_LABELS = {}
-=======
-
-# Risk penalty is handled as a subtraction from the weighted score.
-# The current policy is intentionally softer than the previous version to
-# reduce over-dominance of drawdown estimates in final_score ordering.
-RISK_MDD_THRESHOLD = 0.15
-RISK_PENALTY_SCALE = 100.0
-
-# Rebalance score weights reuse the same component columns built here.
-REBALANCE_WEIGHT_RET = 0.28
-REBALANCE_WEIGHT_PROB = 0.25
-REBALANCE_WEIGHT_QUAL = 0.20
-REBALANCE_WEIGHT_TECH = 0.17
-REBALANCE_WEIGHT_PRED = 0.10
-REBALANCE_PRED_SCORE_DEFAULT = 60.0
-EXPLAIN_FACTOR_LABELS = {}
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 DISPLAY_FACTOR_LABELS = {
     "contrib_tech": "Tech flow score",
     "contrib_ret": "Primary prediction score",
@@ -1162,13 +1055,8 @@ THEME_OVERLAY_WEIGHTS = {
         "theme_weight": THEME_WEIGHT_DEFENSIVE,
     },
 }
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def resolve_score_formula_version() -> str:
     if is_operational_runtime_mode():
         value = DEFAULT_SCORE_FORMULA_VERSION
@@ -1332,21 +1220,12 @@ def setup_logging() -> None:
         level=logging.INFO,
         format="[%(asctime)s] [%(levelname)s] %(message)s",
     )
-<<<<<<< HEAD
 
 
 def ensure_data_dir() -> None:
     DATA_DIR.mkdir(exist_ok=True, parents=True)
 
 
-=======
-
-
-def ensure_data_dir() -> None:
-    DATA_DIR.mkdir(exist_ok=True, parents=True)
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _load_csv(path: Path, required: bool = True) -> pd.DataFrame:
     if not path.exists():
         if required:
@@ -1527,21 +1406,12 @@ def _load_theme_overlay(dates: list[str]) -> dict[str, object]:
     if not db_overlay["df"].empty:
         return db_overlay
     return _empty_theme_overlay_payload("none")
-<<<<<<< HEAD
 
 
 def _clip01(series: pd.Series, lower: float, upper: float) -> pd.Series:
     return series.astype(float).clip(lower=lower, upper=upper)
 
 
-=======
-
-
-def _clip01(series: pd.Series, lower: float, upper: float) -> pd.Series:
-    return series.astype(float).clip(lower=lower, upper=upper)
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _percentile_by_date(df: pd.DataFrame, col: str) -> pd.Series:
     """Return a per-date percentile score in the 0~100 range."""
     if col not in df.columns:
@@ -1551,13 +1421,8 @@ def _percentile_by_date(df: pd.DataFrame, col: str) -> pd.Series:
         return s.rank(pct=True, ascending=True, method="average") * 100.0
 
     return df.groupby("date", group_keys=False)[col].transform(_rank)
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _percentile01_by_date(df: pd.DataFrame, col: str) -> pd.Series:
     """Return a per-date percentile score in the 0~1 range."""
     if col not in df.columns:
@@ -1565,7 +1430,6 @@ def _percentile01_by_date(df: pd.DataFrame, col: str) -> pd.Series:
 
     def _rank(s: pd.Series) -> pd.Series:
         return s.rank(pct=True, ascending=True, method="average")
-<<<<<<< HEAD
 
     return df.groupby("date", group_keys=False)[col].transform(_rank)
 
@@ -1720,162 +1584,6 @@ def _compute_feature_based_tech_score(base: pd.DataFrame) -> pd.DataFrame:
     else:
         base["tech_liquidity_pct"] = 50.0
 
-=======
-
-    return df.groupby("date", group_keys=False)[col].transform(_rank)
-
-
-def _winsorize_by_date(df: pd.DataFrame, col: str, *, lower_q: float = 0.01, upper_q: float = 0.99) -> pd.Series:
-    if col not in df.columns:
-        return pd.Series(np.nan, index=df.index)
-
-    def _clip(s: pd.Series) -> pd.Series:
-        s = pd.to_numeric(s, errors="coerce")
-        valid = s.dropna()
-        if valid.empty:
-            return s
-        lo = valid.quantile(lower_q)
-        hi = valid.quantile(upper_q)
-        return s.clip(lower=lo, upper=hi)
-
-    return df.groupby("date", group_keys=False)[col].transform(_clip)
-
-
-def _average_available(parts: list[pd.Series], index: pd.Index, *, fill_value: float = np.nan) -> pd.Series:
-    valid_parts = [pd.to_numeric(part, errors="coerce") for part in parts if part is not None]
-    if not valid_parts:
-        return pd.Series(fill_value, index=index, dtype=float)
-    frame = pd.concat(valid_parts, axis=1)
-    out = frame.mean(axis=1, skipna=True)
-    if pd.isna(fill_value):
-        return out
-    return out.fillna(fill_value)
-
-
-def _log_tech_feature_availability(base: pd.DataFrame) -> None:
-    feature_cols = [
-        "composite",
-        "score_score",
-        "close",
-        "ma_5",
-        "ma_20",
-        "ma_60",
-        "close_over_ma20",
-        "ret_5d",
-        "ret_10d",
-        "mom_20",
-        "rsi_14",
-        "vol_20",
-        "vol_60",
-        "vol_ma_20",
-        "volume",
-        "vol_ratio_20",
-    ]
-    availability = {}
-    for col in feature_cols:
-        if col not in base.columns:
-            availability[col] = "missing"
-            continue
-        nonnull = int(base[col].notna().sum())
-        availability[col] = f"{nonnull}/{len(base)}"
-    logging.info("Tech feature availability: %s", availability)
-
-
-def _is_usable_legacy_tech_source(base: pd.DataFrame, col: str) -> bool:
-    if col not in base.columns:
-        return False
-    series = pd.to_numeric(base[col], errors="coerce")
-    nonnull_ratio = float(series.notna().mean()) if len(series) else 0.0
-    unique_count = int(series.dropna().nunique())
-    usable = nonnull_ratio >= 0.80 and unique_count >= 10
-    logging.info(
-        "Legacy tech source check: col=%s nonnull_ratio=%.3f unique_count=%d usable=%s",
-        col,
-        nonnull_ratio,
-        unique_count,
-        usable,
-    )
-    return usable
-
-
-def _compute_feature_based_tech_score(base: pd.DataFrame) -> pd.DataFrame:
-    base = base.copy()
-    index = base.index
-
-    for col in ["close", "ma_5", "ma_20", "ma_60", "rsi_14", "vol_ratio_20", "vol_ma_20", "volume"]:
-        if col in base.columns:
-            base[col] = pd.to_numeric(base[col], errors="coerce")
-
-    if "rsi_14" in base.columns:
-        base["rsi_14"] = base["rsi_14"].clip(lower=0.0, upper=100.0)
-    if "vol_ratio_20" in base.columns:
-        base["vol_ratio_20"] = base["vol_ratio_20"].clip(lower=0.0, upper=3.0)
-
-    trend_position = None
-    if "close_over_ma20" in base.columns:
-        base["close_over_ma20_win"] = _winsorize_by_date(base, "close_over_ma20")
-        trend_position = _percentile_by_date(base, "close_over_ma20_win")
-
-    ma_ready = all(col in base.columns for col in ["close", "ma_5", "ma_20", "ma_60"])
-    if ma_ready:
-        cond_100 = (base["close"] >= base["ma_5"]) & (base["ma_5"] >= base["ma_20"]) & (base["ma_20"] >= base["ma_60"])
-        cond_75 = (base["close"] >= base["ma_5"]) & (base["ma_5"] >= base["ma_20"])
-        cond_55 = base["close"] >= base["ma_20"]
-        cond_35 = (base["close"] < base["ma_20"]) & (base["ma_20"] >= base["ma_60"])
-        base["tech_trend_alignment"] = np.select(
-            [cond_100, cond_75, cond_55, cond_35],
-            [100.0, 75.0, 55.0, 35.0],
-            default=15.0,
-        )
-    else:
-        base["tech_trend_alignment"] = 50.0
-
-    base["tech_trend_score"] = _average_available(
-        [trend_position, base["tech_trend_alignment"]],
-        index,
-        fill_value=50.0,
-    )
-
-    momentum_parts = []
-    for src_col, out_col in [("ret_5d", "tech_ret_5d_win"), ("ret_10d", "tech_ret_10d_win"), ("mom_20", "tech_mom_20_win")]:
-        if src_col in base.columns:
-            base[out_col] = _winsorize_by_date(base, src_col)
-            momentum_parts.append(_percentile_by_date(base, out_col))
-    if "rsi_14" in base.columns:
-        base["tech_rsi_score"] = (100.0 - ((base["rsi_14"] - 60.0).abs() * 2.0)).clip(lower=0.0, upper=100.0)
-    else:
-        base["tech_rsi_score"] = 50.0
-    momentum_parts.append(base["tech_rsi_score"])
-    base["tech_momentum_score"] = _average_available(momentum_parts, index, fill_value=50.0)
-
-    stability_parts = []
-    if "vol_20" in base.columns:
-        base["tech_vol_20_win"] = _winsorize_by_date(base, "vol_20")
-        stability_parts.append(100.0 - _percentile_by_date(base, "tech_vol_20_win"))
-    if "vol_60" in base.columns:
-        base["tech_vol_60_win"] = _winsorize_by_date(base, "vol_60")
-        stability_parts.append(100.0 - _percentile_by_date(base, "tech_vol_60_win"))
-    base["tech_stability_score"] = _average_available(stability_parts, index, fill_value=50.0)
-
-    volume_parts = []
-    if "vol_ma_20" in base.columns:
-        base["tech_vol_ma_20_win"] = _winsorize_by_date(base, "vol_ma_20")
-        volume_parts.append(_percentile_by_date(base, "tech_vol_ma_20_win"))
-    if "vol_ratio_20" in base.columns:
-        volume_parts.append(_percentile_by_date(base, "vol_ratio_20"))
-    if "volume" in base.columns:
-        base["tech_volume_win"] = _winsorize_by_date(base, "volume")
-        volume_parts.append(_percentile_by_date(base, "tech_volume_win"))
-    base["tech_volume_score"] = _average_available(volume_parts, index, fill_value=50.0)
-
-    if "vol_ma_20" in base.columns:
-        base["tech_liquidity_pct"] = _percentile_by_date(base, "tech_vol_ma_20_win" if "tech_vol_ma_20_win" in base.columns else "vol_ma_20")
-    elif "volume" in base.columns:
-        base["tech_liquidity_pct"] = _percentile_by_date(base, "tech_volume_win" if "tech_volume_win" in base.columns else "volume")
-    else:
-        base["tech_liquidity_pct"] = 50.0
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     base["tech_liquidity_guard"] = np.select(
         [base["tech_liquidity_pct"] < 10.0, base["tech_liquidity_pct"] < 20.0],
         [0.72, 0.90],
@@ -1888,7 +1596,6 @@ def _compute_feature_based_tech_score(base: pd.DataFrame) -> pd.DataFrame:
         + 0.20 * base["tech_stability_score"].fillna(50.0)
         + 0.15 * base["tech_volume_score"].fillna(50.0)
     )
-<<<<<<< HEAD
     base["tech_score"] = (
         base["tech_score"].fillna(50.0) * pd.to_numeric(base["tech_liquidity_guard"], errors="coerce").fillna(1.0)
     ).clip(lower=0.0, upper=100.0)
@@ -1920,39 +1627,6 @@ def _normalize_code_columns(*dfs: pd.DataFrame) -> None:
             df["code"] = df["code"].astype(str).str.zfill(6)
 
 
-=======
-    base["tech_score"] = (
-        base["tech_score"].fillna(50.0) * pd.to_numeric(base["tech_liquidity_guard"], errors="coerce").fillna(1.0)
-    ).clip(lower=0.0, upper=100.0)
-    base["tech_source"] = "feature_v1"
-
-    logging.info(
-        "Feature-based tech score built: rows=%d trend_nonnull=%d momentum_nonnull=%d stability_nonnull=%d volume_nonnull=%d tech_nonnull=%d",
-        len(base),
-        int(base["tech_trend_score"].notna().sum()),
-        int(base["tech_momentum_score"].notna().sum()),
-        int(base["tech_stability_score"].notna().sum()),
-        int(base["tech_volume_score"].notna().sum()),
-        int(base["tech_score"].notna().sum()),
-    )
-    return base
-
-
-def _normalize_date(df: pd.DataFrame) -> pd.DataFrame:
-    if "date" not in df.columns or df.empty:
-        return df
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
-    return df
-
-
-def _normalize_code_columns(*dfs: pd.DataFrame) -> None:
-    for df in dfs:
-        if df is not None and not df.empty and "code" in df.columns:
-            df["code"] = df["code"].astype(str).str.zfill(6)
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _load_market_status() -> tuple[bool, dict, pd.DataFrame]:
     if not MARKET_STATUS_CSV.exists():
         info = {
@@ -1993,7 +1667,6 @@ def _load_market_status() -> tuple[bool, dict, pd.DataFrame]:
         return False, info, df
 
     last = df.iloc[-1]
-<<<<<<< HEAD
     raw = last["market_up"]
     if isinstance(raw, bool):
         market_up = raw
@@ -2005,32 +1678,14 @@ def _load_market_status() -> tuple[bool, dict, pd.DataFrame]:
         if col in last.index:
             info[col] = last[col]
 
-=======
-    raw = last["market_up"]
-    if isinstance(raw, bool):
-        market_up = raw
-    else:
-        market_up = str(raw).strip().lower() in {"true", "1", "t", "y", "yes"}
-
-    info = {}
-    for col in ["date", "kospi_close", "kospi_ma20", "volatility_5d", "foreign_net_5d"]:
-        if col in last.index:
-            info[col] = last[col]
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     logging.info(
         "Loaded market status: market_up=%s, info=%s",
         market_up,
         {k: info.get(k) for k in ["date", "kospi_close", "kospi_ma20", "volatility_5d", "foreign_net_5d"]},
     )
     return market_up, info, df
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def detect_market_regime(df: pd.DataFrame, market_info: dict, market_history: pd.DataFrame | None = None) -> tuple[str, str]:
     regime, regime_reason = shared_detect_market_regime(df, market_info, market_history)
     logging.info("Detected market regime=%s reason=%s", regime, regime_reason)
@@ -2051,13 +1706,8 @@ def _attach_market_columns(
         log_distribution=True,
         log_prefix="_attach_market_columns",
     )
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _ensure_regime_column(
     df: pd.DataFrame,
     *,
@@ -2065,7 +1715,6 @@ def _ensure_regime_column(
     log_prefix: str = "regime",
 ) -> pd.DataFrame:
     return shared_ensure_regime_column(df, log_distribution=log_distribution, log_prefix=log_prefix)
-<<<<<<< HEAD
 
 
 def _compute_tech_score(base: pd.DataFrame) -> pd.DataFrame:
@@ -2159,101 +1808,6 @@ def _compute_ret_and_pred_scores(base: pd.DataFrame) -> pd.DataFrame:
     return base
 
 
-=======
-
-
-def _compute_tech_score(base: pd.DataFrame) -> pd.DataFrame:
-    """
-    tech_score
-    - Input columns: composite or score_score from scores_final.csv
-    - Purpose: reflect chart / technical composite strength
-    - Interpretation: higher means stronger technical profile on that date
-    - Score type: relative score (per-date percentile, 0~100)
-    """
-    base = base.copy()
-    _log_tech_feature_availability(base)
-    if _is_usable_legacy_tech_source(base, "composite"):
-        base["tech_score"] = _percentile_by_date(base, "composite")
-        base["tech_source"] = "scores_final.composite"
-    elif _is_usable_legacy_tech_source(base, "score_score"):
-        base["tech_score"] = _percentile_by_date(base, "score_score")
-        base["tech_source"] = "scores_final.score_score"
-    else:
-        logging.warning("Legacy technical source unavailable or low-variance; falling back to feature-based tech score.")
-        base = _compute_feature_based_tech_score(base)
-        return base
-
-    for col in [
-        "tech_trend_score",
-        "tech_momentum_score",
-        "tech_stability_score",
-        "tech_volume_score",
-    ]:
-        if col not in base.columns:
-            base[col] = np.nan
-    if "tech_liquidity_guard" not in base.columns:
-        base["tech_liquidity_guard"] = 1.0
-    return base
-
-
-def _compute_ret_and_pred_scores(base: pd.DataFrame) -> pd.DataFrame:
-    """
-    ret_score
-    - Input columns: pred_return_60d, pred_return_90d
-    - Purpose: represent the primary production prediction axis for final_score
-    - Interpretation: higher means stronger predicted return rank on that date
-    - Score type: relative score (per-date percentile blend, 0~100)
-    - Definition: a 60d/90d predicted-return blend used as the operating prediction score
-
-    pred_score
-    - Input columns: pred_return_60d, pred_return_90d
-    - Purpose: retain a legacy model percentile reference for research comparison
-    - Interpretation: higher means better model return rank
-    - Score type: relative score (per-date percentile blend, 0~100)
-    - Usage: research only, not the primary production prediction score
-    """
-    base = base.copy()
-    pred_60 = None
-    pred_90 = None
-
-    if "pred_return_60d" in base.columns:
-        base["pred_score_60"] = _percentile_by_date(base, "pred_return_60d")
-        pred_60 = base["pred_score_60"]
-        base["ret_rank_60"] = _percentile01_by_date(base, "pred_return_60d")
-        base["pred_return_60d_pct01"] = base["ret_rank_60"]
-    else:
-        base["ret_rank_60"] = np.nan
-        base["pred_return_60d_pct01"] = np.nan
-
-    if "pred_return_90d" in base.columns:
-        base["pred_score_90"] = _percentile_by_date(base, "pred_return_90d")
-        pred_90 = base["pred_score_90"]
-        base["ret_rank_90"] = _percentile01_by_date(base, "pred_return_90d")
-        base["pred_return_90d_pct01"] = base["ret_rank_90"]
-    else:
-        base["ret_rank_90"] = np.nan
-        base["pred_return_90d_pct01"] = np.nan
-
-    base["ret_score"] = 100.0 * (
-        0.7 * base["ret_rank_60"].fillna(0)
-        + 0.3 * base["ret_rank_90"].fillna(0)
-    )
-    base["ret_score_v11"] = base["ret_score"]
-
-    if (pred_60 is not None) and (pred_90 is not None):
-        base["pred_score"] = 0.6 * pred_60 + 0.4 * pred_90
-    elif pred_60 is not None:
-        base["pred_score"] = pred_60
-    elif pred_90 is not None:
-        base["pred_score"] = pred_90
-    else:
-        logging.warning("No 'pred_return_60d' or 'pred_return_90d' columns; pred_score will be NaN.")
-        base["pred_score"] = np.nan
-
-    return base
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _compute_prob_score(base: pd.DataFrame) -> pd.DataFrame:
     """
     prob_score_raw / prob_score
@@ -2295,7 +1849,6 @@ def _compute_prob_score(base: pd.DataFrame) -> pd.DataFrame:
         base["prob_rank_pct"] = 0.5
         base["prob_score"] = 50.0
     return base
-<<<<<<< HEAD
 
 
 def _compute_qual_score(base: pd.DataFrame) -> pd.DataFrame:
@@ -2355,67 +1908,6 @@ def _compute_liquidity_score(base: pd.DataFrame) -> pd.DataFrame:
         base["liquidity_score"] = _percentile_by_date(base, "volume")
     else:
         logging.info("No vol_ma_20 / volume columns; liquidity_score will be NaN.")
-=======
-
-
-def _compute_qual_score(base: pd.DataFrame) -> pd.DataFrame:
-    """
-    qual_score
-    - Input columns: quality_score
-    - Purpose: reflect cross-sectional business / fundamental quality
-    - Interpretation: higher means stronger quality rank on that date
-    - Score type: relative score (per-date percentile, 0~100)
-    """
-    base = base.copy()
-    if "quality_score" in base.columns:
-        base["qual_score"] = _percentile_by_date(base, "quality_score")
-    else:
-        logging.warning("'quality_score' column not found; qual_score will be NaN.")
-        base["qual_score"] = np.nan
-    return base
-
-
-def _compute_safety_score(base: pd.DataFrame) -> pd.DataFrame:
-    """
-    safety_score
-    - Input columns: vol_20, vol_60
-    - Purpose: reward lower-volatility names
-    - Interpretation: higher means relatively safer / lower volatility on that date
-    - Score type: relative score (inverse percentile average, 0~100)
-    """
-    base = base.copy()
-    safety_parts = []
-    if "vol_20" in base.columns:
-        base["vol_20_pct"] = _percentile_by_date(base, "vol_20")
-        safety_parts.append(100.0 - base["vol_20_pct"])
-    if "vol_60" in base.columns:
-        base["vol_60_pct"] = _percentile_by_date(base, "vol_60")
-        safety_parts.append(100.0 - base["vol_60_pct"])
-
-    if safety_parts:
-        base["safety_score"] = sum(safety_parts) / len(safety_parts)
-    else:
-        logging.info("No vol_20 / vol_60 columns; safety_score will be NaN.")
-        base["safety_score"] = np.nan
-    return base
-
-
-def _compute_liquidity_score(base: pd.DataFrame) -> pd.DataFrame:
-    """
-    liquidity_score
-    - Input columns: vol_ma_20 or volume
-    - Purpose: favor names with stronger trading liquidity
-    - Interpretation: higher means more liquid on that date
-    - Score type: relative score (per-date percentile, 0~100)
-    """
-    base = base.copy()
-    if "vol_ma_20" in base.columns:
-        base["liquidity_score"] = _percentile_by_date(base, "vol_ma_20")
-    elif "volume" in base.columns:
-        base["liquidity_score"] = _percentile_by_date(base, "volume")
-    else:
-        logging.info("No vol_ma_20 / volume columns; liquidity_score will be NaN.")
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
         base["liquidity_score"] = np.nan
     return base
 
@@ -2490,7 +1982,6 @@ def compute_component_scores(base: pd.DataFrame) -> pd.DataFrame:
     base = shared_compute_component_scores(base.copy())
 
     tech = pd.to_numeric(base["tech_score"], errors="coerce")
-<<<<<<< HEAD
     diag = {
         "rows": int(len(base)),
         "nonnull": int(tech.notna().sum()),
@@ -2501,18 +1992,6 @@ def compute_component_scores(base: pd.DataFrame) -> pd.DataFrame:
         "guard_lt_1_count": int((pd.to_numeric(base.get("tech_liquidity_guard"), errors="coerce").fillna(1.0) < 1.0).sum()) if "tech_liquidity_guard" in base.columns else 0,
     }
     logging.info("Tech score diagnostics: %s", diag)
-=======
-    diag = {
-        "rows": int(len(base)),
-        "nonnull": int(tech.notna().sum()),
-        "unique": int(tech.dropna().nunique()),
-        "mean": float(tech.mean()) if tech.notna().any() else None,
-        "std": float(tech.std(ddof=0)) if tech.notna().any() else None,
-        "source_counts": base["tech_source"].fillna("NA").value_counts(dropna=False).to_dict() if "tech_source" in base.columns else {},
-        "guard_lt_1_count": int((pd.to_numeric(base.get("tech_liquidity_guard"), errors="coerce").fillna(1.0) < 1.0).sum()) if "tech_liquidity_guard" in base.columns else 0,
-    }
-    logging.info("Tech score diagnostics: %s", diag)
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     if diag["unique"] <= 3:
         logging.warning("tech_score has very low variance (unique=%d); technical signal may be ineffective", diag["unique"])
 
@@ -2531,13 +2010,8 @@ def baseline_risk_penalty_from_mix(mix_like, penalty_cap: float = PENALTY_CAP_DE
 
 def _compute_risk_penalty(base: pd.DataFrame) -> pd.DataFrame:
     return shared_compute_risk_penalty(base)
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _resolve_component_weights(base: pd.DataFrame) -> pd.DataFrame:
     base = resolve_core_weight_profile(base.copy())
     weight_meta = _resolve_theme_weight_metadata_frame(base)
@@ -2552,7 +2026,6 @@ def _resolve_component_weights(base: pd.DataFrame) -> pd.DataFrame:
     base["w_theme"] = np.where(has_theme_score, configured_theme_weight, 0.0)
     base["w_base_v2"] = np.where(has_theme_score, configured_base_weight, 1.0)
     return base
-<<<<<<< HEAD
 
 
 def _extract_factor_extremes(row: pd.Series) -> pd.Series:
@@ -2578,33 +2051,6 @@ def _extract_factor_extremes(row: pd.Series) -> pd.Series:
     top_positive = max(positive_items, key=lambda item: item[1]) if positive_items else (None, np.nan)
     top_negative = min(negative_items, key=lambda item: item[1]) if negative_items else (None, np.nan)
 
-=======
-
-
-def _extract_factor_extremes(row: pd.Series) -> pd.Series:
-    factor_items = []
-    for col in DISPLAY_FACTOR_LABELS:
-        value = pd.to_numeric(row.get(col), errors="coerce")
-        if pd.notna(value):
-            factor_items.append((col, float(value)))
-
-    if not factor_items:
-        return pd.Series(
-            {
-                "top_positive_factor": None,
-                "top_positive_value": np.nan,
-                "top_negative_factor": None,
-                "top_negative_value": np.nan,
-            }
-        )
-
-    positive_items = [(key, value) for key, value in factor_items if value > 0]
-    negative_items = [(key, value) for key, value in factor_items if value < 0]
-
-    top_positive = max(positive_items, key=lambda item: item[1]) if positive_items else (None, np.nan)
-    top_negative = min(negative_items, key=lambda item: item[1]) if negative_items else (None, np.nan)
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     return pd.Series(
         {
             "top_positive_factor": DISPLAY_FACTOR_LABELS.get(top_positive[0]) if top_positive[0] else None,
@@ -2650,7 +2096,6 @@ def _attach_component_integrity_flags(base: pd.DataFrame) -> pd.DataFrame:
         .astype(int)
     )
     return base
-<<<<<<< HEAD
 
 
 def _score_band_text(value: float) -> str:
@@ -2660,17 +2105,6 @@ def _score_band_text(value: float) -> str:
         return "very strong"
     if value >= 60:
         return "strong"
-=======
-
-
-def _score_band_text(value: float) -> str:
-    if pd.isna(value):
-        return "not available"
-    if value >= 80:
-        return "very strong"
-    if value >= 60:
-        return "strong"
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     if value >= 40:
         return "neutral"
     return "weak"
@@ -2771,13 +2205,8 @@ def _build_explain_text(row: pd.Series) -> str:
     regime = str(row.get("regime") or "defensive")
     top_positive_factor = row.get("top_positive_factor")
     top_positive_value = pd.to_numeric(row.get("top_positive_value"), errors="coerce")
-<<<<<<< HEAD
     top_negative_factor = row.get("top_negative_factor")
     top_negative_value = pd.to_numeric(row.get("top_negative_value"), errors="coerce")
-=======
-    top_negative_factor = row.get("top_negative_factor")
-    top_negative_value = pd.to_numeric(row.get("top_negative_value"), errors="coerce")
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     ret_score = pd.to_numeric(row.get("ret_score"), errors="coerce")
     prob_score = pd.to_numeric(row.get("prob_score"), errors="coerce")
     qual_score = pd.to_numeric(row.get("qual_score"), errors="coerce")
@@ -3481,13 +2910,8 @@ def apply_feature_candidate_sidecar(base: pd.DataFrame, config: dict | None = No
         ),
     )
     return out
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _compute_score_explain(base: pd.DataFrame) -> pd.DataFrame:
     base = shared_compute_score_explain(_resolve_component_weights(base.copy()))
     base["contrib_theme"] = (
@@ -3498,25 +2922,15 @@ def _compute_score_explain(base: pd.DataFrame) -> pd.DataFrame:
     base["final_score_raw"] = pd.to_numeric(base["final_score_raw"], errors="coerce").fillna(0.0) + base["contrib_theme"].fillna(0.0)
 
     extremes = base.apply(_extract_factor_extremes, axis=1)
-<<<<<<< HEAD
     for col in extremes.columns:
         base[col] = extremes[col]
-=======
-    for col in extremes.columns:
-        base[col] = extremes[col]
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     if "explain_text" not in base.columns:
         base["explain_text"] = ""
     base["explain_text"] = base.apply(_build_explain_text, axis=1)
     base["explain"] = base.apply(_build_explain_json, axis=1)
     return base
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _confidence_label_text(value: float) -> str:
     if pd.isna(value):
         return "Experimental"
@@ -3949,11 +3363,7 @@ def apply_default_ranking_scores(base: pd.DataFrame) -> pd.DataFrame:
             "date",
             "code",
             "regime",
-<<<<<<< HEAD
             "tech_score",
-=======
-            "tech_score",
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
             "ret_score",
             "prob_score",
             "qual_score",
@@ -4004,7 +3414,6 @@ def apply_default_ranking_scores(base: pd.DataFrame) -> pd.DataFrame:
     else:
         base["score_formula_version"] = formula_series
     return base
-<<<<<<< HEAD
 
 
 def compute_rebalance_score(
@@ -4042,45 +3451,6 @@ def _load_base_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Da
     scores = _normalize_date(scores)
     feats = _normalize_date(feats)
 
-=======
-
-
-def compute_rebalance_score(
-    df: pd.DataFrame,
-    *,
-    score_col: str = "final_score_custom",
-    w_ret: float = REBALANCE_WEIGHT_RET,
-    w_prob: float = REBALANCE_WEIGHT_PROB,
-    w_qual: float = REBALANCE_WEIGHT_QUAL,
-    w_tech: float = REBALANCE_WEIGHT_TECH,
-    w_pred: float = REBALANCE_WEIGHT_PRED,
-    pred_score_default: float = REBALANCE_PRED_SCORE_DEFAULT,
-) -> pd.DataFrame:
-    """Compute rebalance-only custom score from the component scores built here."""
-    df = df.copy()
-    df[score_col] = (
-        w_ret * df["ret_score"].fillna(0)
-        + w_prob * df["prob_score"].fillna(0)
-        + w_qual * df["qual_score"].fillna(0)
-        + w_tech * df["tech_score"].fillna(0)
-        + w_pred * pred_score_default
-    )
-    if "risk_penalty" in df.columns:
-        df[score_col] = df[score_col] * df["risk_penalty"].fillna(1.0)
-    return df
-
-
-def _load_base_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    preds = _load_csv(PREDICTIONS_CSV, required=True)
-    scores = _load_csv(SCORES_CSV, required=False)
-    feats = _load_csv(FEATURES_CSV, required=True)
-    universe = _load_csv(UNIVERSE_CSV, required=False)
-
-    preds = _normalize_date(preds)
-    scores = _normalize_date(scores)
-    feats = _normalize_date(feats)
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     for df, name in [(preds, "predictions"), (feats, "features")]:
         if df.empty:
             raise RuntimeError(f"{name} is empty ??cannot build ranking.")
@@ -4118,7 +3488,6 @@ def _load_base_inputs() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Da
         logging.warning("scores_final.csv missing/empty -> using feature_v1 tech-score fallback path")
         scores = preds[["date", "code"]].copy()
         scores["score"] = 0.0
-<<<<<<< HEAD
 
     _normalize_code_columns(preds, scores, feats, universe)
     return preds, scores, feats, universe
@@ -4162,51 +3531,6 @@ def _merge_inputs(
         )
         logging.info("After universe merge shape: %s", base.shape)
 
-=======
-
-    _normalize_code_columns(preds, scores, feats, universe)
-    return preds, scores, feats, universe
-
-
-def _merge_inputs(
-    preds: pd.DataFrame,
-    scores: pd.DataFrame,
-    feats: pd.DataFrame,
-    universe: pd.DataFrame,
-) -> pd.DataFrame:
-    base = preds.merge(
-        scores,
-        on=["date", "code"],
-        how="left",
-        suffixes=("", "_score"),
-    )
-
-    feat_cols = ["date", "code", "close"]
-    for col in ["quality_score", "quality_factor_count", "quality_missing_ratio", "quality_score_confidence"]:
-        if col in feats.columns:
-            feat_cols.append(col)
-    for col in ["vol_20", "vol_60", "vol_ma_20", "volume", "mom_20", "close_over_ma20", "rsi_14", "vol_ratio_20", "ma_5", "ma_20", "ma_60", "ret_5d", "ret_10d"]:
-        if col in feats.columns:
-            feat_cols.append(col)
-
-    base = base.merge(
-        feats[feat_cols],
-        on=["date", "code"],
-        how="left",
-        suffixes=("", "_feat"),
-    )
-    logging.info("Base merged shape (preds + scores + features): %s", base.shape)
-
-    if universe is not None and not universe.empty and "code" in universe.columns:
-        base = base.merge(
-            universe,
-            on="code",
-            how="left",
-            suffixes=("", "_univ"),
-        )
-        logging.info("After universe merge shape: %s", base.shape)
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     if base.empty:
         raise RuntimeError("No rows after merging predictions/scores/features ??cannot build ranking.")
 
@@ -4464,13 +3788,8 @@ def apply_theme_overlay(base: pd.DataFrame) -> pd.DataFrame:
 
 def _attach_theme_columns(base: pd.DataFrame) -> pd.DataFrame:
     return apply_theme_overlay(base)
-<<<<<<< HEAD
 
 
-=======
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def build_ranking(
     theme_risk_soft_config: dict | None = None,
     risk_curve_experiment_config: dict | None = None,
@@ -4480,21 +3799,13 @@ def build_ranking(
     base = _merge_inputs(preds, scores, feats, universe)
     base = apply_theme_overlay(base)
     score_formula_version = resolve_score_formula_version()
-<<<<<<< HEAD
 
-=======
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     market_up, mkt_info, market_history = _load_market_status()
     base = _attach_market_columns(base, market_up, mkt_info, market_history)
     base = compute_component_scores(base)
     base["score_formula_version"] = score_formula_version
     base = apply_default_ranking_scores(base)
-<<<<<<< HEAD
 
-=======
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     base["date"] = pd.to_datetime(base["date"])
     live_sort_col = "final_score_v3" if bool(_resolve_theme_overlay_runtime_flags().get("live_uses_theme", False)) else "final_score"
     base = base.sort_values(["date", live_sort_col], ascending=[False, False])
@@ -4509,7 +3820,6 @@ def build_ranking(
 
     if "score" in base.columns:
         base = base.drop(columns=["score"])
-<<<<<<< HEAD
 
     return base
 
@@ -4546,44 +3856,6 @@ def _get_sqlite_table_columns(conn: sqlite3.Connection, table: str) -> list[str]
     return [row[1] for row in rows]
 
 
-=======
-
-    return base
-
-
-def _get_pg_table_columns(table: str) -> list[str]:
-    if not get_engine:
-        return []
-    try:
-        eng = get_engine()
-        with eng.connect() as conn:
-            rows = conn.execute(
-                text(
-                    """
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_schema = 'public' AND table_name = :table
-                    ORDER BY ordinal_position
-                    """
-                ),
-                {"table": table},
-            ).fetchall()
-        return [row[0] for row in rows]
-    except Exception:
-        logging.exception("Failed to inspect Postgres columns for %s", table)
-        return []
-
-
-def _get_sqlite_table_columns(conn: sqlite3.Connection, table: str) -> list[str]:
-    try:
-        rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-    except Exception:
-        logging.exception("Failed to inspect sqlite columns for %s", table)
-        return []
-    return [row[1] for row in rows]
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _prepare_db_rows(df: pd.DataFrame, actual_columns: list[str]) -> pd.DataFrame:
     use_columns = [col for col in DAILY_RANKING_STORE_COLUMNS if col in actual_columns]
     out = df.copy()
@@ -6061,19 +5333,11 @@ def strip_theme_risk_soft_experiment_columns(df: pd.DataFrame) -> pd.DataFrame:
     if drop_cols:
         baseline = baseline.drop(columns=drop_cols)
     return baseline
-<<<<<<< HEAD
 
 
 def _ensure_pg_daily_ranking_columns() -> None:
     if not get_engine:
         return
-=======
-
-
-def _ensure_pg_daily_ranking_columns() -> None:
-    if not get_engine:
-        return
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     statements = [
         "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS rank_final INTEGER",
         "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS live_rank INTEGER",
@@ -6191,7 +5455,6 @@ def _ensure_pg_daily_ranking_columns() -> None:
         "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS regime_reason TEXT",
         "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS weight_profile TEXT",
     ]
-<<<<<<< HEAD
     eng = get_engine()
     with eng.begin() as conn:
         for sql in statements:
@@ -6200,16 +5463,6 @@ def _ensure_pg_daily_ranking_columns() -> None:
 
 def _ensure_sqlite_daily_ranking_columns(conn: sqlite3.Connection) -> None:
     existing = set(_get_sqlite_table_columns(conn, "daily_ranking"))
-=======
-    eng = get_engine()
-    with eng.begin() as conn:
-        for sql in statements:
-            conn.execute(text(sql))
-
-
-def _ensure_sqlite_daily_ranking_columns(conn: sqlite3.Connection) -> None:
-    existing = set(_get_sqlite_table_columns(conn, "daily_ranking"))
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     alter_specs = [
         ("rank_final", "INTEGER"),
         ("live_rank", "INTEGER"),
@@ -6327,19 +5580,11 @@ def _ensure_sqlite_daily_ranking_columns(conn: sqlite3.Connection) -> None:
         ("regime_reason", "TEXT"),
         ("weight_profile", "TEXT"),
     ]
-<<<<<<< HEAD
     for col, col_type in alter_specs:
         if col not in existing:
             conn.execute(f"ALTER TABLE daily_ranking ADD COLUMN {col} {col_type}")
 
 
-=======
-    for col, col_type in alter_specs:
-        if col not in existing:
-            conn.execute(f"ALTER TABLE daily_ranking ADD COLUMN {col} {col_type}")
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def save_ranking(
     df: pd.DataFrame,
     theme_risk_soft_config: dict | None = None,
@@ -6398,7 +5643,6 @@ def save_ranking(
         FEATURE_CANDIDATE_EXP_B_SUMMARY_MD.resolve(),
         OUT_CSV.resolve(),
     )
-<<<<<<< HEAD
 
     try:
         if replace_table_rows_pg:
@@ -6410,19 +5654,6 @@ def save_ranking(
             replace_table_rows_pg("daily_ranking", db_out, columns=list(db_out.columns))
             logging.info("Replaced daily_ranking rows in Postgres (rows=%d)", len(db_out))
             return
-=======
-
-    try:
-        if replace_table_rows_pg:
-            _ensure_pg_daily_ranking_columns()
-            pg_columns = _get_pg_table_columns("daily_ranking")
-            db_out = _prepare_db_rows(df_out, pg_columns or DAILY_RANKING_STORE_COLUMNS)
-            if ensure_unique_keys:
-                ensure_unique_keys(db_out, DAILY_RANKING_PK, "daily_ranking")
-            replace_table_rows_pg("daily_ranking", db_out, columns=list(db_out.columns))
-            logging.info("Replaced daily_ranking rows in Postgres (rows=%d)", len(db_out))
-            return
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     except Exception:
         logging.exception("Postgres save failed, fallback to sqlite")
 
@@ -6431,7 +5662,6 @@ def save_ranking(
         return
 
     conn = None
-<<<<<<< HEAD
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.execute("PRAGMA foreign_keys = ON;")
@@ -6443,19 +5673,6 @@ def save_ranking(
                 close              REAL,
                 pred_return_60d    REAL,
                 pred_return_90d    REAL,
-=======
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS daily_ranking (
-                date               DATE NOT NULL,
-                code               TEXT NOT NULL,
-                close              REAL,
-                pred_return_60d    REAL,
-                pred_return_90d    REAL,
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
                 pred_mdd_60d       REAL,
                 pred_mdd_90d       REAL,
                 prob_top20_60d     REAL,
@@ -6464,18 +5681,13 @@ def save_ranking(
                 prob_score_missing BOOLEAN,
                 prob_rank_pct      REAL,
                 score              REAL,
-<<<<<<< HEAD
                 score_score        REAL,
-=======
-                score_score        REAL,
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
                 composite          REAL,
                 quality_score      REAL,
                 quality_factor_count INTEGER,
                 quality_missing_ratio REAL,
                 quality_score_confidence REAL,
                 vol_20             REAL,
-<<<<<<< HEAD
                 vol_60             REAL,
                 vol_ma_20          REAL,
                 volume             REAL,
@@ -6485,31 +5697,14 @@ def save_ranking(
                 vol_ratio_20       REAL,
                 name               TEXT,
                 market             TEXT,
-=======
-                vol_60             REAL,
-                vol_ma_20          REAL,
-                volume             REAL,
-                mom_20             REAL,
-                close_over_ma20    REAL,
-                rsi_14             REAL,
-                vol_ratio_20       REAL,
-                name               TEXT,
-                market             TEXT,
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
                 sector             TEXT,
                 tech_source        TEXT,
                 regime_reason      TEXT,
                 weight_profile     TEXT,
                 tech_trend_score   REAL,
-<<<<<<< HEAD
                 tech_momentum_score REAL,
                 tech_stability_score REAL,
                 tech_volume_score  REAL,
-=======
-                tech_momentum_score REAL,
-                tech_stability_score REAL,
-                tech_volume_score  REAL,
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
                 tech_liquidity_guard REAL,
                 tech_score         REAL,
                 pred_score         REAL,
@@ -6646,7 +5841,6 @@ def save_ranking(
                 confidence_grade   TEXT,
                 confidence_reason  TEXT,
                 confidence_explain_text TEXT,
-<<<<<<< HEAD
                 risk_penalty       REAL,
                 market_up          BOOLEAN,
                 market_status_date DATE,
@@ -6680,41 +5874,6 @@ def save_ranking(
             pass
 
 
-=======
-                risk_penalty       REAL,
-                market_up          BOOLEAN,
-                market_status_date DATE,
-                market_kospi_close REAL,
-                market_kospi_ma20  REAL,
-                market_vol_5d      REAL,
-                market_foreign_5d  REAL,
-                generated_at       TEXT,
-                model_version      TEXT,
-                score_formula_version TEXT,
-                PRIMARY KEY (date, code)
-            );
-            """
-        )
-        _ensure_sqlite_daily_ranking_columns(conn)
-        sqlite_columns = _get_sqlite_table_columns(conn, "daily_ranking")
-        db_out = _prepare_db_rows(df_out, sqlite_columns or DAILY_RANKING_STORE_COLUMNS)
-        if ensure_unique_keys:
-            ensure_unique_keys(db_out, DAILY_RANKING_PK, "daily_ranking")
-        if replace_table_rows_sqlite:
-            replace_table_rows_sqlite(conn, "daily_ranking", db_out)
-        conn.commit()
-        logging.info("Saved ranking to sqlite DB: %s (rows=%d)", DB_PATH.resolve(), len(df_out))
-    except Exception:
-        logging.exception("Failed to save ranking to sqlite DB")
-    finally:
-        try:
-            if conn:
-                conn.close()
-        except Exception:
-            pass
-
-
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def main() -> None:
     setup_logging()
     args = parse_cli_args()
@@ -6761,14 +5920,7 @@ def main() -> None:
     ]))
     print("shadow_overlay_config=" + str(shadow_overlay_config))
     print("example=python python\\ranking_builder.py")
-<<<<<<< HEAD
 
 
 if __name__ == "__main__":
     main()
-=======
-
-
-if __name__ == "__main__":
-    main()
->>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
