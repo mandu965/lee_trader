@@ -11,6 +11,7 @@ const operatorAccess = require("./operatorAccess");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SITE_BASE_URL = (process.env.SITE_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
+const GA_MEASUREMENT_ID = (process.env.GA_MEASUREMENT_ID || "G-TSJDVJKDFQ").trim();
 
 // ---------------------
 // Env / Postgres Pool
@@ -129,6 +130,25 @@ function buildAbsoluteUrl(pathname) {
   return `${SITE_BASE_URL}${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
 }
 
+function renderGoogleAnalyticsSnippet() {
+  if (!GA_MEASUREMENT_ID) return "";
+  const id = escapeHtml(GA_MEASUREMENT_ID);
+  return `
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=${id}"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', '${id}');
+  </script>`;
+}
+
+function injectHeadSnippet(html, snippet) {
+  if (!snippet) return html;
+  return html.replace("</head>", `${snippet}\n</head>`);
+}
+
 function renderArticlePage(item, section) {
   const related = readSiteLibrary()
     .filter((entry) => entry.slug !== item.slug && entry.section === item.section)
@@ -154,6 +174,7 @@ function renderArticlePage(item, section) {
   <meta name="twitter:title" content="${escapeHtml(item.title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
   <link rel="stylesheet" href="/site.css">
+${renderGoogleAnalyticsSnippet()}
 </head>
 <body class="site-body">
   <header class="site-header">
@@ -3021,7 +3042,14 @@ app.use((req, res, next) => {
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 function sendPublicPage(res, fileName) {
-  return res.sendFile(path.join(PUBLIC_DIR, fileName));
+  const filePath = path.join(PUBLIC_DIR, fileName);
+  try {
+    const html = fs.readFileSync(filePath, "utf-8");
+    return res.type("html").send(injectHeadSnippet(html, renderGoogleAnalyticsSnippet()));
+  } catch (e) {
+    console.error("sendPublicPage error", fileName, e);
+    return res.sendFile(filePath);
+  }
 }
 
 app.get("/operator-login", (req, res) => sendPublicPage(res, "operator-login.html"));
