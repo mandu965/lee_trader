@@ -1,20 +1,31 @@
 from __future__ import annotations
 
 import argparse
+<<<<<<< HEAD
 import json
 import logging
 import os
+=======
+import logging
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 import subprocess
 import sys
 from pathlib import Path
 
 import pandas as pd
+<<<<<<< HEAD
 from dotenv import load_dotenv
 from sqlalchemy import text
 
 import db as db_module
 from db import get_engine
 from sync_auxiliary_payloads import sync_history_payload, sync_inventory_payload, sync_json_payload, sync_rows_payload
+=======
+from sqlalchemy import text
+
+from db import get_engine
+from sync_auxiliary_payloads import sync_history_payload, sync_inventory_payload, sync_json_payload
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 from sync_csv_db_parity import sync_table, verify_table, SYNC_TABLES, VERIFY_TABLES
 
 
@@ -46,6 +57,7 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("buy_gate_status", SERVING_DIR / "buy_gate_status.json", "asof_date"),
     ("model_portfolio", SERVING_DIR / "model_portfolio.json", "asof_date"),
     ("performance_summary", SERVING_DIR / "performance_summary.json", "asof_date"),
+<<<<<<< HEAD
     ("live_account_balance_summary", OUTPUT_DIR / "live_account_balance_summary.json", None),
     ("trade_intents", OUTPUT_DIR / "trade_intents.json", "asof_date"),
     ("live_order_preview", OUTPUT_DIR / "live_order_preview.json", "asof_date"),
@@ -53,6 +65,8 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("order_requests_execution", OUTPUT_DIR / "order_requests_execution.json", "executed_at"),
     ("auto_ops_auto_buy_scheduler_status", OUTPUT_DIR / "auto_ops_auto_buy_scheduler_status.json", None),
     ("auto_ops_live_account_sync_scheduler_status", OUTPUT_DIR / "auto_ops_live_account_sync_scheduler_status.json", None),
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 ]
 
 
@@ -70,6 +84,7 @@ def setup_logging() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 
+<<<<<<< HEAD
 def load_environment() -> None:
     load_dotenv(ROOT / ".env", override=False)
 
@@ -86,6 +101,8 @@ def configure_target_database() -> str:
     return "DATABASE_URL"
 
 
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def table_exists(conn, qualified_name: str) -> bool:
     return bool(conn.execute(text("SELECT to_regclass(:name)"), {"name": qualified_name}).scalar())
 
@@ -150,6 +167,7 @@ def sync_core_tables() -> None:
 def sync_payloads() -> None:
     for payload_key, path, asof_field in JSON_PAYLOADS:
         sync_json_payload(payload_key, path, asof_field=asof_field)
+<<<<<<< HEAD
     live_summary_path = OUTPUT_DIR / "live_account_balance_summary.json"
     live_summary = {}
     if live_summary_path.exists():
@@ -164,6 +182,8 @@ def sync_payloads() -> None:
             "env_dv": live_summary.get("env_dv"),
         },
     )
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     sync_history_payload(
         "operational_buy_gate_history",
         DATA_DIR / "history" / "operational_buy_gate_history.csv",
@@ -187,8 +207,11 @@ def run_script(script_name: str, *extra_args: str) -> None:
 def main() -> int:
     args = parse_args()
     setup_logging()
+<<<<<<< HEAD
     load_environment()
     configure_target_database()
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     if args.reset_first:
         reset_display_tables()
     if not args.skip_core:

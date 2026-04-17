@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+<<<<<<< HEAD
 import os
 import subprocess
 import sys
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,7 +19,10 @@ from kis_live_account import (
     compute_market_order_preview_qty,
     inquire_balance,
     inquire_psbl_order,
+<<<<<<< HEAD
     order_cash,
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     resolve_account_env,
     summarize_cash,
 )
@@ -25,13 +31,17 @@ from kis_live_account import (
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "outputs"
+<<<<<<< HEAD
 SYNC_WEB_DISPLAY_SCRIPT = ROOT / "python" / "sync_web_display_data.py"
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 
 INPUT_TRADE_INTENTS = OUTPUT_DIR / "trade_intents.json"
 INPUT_LIVE_HOLDINGS = DATA_DIR / "live_account_holdings.csv"
 INPUT_RANKING = DATA_DIR / "buy_candidates_top5.csv"
 OUT_JSON = OUTPUT_DIR / "order_requests_preview.json"
 OUT_MD = OUTPUT_DIR / "order_requests_preview.md"
+<<<<<<< HEAD
 OUT_EXEC_JSON = OUTPUT_DIR / "order_requests_execution.json"
 OUT_EXEC_MD = OUTPUT_DIR / "order_requests_execution.md"
 BUY_APPROVAL_JSON = OUTPUT_DIR / "order_buy_approvals.json"
@@ -39,10 +49,17 @@ BUY_APPROVAL_JSON = OUTPUT_DIR / "order_buy_approvals.json"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Convert executable trade intents into guarded order request submissions.")
+=======
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Convert executable trade intents into dry-run order request previews.")
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     parser.add_argument("--trade-intents-json", type=Path, default=INPUT_TRADE_INTENTS)
     parser.add_argument("--live-holdings-csv", type=Path, default=INPUT_LIVE_HOLDINGS)
     parser.add_argument("--ranking-csv", type=Path, default=INPUT_RANKING)
     parser.add_argument("--ord-dvsn", default="01", help="01 market, 00 limit")
+<<<<<<< HEAD
     parser.add_argument("--execute", action="store_true", help="Actually submit guarded live orders.")
     parser.add_argument("--confirm-text", default="", help="Must be LIVE_ORDER to execute.")
     parser.add_argument("--allow-buy", action="store_true", help="Allow BUY submissions. Without this, only SELL/TRIM/EXIT are submitted.")
@@ -52,6 +69,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-md", type=Path, default=OUT_MD)
     parser.add_argument("--out-exec-json", type=Path, default=OUT_EXEC_JSON)
     parser.add_argument("--out-exec-md", type=Path, default=OUT_EXEC_MD)
+=======
+    parser.add_argument("--execute", action="store_true", help="Reserved for future live submission. Currently preview only.")
+    parser.add_argument("--confirm-text", default="", help="Reserved safety text for future live submission.")
+    parser.add_argument("--out-json", type=Path, default=OUT_JSON)
+    parser.add_argument("--out-md", type=Path, default=OUT_MD)
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     return parser.parse_args()
 
 
@@ -73,12 +96,15 @@ def _safe_read_json(path: Path) -> dict[str, Any]:
     return json.loads(resolved.read_text(encoding="utf-8"))
 
 
+<<<<<<< HEAD
 def _json_default(value: object) -> object:
     if isinstance(value, (pd.Timestamp, datetime)):
         return value.isoformat()
     return str(value)
 
 
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def load_live_holdings(path: Path) -> pd.DataFrame:
     resolved = _resolve(path)
     if not resolved.exists():
@@ -268,6 +294,7 @@ def build_order_requests(
     }
 
 
+<<<<<<< HEAD
 def _require_execution_confirmation(args: argparse.Namespace) -> None:
     if not args.execute:
         return
@@ -422,6 +449,26 @@ def execute_order_requests(
 
 
 def render_preview_markdown(payload: dict[str, Any]) -> str:
+=======
+def main() -> int:
+    args = parse_args()
+    if args.execute:
+        raise ValueError("Live execution is not enabled yet. This command currently supports dry-run preview only.")
+
+    intents_payload = _safe_read_json(args.trade_intents_json)
+    if not intents_payload:
+        raise FileNotFoundError("trade intents payload not found")
+
+    holdings = load_live_holdings(args.live_holdings_csv)
+    ranking = load_ranking(args.ranking_csv)
+    payload = build_order_requests(
+        intents_payload=intents_payload,
+        holdings=holdings,
+        ranking=ranking,
+        ord_dvsn=args.ord_dvsn,
+    )
+
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     lines = [
         "# Order Requests Preview",
         "",
@@ -441,6 +488,7 @@ def render_preview_markdown(payload: dict[str, Any]) -> str:
             f"| {item.get('request_id') or ''} | {item.get('code') or ''} | {item.get('name') or ''} | {item.get('side') or ''} | {item.get('intent_type') or ''} | {_fmt_num(item.get('reference_price'), 0)} | {_fmt_num(item.get('final_request_qty'), 0)} | {'Y' if item.get('executable_now') else 'N'} | {item.get('blocked_reason') or ''} | {item.get('reason') or ''} |"
         )
     lines.append("")
+<<<<<<< HEAD
     return "\n".join(lines)
 
 
@@ -527,6 +575,17 @@ def main() -> int:
     print(f"order_requests_execution_json: {_resolve(args.out_exec_json)}")
     print(f"order_requests_execution_md: {_resolve(args.out_exec_md)}")
     sync_web_display_if_configured()
+=======
+
+    out_json = _resolve(args.out_json)
+    out_md = _resolve(args.out_md)
+    out_json.parent.mkdir(parents=True, exist_ok=True)
+    out_md.parent.mkdir(parents=True, exist_ok=True)
+    out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_md.write_text("\n".join(lines), encoding="utf-8")
+    print(f"order_requests_preview_json: {out_json}")
+    print(f"order_requests_preview_md: {out_md}")
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     return 0
 
 

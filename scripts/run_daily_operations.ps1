@@ -27,8 +27,25 @@ Push-Location $repoRoot
 try {
     Start-Transcript -Path $logPath -Force | Out-Null
 
+<<<<<<< HEAD
     Invoke-Step -Name "manual_close_batch" -Action {
         python python/run_manual_close_batch.py
+=======
+    Invoke-Step -Name "docker compose build python-pipeline" -Action {
+        docker compose build --no-cache --progress=plain python-pipeline
+    }
+
+    Invoke-Step -Name "docker compose up python-pipeline" -Action {
+        docker compose up -d python-pipeline
+    }
+
+    Invoke-Step -Name "run_operational_refresh" -Action {
+        python python/run_operational_refresh.py
+    }
+
+    Invoke-Step -Name "docker compose up node-api" -Action {
+        docker compose up -d --build node-api
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     }
 
     Write-Host ("[{0}] DONE daily operations completed" -f (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))

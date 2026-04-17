@@ -181,4 +181,8 @@ document.addEventListener("DOMContentLoaded", () => {
     console.error(err);
     alert("매매 이력을 불러오는 중 오류가 발생했습니다.");
   });
+<<<<<<< HEAD
 });
+=======
+});
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae

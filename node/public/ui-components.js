@@ -202,4 +202,8 @@
 
   window.ConfidenceUI = { toNum, resolveGrade, render: renderConfidence };
   window.ScoreExplainUI = { render: renderScoreExplain, collectItems: collectScoreItems };
+<<<<<<< HEAD
 })();
+=======
+})();
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae

@@ -42,13 +42,21 @@ def resolve_account_env() -> KISAccountEnv:
     cano = (os.getenv("KIS_CANO") or "").strip()
     acnt_prdt_cd = (os.getenv("KIS_ACNT_PRDT_CD") or "").strip()
     if not cano or not acnt_prdt_cd:
+<<<<<<< HEAD
         raw_account = (os.getenv("KIS_ACCOUNT_NO") or "").strip().replace("-", "")
+=======
+        raw_account = (os.getenv("KIS_APP_ID") or os.getenv("KIS_ACCOUNT_NO") or "").strip().replace("-", "")
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
         if len(raw_account) >= 10 and raw_account.isdigit():
             cano = cano or raw_account[:8]
             acnt_prdt_cd = acnt_prdt_cd or raw_account[8:10]
 
     if not cano or not acnt_prdt_cd:
+<<<<<<< HEAD
         raise ValueError("KIS account env missing. Set KIS_CANO and KIS_ACNT_PRDT_CD, or provide KIS_ACCOUNT_NO in 8-2 format.")
+=======
+        raise ValueError("KIS account env missing. Set KIS_CANO and KIS_ACNT_PRDT_CD, or provide KIS_APP_ID in 8-2 format.")
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 
     return KISAccountEnv(
         env_dv=env_dv,

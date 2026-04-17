@@ -193,6 +193,7 @@ git push origin main
 
 
 그 다음 `D:\ai\git\lee_trader`에서 `git add / commit / push`를 수행한다.
+<<<<<<< HEAD
 
 
 저는 많은 백테스트를 수행하였고, 급등과열등 종목을 필터링하였고 매수, 매도 전략을 구상하였습니다.
@@ -206,3 +207,5 @@ AUTO_TRADE_EXECUTE
 
 결론적으로 월요일에 자동매매를 시작하겟습니다.
 제 이론은 검증해볼 타이밍 입니다.
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae

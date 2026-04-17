@@ -3,6 +3,7 @@
 
 ## 1. 권장 데일리 실행 순서
 
+<<<<<<< HEAD
 ### 자동 스케줄 기준 시각
 
 - 종가 close 배치: `16:00`
@@ -16,10 +17,13 @@
 - 따라서 실자동매매는 `12:10` 장중 신규 진입보다 `09:30` 장초반 보수 집행이 현재 설계와 더 잘 맞는다.
 - 장중 `12:00` refresh는 신규 매수 주 실행 시간이 아니라 관제와 재평가 성격으로 본다.
 
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 ### 한 번에 처리
 
 
 ```powershell
+<<<<<<< HEAD
 python python/run_manual_close_batch.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
@@ -32,6 +36,21 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 - Docker `scheduler`의 close 실행도 이제 같은 데이터 경로를 따르며, 내부적으로 `python python/run_manual_close_batch.py --skip-build --skip-node-api`에 맞춘 흐름으로 동작한다.
 - 즉 자동 스케줄러는 데이터 기준일 검증과 웹 동기화까지 `run_manual_close_batch.py`와 동일한 기준을 따르고, 컨테이너 안에서 불가능한 이미지 rebuild와 `node-api` 재기동만 제외한다.
 
+=======
+docker compose build --no-cache --progress=plain python-pipeline
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+docker compose run --rm python-pipeline
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+python python/run_operational_refresh.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+docker compose up -d --build node-api
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 ### CSV 백업 / 복구
 
 powershell
@@ -262,6 +281,7 @@ git push origin main
 - `git_restore_backup_*.zip`, `git_runtime_snapshot_*.zip`은 운영 복원용이므로 배포본에 포함합니다.
 - `runtime_snapshot`이 없는 상태에서 `close-batch`를 돌리면 로컬과 동일한 운영 결과를 보장할 수 없습니다.
 - 운영 기준 검증은 `runtime_snapshot` 결과를 우선으로 보고, `pipeline` 재계산 결과는 참고용으로만 해석합니다.
+<<<<<<< HEAD
 
 
 ```powershell
@@ -300,3 +320,5 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
  
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae

@@ -30,6 +30,7 @@ def _resolve(path: Path) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
+<<<<<<< HEAD
 def _to_number(value: object) -> float | None:
     numeric = pd.to_numeric(value, errors="coerce")
     return None if pd.isna(numeric) else float(numeric)
@@ -94,6 +95,8 @@ def _build_derived_metrics(holdings: pd.DataFrame, summary_row: dict[str, float 
     }
 
 
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def normalize_holdings(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(
@@ -116,9 +119,12 @@ def normalize_holdings(df: pd.DataFrame) -> pd.DataFrame:
     work["code"] = work["code"].str.zfill(6)
     for col in ["qty", "avg_price", "current_price", "eval_amount", "pnl_amount", "pnl_pct"]:
         work[col] = pd.to_numeric(work.get(col), errors="coerce")
+<<<<<<< HEAD
     # KIS returns evaluation PnL rate in percentage points (for example 3.99),
     # while the UI formatter expects ratio values (0.0399 -> 3.99%).
     work["pnl_pct"] = (work["pnl_pct"] / 100.0).round(6)
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     work["weight"] = work["eval_amount"] / work["eval_amount"].sum() if work["eval_amount"].notna().any() and work["eval_amount"].sum() else pd.NA
     work["status"] = "OPEN"
     return work[["code", "name", "qty", "avg_price", "current_price", "eval_amount", "pnl_amount", "pnl_pct", "weight", "status"]].sort_values(["eval_amount", "code"], ascending=[False, True]).reset_index(drop=True)
@@ -133,16 +139,22 @@ def main() -> int:
 
     holdings = normalize_holdings(holdings_df)
     cash_summary = summarize_cash(summary_df)
+<<<<<<< HEAD
     summary_row = _normalize_summary_row(summary_df)
     derived_metrics = _build_derived_metrics(holdings, summary_row)
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     payload = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "env_dv": account.env_dv,
         "cano_masked": f"{account.cano[:2]}******",
         "account_product_code": account.acnt_prdt_cd,
         "cash_summary": cash_summary,
+<<<<<<< HEAD
         "summary_row": summary_row,
         "derived_metrics": derived_metrics,
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
         "holding_count": int(len(holdings)),
     }
 

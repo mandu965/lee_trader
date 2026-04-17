@@ -23,6 +23,7 @@ DEFAULT_SKIP_CATCHUP = True
 DEFAULT_RUN_POLICY = "always"
 DEFAULT_PRIMARY_MAX_AGE_HOURS = 20
 DEFAULT_SCHEDULER_MODE = "internal_service"
+<<<<<<< HEAD
 DEFAULT_INTERVAL_MINUTES = 0
 
 
@@ -70,6 +71,8 @@ def _auto_buy_submit_command() -> list[str]:
 def _live_account_sync_command() -> list[str]:
     return [sys.executable, str(ROOT / "python" / "sync_live_account_holdings.py")]
 
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 
 def _resolve_run_steps() -> list[tuple[str, list[str]]]:
     command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
@@ -77,6 +80,7 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
         return [
             ("run_intraday_refresh", [sys.executable, str(ROOT / "python" / "run_intraday_refresh.py")]),
         ]
+<<<<<<< HEAD
     if command_set == "auto_buy":
         return [
             ("run_operational_refresh", _auto_buy_refresh_command()),
@@ -119,6 +123,13 @@ def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
     if command_set in {"intraday", "live_sync"}:
         command.extend(["--skip-core", "--skip-paper-trading", "--skip-trades"])
     return [("sync_web_display_data", command)]
+=======
+    steps: list[tuple[str, list[str]]] = []
+    if str(os.environ.get("SCHEDULER_SKIP_PIPELINE", "0")).strip().lower() not in {"1", "true", "yes", "on"}:
+        steps.append(("run_pipeline", [sys.executable, str(ROOT / "python" / "run_pipeline.py")]))
+    steps.append(("run_operational_refresh", [sys.executable, str(ROOT / "python" / "run_operational_refresh.py")]))
+    return steps
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 
 
 def _scheduler_mode() -> str:
@@ -201,6 +212,7 @@ def _write_status(payload: dict[str, object]) -> None:
             generated_at=payload.get("last_success_at") or payload.get("last_attempt_at"),
             source_path=status_path,
         )
+<<<<<<< HEAD
     elif status_path.name == "auto_ops_auto_buy_scheduler_status.json":
         upsert_json_payload(
             "auto_ops_auto_buy_scheduler_status",
@@ -217,6 +229,8 @@ def _write_status(payload: dict[str, object]) -> None:
             generated_at=payload.get("last_success_at") or payload.get("last_attempt_at"),
             source_path=status_path,
         )
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 
 
 def _now(tz: ZoneInfo) -> datetime:
@@ -236,6 +250,7 @@ def _parse_daily_time(raw: str) -> tuple[int, int]:
     return hour, minute
 
 
+<<<<<<< HEAD
 def _parse_interval_minutes() -> int:
     raw_minutes = str(os.environ.get("SCHEDULER_INTERVAL_MINUTES", "")).strip()
     raw_hours = str(os.environ.get("SCHEDULER_INTERVAL_HOURS", "")).strip()
@@ -246,6 +261,8 @@ def _parse_interval_minutes() -> int:
     return DEFAULT_INTERVAL_MINUTES
 
 
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _should_run_today(now: datetime, scheduled_hour: int, scheduled_minute: int, status: dict[str, object]) -> bool:
     last_success_date = str(status.get("last_success_date") or "").strip()
     bootstrap_skip_date = str(status.get("bootstrap_skip_until_date") or "").strip()
@@ -260,6 +277,7 @@ def _should_run_today(now: datetime, scheduled_hour: int, scheduled_minute: int,
     return (now.hour, now.minute) >= (scheduled_hour, scheduled_minute)
 
 
+<<<<<<< HEAD
 def _should_run_interval(now: datetime, interval_minutes: int, status: dict[str, object]) -> bool:
     if interval_minutes <= 0:
         return False
@@ -270,6 +288,8 @@ def _should_run_interval(now: datetime, interval_minutes: int, status: dict[str,
     return now >= last_success + timedelta(minutes=max(1, interval_minutes))
 
 
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
 def _parse_last_success_at(status: dict[str, object]) -> datetime | None:
     raw = str(status.get("last_success_at") or "").strip()
     if not raw:
@@ -325,7 +345,10 @@ def _run_step(name: str, command: list[str]) -> None:
 
 def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> dict[str, object]:
     run_steps = _resolve_run_steps()
+<<<<<<< HEAD
     post_sync_steps = _resolve_post_sync_steps()
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     started_at = now.isoformat()
     payload = {
         **status,
@@ -350,9 +373,12 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
                 "last_error": "",
             }
         )
+<<<<<<< HEAD
         _write_status(payload)
         for name, command in post_sync_steps:
             _run_step(name, command)
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
         logging.info("DONE daily cycle completed")
     except subprocess.CalledProcessError as exc:
         finished_at = _now(ZoneInfo(tz_name)).isoformat()
@@ -375,7 +401,10 @@ def main() -> int:
     tz_name = os.environ.get("SCHEDULER_TIMEZONE", DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE
     tz = ZoneInfo(tz_name)
     scheduled_hour, scheduled_minute = _parse_daily_time(os.environ.get("SCHEDULER_DAILY_TIME", DEFAULT_TIME))
+<<<<<<< HEAD
     interval_minutes = _parse_interval_minutes()
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     poll_seconds = int(os.environ.get("SCHEDULER_POLL_SECONDS", str(DEFAULT_POLL_SECONDS)))
     run_policy = os.environ.get("SCHEDULER_RUN_POLICY", DEFAULT_RUN_POLICY).strip() or DEFAULT_RUN_POLICY
     command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
@@ -387,11 +416,18 @@ def main() -> int:
     }
 
     logging.info(
+<<<<<<< HEAD
         "Scheduler started timezone=%s daily_time=%02d:%02d interval_minutes=%d poll_seconds=%d skip_catchup=%s run_policy=%s command_set=%s status_path=%s",
         tz_name,
         scheduled_hour,
         scheduled_minute,
         interval_minutes,
+=======
+        "Scheduler started timezone=%s daily_time=%02d:%02d poll_seconds=%d skip_catchup=%s run_policy=%s command_set=%s status_path=%s",
+        tz_name,
+        scheduled_hour,
+        scheduled_minute,
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
         poll_seconds,
         skip_catchup,
         run_policy,
@@ -404,7 +440,10 @@ def main() -> int:
     status.setdefault("scheduler_mode", _scheduler_mode())
     status.setdefault("status", "idle")
     status["configured_daily_time"] = f"{scheduled_hour:02d}:{scheduled_minute:02d}"
+<<<<<<< HEAD
     status["configured_interval_minutes"] = interval_minutes
+=======
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     status["skip_catchup_on_start"] = skip_catchup
     status["run_policy"] = run_policy
     status["command_set"] = command_set
@@ -412,12 +451,18 @@ def main() -> int:
     status["log_path"] = str(_log_path())
     status.setdefault("bootstrap_skip_until_date", "")
     if (
+<<<<<<< HEAD
         interval_minutes <= 0
         and (
         skip_catchup
         and not str(status.get("last_success_date") or "").strip()
         and not str(status.get("bootstrap_skip_until_date") or "").strip()
         )
+=======
+        skip_catchup
+        and not str(status.get("last_success_date") or "").strip()
+        and not str(status.get("bootstrap_skip_until_date") or "").strip()
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
     ):
         now = _now(tz)
         if (now.hour, now.minute) >= (scheduled_hour, scheduled_minute):
@@ -429,12 +474,16 @@ def main() -> int:
 
     while True:
         now = _now(tz)
+<<<<<<< HEAD
         should_run = (
             _should_run_interval(now, interval_minutes, status)
             if interval_minutes > 0
             else _should_run_today(now, scheduled_hour, scheduled_minute, status)
         )
         if should_run:
+=======
+        if _should_run_today(now, scheduled_hour, scheduled_minute, status):
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
             can_run, reason = _evaluate_run_policy(now, run_policy)
             status["last_policy_check_at"] = now.isoformat()
             status["last_policy_reason"] = reason

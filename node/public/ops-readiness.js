@@ -801,6 +801,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   loadOpsReadiness().catch((error) => console.error(error));
 });
+<<<<<<< HEAD
 
 
 
@@ -808,3 +809,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
+=======
+
+
+
+
+
+
+
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae

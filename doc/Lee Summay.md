@@ -793,6 +793,12 @@ docker compose up -d --build node-api
 예측 모델 자체보다
 예측을 운영 가능한 형태로 해석하고 통제하는 체계
 에 있습니다.
+<<<<<<< HEAD
 
 
 
+=======
+
+
+
+>>>>>>> eac8d622da2de3cb84a3dc38e9c673de512459ae
