@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -49,6 +50,10 @@ def run_step(name: str, command: list[str], *, extra_env: dict[str, str] | None 
     print(f"[OK] {name}")
 
 
+def docker_available() -> bool:
+    return shutil.which("docker") is not None
+
+
 def latest_csv_date(path: Path, date_col: str) -> str:
     if not path.exists():
         raise FileNotFoundError(f"required csv missing: {path}")
@@ -82,7 +87,7 @@ def verify_pipeline_outputs() -> str:
 def read_json(path: Path) -> dict[str, object]:
     if not path.exists():
         raise FileNotFoundError(f"required json missing: {path}")
-    raw = path.read_text(encoding="utf-8")
+    raw = path.read_text(encoding="utf-8-sig")
     normalized = raw.replace("NaN", "null").replace("Infinity", "null").replace("-null", "null")
     payload = json.loads(normalized)
     if not isinstance(payload, dict):
@@ -111,16 +116,24 @@ def verify_serving_outputs(expected_asof_date: str) -> None:
 def main() -> int:
     args = parse_args()
 
+    has_docker = docker_available()
+
+    if not args.skip_build and not has_docker:
+        raise RuntimeError("docker is required for python-pipeline build, but the docker CLI is not available")
+
     if not args.skip_build:
         run_step(
             "docker compose build python-pipeline",
             ["docker", "compose", "build", "--no-cache", "--progress=plain", "python-pipeline"],
         )
 
-    run_step(
-        "docker compose run --rm python-pipeline",
-        ["docker", "compose", "run", "--rm", "python-pipeline"],
+    pipeline_command = (
+        ["docker", "compose", "run", "--rm", "python-pipeline"]
+        if has_docker
+        else [sys.executable, str(ROOT / "python" / "run_pipeline.py")]
     )
+    pipeline_name = "docker compose run --rm python-pipeline" if has_docker else "run_pipeline.py"
+    run_step(pipeline_name, pipeline_command)
 
     market_date = verify_pipeline_outputs()
 
@@ -144,6 +157,8 @@ def main() -> int:
         run_step("sync_web_display_data", sync_command, extra_env={"MARKET_DATE": market_date})
 
     if not args.skip_node_api:
+        if not has_docker:
+            raise RuntimeError("docker is required to restart node-api, but the docker CLI is not available")
         run_step(
             "docker compose up -d --build node-api",
             ["docker", "compose", "up", "-d", "--build", "node-api"],

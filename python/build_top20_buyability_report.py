@@ -68,7 +68,7 @@ def _read_json(path: Path) -> dict[str, Any]:
     resolved = _resolve(path)
     if not resolved.exists():
         return {}
-    return json.loads(resolved.read_text(encoding="utf-8"))
+    return json.loads(resolved.read_text(encoding="utf-8-sig"))
 
 
 def sanitize(value: Any) -> Any:

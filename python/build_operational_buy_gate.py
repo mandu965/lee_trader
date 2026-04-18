@@ -42,15 +42,17 @@ PORTFOLIO_VERSION = str(
 )
 
 STATUS_BUY_ALLOWED = "BUY_ALLOWED"
+STATUS_PILOT = "PILOT"
 STATUS_WATCH = "WATCH"
 STATUS_HOLD = "HOLD"
 STATUS_BLOCK = "BLOCK"
 
 STATUS_PRIORITY = {
     STATUS_BUY_ALLOWED: 0,
-    STATUS_WATCH: 1,
-    STATUS_HOLD: 2,
-    STATUS_BLOCK: 3,
+    STATUS_PILOT: 1,
+    STATUS_WATCH: 2,
+    STATUS_HOLD: 3,
+    STATUS_BLOCK: 4,
 }
 
 BENCHMARK_MAP = {5: 5, 8: 10, 10: 10}
@@ -76,13 +78,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-json", type=Path, default=OUTPUT_JSON)
     parser.add_argument("--primary-bucket", type=int, default=int(get_production_config_value(["buy_gate", "primary_bucket"], 5)), choices=[5, 8, 10])
     parser.add_argument("--min-matured-benchmark-dates", type=int, default=int(get_production_config_value(["buy_gate", "min_matured_benchmark_dates"], 3)))
+    parser.add_argument("--pilot-min-matured-benchmark-dates", type=int, default=int(get_production_config_value(["buy_gate", "pilot_min_matured_benchmark_dates"], 1)))
     parser.add_argument("--max-liquidity-risk-ratio", type=float, default=float(get_production_config_value(["buy_gate", "max_liquidity_risk_ratio"], 0.30)))
     parser.add_argument("--max-very-low-liquidity-ratio", type=float, default=float(get_production_config_value(["buy_gate", "max_very_low_liquidity_ratio"], 0.20)))
     parser.add_argument("--max-relaxed-selection-ratio", type=float, default=float(get_production_config_value(["buy_gate", "max_relaxed_selection_ratio"], 0.60)))
     parser.add_argument("--max-sector-top-share", type=float, default=float(get_production_config_value(["buy_gate", "max_sector_top_share"], 0.40)))
     parser.add_argument("--max-overheat-ratio", type=float, default=float(get_production_config_value(["buy_gate", "max_overheat_ratio"], 0.20)))
     parser.add_argument("--min-confidence-score", type=float, default=float(get_production_config_value(["buy_gate", "min_confidence_score"], 82.0)))
+    parser.add_argument("--pilot-min-confidence-score", type=float, default=float(get_production_config_value(["buy_gate", "pilot_min_confidence_score"], 80.0)))
     parser.add_argument("--min-quality-delta-vs-raw", type=float, default=float(get_production_config_value(["buy_gate", "min_quality_delta_vs_raw"], 0.0)))
+    parser.add_argument("--pilot-min-quality-delta-vs-raw", type=float, default=float(get_production_config_value(["buy_gate", "pilot_min_quality_delta_vs_raw"], -1.0)))
+    parser.add_argument("--pilot-min-trusted-ratio-top20", type=float, default=float(get_production_config_value(["buy_gate", "pilot_min_trusted_ratio_top20"], 0.35)))
+    parser.add_argument("--pilot-max-blocked-ratio", type=float, default=float(get_production_config_value(["buy_gate", "pilot_max_blocked_ratio"], 0.50)))
     parser.add_argument("--block_negative_excess_return", type=float, default=float(get_production_config_value(["buy_gate", "block_negative_excess_return"], -0.01)))
     return parser.parse_args()
 
@@ -134,7 +141,7 @@ def safe_read_json(path: Path) -> dict[str, object]:
     resolved = _resolve(path)
     if not resolved.exists():
         return {}
-    return json.loads(resolved.read_text(encoding="utf-8"))
+    return json.loads(resolved.read_text(encoding="utf-8-sig"))
 
 
 def market_regime_diagnostics(payload: dict[str, object]) -> dict[str, object]:
@@ -171,7 +178,7 @@ def parse_theme_churn_gate(path: Path) -> tuple[str | None, str | None]:
     resolved = _resolve(path)
     if not resolved.exists():
         return None, None
-    text = resolved.read_text(encoding="utf-8")
+    text = resolved.read_text(encoding="utf-8-sig")
     for line in text.splitlines():
         if line.startswith("| top20_churn_not_excessive"):
             parts = [part.strip() for part in line.strip().strip("|").split("|")]
@@ -446,6 +453,92 @@ def walkforward_acceptance_metrics(payload: dict[str, object]) -> dict[str, obje
     }
 
 
+def walkforward_soft_watch_allowed(acceptance: dict[str, object]) -> bool:
+    status = str(acceptance.get("status") or "").upper()
+    reason_codes = {
+        str(item).strip()
+        for item in (acceptance.get("reason_codes") or [])
+        if str(item).strip()
+    }
+    if status != "REJECTED" or not reason_codes:
+        return False
+
+    required_positive = {
+        "top20_excess_return_positive",
+        "execution_evidence_ok_or_unavailable",
+    }
+    soft_failure_codes = {
+        "ordering_not_stable",
+        "drawdown_too_deep",
+        "confidence_monotonicity_missing",
+    }
+    hard_failure_codes = {
+        "top20_performance_not_proven",
+        "execution_evidence_too_weak",
+        "ordering_reference_missing",
+    }
+
+    if not required_positive.issubset(reason_codes):
+        return False
+    if reason_codes & hard_failure_codes:
+        return False
+    return bool(reason_codes & soft_failure_codes)
+
+
+def walkforward_pilot_allowed(acceptance: dict[str, object]) -> bool:
+    status = str(acceptance.get("status") or "").upper()
+    if status in {"ACCEPTED", "CONDITIONAL"}:
+        return True
+    return walkforward_soft_watch_allowed(acceptance)
+
+
+def qualifies_for_pilot(
+    *,
+    benchmark: dict[str, object],
+    static: dict[str, object],
+    confidence_v2: dict[str, object],
+    comparison: dict[str, object],
+    buyability: dict[str, object],
+    acceptance: dict[str, object],
+    args: argparse.Namespace,
+) -> tuple[bool, list[str]]:
+    reasons: list[str] = []
+    matured_dates = int(benchmark.get("matured_dates_max") or 0)
+    if matured_dates < int(args.pilot_min_matured_benchmark_dates):
+        reasons.append(
+            f"pilot requires matured benchmark dates >= {args.pilot_min_matured_benchmark_dates}"
+        )
+
+    avg_confidence = pd.to_numeric(static.get("avg_confidence_score"), errors="coerce")
+    if pd.notna(avg_confidence) and float(avg_confidence) < float(args.pilot_min_confidence_score):
+        reasons.append(
+            f"pilot requires avg confidence >= {_fmt_num(args.pilot_min_confidence_score)}"
+        )
+
+    trusted_ratio = pd.to_numeric(confidence_v2.get("trusted_ratio_top20"), errors="coerce")
+    if pd.notna(trusted_ratio) and float(trusted_ratio) < float(args.pilot_min_trusted_ratio_top20):
+        reasons.append(
+            f"pilot requires trusted_ratio_top20 >= {_fmt_pct(args.pilot_min_trusted_ratio_top20)}"
+        )
+
+    quality_delta = pd.to_numeric(comparison.get("avg_final_score_delta_vs_raw"), errors="coerce")
+    if pd.notna(quality_delta) and float(quality_delta) < float(args.pilot_min_quality_delta_vs_raw):
+        reasons.append(
+            f"pilot requires quality delta >= {_fmt_num(args.pilot_min_quality_delta_vs_raw)}"
+        )
+
+    blocked_ratio = pd.to_numeric(buyability.get("blocked_ratio"), errors="coerce")
+    if pd.notna(blocked_ratio) and float(blocked_ratio) > float(args.pilot_max_blocked_ratio):
+        reasons.append(
+            f"pilot requires blocked_ratio <= {_fmt_pct(args.pilot_max_blocked_ratio)}"
+        )
+
+    if not walkforward_pilot_allowed(acceptance):
+        reasons.append("pilot requires accepted/conditional/soft-rejected walk-forward acceptance")
+
+    return (not reasons), reasons
+
+
 def build_interpretation(
     primary: dict[str, object],
     overall_status: str,
@@ -528,16 +621,25 @@ def bucket_decision(
     acceptance = walkforward_acceptance_metrics(walkforward_acceptance_payload)
 
     status = STATUS_BUY_ALLOWED
+    pilot_eligible, pilot_missing_reasons = qualifies_for_pilot(
+        benchmark=bench,
+        static=static,
+        confidence_v2=conf_v2,
+        comparison=compare,
+        buyability=buyability,
+        acceptance=acceptance,
+        args=args,
+    )
     if candidate_df.empty:
         status = STATUS_HOLD
         reasons.append("buy candidate file is missing or empty")
     else:
-        if static["liquidity_risk_ratio"] is not None and static["liquidity_risk_ratio"] >= args.max_liquidity_risk_ratio:
+        if static["liquidity_risk_ratio"] is not None and static["liquidity_risk_ratio"] > args.max_liquidity_risk_ratio:
             status = STATUS_BLOCK
             reasons.append(
                 f"liquidity risk ratio {_fmt_pct(static['liquidity_risk_ratio'])} exceeds {_fmt_pct(args.max_liquidity_risk_ratio)}"
             )
-        if static["very_low_liquidity_ratio"] is not None and static["very_low_liquidity_ratio"] >= args.max_very_low_liquidity_ratio:
+        if static["very_low_liquidity_ratio"] is not None and static["very_low_liquidity_ratio"] > args.max_very_low_liquidity_ratio:
             status = STATUS_BLOCK
             reasons.append(
                 f"very low liquidity ratio {_fmt_pct(static['very_low_liquidity_ratio'])} exceeds {_fmt_pct(args.max_very_low_liquidity_ratio)}"
@@ -600,8 +702,14 @@ def bucket_decision(
 
             if acceptance["available"]:
                 if acceptance["status"] == "REJECTED":
-                    status = STATUS_BLOCK
-                    reasons.append("walk-forward acceptance is rejected")
+                    if walkforward_soft_watch_allowed(acceptance):
+                        if STATUS_PRIORITY[status] > STATUS_PRIORITY[STATUS_WATCH]:
+                            status = STATUS_WATCH
+                        reasons.append("walk-forward acceptance is rejected on soft diagnostics, so only WATCH-level buying is allowed")
+                    else:
+                        if status == STATUS_BUY_ALLOWED:
+                            status = STATUS_HOLD
+                        reasons.append("walk-forward acceptance is rejected, so live buying stays on hold")
                 elif acceptance["status"] == "CONDITIONAL" and status == STATUS_BUY_ALLOWED:
                     status = STATUS_HOLD if not matured_ok else STATUS_WATCH
                     reasons.append("walk-forward acceptance is conditional")
@@ -610,6 +718,14 @@ def bucket_decision(
                 if status == STATUS_BUY_ALLOWED:
                     status = STATUS_WATCH
                 reasons.append("too many top20 names are operationally blocked")
+
+    if status != STATUS_BLOCK and pilot_eligible and STATUS_PRIORITY[status] > STATUS_PRIORITY[STATUS_PILOT]:
+        status = STATUS_PILOT
+        reasons.append(
+            "pilot criteria passed: limited live entry is allowed before full BUY_ALLOWED promotion"
+        )
+    elif status in {STATUS_HOLD, STATUS_WATCH} and pilot_missing_reasons:
+        reasons.append("pilot not allowed: " + "; ".join(pilot_missing_reasons[:3]))
 
     if theme_churn_status == "FAIL" and status != STATUS_BLOCK:
         status = STATUS_WATCH if STATUS_PRIORITY[status] < STATUS_PRIORITY[STATUS_WATCH] else status
@@ -805,12 +921,73 @@ def build_markdown(
             "",
             "## Interpretation",
             "- `BUY_ALLOWED`: excess return is confirmed against benchmark baselines, calibration is reliable, and liquidity/concentration risk is contained.",
+            "- `PILOT`: enough live evidence exists for restricted buying, but the system is not yet ready for full BUY_ALLOWED exposure.",
             "- `WATCH`: some evidence exists, but calibration or benchmark confirmation is not strong enough for live buy authorization.",
             "- `HOLD`: matured operational evidence is insufficient, so buying is deferred even if ranking quality looks good.",
             "- `BLOCK`: risk diagnostics are severe enough that buying should be stopped regardless of model score.",
         ]
     )
     return "\n".join(lines) + "\n"
+
+
+def build_interpretation_runtime(
+    primary: dict[str, object],
+    overall_status: str,
+    daily_status: dict[str, object],
+) -> dict[str, object]:
+    benchmark = primary.get("benchmark", {}) if isinstance(primary.get("benchmark"), dict) else {}
+    confidence = primary.get("confidence", {}) if isinstance(primary.get("confidence"), dict) else {}
+    buyability = primary.get("buyability", {}) if isinstance(primary.get("buyability"), dict) else {}
+    walkforward = primary.get("walkforward_acceptance", {}) if isinstance(primary.get("walkforward_acceptance"), dict) else {}
+    market_regime = primary.get("market_regime", {}) if isinstance(primary.get("market_regime"), dict) else {}
+
+    critical_reasons: list[str] = []
+    matured_dates = int(benchmark.get("matured_dates_max") or 0)
+    if matured_dates <= 0:
+        critical_reasons.append("benchmark matured dates가 아직 0이라 실전 excess return 근거가 없습니다.")
+    if walkforward.get("status") == "REJECTED":
+        critical_reasons.append("walk-forward acceptance가 REJECTED라 정식 production 매수 승인 상태는 아닙니다.")
+    if confidence.get("reliable") is False:
+        critical_reasons.append("operational confidence calibration이 아직 reliable 상태가 아닙니다.")
+    blocked_ratio = pd.to_numeric(buyability.get("blocked_ratio"), errors="coerce")
+    if pd.notna(blocked_ratio) and float(blocked_ratio) >= 0.30:
+        critical_reasons.append(f"top20 blocked ratio가 {_fmt_pct(blocked_ratio)}로 높습니다.")
+    regime = str(market_regime.get("regime") or "").strip()
+    if regime:
+        critical_reasons.append(
+            f"market regime은 {regime}이고 breadth={_fmt_num(market_regime.get('breadth_20d'), 3)}, vol_5d={_fmt_num(market_regime.get('volatility_5d'), 4)} 상태입니다."
+        )
+
+    if overall_status == STATUS_BLOCK:
+        summary_decision = "오늘은 실매수 진행 금지"
+        summary_reason = "walk-forward rejection 또는 실전 차단 신호가 남아 있어 score 상위 종목이라도 매수 승인 상태가 아닙니다."
+        action_guide = "신규 실매수는 멈추고, walk-forward rejection 원인과 blocked top20 사유를 먼저 점검합니다."
+    elif overall_status == STATUS_HOLD:
+        summary_decision = "오늘은 보류"
+        summary_reason = "랭킹 품질은 볼 수 있지만 matured operational evidence가 아직 부족합니다."
+        action_guide = "신규 매수보다 benchmark maturation과 calibration 업데이트를 우선 확인합니다."
+    elif overall_status == STATUS_PILOT:
+        summary_decision = "제한적 실운용"
+        summary_reason = "WATCH보다 강한 실전 근거가 확인됐지만 정식 BUY_ALLOWED까지는 아직 부족합니다."
+        action_guide = "PILOT 한도 안에서만 신규 진입하고, 교체매매보다는 실거래 누적 검증에 집중합니다."
+    elif overall_status == STATUS_WATCH:
+        summary_decision = "조건부 관찰"
+        summary_reason = "즉시 차단 수준은 아니지만 benchmark 확인이나 calibration 신뢰도가 충분하지 않습니다."
+        action_guide = "WATCH 한도 안에서만 소액 진입하고, live buy 전 마지막 blocker 해소 여부를 확인합니다."
+    else:
+        summary_decision = "실매수 가능 구간"
+        summary_reason = "benchmark excess, calibration, liquidity, concentration 조건이 모두 허용 구간입니다."
+        action_guide = "buy_now 후보만 대상으로 주문 전 최종 체결/유동성 체크를 진행합니다."
+
+    if str(daily_status.get("overall_status") or "").upper() == "WAIT":
+        action_guide = "daily cycle이 WAIT 상태라 신규 액션보다 파이프라인 완료 여부를 먼저 확인합니다."
+
+    return {
+        "summary_decision": summary_decision,
+        "summary_reason": summary_reason,
+        "action_guide": action_guide,
+        "critical_reasons": critical_reasons[:6],
+    }
 
 
 def main() -> int:
@@ -858,7 +1035,7 @@ def main() -> int:
 
     primary = next(item for item in decisions if item["bucket"] == args.primary_bucket)
     overall_status = primary["status"]
-    interpretation = build_interpretation(primary, overall_status, daily_status)
+    interpretation = build_interpretation_runtime(primary, overall_status, daily_status)
     output_payload = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "asof_date": asof_date,
@@ -890,9 +1067,9 @@ def main() -> int:
             market_regime_payload=market_status_validation_payload,
             interpretation=interpretation,
         ),
-        encoding="utf-8",
+        encoding="utf-8-sig",
     )
-    out_json.write_text(json.dumps(output_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    out_json.write_text(json.dumps(output_payload, ensure_ascii=False, indent=2), encoding="utf-8-sig")
     upsert_json_payload(
         "operational_buy_gate",
         output_payload,

@@ -23,7 +23,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lee_trader_pw}
       POSTGRES_DB: ${POSTGRES_DB:-lee_trader}
     ports:
-      - "5432:5432"
+      - "15432:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
       - ./postgres/initdb.d:/docker-entrypoint-initdb.d
@@ -112,6 +112,8 @@ services:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
       TZ: Asia/Seoul
       SCHEDULER_TIMEZONE: Asia/Seoul
+      # Auto-buy selection policy is read from config/production_v1.yaml.
+      # Current live policy: ranking_final top20 -> top8 basic review -> top9~10 extended review.
       SCHEDULER_COMMAND_SET: auto_buy
       SCHEDULER_DAILY_TIME: ${SCHEDULER_AUTO_BUY_DAILY_TIME:-09:30}
       SCHEDULER_POLL_SECONDS: ${SCHEDULER_AUTO_BUY_POLL_SECONDS:-30}

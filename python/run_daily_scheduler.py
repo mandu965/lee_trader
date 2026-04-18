@@ -90,12 +90,15 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
 def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
     command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
     if command_set == "auto_buy":
+        steps: list[tuple[str, list[str]]] = [
+            ("sync_live_account_holdings", _live_account_sync_command()),
+        ]
         if not _should_sync_web_display():
-            return []
+            return steps
         if not str(os.environ.get("WEB_DATABASE_URL", "")).strip():
             logging.info("Skip web display sync: WEB_DATABASE_URL not set")
-            return []
-        return [
+            return steps
+        steps.append(
             (
                 "sync_web_display_data",
                 [
@@ -106,7 +109,8 @@ def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
                     "--skip-trades",
                 ],
             )
-        ]
+        )
+        return steps
     if command_set == "close":
         return []
     if not _should_sync_web_display():

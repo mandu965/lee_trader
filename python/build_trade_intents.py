@@ -23,7 +23,7 @@ from apply_execution_policy import (
     classify_holdings,
     enrich_candidates_with_snapshot,
     extract_cooldown_map,
-    gate_decision,
+    gate_decision_runtime,
     load_candidates,
     load_holdings,
     load_snapshot_archive,
@@ -48,11 +48,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--holdings-csv", type=Path, default=None)
     parser.add_argument("--out-json", type=Path, default=OUT_JSON)
     parser.add_argument("--out-md", type=Path, default=OUT_MD)
+    parser.add_argument("--candidate-universe-top-n", type=int, default=int(get_production_config_value(["execution_policy", "candidate_universe_top_n"], 20)))
+    parser.add_argument("--entry-review-top-n", type=int, default=int(get_production_config_value(["execution_policy", "entry_review_top_n"], 8)))
+    parser.add_argument("--entry-review-extended-top-n", type=int, default=int(get_production_config_value(["execution_policy", "entry_review_extended_top_n"], 10)))
+    parser.add_argument("--standard-entry-confidence", type=float, default=float(get_production_config_value(["execution_policy", "standard_entry_confidence"], 76.0)))
+    parser.add_argument("--extended-entry-confidence", type=float, default=float(get_production_config_value(["execution_policy", "extended_entry_confidence"], 70.0)))
     parser.add_argument("--max-holdings", type=int, default=int(get_production_config_value(["execution_policy", "max_holdings"], 5)))
     parser.add_argument("--max-position-weight", type=float, default=float(get_production_config_value(["execution_policy", "max_position_weight"], get_production_config_value(["portfolio", "max_weight_top5"], 0.24))))
     parser.add_argument("--sector-cap", type=float, default=float(get_production_config_value(["execution_policy", "sector_cap"], get_production_config_value(["portfolio", "sector_cap"], 0.35))))
     parser.add_argument("--theme-cap", type=float, default=float(get_production_config_value(["execution_policy", "theme_cap"], get_production_config_value(["portfolio", "theme_cap"], 0.35))))
     parser.add_argument("--cash-minimum", type=float, default=float(get_production_config_value(["execution_policy", "cash_minimum"], get_production_config_value(["portfolio", "cash_buffer"], 0.05))))
+    parser.add_argument("--watch-limited-auto-buy-enabled", action="store_true", default=bool(get_production_config_value(["execution_policy", "watch_limited_auto_buy_enabled"], False)))
+    parser.add_argument("--watch-limited-max-entries", type=int, default=int(get_production_config_value(["execution_policy", "watch_limited_max_entries"], 2)))
+    parser.add_argument("--watch-limited-total-exposure", type=float, default=float(get_production_config_value(["execution_policy", "watch_limited_total_exposure"], 0.15)))
+    parser.add_argument("--watch-limited-position-cap", type=float, default=float(get_production_config_value(["execution_policy", "watch_limited_position_cap"], 0.08)))
+    parser.add_argument("--pilot-limited-auto-buy-enabled", action="store_true", default=bool(get_production_config_value(["execution_policy", "pilot_limited_auto_buy_enabled"], False)))
+    parser.add_argument("--pilot-limited-max-entries", type=int, default=int(get_production_config_value(["execution_policy", "pilot_limited_max_entries"], 4)))
+    parser.add_argument("--pilot-limited-total-exposure", type=float, default=float(get_production_config_value(["execution_policy", "pilot_limited_total_exposure"], 0.30)))
+    parser.add_argument("--pilot-limited-position-cap", type=float, default=float(get_production_config_value(["execution_policy", "pilot_limited_position_cap"], 0.12)))
     parser.add_argument("--min-entry-confidence", type=float, default=float(get_production_config_value(["execution_policy", "min_entry_confidence"], get_production_config_value(["buy_candidate", "min_confidence"], 80.0))))
     parser.add_argument("--min-hold-confidence", type=float, default=float(get_production_config_value(["execution_policy", "min_hold_confidence"], 76.0)))
     parser.add_argument("--force-exit-confidence", type=float, default=float(get_production_config_value(["execution_policy", "force_exit_confidence"], 72.0)))
@@ -146,10 +159,12 @@ def build_intent_rows(execution_actions: pd.DataFrame, *, asof_date: pd.Timestam
 def main() -> int:
     args = parse_args()
     candidates = load_candidates(args.candidates_csv)
+    candidates = candidates.loc[pd.to_numeric(candidates["buy_rank"], errors="coerce").le(args.candidate_universe_top_n)].copy()
+    candidates = candidates.sort_values(["buy_rank", "rank_source", "code"]).reset_index(drop=True)
     snapshot_archive = load_snapshot_archive(args.snapshot_archive_csv)
     latest_snapshot, previous_snapshot = build_reference_maps(snapshot_archive)
     gate_payload = _safe_read_json(args.gate_json)
-    gate = gate_decision(gate_payload)
+    gate = gate_decision_runtime(gate_payload)
 
     candidate_asof_raw = str(candidates["asof_date"].iloc[0]) if "asof_date" in candidates.columns and not candidates.empty else ""
     candidate_asof = pd.to_datetime(candidate_asof_raw, errors="coerce")
@@ -217,8 +232,8 @@ def main() -> int:
     out_md = _resolve(args.out_md)
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    out_md.write_text("\n".join(md_lines), encoding="utf-8")
+    out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8-sig")
+    out_md.write_text("\n".join(md_lines), encoding="utf-8-sig")
     print(f"trade_intents_json: {out_json}")
     print(f"trade_intents_md: {out_md}")
     return 0

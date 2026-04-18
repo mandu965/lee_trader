@@ -184,10 +184,22 @@ def summarize_cash(balance_summary: pd.DataFrame) -> dict[str, float | None]:
     }
 
 
-def compute_market_order_preview_qty(*, available_cash: float | None, target_weight: float | None, price: float | None) -> int:
-    if not (available_cash and target_weight and price):
+def compute_market_order_preview_qty(
+    *,
+    available_cash: float | None,
+    target_weight: float | None,
+    price: float | None,
+    total_assets: float | None = None,
+    current_position_value: float | None = None,
+) -> int:
+    if target_weight is None or price is None:
         return 0
-    if available_cash <= 0 or target_weight <= 0 or price <= 0:
+    if available_cash is None or available_cash <= 0 or target_weight <= 0 or price <= 0:
         return 0
-    budget = available_cash * target_weight
+    desired_budget = available_cash * target_weight
+    if total_assets is not None and total_assets > 0:
+        desired_budget = total_assets * target_weight
+        if current_position_value is not None and current_position_value > 0:
+            desired_budget = max(desired_budget - current_position_value, 0.0)
+    budget = min(float(available_cash), float(desired_budget))
     return max(int(math.floor(budget / price)), 0)

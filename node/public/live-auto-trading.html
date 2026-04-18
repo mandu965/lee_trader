@@ -19,6 +19,29 @@
       }
       .page-actions button.is-secondary { opacity: 0.86; }
       .panel-block { margin-bottom: 16px; padding: 16px; }
+      .decision-banner {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr 1fr;
+        gap: 12px;
+      }
+      .decision-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+        padding: 16px;
+      }
+      .decision-card.primary {
+        background: linear-gradient(180deg, rgba(34,197,94,0.12), rgba(255,255,255,0.03));
+      }
+      .decision-card.warn {
+        background: linear-gradient(180deg, rgba(250,204,21,0.10), rgba(255,255,255,0.03));
+      }
+      .decision-card.bad {
+        background: linear-gradient(180deg, rgba(248,113,113,0.12), rgba(255,255,255,0.03));
+      }
+      .decision-title { margin: 0; font-size: 12px; color: var(--color-text-secondary); letter-spacing: 0.04em; text-transform: uppercase; }
+      .decision-value { margin-top: 8px; font-size: 24px; font-weight: 800; line-height: 1.25; }
+      .decision-detail { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--color-text-secondary); }
       .hero-grid,
       .status-grid,
       .board-grid {
@@ -101,6 +124,78 @@
         text-align: center;
       }
       .state-line { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); }
+      .explain-box {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: rgba(255,255,255,0.03);
+        padding: 14px;
+      }
+      .explain-box.warn {
+        background: linear-gradient(180deg, rgba(250,204,21,0.08), rgba(255,255,255,0.02));
+      }
+      .explain-box.primary {
+        background: linear-gradient(180deg, rgba(59,130,246,0.10), rgba(255,255,255,0.02));
+      }
+      .explain-title {
+        margin: 0 0 8px;
+        font-size: 15px;
+        font-weight: 800;
+      }
+      .explain-body {
+        font-size: 13px;
+        line-height: 1.7;
+        color: var(--color-text-secondary);
+      }
+      .sim-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .sim-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: rgba(255,255,255,0.03);
+        padding: 14px;
+      }
+      .sim-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .sim-card-title {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 800;
+      }
+      .sim-meta {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--color-text-secondary);
+      }
+      .sim-list {
+        margin: 12px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+      }
+      .sim-item {
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: rgba(255,255,255,0.02);
+      }
+      .sim-item-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 13px;
+      }
+      .sim-item-row + .sim-item-row {
+        margin-top: 6px;
+        color: var(--color-text-secondary);
+      }
       .mono { font-family: Consolas, "SFMono-Regular", monospace; }
       .right { text-align: right; }
       .pos { color: #86efac; }
@@ -108,7 +203,7 @@
       .muted { color: var(--color-text-secondary); }
       @media (max-width: 1100px) {
         .page-header { flex-direction: column; }
-        .hero-grid, .status-grid, .board-grid { grid-template-columns: 1fr; }
+        .decision-banner, .hero-grid, .status-grid, .board-grid, .sim-grid { grid-template-columns: 1fr; }
       }
       @media (max-width: 640px) {
         .live-page { padding: 18px 12px 36px; }
@@ -143,12 +238,16 @@
         <div>
           <h1 class="page-title">실자동매매 운영</h1>
           <p class="page-subtitle">실주문 엔진 자체를 여기서 돌리는 것이 아니라, 오늘의 intent, 주문 초안, 최근 제출 결과, 실계좌 보유 상태를 한 화면에서 보는 운영 보드입니다.</p>
-          <p class="page-subtitle">기본 흐름은 `16:00 종가 배치`, `12:00 장중 갱신`, `12:10 자동매수 사이클`입니다. 자동매수 스케줄러는 기본적으로 preview만 돌고, 명시적 env 스위치가 없으면 실주문을 실행하지 않습니다.</p>
+          <p class="page-subtitle">기본 흐름은 `16:00 종가 배치`, `12:00 장중 갱신`, `09:30 자동매수 사이클`입니다. 자동매수 스케줄러는 기본적으로 주문 초안까지 만들고, 명시적 env 스위치가 없으면 실주문을 실행하지 않습니다.</p>
         </div>
       </header>
 
       <section class="panel panel-block">
         <div class="page-actions" data-unified-ops-nav data-nav-class="" data-nav-active="live-auto-trading" data-nav-secondary-class="is-secondary"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="decision-banner" id="decisionBanner"></div>
       </section>
 
       <section class="panel panel-block">
@@ -201,8 +300,29 @@
       <section class="panel panel-block">
         <div class="section-head">
           <div>
+            <h2 class="section-title">실운영 해석</h2>
+            <div class="section-note">왜 신규 매수 후보가 안 보이는지, 현재 화면을 어떻게 읽어야 하는지 먼저 설명합니다.</div>
+          </div>
+        </div>
+        <div class="explain-box warn" id="operationalExplain"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">WATCH 가정 시뮬레이션</h2>
+            <div class="section-note">실운영과 분리된 가정용 후보입니다. 여기 나온 종목은 그대로 주문되지 않습니다.</div>
+          </div>
+        </div>
+        <div class="explain-box primary" id="simulationExplain"></div>
+        <div class="sim-grid" id="watchSimulationGrid" style="margin-top:12px;"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
             <h2 class="section-title">Trade Intents</h2>
-            <div class="section-note">전략 판단 결과입니다. 실행 후보와 설명용 review를 구분해서 봅니다.</div>
+            <div class="section-note">전략 판단 결과입니다. 실제 주문 후보와 설명용 판단을 구분해서 봅니다.</div>
           </div>
         </div>
         <div class="table-wrap" id="intentsWrap">
@@ -212,7 +332,7 @@
                 <th>상태</th>
                 <th>코드</th>
                 <th>종목명</th>
-                <th>Intent</th>
+                <th>판단유형</th>
                 <th>우선순위</th>
                 <th class="right">목표비중</th>
                 <th>사유</th>
@@ -227,7 +347,7 @@
         <div class="section-head">
           <div>
             <h2 class="section-title">Order Requests Preview</h2>
-            <div class="section-note">`submit_live_orders.py` preview 결과입니다. blocked가 아닌 항목만 guarded submit 대상으로 넘어갑니다.</div>
+            <div class="section-note">주문 초안 결과입니다. 차단되지 않은 항목만 실제 제출 후보로 넘어갑니다.</div>
           </div>
         </div>
         <div class="table-wrap" id="previewWrap">
@@ -255,7 +375,7 @@
         <div class="section-head">
           <div>
             <h2 class="section-title">Order Execution</h2>
-            <div class="section-note">가장 최근 guarded submit 결과입니다. preview와 달리 실제 제출 시도 여부와 차단 사유를 확인합니다.</div>
+            <div class="section-note">가장 최근 실제 제출 결과입니다. 주문 시도 성공/실패와 차단 사유를 확인합니다.</div>
           </div>
         </div>
         <div class="table-wrap" id="executionWrap">

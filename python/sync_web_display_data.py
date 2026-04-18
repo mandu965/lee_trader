@@ -48,6 +48,7 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("performance_summary", SERVING_DIR / "performance_summary.json", "asof_date"),
     ("live_account_balance_summary", OUTPUT_DIR / "live_account_balance_summary.json", None),
     ("trade_intents", OUTPUT_DIR / "trade_intents.json", "asof_date"),
+    ("watch_auto_buy_simulation", OUTPUT_DIR / "watch_auto_buy_simulation.json", "asof_date"),
     ("live_order_preview", OUTPUT_DIR / "live_order_preview.json", "asof_date"),
     ("order_requests_preview", OUTPUT_DIR / "order_requests_preview.json", "asof_date"),
     ("order_requests_execution", OUTPUT_DIR / "order_requests_execution.json", "executed_at"),

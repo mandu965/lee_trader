@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "outputs"
 
-DEFAULT_CANDIDATES_CSV = DATA_DIR / "buy_candidates_top5.csv"
+DEFAULT_CANDIDATES_CSV = DATA_DIR / "ranking_final.csv"
 DEFAULT_GATE_JSON = OUTPUT_DIR / "operational_buy_gate.json"
 DEFAULT_SNAPSHOT_ARCHIVE_CSV = DATA_DIR / "ranking_snapshot_archive.csv"
 DEFAULT_REPORT_MD = OUTPUT_DIR / "execution_policy_simulation_report.md"
@@ -41,6 +41,7 @@ PORTFOLIO_VERSION = str(
 )
 
 STATUS_BUY_ALLOWED = "BUY_ALLOWED"
+STATUS_PILOT = "PILOT"
 STATUS_WATCH = "WATCH"
 STATUS_HOLD = "HOLD"
 STATUS_BLOCK = "BLOCK"
@@ -71,11 +72,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--snapshot-archive-csv", type=Path, default=DEFAULT_SNAPSHOT_ARCHIVE_CSV)
     parser.add_argument("--holdings-csv", type=Path, default=None)
     parser.add_argument("--out-md", type=Path, default=DEFAULT_REPORT_MD)
+    parser.add_argument("--candidate-universe-top-n", type=int, default=int(get_production_config_value(["execution_policy", "candidate_universe_top_n"], 20)))
+    parser.add_argument("--entry-review-top-n", type=int, default=int(get_production_config_value(["execution_policy", "entry_review_top_n"], 8)))
+    parser.add_argument("--entry-review-extended-top-n", type=int, default=int(get_production_config_value(["execution_policy", "entry_review_extended_top_n"], 10)))
+    parser.add_argument("--standard-entry-confidence", type=float, default=float(get_production_config_value(["execution_policy", "standard_entry_confidence"], 76.0)))
+    parser.add_argument("--extended-entry-confidence", type=float, default=float(get_production_config_value(["execution_policy", "extended_entry_confidence"], 70.0)))
     parser.add_argument("--max-holdings", type=int, default=int(get_production_config_value(["execution_policy", "max_holdings"], 5)))
     parser.add_argument("--max-position-weight", type=float, default=float(get_production_config_value(["execution_policy", "max_position_weight"], get_production_config_value(["portfolio", "max_weight_top5"], 0.24))))
     parser.add_argument("--sector-cap", type=float, default=float(get_production_config_value(["execution_policy", "sector_cap"], get_production_config_value(["portfolio", "sector_cap"], 0.35))))
     parser.add_argument("--theme-cap", type=float, default=float(get_production_config_value(["execution_policy", "theme_cap"], get_production_config_value(["portfolio", "theme_cap"], 0.35))))
     parser.add_argument("--cash-minimum", type=float, default=float(get_production_config_value(["execution_policy", "cash_minimum"], get_production_config_value(["portfolio", "cash_buffer"], 0.05))))
+    parser.add_argument("--watch-limited-auto-buy-enabled", action="store_true", default=bool(get_production_config_value(["execution_policy", "watch_limited_auto_buy_enabled"], False)))
+    parser.add_argument("--watch-limited-max-entries", type=int, default=int(get_production_config_value(["execution_policy", "watch_limited_max_entries"], 2)))
+    parser.add_argument("--watch-limited-total-exposure", type=float, default=float(get_production_config_value(["execution_policy", "watch_limited_total_exposure"], 0.15)))
+    parser.add_argument("--watch-limited-position-cap", type=float, default=float(get_production_config_value(["execution_policy", "watch_limited_position_cap"], 0.08)))
+    parser.add_argument("--pilot-limited-auto-buy-enabled", action="store_true", default=bool(get_production_config_value(["execution_policy", "pilot_limited_auto_buy_enabled"], False)))
+    parser.add_argument("--pilot-limited-max-entries", type=int, default=int(get_production_config_value(["execution_policy", "pilot_limited_max_entries"], 4)))
+    parser.add_argument("--pilot-limited-total-exposure", type=float, default=float(get_production_config_value(["execution_policy", "pilot_limited_total_exposure"], 0.30)))
+    parser.add_argument("--pilot-limited-position-cap", type=float, default=float(get_production_config_value(["execution_policy", "pilot_limited_position_cap"], 0.12)))
     parser.add_argument("--min-entry-confidence", type=float, default=float(get_production_config_value(["execution_policy", "min_entry_confidence"], get_production_config_value(["buy_candidate", "min_confidence"], 80.0))))
     parser.add_argument("--min-hold-confidence", type=float, default=float(get_production_config_value(["execution_policy", "min_hold_confidence"], 76.0)))
     parser.add_argument("--force-exit-confidence", type=float, default=float(get_production_config_value(["execution_policy", "force_exit_confidence"], 72.0)))
@@ -139,7 +153,7 @@ def _safe_read_json(path: Path) -> dict[str, object]:
     resolved = _resolve(path)
     if resolved is None or not resolved.exists():
         return {}
-    return json.loads(resolved.read_text(encoding="utf-8"))
+    return json.loads(resolved.read_text(encoding="utf-8-sig"))
 
 
 def _normalize_theme(series: pd.Series) -> pd.Series:
@@ -167,21 +181,43 @@ def load_candidates(path: Path) -> pd.DataFrame:
     work["dominant_theme"] = _normalize_theme(work.get("dominant_theme", pd.Series("(none)", index=work.index)))
     for col in [
         "buy_rank",
+        "rank_final",
         "rank_source",
         "final_score",
         "confidence_score",
         "liquidity_score",
         "theme_score",
         "trading_value",
+        "close",
+        "volume",
         "ret_5d",
         "ret_10d",
         "mom_20",
         "rsi_14",
     ]:
         work[col] = pd.to_numeric(work.get(col), errors="coerce")
-    work["recent_surge_soft_flag"] = work.get("recent_surge_soft_flag", False).astype(str).str.lower().isin(["true", "1"])
-    work["selection_stage"] = work.get("selection_stage", "").fillna("").astype(str)
-    work["asof_date"] = work.get("asof_date", "").fillna("").astype(str)
+    if "trading_value" not in work.columns or work["trading_value"].isna().all():
+        work["trading_value"] = pd.to_numeric(work.get("close"), errors="coerce") * pd.to_numeric(work.get("volume"), errors="coerce")
+    work["recent_surge_soft_flag"] = work.get("recent_surge_soft_flag", pd.Series(False, index=work.index)).astype(str).str.lower().isin(["true", "1"])
+    work["selection_stage"] = work.get("selection_stage", pd.Series("", index=work.index)).fillna("").astype(str)
+    if "buy_rank" not in work.columns or work["buy_rank"].isna().all():
+        work["buy_rank"] = pd.to_numeric(work.get("rank_final"), errors="coerce")
+    if work["buy_rank"].isna().all():
+        work["buy_rank"] = pd.to_numeric(work.get("rank_source"), errors="coerce")
+    if work["buy_rank"].isna().all():
+        work["buy_rank"] = (
+            pd.to_numeric(work["final_score"], errors="coerce")
+            .rank(method="first", ascending=False)
+            .astype(float)
+        )
+    work["buy_rank"] = pd.to_numeric(work["buy_rank"], errors="coerce")
+    if "asof_date" in work.columns and work["asof_date"].notna().any():
+        work["asof_date"] = work.get("asof_date", "").fillna("").astype(str)
+    elif "date" in work.columns:
+        parsed_date = pd.to_datetime(work.get("date"), errors="coerce")
+        work["asof_date"] = parsed_date.dt.strftime("%Y-%m-%d").fillna("")
+    else:
+        work["asof_date"] = ""
     return work.sort_values(["buy_rank", "rank_source", "code"]).reset_index(drop=True)
 
 
@@ -219,9 +255,11 @@ def build_reference_maps(snapshot_archive: pd.DataFrame) -> tuple[pd.DataFrame, 
 
 def load_holdings(args: argparse.Namespace, candidates: pd.DataFrame, latest_snapshot: pd.DataFrame) -> HoldingsContext:
     candidate_paths: list[Path] = []
+    explicit_holdings_provided = args.holdings_csv is not None
     if args.holdings_csv is not None:
         candidate_paths.append(args.holdings_csv)
-    candidate_paths.extend(AUTO_HOLDINGS_PATHS)
+    if not explicit_holdings_provided:
+        candidate_paths.extend(AUTO_HOLDINGS_PATHS)
 
     candidate_lookup = candidates.drop_duplicates("code").set_index("code")
     latest_lookup = latest_snapshot.drop_duplicates("code").set_index("code") if not latest_snapshot.empty else pd.DataFrame()
@@ -229,9 +267,13 @@ def load_holdings(args: argparse.Namespace, candidates: pd.DataFrame, latest_sna
     for path in candidate_paths:
         resolved = _resolve(path)
         if resolved is None or not resolved.exists():
+            if explicit_holdings_provided and path == args.holdings_csv:
+                return HoldingsContext(open_positions=pd.DataFrame(), closed_positions=pd.DataFrame(columns=["code", "name", "exit_date"]), source=str(path))
             continue
         df = pd.read_csv(resolved, dtype={"code": str}, low_memory=False)
         if df.empty or "code" not in df.columns:
+            if explicit_holdings_provided and path == args.holdings_csv:
+                return HoldingsContext(open_positions=pd.DataFrame(), closed_positions=pd.DataFrame(columns=["code", "name", "exit_date"]), source=str(path))
             continue
 
         work = df.copy()
@@ -377,6 +419,65 @@ def gate_decision(gate_payload: dict[str, object]) -> dict[str, object]:
         "guidance": "신규 진입 금지, 기존 보유 유지 또는 비중 축소만 허용",
     }
 
+def gate_decision_runtime(gate_payload: dict[str, object]) -> dict[str, object]:
+    status = str(gate_payload.get("overall_status") or STATUS_HOLD).upper()
+    primary_bucket = int(gate_payload.get("primary_bucket") or 5)
+    reason = ""
+    for decision in gate_payload.get("decisions", []):
+        if isinstance(decision, dict) and int(decision.get("bucket") or -1) == primary_bucket:
+            reason = str(decision.get("reason_summary") or "")
+            break
+
+    if status == STATUS_BUY_ALLOWED:
+        return {
+            "status": status,
+            "reason": reason,
+            "allow_new_entries": True,
+            "allow_score_replacement": True,
+            "allow_risk_trim": True,
+            "limited_entry_mode": None,
+            "guidance": "정식 자동매수: 신규 진입, 교체, 목표 비중 재조정 허용",
+        }
+    if status == STATUS_PILOT:
+        return {
+            "status": status,
+            "reason": reason,
+            "allow_new_entries": False,
+            "allow_score_replacement": False,
+            "allow_risk_trim": True,
+            "limited_entry_mode": "pilot",
+            "guidance": "PILOT 제한 실운용: 제한된 신규 진입만 허용하고 교체매매는 보류",
+        }
+    if status == STATUS_WATCH:
+        return {
+            "status": status,
+            "reason": reason,
+            "allow_new_entries": False,
+            "allow_score_replacement": False,
+            "allow_risk_trim": True,
+            "limited_entry_mode": "watch",
+            "guidance": "WATCH 제한 진입: 소액 신규 진입만 허용하고 위험 축소는 계속 허용",
+        }
+    if status == STATUS_BLOCK:
+        return {
+            "status": status,
+            "reason": reason,
+            "allow_new_entries": False,
+            "allow_score_replacement": False,
+            "allow_risk_trim": True,
+            "limited_entry_mode": None,
+            "guidance": "신규 진입 금지, cap 위반과 과도한 위험 포지션만 축소 또는 청산",
+        }
+    return {
+        "status": STATUS_HOLD,
+        "reason": reason,
+        "allow_new_entries": False,
+        "allow_score_replacement": False,
+        "allow_risk_trim": True,
+        "limited_entry_mode": None,
+        "guidance": "신규 진입 금지, 기존 보유 유지 또는 비중 축소만 허용",
+    }
+
 
 def resolve_confidence_policy(confidence_value: object, args: argparse.Namespace) -> ConfidencePolicy:
     confidence = pd.to_numeric(confidence_value, errors="coerce")
@@ -511,10 +612,29 @@ def compute_target_weights(selected: pd.DataFrame, args: argparse.Namespace) -> 
 def candidate_eligibility_notes(row: pd.Series, cooldown_map: dict[str, dict[str, object]], args: argparse.Namespace) -> tuple[bool, list[str]]:
     notes: list[str] = []
     eligible = True
+    rank_value = pd.to_numeric(row.get("buy_rank"), errors="coerce")
     confidence = pd.to_numeric(row.get("confidence_score"), errors="coerce")
     liquidity = pd.to_numeric(row.get("liquidity_score"), errors="coerce")
     trading_value = pd.to_numeric(row.get("trading_value"), errors="coerce")
     confidence_policy = resolve_confidence_policy(confidence, args)
+    if pd.isna(rank_value) or float(rank_value) > args.entry_review_extended_top_n:
+        eligible = False
+        notes.append(f"outside entry review range top{args.entry_review_extended_top_n}")
+    elif float(rank_value) <= args.entry_review_top_n:
+        if pd.isna(confidence) or float(confidence) < args.standard_entry_confidence:
+            eligible = False
+            notes.append(
+                f"rank<=top{args.entry_review_top_n} requires confidence >= {_fmt_num(args.standard_entry_confidence)}"
+            )
+    else:
+        if pd.isna(confidence) or float(confidence) < args.extended_entry_confidence:
+            eligible = False
+            notes.append(
+                f"rank<=top{args.entry_review_extended_top_n} extended entry requires confidence >= {_fmt_num(args.extended_entry_confidence)}"
+            )
+    if pd.isna(confidence) or float(confidence) < args.min_entry_confidence:
+        eligible = False
+        notes.append(f"confidence {_fmt_num(confidence)} < minimum entry floor {_fmt_num(args.min_entry_confidence)}")
     if not confidence_policy.entry_allowed:
         eligible = False
         notes.append(confidence_policy.guidance)
@@ -598,6 +718,12 @@ def classify_holdings(
                 confidence_policy = resolve_confidence_policy(confidence, args)
                 policy_cap_weight = min(args.max_position_weight * confidence_policy.position_cap_scale, 1.0)
 
+        if pd.notna(confidence) and float(confidence) < args.force_exit_confidence:
+            action = "EXIT_CANDIDATE"
+            reasons.append(f"confidence {_fmt_num(confidence)} < force exit floor {_fmt_num(args.force_exit_confidence)}")
+        elif pd.notna(confidence) and float(confidence) < args.min_hold_confidence:
+            action = "REPLACE_CANDIDATE"
+            reasons.append(f"confidence {_fmt_num(confidence)} < hold floor {_fmt_num(args.min_hold_confidence)}")
         if pd.notna(current_weight) and float(current_weight) > args.max_position_weight + 1e-8:
             action = "TRIM"
             reasons.append(f"position cap {_fmt_pct(args.max_position_weight)} exceeded")
@@ -665,7 +791,8 @@ def select_buy_ready_queue(
     args: argparse.Namespace,
 ) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
-    for _, row in candidates.head(args.max_holdings).iterrows():
+    review_universe = candidates.loc[pd.to_numeric(candidates["buy_rank"], errors="coerce").le(args.candidate_universe_top_n)].copy()
+    for _, row in review_universe.iterrows():
         code = str(row["code"]).zfill(6)
         eligible, notes = candidate_eligibility_notes(row, cooldown_map, args)
         confidence_policy = resolve_confidence_policy(row.get("confidence_score"), args)
@@ -674,6 +801,8 @@ def select_buy_ready_queue(
                 "code": code,
                 "name": row["name"],
                 "buy_rank": row["buy_rank"],
+                "sector": row.get("sector"),
+                "dominant_theme": row.get("dominant_theme"),
                 "final_score": row["final_score"],
                 "confidence_score": row["confidence_score"],
                 "liquidity_score": row["liquidity_score"],
@@ -691,7 +820,12 @@ def select_buy_ready_queue(
     if queue.empty:
         return queue
     selectable = queue.loc[queue["entry_eligible"]].copy()
-    weight_source = candidates.loc[candidates["code"].isin(selectable["code"])].copy()
+    if selectable.empty:
+        queue["target_weight"] = pd.NA
+        queue["confidence_guidance"] = pd.NA
+        queue["confidence_position_cap"] = pd.NA
+        return queue.sort_values(["buy_rank", "code"]).reset_index(drop=True)
+    weight_source = review_universe.loc[review_universe["code"].isin(selectable["code"])].copy()
     weights = compute_target_weights(weight_source, args)[["code", "target_weight", "confidence_guidance", "confidence_position_cap"]]
     queue = queue.merge(weights, on="code", how="left")
     return queue.sort_values(["buy_rank", "code"]).reset_index(drop=True)
@@ -703,50 +837,295 @@ def build_execution_actions(
     gate: dict[str, object],
     args: argparse.Namespace,
 ) -> pd.DataFrame:
+    def _replacement_plan() -> tuple[dict[str, dict[str, object]], set[str]]:
+        if holdings_review.empty or buy_ready_queue.empty:
+            return {}, set()
+
+        replace_pool = holdings_review.loc[
+            holdings_review["action"].astype(str).eq("REPLACE_CANDIDATE")
+        ].copy()
+        if replace_pool.empty:
+            return {}, set()
+
+        entry_pool = buy_ready_queue.loc[
+            buy_ready_queue["entry_eligible"].fillna(False)
+            & ~buy_ready_queue["code"].isin(set(holdings_review["code"].astype(str)))
+        ].copy()
+        if entry_pool.empty:
+            return {}, set()
+
+        replace_pool["candidate_rank_sort"] = pd.to_numeric(replace_pool.get("candidate_rank"), errors="coerce").fillna(999999.0)
+        replace_pool["candidate_final_score_sort"] = pd.to_numeric(replace_pool.get("candidate_final_score"), errors="coerce")
+        replace_pool["current_weight_sort"] = pd.to_numeric(replace_pool.get("current_weight"), errors="coerce").fillna(0.0)
+        replace_pool = replace_pool.sort_values(
+            ["candidate_rank_sort", "candidate_final_score_sort", "current_weight_sort", "code"],
+            ascending=[False, True, False, True],
+            na_position="last",
+        ).reset_index(drop=True)
+
+        entry_pool["buy_rank_sort"] = pd.to_numeric(entry_pool.get("buy_rank"), errors="coerce").fillna(999999.0)
+        entry_pool["final_score_sort"] = pd.to_numeric(entry_pool.get("final_score"), errors="coerce")
+        entry_pool = entry_pool.sort_values(
+            ["buy_rank_sort", "final_score_sort", "code"],
+            ascending=[True, False, True],
+            na_position="last",
+        ).reset_index(drop=True)
+
+        max_replacements = max(int(args.max_replacements_per_cycle), 0)
+        approved: dict[str, dict[str, object]] = {}
+        selected_entry_codes: set[str] = set()
+        if max_replacements <= 0:
+            return approved, selected_entry_codes
+
+        entry_idx = 0
+        for _, replace_row in replace_pool.iterrows():
+            replace_code = str(replace_row.get("code") or "").zfill(6)
+            if not replace_code:
+                continue
+            if len(approved) >= max_replacements:
+                approved[replace_code] = {
+                    "approved": False,
+                    "reason": f"replacement limit {max_replacements} reached",
+                }
+                continue
+            if entry_idx >= len(entry_pool):
+                approved[replace_code] = {
+                    "approved": False,
+                    "reason": "no eligible replacement entry available",
+                }
+                continue
+
+            entry_row = entry_pool.iloc[entry_idx]
+            entry_idx += 1
+
+            held_score = pd.to_numeric(replace_row.get("candidate_final_score"), errors="coerce")
+            new_score = pd.to_numeric(entry_row.get("final_score"), errors="coerce")
+            if pd.isna(held_score) or pd.isna(new_score):
+                approved[replace_code] = {
+                    "approved": False,
+                    "reason": "replacement blocked: missing score evidence",
+                }
+                continue
+
+            score_gap = float(new_score) - float(held_score)
+            if score_gap < float(args.min_replace_score_gap):
+                approved[replace_code] = {
+                    "approved": False,
+                    "reason": (
+                        f"replacement blocked: score gap {_fmt_num(score_gap)} "
+                        f"< minimum {_fmt_num(args.min_replace_score_gap)}"
+                    ),
+                }
+                continue
+
+            entry_code = str(entry_row.get("code") or "").zfill(6)
+            approved[replace_code] = {
+                "approved": True,
+                "entry_code": entry_code,
+                "entry_name": entry_row.get("name"),
+                "entry_reason": (
+                    f"replacement entry approved vs {replace_code} "
+                    f"(score gap {_fmt_num(score_gap)})"
+                ),
+                "reason": (
+                    f"replacement approved with {entry_code} "
+                    f"(score gap {_fmt_num(score_gap)})"
+                ),
+            }
+            selected_entry_codes.add(entry_code)
+
+        return approved, selected_entry_codes
+
+    def _resolved_entry_rows(selected_rows: list[dict[str, object]]) -> list[dict[str, object]]:
+        if not selected_rows:
+            return []
+        selected = pd.DataFrame(selected_rows)
+        weighted = compute_target_weights(selected, args)
+        weighted_lookup = weighted.drop_duplicates("code").set_index("code")
+        resolved_rows: list[dict[str, object]] = []
+        for item in selected_rows:
+            code = str(item["code"])
+            target_weight = weighted_lookup.at[code, "target_weight"] if code in weighted_lookup.index else item.get("target_weight")
+            resolved_rows.append({**item, "target_weight": target_weight})
+        return resolved_rows
+
     rows: list[dict[str, object]] = []
-    held_codes = set(holdings_review["code"].tolist()) if not holdings_review.empty else set()
+    held_codes = set(holdings_review["code"].astype(str).tolist()) if not holdings_review.empty else set()
+    replacement_decisions, reserved_entry_codes = _replacement_plan()
     kept_codes: set[str] = set()
 
     for _, row in holdings_review.iterrows():
         action = str(row["action"])
+        code = str(row["code"])
+        replacement_decision = replacement_decisions.get(code, {})
         target_weight = pd.NA
+        reason = str(row.get("reason") or "")
+        if action == "REPLACE_CANDIDATE" and not bool(replacement_decision.get("approved")):
+            action = "HOLD_REVIEW"
+            block_reason = str(replacement_decision.get("reason") or "replacement review deferred")
+            reason = f"{reason}; {block_reason}" if reason else block_reason
         if action == "HOLD":
             target_weight = row.get("current_weight")
-            kept_codes.add(row["code"])
+            kept_codes.add(code)
         elif action == "TRIM":
             current_weight = pd.to_numeric(row.get("current_weight"), errors="coerce")
             policy_cap_weight = pd.to_numeric(row.get("policy_cap_weight"), errors="coerce")
             trim_cap = float(policy_cap_weight) if pd.notna(policy_cap_weight) else args.max_position_weight
             target_weight = min(float(current_weight), trim_cap) if pd.notna(current_weight) else pd.NA
-            kept_codes.add(row["code"])
+            kept_codes.add(code)
         elif action == "HOLD_REVIEW":
             target_weight = row.get("current_weight")
-            kept_codes.add(row["code"])
+            kept_codes.add(code)
+        elif action == "REPLACE_CANDIDATE" and bool(replacement_decision.get("approved")):
+            reason = f"{reason}; {replacement_decision['reason']}" if reason else str(replacement_decision["reason"])
         rows.append(
             {
-                "code": row["code"],
+                "code": code,
                 "name": row.get("name"),
                 "action": action,
                 "target_weight": target_weight,
-                "reason": row.get("reason"),
+                "reason": reason,
             }
         )
 
     slots_remaining = max(args.max_holdings - len(kept_codes), 0)
+    limited_entry_mode = ""
     if gate["allow_new_entries"] and slots_remaining > 0:
+        selected_entries: list[dict[str, object]] = []
         for _, row in buy_ready_queue.iterrows():
-            if not bool(row["entry_eligible"]) or row["code"] in held_codes or slots_remaining <= 0:
+            row_code = str(row["code"])
+            if not bool(row["entry_eligible"]) or row_code in held_codes or slots_remaining <= 0:
                 continue
-            rows.append(
+            if reserved_entry_codes and row_code not in reserved_entry_codes and len(selected_entries) < len(reserved_entry_codes):
+                continue
+            if row_code in {str(item["code"]) for item in selected_entries}:
+                continue
+            selected_entries.append(
                 {
-                    "code": row["code"],
+                    "code": row_code,
                     "name": row["name"],
                     "action": "ENTER",
                     "target_weight": row.get("target_weight"),
-                    "reason": "BUY_ALLOWED gate and entry criteria satisfied",
+                    "sector": row.get("sector"),
+                    "dominant_theme": row.get("dominant_theme"),
+                    "final_score": row.get("final_score"),
+                    "confidence_score": row.get("confidence_score"),
+                    "liquidity_score": row.get("liquidity_score"),
+                    "trading_value": row.get("trading_value"),
+                    "reason": next(
+                        (
+                            str(value.get("entry_reason"))
+                            for value in replacement_decisions.values()
+                            if str(value.get("entry_code") or "") == row_code and value.get("approved")
+                        ),
+                        "BUY_ALLOWED gate and entry criteria satisfied",
+                    ),
                 }
             )
             slots_remaining -= 1
+        if reserved_entry_codes:
+            for _, row in buy_ready_queue.iterrows():
+                row_code = str(row["code"])
+                if row_code in reserved_entry_codes and row_code not in {str(item["code"]) for item in selected_entries} and slots_remaining > 0:
+                    selected_entries.append(
+                        {
+                            "code": row_code,
+                            "name": row["name"],
+                            "action": "ENTER",
+                            "target_weight": row.get("target_weight"),
+                            "sector": row.get("sector"),
+                            "dominant_theme": row.get("dominant_theme"),
+                            "final_score": row.get("final_score"),
+                            "confidence_score": row.get("confidence_score"),
+                            "liquidity_score": row.get("liquidity_score"),
+                            "trading_value": row.get("trading_value"),
+                            "reason": next(
+                                (
+                                    str(value.get("entry_reason"))
+                                    for value in replacement_decisions.values()
+                                    if str(value.get("entry_code") or "") == row_code and value.get("approved")
+                                ),
+                                "BUY_ALLOWED gate and entry criteria satisfied",
+                            ),
+                        }
+                    )
+                    slots_remaining -= 1
+        for item in _resolved_entry_rows(selected_entries):
+            rows.append(
+                {
+                    "code": item["code"],
+                    "name": item["name"],
+                    "action": item["action"],
+                    "target_weight": item["target_weight"],
+                    "reason": item["reason"],
+                }
+            )
+
+    else:
+        limited_entry_mode = str(gate.get("limited_entry_mode") or "").strip().lower()
+        limited_mode_enabled = (
+            (limited_entry_mode == "watch" and bool(args.watch_limited_auto_buy_enabled))
+            or (limited_entry_mode == "pilot" and bool(args.pilot_limited_auto_buy_enabled))
+        )
+        if not (limited_entry_mode and limited_mode_enabled and slots_remaining > 0):
+            limited_entry_mode = ""
+
+    if limited_entry_mode:
+        if limited_entry_mode == "pilot":
+            limited_slots_remaining = min(slots_remaining, max(int(args.pilot_limited_max_entries), 0))
+            limited_exposure_remaining = max(float(args.pilot_limited_total_exposure), 0.0)
+            limited_position_cap = max(float(args.pilot_limited_position_cap), 0.0)
+            limited_label = "PILOT"
+        else:
+            limited_slots_remaining = min(slots_remaining, max(int(args.watch_limited_max_entries), 0))
+            limited_exposure_remaining = max(float(args.watch_limited_total_exposure), 0.0)
+            limited_position_cap = max(float(args.watch_limited_position_cap), 0.0)
+            limited_label = "WATCH"
+        selected_entries: list[dict[str, object]] = []
+        for _, row in buy_ready_queue.iterrows():
+            row_code = str(row["code"])
+            if not bool(row["entry_eligible"]) or row_code in held_codes or limited_slots_remaining <= 0:
+                continue
+            if reserved_entry_codes and row_code not in reserved_entry_codes and len(selected_entries) < len(reserved_entry_codes):
+                continue
+            if row_code in {str(item["code"]) for item in selected_entries}:
+                continue
+            selected_entries.append(
+                {
+                    "code": row_code,
+                    "name": row["name"],
+                    "action": "ENTER",
+                    "target_weight": row.get("target_weight"),
+                    "sector": row.get("sector"),
+                    "dominant_theme": row.get("dominant_theme"),
+                    "final_score": row.get("final_score"),
+                    "confidence_score": row.get("confidence_score"),
+                    "liquidity_score": row.get("liquidity_score"),
+                    "trading_value": row.get("trading_value"),
+                    "reason": "",
+                }
+            )
+            limited_slots_remaining -= 1
+        for item in _resolved_entry_rows(selected_entries):
+            base_target_weight = pd.to_numeric(item.get("target_weight"), errors="coerce")
+            if pd.isna(base_target_weight) or float(base_target_weight) <= 0:
+                continue
+            capped_target_weight = min(float(base_target_weight), limited_position_cap, limited_exposure_remaining)
+            if capped_target_weight <= 0:
+                continue
+            rows.append(
+                {
+                    "code": item["code"],
+                    "name": item["name"],
+                    "action": "ENTER",
+                    "target_weight": capped_target_weight,
+                    "reason": (
+                        f"{limited_label} limited auto-buy window: constrained live entry allowed "
+                        f"(cap {_fmt_pct(limited_position_cap)}, total remaining {_fmt_pct(limited_exposure_remaining)})"
+                    ),
+                }
+            )
+            limited_exposure_remaining = max(limited_exposure_remaining - capped_target_weight, 0.0)
 
     if not rows:
         rows.append(
@@ -771,10 +1150,12 @@ def top5_members(snapshot: pd.DataFrame) -> set[str]:
 def main() -> None:
     args = parse_args()
     candidates = load_candidates(args.candidates_csv)
+    candidates = candidates.loc[pd.to_numeric(candidates["buy_rank"], errors="coerce").le(args.candidate_universe_top_n)].copy()
+    candidates = candidates.sort_values(["buy_rank", "rank_source", "code"]).reset_index(drop=True)
     snapshot_archive = load_snapshot_archive(args.snapshot_archive_csv)
     latest_snapshot, previous_snapshot = build_reference_maps(snapshot_archive)
     gate_payload = _safe_read_json(args.gate_json)
-    gate = gate_decision(gate_payload)
+    gate = gate_decision_runtime(gate_payload)
 
     candidate_asof_raw = str(candidates["asof_date"].iloc[0]) if "asof_date" in candidates.columns and not candidates.empty else ""
     candidate_asof = pd.to_datetime(candidate_asof_raw, errors="coerce")
@@ -862,6 +1243,14 @@ def main() -> None:
         f"- sector_cap: {_fmt_pct(args.sector_cap)}",
         f"- theme_cap: {_fmt_pct(args.theme_cap)}",
         f"- cash_minimum: {_fmt_pct(args.cash_minimum)}",
+        f"- watch_limited_auto_buy_enabled: {'Y' if args.watch_limited_auto_buy_enabled else 'N'}",
+        f"- watch_limited_max_entries: {args.watch_limited_max_entries}",
+        f"- watch_limited_total_exposure: {_fmt_pct(args.watch_limited_total_exposure)}",
+        f"- watch_limited_position_cap: {_fmt_pct(args.watch_limited_position_cap)}",
+        f"- pilot_limited_auto_buy_enabled: {'Y' if args.pilot_limited_auto_buy_enabled else 'N'}",
+        f"- pilot_limited_max_entries: {args.pilot_limited_max_entries}",
+        f"- pilot_limited_total_exposure: {_fmt_pct(args.pilot_limited_total_exposure)}",
+        f"- pilot_limited_position_cap: {_fmt_pct(args.pilot_limited_position_cap)}",
         f"- entry_confidence_floor: {_fmt_num(args.min_entry_confidence)}",
         f"- hold_confidence_floor: {_fmt_num(args.min_hold_confidence)}",
         f"- force_exit_confidence_floor: {_fmt_num(args.force_exit_confidence)}",

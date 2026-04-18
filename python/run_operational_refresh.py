@@ -31,6 +31,7 @@ SYNC_AUXILIARY_PAYLOADS_SCRIPT = ROOT / "python" / "sync_auxiliary_payloads.py"
 LIVE_SYNC_SCRIPT = ROOT / "python" / "sync_live_account_holdings.py"
 LIVE_PREVIEW_SCRIPT = ROOT / "python" / "build_live_order_preview.py"
 TRADE_INTENTS_SCRIPT = ROOT / "python" / "build_trade_intents.py"
+WATCH_AUTO_BUY_SIM_SCRIPT = ROOT / "python" / "build_watch_auto_buy_simulation.py"
 LIVE_HOLDINGS_CSV = ROOT / "data" / "live_account_holdings.csv"
 OUTPUTS_DIR = ROOT / "outputs"
 DATA_HISTORY_DIR = ROOT / "data" / "history"
@@ -89,7 +90,7 @@ def read_json(path: Path) -> dict | None:
     if not path.exists():
         return None
     try:
-        raw = path.read_text(encoding="utf-8")
+        raw = path.read_text(encoding="utf-8-sig")
         normalized = raw.replace("NaN", "null").replace("Infinity", "null").replace("-null", "null")
         value = json.loads(normalized)
         return value if isinstance(value, dict) else None
@@ -230,6 +231,7 @@ def main() -> int:
             ("market_status_validation", [PYTHON, str(MARKET_STATUS_VALIDATION_SCRIPT)], True),
             ("operational_buy_gate", [PYTHON, str(BUY_GATE_SCRIPT)], True),
             ("trade_intents", trade_intents_command, True),
+            ("watch_auto_buy_simulation", [PYTHON, str(WATCH_AUTO_BUY_SIM_SCRIPT)], True),
         ]
     )
     skip_paper_trading_ledger = args.skip_paper_trading or runtime_snapshot_mode

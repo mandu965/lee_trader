@@ -18,7 +18,7 @@ HISTORY_DIR = DATA_DIR / "history"
 def read_json(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    raw = path.read_text(encoding="utf-8")
+    raw = path.read_text(encoding="utf-8-sig")
     normalized = raw.replace("NaN", "null").replace("Infinity", "null").replace("-null", "null")
     value = json.loads(normalized)
     return value if isinstance(value, dict) else {}
@@ -37,7 +37,7 @@ def parse_key_value_markdown(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
     out: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
+    for raw_line in path.read_text(encoding="utf-8-sig").splitlines():
         line = str(raw_line or "").strip()
         if not line.startswith("- ") or ":" not in line:
             continue

@@ -1,168 +1,144 @@
 # Git 배포 절차
 
+## 문서 역할
+
+- 이 문서는 `배포 실행 절차` 기준 문서입니다.
+- 자동매매 정책 해석은 `doc/lee 운영.md`와 `doc/20260417_자동매매 설계.md`를 우선 기준으로 봅니다.
+- 다만 배포 시 혼선을 막기 위해 현재 실운용 상태 요약은 함께 유지합니다.
+
 ## 목적
 
-- 로컬에서 계산한 최신 산출물을 Git 배포 디렉터리로 옮긴다.
-- GitHub Actions가 로컬 결과를 그대로 복원해서 사용하게 한다.
-- 기본 운영 기준은 `runtime_snapshot` 모드다.
-- 자동 배치는 중지되어 있으며, GitHub Actions는 수동 실행만 사용한다.
-- `close-batch`, `intraday-refresh` 모두 자동 스케줄 없이 수동 실행만 사용한다.
+- 로컬 운영본에서 만든 최신 산출물을 배포용 Git 디렉토리로 옮깁니다.
+- GitHub Actions는 로컬 결과를 그대로 복원해 사용합니다.
+- 기본 운영 기준은 `runtime_snapshot` 입니다.
 
-## 1. 로컬 산출물 생성
+## 운영 원칙
 
-먼저 로컬에서 파이프라인과 운영 후속 산출물을 최신 상태로 만든다.
+- 로컬 운영본이 기준본입니다.
+- 원격에서 다시 계산한 결과를 운영 기준으로 삼지 않습니다.
+- GitHub Actions `close-batch`는 기본적으로 `runtime_snapshot` 복원 기준으로 해석합니다.
+- `pipeline` 모드는 참고용 재계산 또는 진단용으로만 사용합니다.
+
+## 1. 로컬 산출물 최신화
+
+권장 기준은 아래 순서입니다.
 
 ```powershell
 docker compose build --no-cache --progress=plain python-pipeline
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-docker compose run --rm python-pipeline
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-python python\run_operational_refresh.py
+.venv\Scripts\python.exe python/run_manual_close_batch.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 docker compose up -d --build node-api
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
 ```
 
-이 단계가 끝나면 아래 경로가 최신 상태여야 한다.
+메모:
 
-- `data/*.csv`
-- `outputs/*.json`
-- `serving/*.json`
+- `run_manual_close_batch.py`가 `pipeline -> 산출물 날짜 검증 -> run_operational_refresh -> serving 날짜 검증 -> sync_web_display_data -> node-api 재기동` 흐름을 강제합니다.
+- 수동 close 배치는 이 경로를 기본으로 씁니다.
 
-## 2. Git 배포용 ZIP 생성
+## 2. 거래 CSV 내보내기
 
-로컬 결과를 GitHub Actions에서 복원할 수 있도록 백업 ZIP을 만든다.
+실거래 기록을 배포본에 같이 반영하려면 아래를 실행합니다.
 
 ```powershell
-python python\backup_git_restore_zip.py --output backups\git_restore_backup.zip --overwrite --keep-latest 1
+python python\export_trades_csv.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+## 3. 백업 ZIP 생성
+
+로컬 학습 이력 복원용과 로컬 운영 결과 재현용 ZIP을 함께 만듭니다.
+
+```powershell
+python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260418.zip --overwrite --keep-latest 1
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-python python\backup_runtime_snapshot_zip.py --output backups\git_runtime_snapshot.zip --overwrite --keep-latest 1
+python python\backup_runtime_snapshot_zip.py --output backups\git_runtime_snapshot_20260418.zip --overwrite --keep-latest 1
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 역할:
 
 - `git_restore_backup`
-  - 학습 이력 복원용
-  - `prices_daily_adjusted.csv`, `features.csv`, `labels.csv`, `universe.csv` 등 포함
+  - 장기 이력 복원용
+  - `prices_daily_adjusted.csv`, `features.csv`, `labels.csv` 등 학습 이력 보존
 - `git_runtime_snapshot`
   - 로컬 운영 결과 재현용
-  - `ranking_final.csv`, `predictions.csv`, `market_status.csv`, `quality.csv`, `model.pkl`, `stock_theme_daily.csv` 등 포함
+  - `ranking_final.csv`, `predictions.csv`, `model.pkl`, `output/stock_theme_daily.csv` 등 현재 운영 결과 보존
 
-## 3. Git 배포 디렉터리 생성
-
-배포용 Git 디렉터리로 파일을 복사한다.
+## 4. 배포용 Git 디렉토리 생성
 
 ```powershell
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
-이 단계가 끝나면 배포 대상은 `D:\ai\git\lee_trader` 아래에 정리된다.
+메모:
 
-## 4. 선택: 거래기록 CSV 생성
-
-웹 표시용 DB 동기화에 `trades`까지 반영할 경우 `data/trades.csv`를 만든다.
-
-```powershell
-python python\export_trades_csv.py
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-```
-
-이 파일이 있으면 `git_runtime_snapshot.zip`에도 같이 포함되고, GitHub Actions에서 웹 DB 동기화 시 `trades` 테이블까지 반영된다.
+- 배포본은 `D:\ai\git\lee_trader` 에 생성합니다.
+- 이 디렉토리는 코드 배포용 복사본입니다.
 
 ## 5. Git 커밋 및 푸시
 
 ```powershell
 cd D:\ai\git\lee_trader
+git fetch origin
+git switch main
+git pull --ff-only origin main
+
 git status
 git add --all
 git commit -m "update deploy package"
 git push origin main
 ```
 
-## 6. GitHub Actions 수동 실행
+메모:
 
-GitHub 저장소에서 아래 순서로 실행한다.
+- `D:\ai\git\lee_trader`가 이미 `git clone`으로 연결된 디렉토리라면 `git init`, `git remote add origin`은 다시 하지 않습니다.
+- 비밀값은 `.env`에 두고, Git에는 예시 파일만 올립니다.
+
+## 6. GitHub Actions 실행
+
+GitHub에서 아래 순서로 실행합니다.
 
 1. `Actions`
 2. `Close Batch`
 3. `Run workflow`
 4. `execution_mode = runtime_snapshot`
 
-의미:
+해석:
 
 - `runtime_snapshot`
-  - 로컬에서 만든 결과를 복원해서 사용
-  - `run_pipeline` 재실행 안 함
-  - `ranking_builder` 재실행 안 함
+  - 로컬에서 만든 결과를 복원해 사용
+  - 기본 운영 기준
 - `pipeline`
-  - 원격에서 다시 수집, 학습, 예측, 랭킹 수행
-  - 로컬과 결과가 달라질 수 있으므로 기본 운영 기준으로 쓰지 않음
+  - 원격에서 다시 계산
+  - 참고용 또는 진단용
 
-## 7. 웹 표시용 DB 동기화
+## 7. 웹 DB 동기화
 
-웹 화면이 로컬 결과와 같아야 할 경우 표시용 데이터만 웹 DB에 반영한다.
-
-로컬에서 웹 DB 통신이 가능하면 직접 실행할 수 있다.
+로컬에서 직접 웹 DB를 최신 상태로 맞추려면 아래를 실행합니다.
 
 ```powershell
 python python\sync_web_display_data.py --reset-first
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
-로컬에서 웹 DB 통신이 안 되더라도, GitHub Actions의 `close-batch`는 `Run close batch` 뒤에 자동으로 아래를 실행한다.
+메모:
 
-```powershell
-python python\sync_web_display_data.py --reset-first
-```
+- `WEB_DATABASE_URL`이 설정되어 있어야 합니다.
+- `--reset-first`는 대상 테이블을 비우고 로컬 결과 기준으로 다시 적재합니다.
 
-조건:
-
-- GitHub Actions `DATABASE_URL` secret이 설정되어 있어야 한다.
-- `runtime_snapshot` 모드에서는 복원된 CSV/JSON 기준으로 웹 DB가 갱신된다.
-- `trades`는 `data/trades.csv`가 있을 때만 반영된다.
-- `--reset-first`가 적용되므로 표시용 테이블은 먼저 비우고 로컬 기준으로 다시 적재된다.
-
-동기화 대상:
-
-- `stocks`
-- `market_status`
-- `predictions`
-- `daily_ranking`
-- `research.app_payload_store`
-- `research.paper_trading_*`
-- `trades.csv`가 있으면 `trades`
-
-옵션 예시:
-
-```powershell
-python python\sync_web_display_data.py --skip-trades
-python python\sync_web_display_data.py --skip-paper-trading
-```
-
-
-### CSV 백업 / 복구
-
-powershell
-python python\backup_csv_md_zip.py --output backups\csv_backup_20260416.zip --overwrite --keep-latest 1
-python python\restore_csv_md_zip.py --zip backups\csv_backup_20260415.zip --overwrite
-
-## 권장 전체 순서
+## 8. 권장 전체 순서
 
 ```powershell
 docker compose build --no-cache --progress=plain python-pipeline
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-docker compose run --rm python-pipeline
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-python python\run_operational_refresh.py
+.venv\Scripts\python.exe python/run_manual_close_batch.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 docker compose up -d --build node-api
@@ -171,38 +147,50 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 python python\export_trades_csv.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260416.zip --overwrite --keep-latest 1
+python python\backup_git_restore_zip.py --output backups\git_restore_backup_20260418.zip --overwrite --keep-latest 1
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-python python\backup_runtime_snapshot_zip.py --output backups\git_runtime_snapshot_20260416.zip --overwrite --keep-latest 1
+python python\backup_runtime_snapshot_zip.py --output backups\git_runtime_snapshot_20260418.zip --overwrite --keep-latest 1
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-
-```
-
-```powershell
 cd D:\ai\git\lee_trader
-git status
+git fetch origin
+git switch main
+git pull --ff-only origin main
 git add --all
 git commit -m "update deploy package"
 git push origin main
 ```
 
+## 9. 현재 자동매매 운영 상태
 
-그 다음 `D:\ai\git\lee_trader`에서 `git add / commit / push`를 수행한다.
+- 현재 코드 기준 실운용 상태는 `PILOT 제한 실운용`까지 구현된 상태입니다.
+- `WATCH`에서는 아래 제한 규칙만 허용합니다.
+  - 최대 `2종목`
+  - 총 신규 노출 `15%`
+  - 종목당 신규 진입 상한 `8%`
+- `PILOT`에서는 아래 제한 규칙을 허용합니다.
+  - 최대 `4종목`
+  - 총 신규 노출 `30%`
+  - 종목당 신규 진입 상한 `12%`
+- `HOLD`, `BLOCK`에서는 신규 진입을 허용하지 않습니다.
+- `BUY_ALLOWED`는 정식 자동매수 승인 단계입니다.
 
+## 10. 향후 방향
 
-저는 많은 백테스트를 수행하였고, 급등과열등 종목을 필터링하였고 매수, 매도 전략을 구상하였습니다.
+- 현재 운영 기준은 `WATCH`와 `PILOT`를 함께 사용합니다.
+- 문서상 권장 해석은 아래와 같습니다.
+  - `WATCH`: 탐색적 소액 진입
+  - `PILOT`: 제한적 실운용
+  - `BUY_ALLOWED`: 정식 자동매수
+- 현재 코드는 `PILOT` 단계를 구현한 상태입니다.
+- 향후 검토 대상은 `PILOT` 이후 `BUY_ALLOWED` 승격 조건의 추가 정교화입니다.
 
-월요일부터 스케줄러를 통해 실제 매수 매도를 수행하겠습니다.
+관련 문서:
 
-필요시 시스템 검증이 더 필요하면 제가 수동으로 
-AUTO_TRADE_EXECUTE
-
-이 값을 조정하겠습니다.
-
-결론적으로 월요일에 자동매매를 시작하겟습니다.
-제 이론은 검증해볼 타이밍 입니다.
+- `doc/lee 운영.md`
+- `doc/20260417_자동매매 설계.md`
+- `doc/20260418_운영 상태 및 PILOT 방향 메모.md`

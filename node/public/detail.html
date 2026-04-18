@@ -296,16 +296,9 @@
       <div class="top-actions">
         <details class="top-nav-more" open>
           <summary>화면 이동</summary>
-          <div class="top-nav-links">
+          <div class="top-nav-links" data-unified-ops-nav data-nav-element="a" data-nav-class="action-btn" data-nav-active-class="nav-active" data-nav-secondary-class="" data-nav-secondary-keys=""></div>
+          <div class="top-nav-links" style="margin-top:8px;">
             <span class="action-btn nav-active">상세</span>
-            <a class="action-btn" href="/app">메인</a>
-            <a class="action-btn" href="./ranking.html">리서치 랭킹</a>
-            <a class="action-btn" href="./meaningfulness.html">리서치 리뷰</a>
-            <a id="detailOpsBtn" class="action-btn" href="./ops-readiness.html">운영자</a>
-            <a class="action-btn" href="./manual-trading.html">수동매매</a>
-            <a id="detailHoldingsBtn" class="action-btn" href="./holdings.html">보유종목</a>
-            <a class="action-btn" href="./paper-trading.html">모의투자</a>
-            <a id="detailTradeHistoryBtn" class="action-btn" href="./trade-history.html">매매 기록</a>
             <button id="detailOperatorLoginBtn" class="action-btn" type="button" style="display:none;">운영자 로그인</button>
           </div>
         </details>
@@ -618,6 +611,7 @@
   </div>
 
   <script src="./ui-components.js"></script>
+  <script src="./ops-unified-nav.js"></script>
   <script>
     const $ = (s) => document.querySelector(s);
     const q = (n) => new URLSearchParams(location.search).get(n);

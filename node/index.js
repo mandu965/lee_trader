@@ -378,7 +378,11 @@ function readJson(filePath) {
       return cached.value;
     }
     const raw = fs.readFileSync(filePath, "utf-8");
-    const normalized = raw.replace(/\bNaN\b/g, "null").replace(/\bInfinity\b/g, "null").replace(/\b-Infinity\b/g, "null");
+    const normalized = raw
+      .replace(/^\uFEFF/, "")
+      .replace(/\bNaN\b/g, "null")
+      .replace(/\bInfinity\b/g, "null")
+      .replace(/\b-Infinity\b/g, "null");
     const value = JSON.parse(normalized);
     jsonCache.set(filePath, { cacheKey, value });
     return value;
@@ -3523,22 +3527,32 @@ app.get("/api/stocks/:code", async (req, res) => {
         [code]
       )
     )[0];
+    const stockRow = (
+      await queryRows(
+        "SELECT code, name, market, sector FROM stocks WHERE code = $1 LIMIT 1",
+        [code]
+      )
+    )[0];
     const dailyRecommendation = await getDailyRecommendationItem(code);
     const dailySecurity = dailyRecommendation?.security || {};
     const buyEligibility = dailyRecommendation?.buy_eligibility || {};
     const selection = dailyRecommendation?.selection || {};
+    const universeName = typeof getName(code) === "string" ? getName(code).trim() : "";
     const resolvedName =
-      (typeof getName(code) === "string" && getName(code).trim()) ||
       (typeof dailySecurity.name === "string" && dailySecurity.name.trim()) ||
       (typeof rank?.name === "string" && rank.name.trim()) ||
+      (typeof stockRow?.name === "string" && stockRow.name.trim()) ||
+      (universeName && universeName !== code ? universeName : "") ||
       null;
     const resolvedMarket =
       (typeof rank?.market === "string" && rank.market.trim()) ||
+      (typeof stockRow?.market === "string" && stockRow.market.trim()) ||
       (typeof dailySecurity.market === "string" && dailySecurity.market.trim()) ||
       (typeof getMarket(code) === "string" && getMarket(code).trim()) ||
       null;
     const resolvedSector =
       (typeof rank?.sector === "string" && rank.sector.trim()) ||
+      (typeof stockRow?.sector === "string" && stockRow.sector.trim()) ||
       (typeof dailySecurity.sector === "string" && dailySecurity.sector.trim()) ||
       (typeof getSector(code) === "string" && getSector(code).trim()) ||
       null;
@@ -4872,6 +4886,19 @@ app.get("/api/order-requests-execution", async (req, res) => {
     res.json(payload);
   } catch (e) {
     console.error("GET /api/order-requests-execution error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/watch-auto-buy-simulation", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("watch_auto_buy_simulation", [path.join(OUTPUTS_DIR, "watch_auto_buy_simulation.json")]);
+    if (!payload) {
+      return res.status(404).json({ error: "watch auto buy simulation not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/watch-auto-buy-simulation error", e);
     res.status(500).json({ error: "internal error" });
   }
 });

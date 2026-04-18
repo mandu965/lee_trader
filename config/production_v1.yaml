@@ -58,13 +58,18 @@ portfolio:
 buy_gate:
   primary_bucket: 5
   min_matured_benchmark_dates: 3
-  max_liquidity_risk_ratio: 0.30
-  max_very_low_liquidity_ratio: 0.20
+  pilot_min_matured_benchmark_dates: 0
+  max_liquidity_risk_ratio: 0.40
+  max_very_low_liquidity_ratio: 0.40
   max_relaxed_selection_ratio: 0.60
   max_sector_top_share: 0.40
   max_overheat_ratio: 0.20
   min_confidence_score: 82.0
+  pilot_min_confidence_score: 80.0
   min_quality_delta_vs_raw: 0.0
+  pilot_min_quality_delta_vs_raw: -1.0
+  pilot_min_trusted_ratio_top20: 0.35
+  pilot_max_blocked_ratio: 1.00
   block_negative_excess_return: -0.01
 
 confidence_calibration:
@@ -73,11 +78,24 @@ confidence_calibration:
   provisional_map_horizon_days: 60
 
 execution_policy:
-  max_holdings: 5
+  candidate_universe_top_n: 20
+  entry_review_top_n: 8
+  entry_review_extended_top_n: 10
+  standard_entry_confidence: 76.0
+  extended_entry_confidence: 70.0
+  max_holdings: 8
   max_position_weight: 0.24
   sector_cap: 0.35
   theme_cap: 0.35
   cash_minimum: 0.05
+  watch_limited_auto_buy_enabled: true
+  watch_limited_max_entries: 2
+  watch_limited_total_exposure: 0.15
+  watch_limited_position_cap: 0.08
+  pilot_limited_auto_buy_enabled: true
+  pilot_limited_max_entries: 4
+  pilot_limited_total_exposure: 0.30
+  pilot_limited_position_cap: 0.12
   min_entry_confidence: 55.0
   min_hold_confidence: 55.0
   force_exit_confidence: 55.0
@@ -90,7 +108,7 @@ execution_policy:
   confidence_reduced_position_cap_scale: 0.50
   confidence_standard_position_cap_scale: 1.00
   confidence_expanded_position_cap_scale: 1.15
-  max_hold_rank: 8
+  max_hold_rank: 10
   min_replace_score_gap: 3.0
   max_replacements_per_cycle: 2
   reentry_cooldown_days: 10

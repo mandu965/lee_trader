@@ -22,16 +22,20 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "outputs"
 
-INPUT_CANDIDATES = DATA_DIR / "buy_candidates_top5.csv"
+INPUT_CANDIDATES = DATA_DIR / "ranking_final.csv"
+INPUT_PRICE_FALLBACK = DATA_DIR / "ranking_final.csv"
 INPUT_GATE = OUTPUT_DIR / "operational_buy_gate.json"
 INPUT_LIVE_HOLDINGS = DATA_DIR / "live_account_holdings.csv"
 OUT_JSON = OUTPUT_DIR / "live_order_preview.json"
 OUT_MD = OUTPUT_DIR / "live_order_preview.md"
+STATUS_BUY_ALLOWED = "BUY_ALLOWED"
+STATUS_PILOT = "PILOT"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build live-account order preview without sending real orders.")
     parser.add_argument("--candidates-csv", type=Path, default=INPUT_CANDIDATES)
+    parser.add_argument("--price-fallback-csv", type=Path, default=INPUT_PRICE_FALLBACK)
     parser.add_argument("--gate-json", type=Path, default=INPUT_GATE)
     parser.add_argument("--live-holdings-csv", type=Path, default=INPUT_LIVE_HOLDINGS)
     parser.add_argument("--target-count", type=int, default=5)
@@ -53,9 +57,50 @@ def load_candidates(path: Path) -> pd.DataFrame:
     work = df.copy()
     work["code"] = work["code"].astype(str).str.zfill(6)
     work["name"] = work.get("name", "").fillna("").astype(str)
-    for col in ["buy_rank", "final_score", "confidence_score", "close"]:
+    for col in ["buy_rank", "rank_final", "final_score", "confidence_score", "close"]:
         work[col] = pd.to_numeric(work.get(col), errors="coerce")
+    if "buy_rank" not in work.columns or work["buy_rank"].isna().all():
+        work["buy_rank"] = pd.to_numeric(work.get("rank_final"), errors="coerce")
+    if work["buy_rank"].isna().all():
+        work["buy_rank"] = (
+            pd.to_numeric(work["final_score"], errors="coerce")
+            .rank(method="first", ascending=False)
+            .astype(float)
+        )
     return work.sort_values(["buy_rank", "code"]).reset_index(drop=True)
+
+
+def load_price_fallback(path: Path) -> pd.DataFrame:
+    resolved = _resolve(path)
+    if not resolved.exists():
+        return pd.DataFrame(columns=["code", "close"])
+    df = pd.read_csv(resolved, dtype={"code": str}, low_memory=False)
+    if df.empty:
+        return pd.DataFrame(columns=["code", "close"])
+    work = df.copy()
+    work["code"] = work["code"].astype(str).str.zfill(6)
+    work["close"] = pd.to_numeric(work.get("close"), errors="coerce")
+    if "date" in work.columns:
+        work["date"] = pd.to_datetime(work.get("date"), errors="coerce")
+        work = work.sort_values(["date", "code"], ascending=[False, True], na_position="last")
+    return work.loc[:, ["code", "close"]].dropna(subset=["close"]).drop_duplicates("code", keep="first").reset_index(drop=True)
+
+
+def merge_candidates_with_prices(candidates: pd.DataFrame, price_fallback: pd.DataFrame) -> pd.DataFrame:
+    if candidates.empty:
+        return candidates
+    if price_fallback.empty:
+        return candidates
+    merged = candidates.merge(
+        price_fallback.rename(columns={"close": "fallback_close"}),
+        on="code",
+        how="left",
+    )
+    merged["close"] = pd.to_numeric(merged.get("close"), errors="coerce").where(
+        pd.to_numeric(merged.get("close"), errors="coerce").notna(),
+        pd.to_numeric(merged.get("fallback_close"), errors="coerce"),
+    )
+    return merged.drop(columns=["fallback_close"])
 
 
 def load_holdings_codes(path: Path) -> set[str]:
@@ -72,7 +117,7 @@ def load_gate(path: Path) -> dict[str, Any]:
     resolved = _resolve(path)
     if not resolved.exists():
         return {}
-    return json.loads(resolved.read_text(encoding="utf-8"))
+    return json.loads(resolved.read_text(encoding="utf-8-sig"))
 
 
 def _fmt_num(v: object, digits: int = 2) -> str:
@@ -91,7 +136,10 @@ def _fmt_pct(v: object, digits: int = 2) -> str:
 
 def main() -> int:
     args = parse_args()
-    candidates = load_candidates(args.candidates_csv)
+    candidates = merge_candidates_with_prices(
+        load_candidates(args.candidates_csv),
+        load_price_fallback(args.price_fallback_csv),
+    )
     held_codes = load_holdings_codes(args.live_holdings_csv)
     gate = load_gate(args.gate_json)
 
@@ -120,11 +168,16 @@ def main() -> int:
         max_buy_qty = pd.to_numeric(psbl_row.get("max_buy_qty"), errors="coerce")
         planned_qty = compute_market_order_preview_qty(
             available_cash=available_cash,
+            total_assets=cash_summary.get("tot_evlu_amt"),
             target_weight=args.max_position_weight,
+            current_position_value=None,
             price=float(order_price) if order_price else None,
         )
-        allowed_qty = int(max(nrcvb_buy_qty, max_buy_qty)) if pd.notna(nrcvb_buy_qty) or pd.notna(max_buy_qty) else 0
-        final_qty = min(planned_qty, allowed_qty) if allowed_qty > 0 else planned_qty
+        allowed_values = [int(v) for v in [nrcvb_buy_qty, max_buy_qty] if pd.notna(v)]
+        allowed_qty = min(allowed_values) if allowed_values else 0
+        final_qty = min(planned_qty, allowed_qty) if allowed_qty > 0 else 0
+        gate_status = str(gate.get("overall_status") or "").upper()
+        gate_buy_enabled = gate_status in {STATUS_BUY_ALLOWED, STATUS_PILOT}
         rows.append(
             {
                 "code": code,
@@ -138,7 +191,7 @@ def main() -> int:
                 "max_buy_qty": max_buy_qty,
                 "planned_qty": planned_qty,
                 "final_preview_qty": final_qty,
-                "blocked_reason": "already_held" if code in held_codes else ("gate_not_buy_allowed" if str(gate.get("overall_status") or "").upper() != "BUY_ALLOWED" else ""),
+                "blocked_reason": "already_held" if code in held_codes else ("gate_not_buy_enabled" if not gate_buy_enabled else ("buy_qty_zero" if final_qty <= 0 else "")),
             }
         )
 

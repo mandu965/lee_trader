@@ -3,6 +3,12 @@
 
 ## 1. 권장 데일리 실행 순서
 
+### 문서 역할
+
+- 이 문서는 `운영 기준 + 실제 실행 기준` 문서입니다.
+- 배포 자체의 Git 절차는 `doc/git 배포 절차.md`를 우선 참고합니다.
+- 자동매매 상태 해석은 이 문서와 `doc/20260417_자동매매 설계.md`를 기준으로 봅니다.
+
 ### 자동 스케줄 기준 시각
 
 - 종가 close 배치: `16:00`
@@ -15,12 +21,16 @@
 - `09:30`은 전날 종가 기준 `top20` 후보를 바탕으로, 장초반 갭/과열/추격매수 위험을 1차 확인한 뒤 신규 매수 판단을 내리는 운영 기준 시각이다.
 - 따라서 실자동매매는 `12:10` 장중 신규 진입보다 `09:30` 장초반 보수 집행이 현재 설계와 더 잘 맞는다.
 - 장중 `12:00` refresh는 신규 매수 주 실행 시간이 아니라 관제와 재평가 성격으로 본다.
+- `09:30` auto-buy 스케줄러는 이제 `run_operational_refresh -> submit_live_orders -> sync_live_account_holdings -> sync_web_display_data` 순서로 동작한다.
+- 따라서 주문 직후 웹 조회에서도 `order execution`뿐 아니라 `실계좌 보유/현금`이 최대한 빠르게 갱신되도록 맞춘다.
+- Docker Postgres 호스트 포트는 `15432:5432` 기준으로 사용한다.
+- 즉 로컬 PC에서 직접 붙을 때는 `localhost:15432`, 컨테이너 내부에서는 계속 `postgres:5432`를 사용한다.
 
 ### 한 번에 처리
 
 
 ```powershell
-python python/run_manual_close_batch.py
+.venv\Scripts\python.exe python/run_manual_close_batch.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
@@ -268,7 +278,7 @@ git push origin main
 docker compose build --no-cache --progress=plain python-pipeline
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-python python/run_manual_close_batch.py
+.venv\Scripts\python.exe python/run_manual_close_batch.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 docker compose up -d --build node-api
@@ -295,8 +305,113 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 docker compose build --no-cache --progress=plain python-pipeline
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-python python/run_manual_close_batch.py
+.venv\Scripts\python.exe python/run_manual_close_batch.py
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
  
 python python\export_git_release.py --target D:\ai\git\lee_trader --clean-target
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+## 2026-04-18 자동매매 기준 메모
+
+- 현재 자동매매 후보 우주는 `전일 ranking_final 상위 top20`입니다.
+- 실제 신규 진입 심사는 `top8` 기본, `top9~10` 조건부 확장 구조입니다.
+- 실제 보유 목표 상한은 `8종목` 기준으로 운용합니다.
+- `top5`는 폐기한 것이 아니라 최우선 강신호 버킷으로 해석합니다.
+- `PILOT` 상태에서는 제한적 실운용 모드가 켜져 있습니다.
+  - 최대 `4종목`
+  - 총 신규 노출 `30%`
+  - 종목당 신규 진입 상한 `12%`
+- `WATCH` 상태에서는 소액 실거래 모드가 켜져 있습니다.
+  - 최대 `2종목`
+  - 총 신규 노출 `15%`
+  - 종목당 신규 진입 상한 `8%`
+- `HOLD`와 `BLOCK`에서는 신규 진입을 하지 않습니다.
+
+### 2026-04-18 게이트 완화 반영
+
+- `walkforward_acceptance = REJECTED`가 나와도 곧바로 `BLOCK`으로 고정하지 않습니다.
+- 아래 조건을 만족하면 `soft rejection`으로 보고 `WATCH`까지는 허용합니다.
+  - `top20_excess_return_positive`
+  - `execution_evidence_ok_or_unavailable`
+  - 실패 사유가 `ordering_not_stable`, `drawdown_too_deep`, `confidence_monotonicity_missing` 중심일 것
+- 유동성 block 임계값은 현재 검증된 랭킹 운용 기준에 맞춰 아래처럼 완화했습니다.
+  - `max_liquidity_risk_ratio: 0.30 -> 0.40`
+  - `max_very_low_liquidity_ratio: 0.20 -> 0.40`
+  - 비교 방식도 `>=`가 아니라 `>`로 적용합니다.
+- 2026-04-18 `PILOT` 구현 후 재검증 결과 현재 기준일 `2026-04-17`의 게이트는 `PILOT`입니다.
+- 따라서 현재 자동매매는 `PILOT 제한 실운용` 규칙으로 동작하며, 현재 산출물 기준 신규 진입 3건까지 생성됩니다.
+
+### PILOT 구현 메모
+
+- 현재 게이트는 `BLOCK -> HOLD -> WATCH -> PILOT -> BUY_ALLOWED` 구조입니다.
+- 권장 의미는 아래와 같습니다.
+  - `WATCH`: 탐색적 소액 진입
+  - `PILOT`: 제한적 실운용
+  - `BUY_ALLOWED`: 정식 자동매수
+- 현재 코드는 `PILOT` 단계를 실제 구현한 상태입니다.
+- `PILOT`에서는 제한적 신규 진입만 허용하고, `BUY_ALLOWED` 수준의 풀 비중 운용과 교체매매는 아직 허용하지 않습니다.
+- 관련 메모는 `doc/20260418_운영 상태 및 PILOT 방향 메모.md`를 기준으로 같이 봅니다.
+
+### 2026-04-20 장전 체크리스트
+
+- `2026-04-19`는 일요일 휴장입니다. 다음 실질 자동매수 시점은 `2026-04-20 09:30`입니다.
+- `2026-04-20 09:00~09:20` 사이에 아래를 먼저 확인합니다.
+
+```powershell
+docker compose up -d postgres node-api scheduler scheduler-recovery scheduler-auto-buy scheduler-live-account-sync
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+docker compose ps
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+- 자동매수 스케줄러가 살아 있는지 확인합니다.
+
+```powershell
+docker compose logs --tail=100 scheduler-auto-buy
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+- 장전 최종 산출물을 확인합니다.
+
+```powershell
+Get-Content outputs\operational_buy_gate.json
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+Get-Content outputs\trade_intents.json
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+Get-Content outputs\order_requests_preview.json
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+- 현재 기대 기준은 아래와 같습니다.
+  - `operational_buy_gate.json`: `overall_status = PILOT`
+  - `trade_intents.json`: `gate_status = PILOT`, `BUY` 3건 포함
+  - `order_requests_preview.json`: `gate_status = PILOT`, `BUY 3건`, `SELL 3건`
+- `09:30`에 무조건 실제 매수가 체결되는 것은 아닙니다.
+- `PILOT` 상태, 계좌 현금, KIS 주문 가능 수량, 차단 사유를 다시 반영한 뒤 실제 주문 여부가 결정됩니다.
+
+
+# 수동 배포
+docker compose build --no-cache --progress=plain python-pipeline
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+.venv\Scripts\python.exe python/run_manual_close_batch.py
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# 컨테이너 역할
+scheduler: 16:00 close 배치
+scheduler-recovery: 12:00 intraday refresh
+scheduler-auto-buy: 09:30 자동매매
+scheduler-live-account-sync: 실계좌 동기화
+node-api: 웹 조회 API
+postgres: 웹/API/동기화 대상 DB
+
+# 재배포
+docker compose up -d --build scheduler-auto-buy
+docker compose up -d --build scheduler-live-account-sync
+docker compose up -d --build node-api
+
+# 상시운용 컨테이너 
+docker compose up -d postgres node-api scheduler scheduler-recovery scheduler-auto-buy scheduler-live-account-sync
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

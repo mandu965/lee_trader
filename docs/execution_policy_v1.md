@@ -1,3 +1,14 @@
+## 2026-04-18 Authoritative Note
+
+- The current live implementation uses `data/ranking_final.csv` as the candidate source.
+- Candidate universe is `top20`.
+- Standard entry review range is `top8`.
+- Extended review range is `top9~10`.
+- `top5` is retained only as a priority interpretation bucket, not as the execution input file.
+- Max holdings is `8`.
+- `WATCH` allows limited auto-buy with max `2` new names, max `15%` total new exposure, and max `8%` per new position.
+- If older sections below still mention `buy_candidates_top5.csv` or `top5` as the primary execution input, treat this note as the source of truth.
+
 # Execution Policy V1
 
 ## 목적
@@ -103,3 +114,42 @@ Execution Policy V1은 추천 종목을 실제 계좌 운용 행동으로 연결
 - 이 정책은 연구용 최적화가 아니라 운영 일관성을 위한 보수적 규칙이다.
 - 추천 파일이 stale이면 정책 적용 결과도 참고용으로만 해석해야 한다.
 - 실제 주문 전에는 최신 추천 산출물과 gate 상태를 같은 날짜 기준으로 맞춰야 한다.
+## 11. WATCH Limited Auto-Buy
+
+- `WATCH` 상태에서도 제한적 신규 진입을 허용하는 소액 실거래 모드를 둔다.
+- 이 모드는 `BUY_ALLOWED` 전면 자동매매 전 단계에서 실제 체결 데이터를 축적하기 위한 운영 레이어다.
+- 구현 위치는 `buy gate`가 아니라 `execution policy`다.
+
+### Rules
+
+- gate status가 `WATCH`일 때만 동작한다.
+- 신규 진입 종목 수는 최대 `2`개다.
+- 신규 진입 총 비중은 최대 `15%`다.
+- 종목당 신규 진입 비중은 최대 `8%`다.
+- 기존 `entry_eligible` 조건은 그대로 유지한다.
+- 기존 보유 종목은 다시 진입하지 않는다.
+- `BUY_ALLOWED`가 되면 기존 full auto 정책이 우선한다.
+- `HOLD`와 `BLOCK`에서는 이 모드를 사용하지 않는다.
+
+### Config
+
+- `execution_policy.watch_limited_auto_buy_enabled: true`
+- `execution_policy.watch_limited_max_entries: 2`
+- `execution_policy.watch_limited_total_exposure: 0.15`
+- `execution_policy.watch_limited_position_cap: 0.08`
+
+### Intent
+
+- `top20 진단 -> top5 후보 -> WATCH 소액 실거래 -> BUY_ALLOWED 전면 자동매매` 순서로 운영 증거를 쌓는다.
+## 2026-04-18 Current Implementation Note
+
+- 후보 우주는 `data/ranking_final.csv` 기준 `top20`이다.
+- 기본 진입 심사군은 `top8`이다.
+- 조건부 확장 심사군은 `top9~10`이다.
+- `top5`는 더 이상 실행 입력 파일 자체가 아니라, 강신호 해석용 우선 버킷으로 본다.
+- 실제 보유 상한은 `8`종목이다.
+- `WATCH` 상태에서는 제한적 신규 진입을 허용한다.
+  - 최대 `2`종목
+  - 총 신규 노출 `15%`
+  - 종목당 신규 진입 상한 `8%`
+- `HOLD`와 `BLOCK`에서는 신규 진입을 허용하지 않는다.

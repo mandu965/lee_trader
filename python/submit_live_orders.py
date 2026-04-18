@@ -29,7 +29,8 @@ SYNC_WEB_DISPLAY_SCRIPT = ROOT / "python" / "sync_web_display_data.py"
 
 INPUT_TRADE_INTENTS = OUTPUT_DIR / "trade_intents.json"
 INPUT_LIVE_HOLDINGS = DATA_DIR / "live_account_holdings.csv"
-INPUT_RANKING = DATA_DIR / "buy_candidates_top5.csv"
+INPUT_RANKING = DATA_DIR / "ranking_final.csv"
+INPUT_PRICE_FALLBACK = DATA_DIR / "ranking_final.csv"
 OUT_JSON = OUTPUT_DIR / "order_requests_preview.json"
 OUT_MD = OUTPUT_DIR / "order_requests_preview.md"
 OUT_EXEC_JSON = OUTPUT_DIR / "order_requests_execution.json"
@@ -42,6 +43,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--trade-intents-json", type=Path, default=INPUT_TRADE_INTENTS)
     parser.add_argument("--live-holdings-csv", type=Path, default=INPUT_LIVE_HOLDINGS)
     parser.add_argument("--ranking-csv", type=Path, default=INPUT_RANKING)
+    parser.add_argument("--price-fallback-csv", type=Path, default=INPUT_PRICE_FALLBACK)
     parser.add_argument("--ord-dvsn", default="01", help="01 market, 00 limit")
     parser.add_argument("--execute", action="store_true", help="Actually submit guarded live orders.")
     parser.add_argument("--confirm-text", default="", help="Must be LIVE_ORDER to execute.")
@@ -70,7 +72,7 @@ def _safe_read_json(path: Path) -> dict[str, Any]:
     resolved = _resolve(path)
     if not resolved.exists():
         return {}
-    return json.loads(resolved.read_text(encoding="utf-8"))
+    return json.loads(resolved.read_text(encoding="utf-8-sig"))
 
 
 def _json_default(value: object) -> object:
@@ -103,9 +105,61 @@ def load_ranking(path: Path) -> pd.DataFrame:
     work = df.copy()
     work["code"] = work["code"].astype(str).str.zfill(6)
     work["name"] = work.get("name", "").fillna("").astype(str)
-    for col in ["close", "buy_rank", "final_score", "confidence_score"]:
+    for col in ["close", "buy_rank", "rank_final", "final_score", "confidence_score"]:
         work[col] = pd.to_numeric(work.get(col), errors="coerce")
+    if "buy_rank" not in work.columns or work["buy_rank"].isna().all():
+        work["buy_rank"] = pd.to_numeric(work.get("rank_final"), errors="coerce")
+    if work["buy_rank"].isna().all():
+        work["buy_rank"] = (
+            pd.to_numeric(work["final_score"], errors="coerce")
+            .rank(method="first", ascending=False)
+            .astype(float)
+        )
     return work.sort_values(["buy_rank", "code"]).reset_index(drop=True)
+
+
+def load_price_fallback(path: Path) -> pd.DataFrame:
+    resolved = _resolve(path)
+    if not resolved.exists():
+        return pd.DataFrame(columns=["code", "close"])
+    df = pd.read_csv(resolved, dtype={"code": str}, low_memory=False)
+    if df.empty:
+        return pd.DataFrame(columns=["code", "close"])
+    work = df.copy()
+    work["code"] = work["code"].astype(str).str.zfill(6)
+    work["close"] = pd.to_numeric(work.get("close"), errors="coerce")
+    if "date" in work.columns:
+        work["date"] = pd.to_datetime(work.get("date"), errors="coerce")
+        work = work.sort_values(["date", "code"], ascending=[False, True], na_position="last")
+    return work.loc[:, ["code", "close"]].dropna(subset=["close"]).drop_duplicates("code", keep="first").reset_index(drop=True)
+
+
+def merge_ranking_with_prices(ranking: pd.DataFrame, price_fallback: pd.DataFrame) -> pd.DataFrame:
+    if ranking.empty:
+        return ranking
+    if price_fallback.empty:
+        return ranking
+    merged = ranking.merge(
+        price_fallback.rename(columns={"close": "fallback_close"}),
+        on="code",
+        how="left",
+    )
+    merged["close"] = pd.to_numeric(merged.get("close"), errors="coerce").where(
+        pd.to_numeric(merged.get("close"), errors="coerce").notna(),
+        pd.to_numeric(merged.get("fallback_close"), errors="coerce"),
+    )
+    return merged.drop(columns=["fallback_close"])
+
+
+def _coalesce_allowed_qty(*values: object) -> int:
+    numeric_values: list[int] = []
+    for value in values:
+        numeric = pd.to_numeric(value, errors="coerce")
+        if pd.notna(numeric):
+            numeric_values.append(max(int(numeric), 0))
+    if not numeric_values:
+        return 0
+    return min(numeric_values)
 
 
 def build_order_requests(
@@ -139,6 +193,7 @@ def build_order_requests(
     account = None
     cash_summary: dict[str, Any] = {}
     available_cash = None
+    total_assets = None
     if has_buy_intents:
         client = KISClient.from_env()
         client.issue_access_token()
@@ -146,6 +201,7 @@ def build_order_requests(
         _, summary_df = inquire_balance(client, account)
         cash_summary = summarize_cash(summary_df)
         available_cash = cash_summary.get("dnca_tot_amt")
+        total_assets = cash_summary.get("tot_evlu_amt")
 
     items: list[dict[str, Any]] = []
     for _, row in intents.iterrows():
@@ -201,13 +257,16 @@ def build_order_requests(
             nrcvb_buy_qty = pd.to_numeric(psbl_row.get("nrcvb_buy_qty"), errors="coerce")
             max_buy_qty = pd.to_numeric(psbl_row.get("max_buy_qty"), errors="coerce")
             target_weight = pd.to_numeric(row.get("target_weight"), errors="coerce")
+            current_position_value = pd.to_numeric(holding_row.get("eval_amount"), errors="coerce")
             planned_qty = compute_market_order_preview_qty(
                 available_cash=available_cash,
                 target_weight=float(target_weight) if pd.notna(target_weight) else 0.0,
                 price=float(order_price) if order_price else None,
+                total_assets=float(total_assets) if pd.notna(pd.to_numeric(total_assets, errors="coerce")) else None,
+                current_position_value=float(current_position_value) if pd.notna(current_position_value) else None,
             )
-            allowed_qty = int(max(nrcvb_buy_qty, max_buy_qty)) if pd.notna(nrcvb_buy_qty) or pd.notna(max_buy_qty) else 0
-            final_qty = min(planned_qty, allowed_qty) if allowed_qty and allowed_qty > 0 else planned_qty
+            allowed_qty = _coalesce_allowed_qty(nrcvb_buy_qty, max_buy_qty)
+            final_qty = min(planned_qty, allowed_qty)
             if not final_qty or final_qty <= 0:
                 blocked_reason = "buy_qty_zero"
         elif side == "SELL":
@@ -471,13 +530,13 @@ def render_execution_markdown(payload: dict[str, Any]) -> str:
 def write_payload(path: Path, payload: dict[str, Any]) -> None:
     resolved = _resolve(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8")
+    resolved.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8-sig")
 
 
 def write_text(path: Path, text: str) -> None:
     resolved = _resolve(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(text, encoding="utf-8")
+    resolved.write_text(text, encoding="utf-8-sig")
 
 
 def sync_web_display_if_configured() -> None:
@@ -504,7 +563,10 @@ def main() -> int:
         raise FileNotFoundError("trade intents payload not found")
 
     holdings = load_live_holdings(args.live_holdings_csv)
-    ranking = load_ranking(args.ranking_csv)
+    ranking = merge_ranking_with_prices(
+        load_ranking(args.ranking_csv),
+        load_price_fallback(args.price_fallback_csv),
+    )
     preview_payload = build_order_requests(
         intents_payload=intents_payload,
         holdings=holdings,
