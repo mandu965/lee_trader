@@ -1067,9 +1067,9 @@ def main() -> int:
             market_regime_payload=market_status_validation_payload,
             interpretation=interpretation,
         ),
-        encoding="utf-8-sig",
+        encoding="utf-8",
     )
-    out_json.write_text(json.dumps(output_payload, ensure_ascii=False, indent=2), encoding="utf-8-sig")
+    out_json.write_text(json.dumps(output_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     upsert_json_payload(
         "operational_buy_gate",
         output_payload,

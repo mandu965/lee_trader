@@ -190,6 +190,49 @@ Get-Content outputs/auto_ops_scheduler_status.json
 Get-Content outputs/auto_ops_recovery_scheduler_status.json
 ```
 
+### 로그 보는 방법
+
+운영 로그는 `실시간 Docker 로그`와 `파일 로그`를 같이 봅니다.
+
+실시간 확인:
+
+```powershell
+docker compose logs -f scheduler
+docker compose logs -f scheduler-recovery
+docker compose logs -f scheduler-auto-buy
+docker compose logs -f scheduler-live-account-sync
+docker compose logs -f node-api
+```
+
+최근 100줄만 빠르게 보기:
+
+```powershell
+Get-Content .\logs\auto_ops_scheduler.log -Tail 100
+Get-Content .\logs\auto_ops_recovery_scheduler.log -Tail 100
+Get-Content .\logs\auto_ops_auto_buy_scheduler.log -Tail 100
+Get-Content .\logs\auto_ops_live_account_sync_scheduler.log -Tail 100
+```
+
+로그 파일 위치:
+
+- 종가 close 배치: `logs/auto_ops_scheduler.log`
+- 장중 refresh: `logs/auto_ops_recovery_scheduler.log`
+- 자동매수: `logs/auto_ops_auto_buy_scheduler.log`
+- 실계좌 동기화: `logs/auto_ops_live_account_sync_scheduler.log`
+
+상태 파일도 같이 확인:
+
+- close 배치 상태: `outputs/auto_ops_scheduler_status.json`
+- 장중 refresh 상태: `outputs/auto_ops_recovery_scheduler_status.json`
+- 자동매수 상태: `outputs/auto_ops_auto_buy_scheduler_status.json`
+- 실계좌 동기화 상태: `outputs/auto_ops_live_account_sync_scheduler_status.json`
+
+운영 해석 기준:
+
+- `logs/*.log`는 실행 상세 로그를 봅니다.
+- `outputs/*_status.json`은 최근 성공 시각, 최근 실패 시각, 마지막 에러를 빠르게 확인할 때 봅니다.
+- 이상 징후가 있으면 먼저 `status.json`에서 `last_error`, `last_success_at`를 보고, 그 다음 대응되는 `logs/*.log` 마지막 100줄을 확인합니다.
+
 ---
 
 ## 15. Git 메모
@@ -418,3 +461,5 @@ docker compose up -d --build node-api
 # 상시운용 컨테이너 
 docker compose up -d postgres node-api scheduler scheduler-recovery scheduler-auto-buy scheduler-live-account-sync
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+docker compose logs -f scheduler

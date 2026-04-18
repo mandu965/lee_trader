@@ -117,6 +117,11 @@ def main() -> int:
     args = parse_args()
 
     has_docker = docker_available()
+    pipeline_env = {
+        # Close-batch operations should not run the optional KIS flow ingestion
+        # unless the operator explicitly enables it.
+        "RUN_PIPELINE_SKIP_FLOW_INGESTION": os.environ.get("RUN_PIPELINE_SKIP_FLOW_INGESTION", "1"),
+    }
 
     if not args.skip_build and not has_docker:
         raise RuntimeError("docker is required for python-pipeline build, but the docker CLI is not available")
@@ -133,7 +138,7 @@ def main() -> int:
         else [sys.executable, str(ROOT / "python" / "run_pipeline.py")]
     )
     pipeline_name = "docker compose run --rm python-pipeline" if has_docker else "run_pipeline.py"
-    run_step(pipeline_name, pipeline_command)
+    run_step(pipeline_name, pipeline_command, extra_env=pipeline_env)
 
     market_date = verify_pipeline_outputs()
 
