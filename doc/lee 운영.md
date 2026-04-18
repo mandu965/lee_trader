@@ -350,6 +350,9 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 - 현재 코드는 `PILOT` 단계를 실제 구현한 상태입니다.
 - `PILOT`에서는 제한적 신규 진입만 허용하고, `BUY_ALLOWED` 수준의 풀 비중 운용과 교체매매는 아직 허용하지 않습니다.
 - 관련 메모는 `doc/20260418_운영 상태 및 PILOT 방향 메모.md`를 기준으로 같이 봅니다.
+- 자동매매 이력은 `실자동매매` 화면에서만 확인합니다.
+- `거래내역` 화면의 `public.trades`는 수동 장부와 확정 거래 기준으로 유지합니다.
+- 자동매매 산출물인 `trade_intents`, `order_requests_preview`, `order_requests_execution`, `live_account_holdings`는 `public.trades`와 섞어서 해석하지 않습니다.
 
 ### 2026-04-20 장전 체크리스트
 

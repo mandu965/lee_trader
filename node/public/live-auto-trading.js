@@ -13,6 +13,18 @@ const fmtPct = (value, digits = 1) => {
   return `${(n * 100).toFixed(digits)}%`;
 };
 
+const signedClass = (value) => {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n === 0) return "";
+  return n > 0 ? "pos" : "neg";
+};
+
+const metricHtml = (value, formatter, digits = 0) => {
+  const cls = signedClass(value);
+  const rendered = escapeHtml(formatter(value, digits));
+  return cls ? `<span class="${cls}">${rendered}</span>` : rendered;
+};
+
 const escapeHtml = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (m) => ({
     "&": "&amp;",
@@ -82,6 +94,7 @@ function renderDecisionBanner(summary, intents, preview, execution, runtime) {
   const executeOn = !!runtime?.policy?.auto_trade_execute;
   const buyOn = !!runtime?.policy?.auto_trade_allow_buy;
   const accountSyncedAt = summary?.summary?.generated_at || runtime?.live_account_sync_scheduler?.last_success_at || "-";
+  let body = "";
 
   let headline = "현재 상태를 판정할 수 없습니다";
   let headlineTone = "warn";
@@ -113,6 +126,7 @@ function renderDecisionBanner(summary, intents, preview, execution, runtime) {
     headlineDetail = "차단되지 않은 주문 초안이 존재합니다. 실행 스위치와 승인 조건을 함께 확인하세요.";
   }
 
+  body += " ?대? ?붾㈃? ?ㅺ퀎醫?嫄곕옒?댁뿭怨?遺꾨━??먮룞留ㅻℓ ?곗텧臾?怨쇱젙怨?寃곌낵瑜??꾨줈 蹂대뒗 ?꾩슜 ?붾㈃?낅땲??";
   root.innerHTML = `
     <article class="decision-card ${headlineTone}">
       <h2 class="decision-title">현재 한줄 결론</h2>
@@ -487,6 +501,110 @@ function renderHoldings(holdings) {
   `).join("");
 }
 
+function renderAccountDetailsV2(summary, runtime) {
+  const info = summary?.summary || {};
+  const raw = info?.summary_row || {};
+  const derived = info?.derived_metrics || {};
+  const policy = runtime?.policy || {};
+  const items = [
+    {
+      label: "예수금",
+      valueClass: "",
+      valueHtml: escapeHtml(fmtNum(derived.cash_amount ?? raw.dnca_tot_amt)),
+      detailHtml: `D+1 ${escapeHtml(fmtNum(raw.nxdy_excc_amt))} | 전일정산 ${escapeHtml(fmtNum(raw.prvs_rcdl_excc_amt))}`,
+    },
+    {
+      label: "증권평가",
+      valueClass: "",
+      valueHtml: escapeHtml(fmtNum(raw.scts_evlu_amt)),
+      detailHtml: `매입원가 ${escapeHtml(fmtNum(raw.pchs_amt_smtl_amt))} | 평가금액 ${escapeHtml(fmtNum(raw.evlu_amt_smtl_amt))}`,
+    },
+    {
+      label: "총자산",
+      valueClass: "",
+      valueHtml: escapeHtml(fmtNum(derived.total_assets ?? raw.tot_evlu_amt)),
+      detailHtml: `전일총자산 ${escapeHtml(fmtNum(raw.bfdy_tot_asst_evlu_amt))} | 자산증감 ${metricHtml(raw.asst_icdc_amt, fmtNum)}`,
+    },
+    {
+      label: "평가손익",
+      valueClass: signedClass(raw.evlu_pfls_smtl_amt),
+      valueHtml: metricHtml(raw.evlu_pfls_smtl_amt, fmtNum),
+      detailHtml: `보유합산 ${metricHtml(derived.holding_pnl_amount, fmtNum)} | 자산증감률 ${metricHtml(raw.asst_icdc_erng_rt, fmtPct, 2)}`,
+    },
+    {
+      label: "현금 비중",
+      valueClass: "",
+      valueHtml: escapeHtml(fmtPct(derived.cash_ratio, 1)),
+      detailHtml: `투자 비중 ${escapeHtml(fmtPct(derived.invested_ratio, 1))} | 평균 보유비중 ${escapeHtml(fmtPct(derived.avg_position_weight, 1))}`,
+    },
+    {
+      label: "자동주문 정책",
+      valueClass: "",
+      valueHtml: "-",
+      detailHtml: `execute ${escapeHtml(policy.auto_trade_execute ? "ON" : "OFF")} | buy ${escapeHtml(policy.auto_trade_allow_buy ? "ALLOW" : "BLOCK")} | buy approval ${escapeHtml(policy.buy_approval_required ? "REQ" : "FREE")}`,
+    },
+  ];
+  document.getElementById("accountDetailGrid").innerHTML = items.map((item) => `
+    <article class="hero-card">
+      <div class="card-label">${escapeHtml(item.label)}</div>
+      <div class="card-value ${escapeHtml(item.valueClass)}">${item.valueHtml}</div>
+      <div class="card-detail">${item.detailHtml}</div>
+    </article>
+  `).join("");
+}
+
+function renderAccountDetailsV3(summary, runtime) {
+  const info = summary?.summary || {};
+  const raw = info?.summary_row || {};
+  const derived = info?.derived_metrics || {};
+  const policy = runtime?.policy || {};
+  const items = [
+    {
+      label: "예수금",
+      valueClass: "",
+      valueHtml: escapeHtml(fmtNum(derived.cash_amount ?? raw.dnca_tot_amt)),
+      detailHtml: `D+1 ${escapeHtml(fmtNum(raw.nxdy_excc_amt))} | 전일정산 ${escapeHtml(fmtNum(raw.prvs_rcdl_excc_amt))}`,
+    },
+    {
+      label: "증권평가",
+      valueClass: "",
+      valueHtml: escapeHtml(fmtNum(raw.scts_evlu_amt)),
+      detailHtml: `매입원가 ${escapeHtml(fmtNum(raw.pchs_amt_smtl_amt))} | 평가금액 ${escapeHtml(fmtNum(raw.evlu_amt_smtl_amt))}`,
+    },
+    {
+      label: "총자산",
+      valueClass: "",
+      valueHtml: escapeHtml(fmtNum(derived.total_assets ?? raw.tot_evlu_amt)),
+      detailHtml: `전일총자산 ${escapeHtml(fmtNum(raw.bfdy_tot_asst_evlu_amt))} | 자산증감 ${metricHtml(raw.asst_icdc_amt, fmtNum)}`,
+    },
+    {
+      label: "평가손익",
+      valueClass: signedClass(raw.evlu_pfls_smtl_amt),
+      valueHtml: metricHtml(raw.evlu_pfls_smtl_amt, fmtNum),
+      detailHtml: `보유합산 ${metricHtml(derived.holding_pnl_amount, fmtNum)} | 자산증감률 ${metricHtml(raw.asst_icdc_erng_rt, fmtPct, 2)}`,
+    },
+    {
+      label: "현금 비중",
+      valueClass: "",
+      valueHtml: escapeHtml(fmtPct(derived.cash_ratio, 1)),
+      detailHtml: `투자 비중 ${escapeHtml(fmtPct(derived.invested_ratio, 1))} | 평균 보유비중 ${escapeHtml(fmtPct(derived.avg_position_weight, 1))}`,
+    },
+    {
+      label: "자동주문 정책",
+      valueClass: "",
+      valueHtml: "-",
+      detailHtml: `execute ${escapeHtml(policy.auto_trade_execute ? "ON" : "OFF")} | buy ${escapeHtml(policy.auto_trade_allow_buy ? "ALLOW" : "BLOCK")} | buy approval ${escapeHtml(policy.buy_approval_required ? "REQ" : "FREE")}`,
+    },
+  ];
+  document.getElementById("accountDetailGrid").innerHTML = items.map((item) => `
+    <article class="hero-card">
+      <div class="card-label">${escapeHtml(item.label)}</div>
+      <div class="card-value ${escapeHtml(item.valueClass)}">${item.valueHtml}</div>
+      <div class="card-detail">${item.detailHtml}</div>
+    </article>
+  `).join("");
+}
+
 async function main() {
   const state = document.getElementById("pageState");
   state.textContent = "실자동매매 데이터를 불러오는 중입니다.";
@@ -504,7 +622,7 @@ async function main() {
     renderHero(summary, intents, preview, holdings, execution);
     renderDecisionBanner(summary, intents, preview, execution, runtime);
     renderStatus(summary, intents, preview, execution);
-    renderAccountDetails(summary, runtime);
+    renderAccountDetailsV3(summary, runtime);
     renderRunSummary(intents, preview, holdings, runtime);
     renderFocus(intents, preview, holdings);
     renderOperationalExplain(intents, preview, runtime, holdings);
