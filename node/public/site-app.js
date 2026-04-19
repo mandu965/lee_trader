@@ -1,5 +1,6 @@
-(function () {
+﻿(function () {
   let items = Array.isArray(window.SiteLibrary) ? window.SiteLibrary : [];
+  let homepageContent = null;
 
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>"']/g, (match) => ({
@@ -60,6 +61,26 @@
     `;
   }
 
+  function buildPickCard(pick) {
+    const toneClass = pick.tag_tone === "accent" ? "chip chip--accent" : pick.tag_tone === "good" ? "chip chip--good" : "chip";
+    return `
+      <article class="pick-card">
+        <div class="pick-card__head">
+          <div>
+            <p class="pick-card__ticker">${escapeHtml(pick.ticker || "-")}</p>
+            <h3>${escapeHtml(pick.name || "-")}</h3>
+          </div>
+          <span class="${toneClass}">${escapeHtml(pick.tag || "관찰 후보")}</span>
+        </div>
+        <p class="pick-card__lead">${escapeHtml(pick.lead || "")}</p>
+        <ul class="pick-card__reasons">
+          ${(Array.isArray(pick.reasons) ? pick.reasons : []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("")}
+        </ul>
+        <p class="pick-card__risk">유의사항: ${escapeHtml(pick.risk || "-")}</p>
+      </article>
+    `;
+  }
+
   function recommendedStarterSlugs(pageType) {
     if (pageType === "report") {
       return [
@@ -90,6 +111,40 @@
     }
   }
 
+  function renderHomeSummary() {
+    const summaryRoot = document.getElementById("homeSummary");
+    const picksRoot = document.getElementById("homePicks");
+    const dateEl = document.getElementById("marketSummaryDate");
+    if (!summaryRoot || !picksRoot || !homepageContent) return;
+
+    const summary = homepageContent.marketSummary || {};
+    const picks = Array.isArray(homepageContent.picks) ? homepageContent.picks : [];
+
+    if (dateEl && summary.as_of_date) {
+      dateEl.textContent = `기준일 ${summary.as_of_date}`;
+    }
+
+    summaryRoot.innerHTML = `
+      <article class="summary-card summary-card--focus">
+        <span class="home-summary__badge">핵심 결론</span>
+        <h3>${escapeHtml(summary.headline || "오늘 시장 요약을 준비 중입니다")}</h3>
+        <p>${escapeHtml(summary.summary || "최신 요약 문구를 곧 반영하겠습니다.")}</p>
+      </article>
+      <article class="summary-card">
+        <h3>${escapeHtml(summary.market_mood_title || "시장 분위기")}</h3>
+        <p>${escapeHtml(summary.market_mood || "-")}</p>
+      </article>
+      <article class="summary-card">
+        <h3>${escapeHtml(summary.watchpoints_title || "오늘의 관찰 포인트")}</h3>
+        <p>${escapeHtml(summary.watchpoints || "-")}</p>
+      </article>
+    `;
+
+    picksRoot.innerHTML = picks.length
+      ? picks.map(buildPickCard).join("")
+      : '<article class="pick-card"><h3>추천 종목 준비 중</h3><p class="pick-card__lead">운영 데이터가 준비되면 이 영역에 자동 반영됩니다.</p></article>';
+  }
+
   function renderHome() {
     const featuredEl = document.getElementById("featuredGrid");
     const reportEl = document.getElementById("latestReports");
@@ -97,6 +152,8 @@
     const studyEl = document.getElementById("studyPosts");
     const reports = items.filter((item) => item.section === "report");
     const posts = items.filter((item) => item.section === "blog");
+
+    renderHomeSummary();
 
     if (featuredEl) {
       featuredEl.innerHTML = items.filter((item) => item.featured).slice(0, 6).map((item) => buildCard(item, { featured: true })).join("");
@@ -118,12 +175,14 @@
     const starterTitleEl = document.getElementById("starterTitle");
     const starterDescEl = document.getElementById("starterDesc");
     const scopedItems = items.filter((item) => (pageType === "all" ? true : item.section === pageType));
+
     if (filtersRoot && !filtersRoot.children.length) {
       const categories = [...new Set(scopedItems.map((item) => item.category).filter(Boolean))];
       filtersRoot.innerHTML = [`<button class="filter-pill is-active" data-filter="all">전체</button>`]
         .concat(categories.map((category) => `<button class="filter-pill" data-filter="${category}">${category}</button>`))
         .join("");
     }
+
     const filterButtons = Array.from(document.querySelectorAll("[data-filter]"));
     let activeFilter = "all";
 
@@ -180,6 +239,7 @@
   function renderDetail() {
     const detailRoot = document.getElementById("articleDetail");
     if (!detailRoot) return;
+
     const slug = document.body.dataset.slug || "";
     const item = items.find((entry) => entry.slug === slug);
     if (!item) {
@@ -267,8 +327,21 @@
       });
   }
 
+  function loadHomepageContent() {
+    return fetch("/api/homepage-content")
+      .then((response) => response.json())
+      .then((payload) => {
+        homepageContent = payload || { marketSummary: {}, picks: [] };
+        return homepageContent;
+      })
+      .catch(() => {
+        homepageContent = { marketSummary: {}, picks: [] };
+        return homepageContent;
+      });
+  }
+
   document.addEventListener("DOMContentLoaded", async () => {
-    await loadSiteLibrary();
+    await Promise.all([loadSiteLibrary(), loadHomepageContent()]);
     renderHome();
     renderList();
     renderDetail();

@@ -215,6 +215,30 @@ function estimateReadingTime(value) {
   return `${minutes}분`;
 }
 
+function readJsonFile(filePath, fallback) {
+  try {
+    if (!fs.existsSync(filePath)) return fallback;
+    const stat = fs.statSync(filePath);
+    const cacheKey = `${stat.mtimeMs}:${stat.size}`;
+    const cached = jsonCache.get(filePath);
+    if (cached && cached.cacheKey === cacheKey) return cached.value;
+    const raw = fs.readFileSync(filePath, "utf-8").replace(/^\uFEFF/, "");
+    const value = JSON.parse(raw);
+    jsonCache.set(filePath, { cacheKey, value });
+    return value;
+  } catch (error) {
+    console.error("readJsonFile error", filePath, error);
+    return fallback;
+  }
+}
+
+function readHomepageContent() {
+  return readJsonFile(path.join(CONTENT_DIR, "homepage.json"), {
+    marketSummary: {},
+    picks: [],
+  });
+}
+
 function readMarkdownEntries(sectionDir, section) {
   if (!fs.existsSync(sectionDir)) return [];
   return fs.readdirSync(sectionDir)
@@ -3585,6 +3609,9 @@ app.get("/sitemap.xml", (req, res) => {
 });
 app.get("/api/site-library", (req, res) => {
   res.json({ items: readSiteLibrary() });
+});
+app.get("/api/homepage-content", (req, res) => {
+  res.json(readHomepageContent());
 });
 app.get("/api/operator-auth/status", operatorAccess.status);
 app.post("/api/operator-auth/login", operatorAccess.login);
