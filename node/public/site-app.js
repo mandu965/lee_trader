@@ -1,23 +1,22 @@
 (function () {
-  const items = Array.isArray(window.SiteLibrary) ? window.SiteLibrary : [];
-
-  function formatDate(value) {
-    const text = String(value || "").trim();
-    return text || "-";
-  }
+  let items = Array.isArray(window.SiteLibrary) ? window.SiteLibrary : [];
 
   function escapeHtml(value) {
-    return String(value ?? "").replace(/[&<>"']/g, (m) => ({
+    return String(value ?? "").replace(/[&<>"']/g, (match) => ({
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
       '"': "&quot;",
       "'": "&#39;",
-    }[m]));
+    }[match]));
   }
 
   function itemHref(item) {
     return item.section === "report" ? `/reports/${item.slug}` : `/blog/${item.slug}`;
+  }
+
+  function sectionLabel(item) {
+    return item.section === "report" ? "시장 해설" : "블로그";
   }
 
   function readingMinutesValue(item) {
@@ -27,28 +26,24 @@
 
   function summarizeExcerpt(text) {
     const excerpt = String(text || "").trim();
-    return excerpt.length > 84 ? `${excerpt.slice(0, 84).trim()}...` : excerpt;
-  }
-
-  function sectionLabel(item) {
-    return item.section === "report" ? "시장 해설" : "블로그";
+    return excerpt.length > 96 ? `${excerpt.slice(0, 96).trim()}...` : excerpt;
   }
 
   function buildCard(item, options = {}) {
-    const featured = options.featured || item.featured;
     const toneClass = item.section === "report" ? "article-card--report" : "article-card--blog";
+    const featured = options.featured || item.featured;
     return `
       <article class="article-card ${toneClass}">
         ${featured ? '<span class="article-card__badge">추천 글</span>' : ""}
         <div class="article-card__meta">
           <span>${escapeHtml(sectionLabel(item))}</span>
-          <span>${escapeHtml(item.category)}</span>
-          <span>${escapeHtml(formatDate(item.date))}</span>
+          <span>${escapeHtml(item.category || "")}</span>
+          <span>${escapeHtml(item.date || "-")}</span>
         </div>
         <h3>${escapeHtml(item.title)}</h3>
-        <p class="article-card__excerpt">${escapeHtml(item.excerpt)}</p>
+        <p class="article-card__excerpt">${escapeHtml(item.excerpt || "")}</p>
         <div class="article-card__footer">
-          <span class="article-card__time">${escapeHtml(item.readingTime || "읽기 시간 미정")}</span>
+          <span class="article-card__time">${escapeHtml(item.readingTime || "읽는 시간 미정")}</span>
           <a class="article-card__link" href="${itemHref(item)}">자세히 읽기</a>
         </div>
       </article>
@@ -60,7 +55,7 @@
       <a class="featured-mini" href="${itemHref(item)}">
         <span class="featured-mini__section">${escapeHtml(sectionLabel(item))}</span>
         <strong>${escapeHtml(item.title)}</strong>
-        <span>${escapeHtml(item.category)} · ${escapeHtml(item.readingTime || "-")}</span>
+        <span>${escapeHtml(item.category || "-")} · ${escapeHtml(item.readingTime || "-")}</span>
       </a>
     `;
   }
@@ -97,31 +92,48 @@
 
   function renderHome() {
     const featuredEl = document.getElementById("featuredGrid");
-    if (!featuredEl) return;
-    featuredEl.innerHTML = items.filter((item) => item.featured).slice(0, 6).map((item) => buildCard(item, { featured: true })).join("");
-    document.getElementById("latestReports").innerHTML = items.filter((item) => item.section === "report").slice(0, 3).map(buildCard).join("");
-    document.getElementById("latestPosts").innerHTML = items.filter((item) => item.section === "blog").slice(0, 3).map(buildCard).join("");
+    const reportEl = document.getElementById("latestReports");
+    const blogEl = document.getElementById("latestPosts");
+    const studyEl = document.getElementById("studyPosts");
+    const reports = items.filter((item) => item.section === "report");
+    const posts = items.filter((item) => item.section === "blog");
+
+    if (featuredEl) {
+      featuredEl.innerHTML = items.filter((item) => item.featured).slice(0, 6).map((item) => buildCard(item, { featured: true })).join("");
+    }
+    if (reportEl) reportEl.innerHTML = reports.slice(0, 3).map(buildCard).join("");
+    if (blogEl) blogEl.innerHTML = posts.slice(0, 3).map(buildCard).join("");
+    if (studyEl) studyEl.innerHTML = posts.slice(0, 3).map(buildCard).join("");
   }
 
   function renderList() {
     const listEl = document.getElementById("contentList");
     if (!listEl) return;
+
     const pageType = document.body.dataset.pageType || "all";
     const labelEl = document.getElementById("listTitleNote");
-    const filterButtons = Array.from(document.querySelectorAll("[data-filter]"));
+    const filtersRoot = document.getElementById("listFilters");
     const featuredStripEl = document.getElementById("featuredStrip");
     const starterStripEl = document.getElementById("starterStrip");
     const starterTitleEl = document.getElementById("starterTitle");
     const starterDescEl = document.getElementById("starterDesc");
+    const scopedItems = items.filter((item) => (pageType === "all" ? true : item.section === pageType));
+    if (filtersRoot && !filtersRoot.children.length) {
+      const categories = [...new Set(scopedItems.map((item) => item.category).filter(Boolean))];
+      filtersRoot.innerHTML = [`<button class="filter-pill is-active" data-filter="all">전체</button>`]
+        .concat(categories.map((category) => `<button class="filter-pill" data-filter="${category}">${category}</button>`))
+        .join("");
+    }
+    const filterButtons = Array.from(document.querySelectorAll("[data-filter]"));
     let activeFilter = "all";
 
     if (starterTitleEl && starterDescEl) {
       if (pageType === "report") {
         starterTitleEl.textContent = "처음 읽을 시장 해설";
-        starterDescEl.textContent = "오늘 시장 흐름과 운영 판단을 이해하는 데 먼저 도움이 되는 글 3개입니다.";
+        starterDescEl.textContent = "시장 국면, 검증 지표, 실제 운영 사례를 함께 읽으면 오늘의 맥락이 훨씬 선명해집니다.";
       } else if (pageType === "blog") {
         starterTitleEl.textContent = "처음 읽을 블로그";
-        starterDescEl.textContent = "용어와 판단 기준을 가장 빠르게 이해하는 데 도움이 되는 블로그 3개입니다.";
+        starterDescEl.textContent = "점수 읽는 법, 리스크 관리, 서비스 목적을 먼저 이해하면 나머지 콘텐츠도 훨씬 쉽게 읽힙니다.";
       }
     }
 
@@ -131,7 +143,7 @@
         .filter(Boolean);
       starterStripEl.innerHTML = starterItems.length
         ? starterItems.map(buildFeaturedMini).join("")
-        : '<article class="article-card"><h3>추천 글을 준비 중입니다</h3><p class="article-card__excerpt">곧 처음 읽기 좋은 글을 따로 정리해 드리겠습니다.</p></article>';
+        : '<article class="article-card"><h3>추천 글 준비 중</h3><p class="article-card__excerpt">선별해서 먼저 읽기 좋은 글을 계속 보강하고 있습니다.</p></article>';
     }
 
     function filterItems(filter) {
@@ -144,12 +156,12 @@
 
     function applyFilter(filter) {
       activeFilter = filter;
-      filterButtons.forEach((btn) => btn.classList.toggle("is-active", btn.dataset.filter === filter));
+      filterButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.filter === filter));
       const filtered = filterItems(filter);
-      if (labelEl) {
-        const avgRead = filtered.length ? Math.round(filtered.reduce((acc, item) => acc + readingMinutesValue(item), 0) / filtered.length) : 0;
-        labelEl.textContent = `${filtered.length}개 글 · 평균 읽기 ${avgRead || "-"}분`;
-      }
+      const avgRead = filtered.length
+        ? Math.round(filtered.reduce((sum, item) => sum + readingMinutesValue(item), 0) / filtered.length)
+        : 0;
+      if (labelEl) labelEl.textContent = `${filtered.length}개 글 · 평균 읽는 시간 ${avgRead || "-"}분`;
       updateListHeroStats(filtered);
       if (featuredStripEl) {
         const featured = filtered.filter((item) => item.featured).slice(0, 3);
@@ -158,10 +170,10 @@
       }
       listEl.innerHTML = filtered.length
         ? filtered.map((item) => buildCard(item, { featured: item.featured && filter === "all" })).join("")
-        : `<article class="article-card"><h3>아직 준비 중입니다</h3><p class="article-card__excerpt">해당 조건에 맞는 공개 글이 아직 없습니다. 다른 분류를 먼저 확인해 주세요.</p></article>`;
+        : '<article class="article-card"><h3>해당 조건의 글이 없습니다</h3><p class="article-card__excerpt">다른 카테고리를 선택하거나 전체 목록으로 다시 보세요.</p></article>';
     }
 
-    filterButtons.forEach((btn) => btn.addEventListener("click", () => applyFilter(btn.dataset.filter)));
+    filterButtons.forEach((button) => button.addEventListener("click", () => applyFilter(button.dataset.filter)));
     applyFilter(activeFilter);
   }
 
@@ -171,7 +183,7 @@
     const slug = document.body.dataset.slug || "";
     const item = items.find((entry) => entry.slug === slug);
     if (!item) {
-      detailRoot.innerHTML = `<article class="article-shell"><h1>글을 찾을 수 없습니다</h1><p class="article-shell__excerpt">요청한 콘텐츠가 아직 준비되지 않았거나 주소가 잘못되었습니다.</p></article>`;
+      detailRoot.innerHTML = '<article class="article-shell"><h1>글을 찾을 수 없습니다</h1><p class="article-shell__excerpt">주소가 잘못되었거나 게시물이 이동되었습니다.</p></article>';
       return;
     }
 
@@ -180,19 +192,19 @@
         <div class="article-shell__hero">
           <div class="article-meta">
             <span>${escapeHtml(sectionLabel(item))}</span>
-            <span>${escapeHtml(item.category)}</span>
-            <span>${escapeHtml(formatDate(item.date))}</span>
+            <span>${escapeHtml(item.category || "-")}</span>
+            <span>${escapeHtml(item.date || "-")}</span>
             <span>${escapeHtml(item.readingTime || "-")}</span>
           </div>
           <h1>${escapeHtml(item.title)}</h1>
-          <p class="article-shell__excerpt">${escapeHtml(item.excerpt)}</p>
+          <p class="article-shell__excerpt">${escapeHtml(item.excerpt || "")}</p>
           <div class="article-shell__chips">
-            <span class="chip chip--accent">핵심 주제 ${escapeHtml(item.category)}</span>
+            <span class="chip chip--accent">주제 ${escapeHtml(item.category || "-")}</span>
             <span class="chip">${escapeHtml(sectionLabel(item))}</span>
-            <span class="chip chip--good">읽기 ${escapeHtml(item.readingTime || "-")}</span>
+            <span class="chip chip--good">${escapeHtml(item.readingTime || "-")}</span>
           </div>
         </div>
-        <div class="article-body">${item.body}</div>
+        <div class="article-body">${item.body || ""}</div>
       </article>
     `;
 
@@ -208,17 +220,15 @@
     }
 
     const summaryEl = document.getElementById("articleSummaryText");
-    if (summaryEl) {
-      summaryEl.textContent = summarizeExcerpt(item.excerpt);
-    }
+    if (summaryEl) summaryEl.textContent = summarizeExcerpt(item.excerpt);
 
     const metaEl = document.getElementById("articleMeta");
     if (metaEl) {
       metaEl.innerHTML = `
         <li>분류: ${escapeHtml(sectionLabel(item))}</li>
-        <li>주제: ${escapeHtml(item.category)}</li>
-        <li>발행일: ${escapeHtml(formatDate(item.date))}</li>
-        <li>읽기 시간: ${escapeHtml(item.readingTime || "-")}</li>
+        <li>주제: ${escapeHtml(item.category || "-")}</li>
+        <li>발행일: ${escapeHtml(item.date || "-")}</li>
+        <li>읽는 시간: ${escapeHtml(item.readingTime || "-")}</li>
       `;
     }
 
@@ -229,11 +239,36 @@
         .slice(0, 4);
       relatedEl.innerHTML = related.length
         ? related.map((entry) => `<li><a class="text-link" href="${itemHref(entry)}">${escapeHtml(entry.title)}</a></li>`).join("")
-        : "<li>같은 분류의 글이 아직 많지 않습니다.</li>";
+        : "<li>같은 섹션의 다른 글을 준비 중입니다.</li>";
     }
   }
 
-  document.addEventListener("DOMContentLoaded", () => {
+  function loadSiteLibrary() {
+    if (Array.isArray(window.SiteLibrary) && window.SiteLibrary.length) {
+      items = window.SiteLibrary;
+      return Promise.resolve(items);
+    }
+    if (window.SiteLibraryReady && typeof window.SiteLibraryReady.then === "function") {
+      return window.SiteLibraryReady.then((loaded) => {
+        items = Array.isArray(loaded) ? loaded : [];
+        return items;
+      });
+    }
+    return fetch("/api/site-library")
+      .then((response) => response.json())
+      .then((payload) => {
+        items = Array.isArray(payload.items) ? payload.items : [];
+        window.SiteLibrary = items;
+        return items;
+      })
+      .catch(() => {
+        items = [];
+        return items;
+      });
+  }
+
+  document.addEventListener("DOMContentLoaded", async () => {
+    await loadSiteLibrary();
     renderHome();
     renderList();
     renderDetail();

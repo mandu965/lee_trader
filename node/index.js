@@ -2,7 +2,6 @@
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
-const vm = require("vm");
 const crypto = require("crypto");
 require("dotenv").config();
 const { Pool } = require("pg");
@@ -93,6 +92,7 @@ let pageViewSchemaReady = null;
 const csvCache = new Map();
 const jsonCache = new Map();
 let siteLibraryCache = { cacheKey: null, items: [] };
+const CONTENT_DIR = path.join(__dirname, "content");
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (m) => ({
@@ -111,24 +111,316 @@ function stripHtml(value) {
     .trim();
 }
 
+function slugify(value) {
+  return String(value || "")
+    .toLowerCase()
+    .trim()
+    .replace(/['"]/g, "")
+    .replace(/[^a-z0-9가-힣]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function parseFrontMatter(raw) {
+  const normalized = String(raw || "").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
+    return { attributes: {}, body: normalized };
+  }
+  const endIndex = normalized.indexOf("\n---\n", 4);
+  if (endIndex === -1) {
+    return { attributes: {}, body: normalized };
+  }
+  const header = normalized.slice(4, endIndex).split("\n");
+  const attributes = {};
+  header.forEach((line) => {
+    const index = line.indexOf(":");
+    if (index === -1) return;
+    const key = line.slice(0, index).trim();
+    const rawValue = line.slice(index + 1).trim();
+    if (!key) return;
+    if (/^(true|false)$/i.test(rawValue)) {
+      attributes[key] = /^true$/i.test(rawValue);
+      return;
+    }
+    if (key === "tags" && rawValue.includes(",")) {
+      attributes[key] = rawValue.split(",").map((entry) => entry.trim()).filter(Boolean);
+      return;
+    }
+    attributes[key] = rawValue.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
+  });
+  return {
+    attributes,
+    body: normalized.slice(endIndex + 5).trim(),
+  };
+}
+
+function renderInlineMarkdown(value) {
+  let html = escapeHtml(value || "");
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="text-link" href="$2">$1</a>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  return html;
+}
+
+function renderMarkdown(markdown) {
+  const lines = String(markdown || "").replace(/\r\n/g, "\n").split("\n");
+  const html = [];
+  let paragraph = [];
+  let listItems = [];
+
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    html.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+    paragraph = [];
+  }
+
+  function flushList() {
+    if (!listItems.length) return;
+    html.push(`<ul>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+    listItems = [];
+  }
+
+  lines.forEach((line) => {
+    const text = line.trim();
+    if (!text) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+    const heading = text.match(/^(#{1,3})\s+(.*)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = Math.min(heading[1].length + 1, 4);
+      html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      return;
+    }
+    const bullet = text.match(/^[-*]\s+(.*)$/);
+    if (bullet) {
+      flushParagraph();
+      listItems.push(bullet[1]);
+      return;
+    }
+    paragraph.push(text);
+  });
+
+  flushParagraph();
+  flushList();
+  return html.join("");
+}
+
+function estimateReadingTime(value) {
+  const plain = stripHtml(value || "");
+  const minutes = Math.max(3, Math.ceil(plain.length / 260));
+  return `${minutes}분`;
+}
+
+function readMarkdownEntries(sectionDir, section) {
+  if (!fs.existsSync(sectionDir)) return [];
+  return fs.readdirSync(sectionDir)
+    .filter((name) => name.endsWith(".md"))
+    .map((name) => {
+      const filePath = path.join(sectionDir, name);
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const stat = fs.statSync(filePath);
+      const { attributes, body } = parseFrontMatter(raw);
+      const renderedBody = renderMarkdown(body);
+      const title = attributes.title || path.basename(name, ".md");
+      const slug = attributes.slug || slugify(path.basename(name, ".md"));
+      const excerpt = attributes.excerpt || stripHtml(renderedBody).slice(0, 140);
+      return {
+        slug,
+        section,
+        category: attributes.category || "일반",
+        title,
+        excerpt,
+        date: attributes.date || stat.mtime.toISOString().slice(0, 10),
+        readingTime: attributes.readingTime || estimateReadingTime(renderedBody),
+        featured: Boolean(attributes.featured),
+        body: renderedBody,
+      };
+    });
+}
+
 function readSiteLibrary() {
-  const filePath = path.join(__dirname, "public", "site-library.js");
-  if (!fs.existsSync(filePath)) return [];
-  const stat = fs.statSync(filePath);
-  const cacheKey = `${stat.mtimeMs}:${stat.size}`;
+  const sectionDirs = [
+    path.join(CONTENT_DIR, "blog"),
+    path.join(CONTENT_DIR, "reports"),
+  ];
+  const cacheKey = sectionDirs
+    .filter((dirPath) => fs.existsSync(dirPath))
+    .flatMap((dirPath) => fs.readdirSync(dirPath)
+      .filter((name) => name.endsWith(".md"))
+      .map((name) => {
+        const stat = fs.statSync(path.join(dirPath, name));
+        return `${dirPath}:${name}:${stat.mtimeMs}:${stat.size}`;
+      }))
+    .join("|");
   if (siteLibraryCache.cacheKey === cacheKey) return siteLibraryCache.items;
 
-  const code = fs.readFileSync(filePath, "utf-8");
-  const sandbox = { window: {} };
-  vm.createContext(sandbox);
-  vm.runInContext(code, sandbox, { filename: "site-library.js" });
-  const items = Array.isArray(sandbox.window.SiteLibrary) ? sandbox.window.SiteLibrary : [];
+  const items = [
+    ...readMarkdownEntries(path.join(CONTENT_DIR, "blog"), "blog"),
+    ...readMarkdownEntries(path.join(CONTENT_DIR, "reports"), "report"),
+  ].sort((a, b) => String(b.date).localeCompare(String(a.date)));
   siteLibraryCache = { cacheKey, items };
   return items;
 }
 
 function buildAbsoluteUrl(pathname) {
   return `${SITE_BASE_URL}${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
+}
+
+function renderJsonLd(value) {
+  if (!value) return "";
+  const payload = Array.isArray(value) ? value : [value];
+  return payload
+    .filter(Boolean)
+    .map((entry) => `<script type="application/ld+json">${JSON.stringify(entry)}</script>`)
+    .join("\n");
+}
+
+function buildPublicPageMeta(pathname) {
+  const normalized = pathname === "/index.html" ? "/" : pathname;
+  const organization = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "Lee Trader Lab",
+    url: SITE_BASE_URL,
+    email: "mandu965@naver.com",
+  };
+  const website = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "Lee Trader Lab",
+    url: SITE_BASE_URL,
+    inLanguage: "ko-KR",
+    description: "국내 주식 데이터와 운영 기준을 설명형 콘텐츠로 제공하는 금융 정보 플랫폼",
+  };
+  const pages = {
+    "/": {
+      title: "Lee Trader Lab | 국내 주식 데이터 해설과 투자 판단 가이드",
+      description: "국내 주식 시장 해설, 투자 판단 기준, 용어 설명, 운영 메모를 제공하는 금융 정보형 플랫폼입니다.",
+      canonicalPath: "/",
+      type: "website",
+      structuredData: [organization, website],
+    },
+    "/about": {
+      title: "회사 소개 | Lee Trader Lab",
+      description: "Lee Trader Lab의 운영 목적, 콘텐츠 원칙, 데이터 해석 기준, 독자 대상 범위를 소개합니다.",
+      canonicalPath: "/about",
+      structuredData: [
+        organization,
+        {
+          "@context": "https://schema.org",
+          "@type": "AboutPage",
+          name: "회사 소개",
+          url: buildAbsoluteUrl("/about"),
+          description: "Lee Trader Lab의 운영 목적과 콘텐츠 원칙 소개",
+        },
+      ],
+    },
+    "/methodology": {
+      title: "방법론 | Lee Trader Lab",
+      description: "점수, 시장 국면, 리스크 관리, 운영 가드, 검증 절차를 설명하는 방법론 페이지입니다.",
+      canonicalPath: "/methodology",
+    },
+    "/glossary": {
+      title: "용어 해설 | Lee Trader Lab",
+      description: "Lee Trader Lab 공개 페이지에서 사용하는 핵심 투자·운영 용어를 쉬운 말로 풀이합니다.",
+      canonicalPath: "/glossary",
+    },
+    "/operator-note": {
+      title: "운영 안내 | Lee Trader Lab",
+      description: "실거래 화면과 운영 로그를 어떻게 읽어야 하는지, 공개 범위와 한계를 안내합니다.",
+      canonicalPath: "/operator-note",
+    },
+    "/contact": {
+      title: "문의 | Lee Trader Lab",
+      description: "서비스 문의, 콘텐츠 수정 요청, 광고·정책 관련 문의를 위한 연락 안내 페이지입니다.",
+      canonicalPath: "/contact",
+      structuredData: {
+        "@context": "https://schema.org",
+        "@type": "ContactPage",
+        name: "문의",
+        url: buildAbsoluteUrl("/contact"),
+      },
+    },
+    "/privacy": {
+      title: "개인정보처리방침 | Lee Trader Lab",
+      description: "쿠키, 로그, 광고, 문의 처리 과정에서의 개인정보 처리 기준을 안내합니다.",
+      canonicalPath: "/privacy",
+    },
+    "/terms": {
+      title: "이용약관 | Lee Trader Lab",
+      description: "사이트 이용 조건, 콘텐츠 사용 범위, 책임 제한, 금지 행위를 정리한 이용약관입니다.",
+      canonicalPath: "/terms",
+    },
+    "/disclaimer": {
+      title: "면책조항 | Lee Trader Lab",
+      description: "본 사이트의 금융 정보 제공 범위, 투자 책임, 데이터 한계를 설명하는 면책 문구입니다.",
+      canonicalPath: "/disclaimer",
+    },
+    "/reports": {
+      title: "시장 해설 | Lee Trader Lab",
+      description: "국내 주식 시장 국면, 수급, 리스크, 운영 관찰 포인트를 설명형 리서치로 제공합니다.",
+      canonicalPath: "/reports",
+      structuredData: {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        name: "시장 해설",
+        url: buildAbsoluteUrl("/reports"),
+      },
+    },
+    "/blog": {
+      title: "블로그 | Lee Trader Lab",
+      description: "투자 기초, 리스크 관리, 데이터 읽기, 운영 노하우를 다루는 금융 정보 블로그입니다.",
+      canonicalPath: "/blog",
+      structuredData: {
+        "@context": "https://schema.org",
+        "@type": "Blog",
+        name: "Lee Trader Lab 블로그",
+        url: buildAbsoluteUrl("/blog"),
+      },
+    },
+    "/app": {
+      title: "운영 앱 | Lee Trader Lab",
+      description: "Lee Trader Lab의 운영 화면과 데이터 대시보드입니다. 일반 독자는 해설 콘텐츠를 먼저 읽는 것을 권장합니다.",
+      canonicalPath: "/app",
+    },
+  };
+  return pages[normalized] || null;
+}
+
+function applyPublicPageMeta(html, pathname) {
+  const meta = buildPublicPageMeta(pathname);
+  if (!meta) return html;
+
+  let next = html;
+  const canonicalUrl = buildAbsoluteUrl(meta.canonicalPath || pathname || "/");
+  const title = escapeHtml(meta.title || "Lee Trader Lab");
+  const description = escapeHtml(meta.description || "");
+  const headExtras = [
+    '<link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>',
+    '<link rel="dns-prefetch" href="//www.googletagmanager.com">',
+    '<link rel="dns-prefetch" href="//pagead2.googlesyndication.com">',
+    `<link rel="canonical" href="${escapeHtml(canonicalUrl)}">`,
+    `<meta property="og:type" content="${escapeHtml(meta.type || "website")}">`,
+    `<meta property="og:title" content="${title}">`,
+    `<meta property="og:description" content="${description}">`,
+    `<meta property="og:url" content="${escapeHtml(canonicalUrl)}">`,
+    '<meta name="twitter:card" content="summary_large_image">',
+    `<meta name="twitter:title" content="${title}">`,
+    `<meta name="twitter:description" content="${description}">`,
+    renderJsonLd(meta.structuredData),
+  ].filter(Boolean).join("\n");
+
+  next = next.replace(/<title>[\s\S]*?<\/title>/i, `<title>${title}</title>`);
+  if (/<meta\s+name=["']description["'][^>]*>/i.test(next)) {
+    next = next.replace(/<meta\s+name=["']description["'][^>]*>/i, `<meta name="description" content="${description}">`);
+  } else {
+    next = next.replace("</head>", `  <meta name="description" content="${description}">\n</head>`);
+  }
+  return injectHeadSnippet(next, headExtras);
 }
 
 function renderGoogleAnalyticsSnippet() {
@@ -200,6 +492,24 @@ function renderArticlePage(item, section) {
   const title = `${item.title} | Lee Trader Lab`;
   const description = stripHtml(item.excerpt || item.body).slice(0, 160);
   const canonicalUrl = buildAbsoluteUrl(canonicalPath);
+  const articleSchema = {
+    "@context": "https://schema.org",
+    "@type": "Article",
+    headline: item.title,
+    description,
+    datePublished: item.date || undefined,
+    dateModified: item.date || undefined,
+    mainEntityOfPage: canonicalUrl,
+    author: {
+      "@type": "Organization",
+      name: "Lee Trader Lab",
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "Lee Trader Lab",
+      url: SITE_BASE_URL,
+    },
+  };
 
   return `<!doctype html>
 <html lang="ko">
@@ -216,7 +526,10 @@ function renderArticlePage(item, section) {
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${escapeHtml(item.title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
+  <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
+  <link rel="dns-prefetch" href="//www.googletagmanager.com">
   <link rel="stylesheet" href="/site.css">
+  ${renderJsonLd(articleSchema)}
 ${renderAnalyticsHeadSnippet()}
 </head>
 <body class="site-body">
@@ -236,7 +549,7 @@ ${renderAnalyticsHeadSnippet()}
         <a href="/about">소개</a>
         <a href="/methodology">방법론</a>
         <a href="/glossary">용어 해설</a>
-        <a href="/operator-note">관리자 말씀</a>
+        <a href="/operator-note">운영 안내</a>
         <span class="site-nav__section">콘텐츠</span>
         <a class="${section === "reports" ? "is-active" : ""}" href="/reports">시장 해설</a>
         <a class="${section === "blog" ? "is-active" : ""}" href="/blog">블로그</a>
@@ -281,14 +594,27 @@ ${renderAnalyticsHeadSnippet()}
             <ul>
               <li><a class="text-link" href="/methodology">방법론 읽기</a></li>
               <li><a class="text-link" href="/glossary">용어 해설 보기</a></li>
+              <li><a class="text-link" href="/about">회사 소개 보기</a></li>
+              <li><a class="text-link" href="/disclaimer">면책조항 확인</a></li>
               <li><a class="text-link" href="/app">운영 앱 열기</a></li>
-              <li><a class="text-link" href="/ops-readiness.html">운영 상태 페이지</a></li>
             </ul>
           </section>
         </aside>
       </div>
     </div>
   </main>
+  <footer class="site-footer">
+    <div class="site-container site-footer__inner">
+      <div>Lee Trader Lab · 설명 중심 국내 주식 정보 플랫폼</div>
+      <div>
+        <a class="text-link" href="/privacy">개인정보처리방침</a>
+        ·
+        <a class="text-link" href="/terms">이용약관</a>
+        ·
+        <a class="text-link" href="/disclaimer">면책조항</a>
+      </div>
+    </div>
+  </footer>
   <script src="/site-shell.js"></script>
 </body>
 </html>`;
@@ -3200,8 +3526,9 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 function sendPublicPage(res, fileName) {
   const filePath = path.join(PUBLIC_DIR, fileName);
   try {
-    const html = fs.readFileSync(filePath, "utf-8");
+    const html = applyPublicPageMeta(fs.readFileSync(filePath, "utf-8"), res.req?.path || "/");
     const withHead = injectHeadSnippet(html, renderAnalyticsHeadSnippet());
+    res.set("Cache-Control", "no-cache");
     return res.type("html").send(injectBodySnippet(withHead, renderOpsUnifiedNavSnippet(fileName)));
   } catch (e) {
     console.error("sendPublicPage error", fileName, e);
@@ -3243,6 +3570,8 @@ app.get("/sitemap.xml", (req, res) => {
     "/",
     "/about",
     "/methodology",
+    "/glossary",
+    "/operator-note",
     "/contact",
     "/privacy",
     "/terms",
@@ -3270,7 +3599,19 @@ app.get("/blog/:slug", (req, res) => {
   if (!item) return res.status(404).sendFile(path.join(PUBLIC_DIR, "content-detail.html"));
   return res.type("html").send(renderArticlePage(item, "blog"));
 });
-app.use(express.static(PUBLIC_DIR));
+app.use(express.static(PUBLIC_DIR, {
+  etag: true,
+  lastModified: true,
+  setHeaders: (res, filePath) => {
+    if (/\.(html|xml|txt)$/i.test(filePath)) {
+      res.setHeader("Cache-Control", "no-cache");
+      return;
+    }
+    if (/\.(css|js|mjs|png|jpg|jpeg|gif|svg|webp|ico|woff|woff2)$/i.test(filePath)) {
+      res.setHeader("Cache-Control", "public, max-age=604800, immutable");
+    }
+  },
+}));
 
 // Admin page/API (protected by adminAuth; allow if ADMIN_TOKEN unset)
 try {

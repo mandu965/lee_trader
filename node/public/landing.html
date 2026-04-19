@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Lee Trader Lab | 데이터 기반 국내 주식 운영 해석</title>
-  <meta name="description" content="국내 주식 데이터를 바탕으로 시장 해설, 운영 기준, 후보 점검 구조를 공개하는 Lee Trader Lab입니다.">
-  <meta name="naver-site-verification" content="75259186bd5facbabc93a85e43d828d4c941a8e0" />
-  <meta name="google-site-verification" content="Jv-UGoIgbRPUDFJdKUfmHJHjeOMmjmYC7hihHuBeL2E" />
+  <title>Lee Trader Lab | 국내 주식 데이터 해설과 투자 판단 가이드</title>
+  <meta name="description" content="AI 기반 국내 주식 분석 플랫폼 Lee Trader Lab. 오늘 시장 요약, 추천 종목 설명, 투자 공부 글, 신뢰 정보와 투자 유의사항을 제공합니다.">
+  <meta name="naver-site-verification" content="75259186bd5facbabc93a85e43d828d4c941a8e0">
+  <meta name="google-site-verification" content="Jv-UGoIgbRPUDFJdKUfmHJHjeOMmjmYC7hihHuBeL2E">
   <link rel="stylesheet" href="/site.css">
 </head>
 <body class="site-body" data-page="home">
@@ -26,7 +26,7 @@
         <a href="/about">소개</a>
         <a href="/methodology">방법론</a>
         <a href="/glossary">용어 해설</a>
-        <a href="/operator-note">관리자 말씀</a>
+        <a href="/operator-note">운영 안내</a>
         <span class="site-nav__section">콘텐츠</span>
         <a href="/reports">시장 해설</a>
         <a href="/blog">블로그</a>
@@ -39,83 +39,62 @@
 
   <main class="site-main">
     <div class="site-container">
-      <section class="hero home-hero">
+      <section class="hero home-hero home-hero--adsense">
         <div class="home-hero__intro">
-          <p class="hero__eyebrow">Public Research Layer</p>
-          <h1 class="hero__title">추천보다 먼저<br>판단의 이유를 설명합니다</h1>
-          <p class="hero__lead">Lee Trader Lab은 국내 주식 데이터를 바탕으로 오늘 무엇이 좋아 보이는지보다, 왜 지금은 관찰이 우선인지 왜 바로 진입하지 않는지까지 설명하는 공개 해설 레이어입니다. 운영자가 수동 배포한 마감 기준 데이터와 필요 시 장중 기준 데이터를 구분해 보여 주며, 숫자보다 읽는 기준을 먼저 정리합니다.</p>
+          <p class="hero__eyebrow">AI Stock Research</p>
+          <h1 class="hero__title home-hero__title">AI 기반<br>국내 주식 분석 플랫폼</h1>
+          <p class="hero__lead">Lee Trader Lab은 국내 주식 시장을 데이터와 문맥으로 함께 해석하는 정보형 플랫폼입니다. 점수만 보여주지 않고 오늘 시장이 어떤 상태인지, 어떤 종목을 왜 주목하는지, 어떤 위험을 먼저 봐야 하는지까지 설명합니다.</p>
           <div class="hero__cta-stack">
             <div class="hero__actions">
-              <a class="btn btn--primary" href="/reports">오늘의 해설 보기</a>
-              <a class="btn" href="/methodology">방법론 읽기</a>
-              <a class="btn" href="/glossary">용어 해설</a>
+              <a class="btn btn--primary" href="#market-summary">오늘 시장 요약 보기</a>
+              <a class="btn" href="/reports">시장 해설 전체 보기</a>
+              <a class="btn" href="/blog">투자 공부 글 보기</a>
             </div>
             <div class="chip-row hero__chips">
-              <span class="chip chip--accent">시장 해설</span>
-              <span class="chip chip--good">운영 기준</span>
-              <span class="chip">수동매매 점검</span>
+              <span class="chip chip--accent">오늘 시장 요약</span>
+              <span class="chip chip--good">추천 종목 이유 설명</span>
+              <span class="chip">모바일 우선 UI</span>
             </div>
           </div>
         </div>
 
-        <div class="home-hero__side">
-          <article class="mini-feature mini-feature--primary">
-            <p class="mini-feature__eyebrow">이 사이트의 중심</p>
-            <h3>좋아 보이는 종목보다<br>운영 가능한 판단</h3>
-            <p>점수, 매수 기준, 시장 상태, 위험 해석을 함께 읽어 실제 행동 강도를 구분합니다.</p>
-          </article>
+        <aside class="hero__card home-hero__brief">
+          <div class="hero__stat">
+            <span class="hero__stat-label">플랫폼 방향</span>
+            <strong class="hero__stat-value">설명형 금융 정보</strong>
+          </div>
+          <div class="hero__stat">
+            <span class="hero__stat-label">핵심 콘텐츠</span>
+            <strong class="hero__stat-value">시장 요약 · 추천 이유 · 투자 공부</strong>
+          </div>
+          <div class="hero__stat">
+            <span class="hero__stat-label">신뢰 장치</span>
+            <strong class="hero__stat-value">회사 소개 · 정책 문서 · 면책 안내</strong>
+          </div>
+        </aside>
+      </section>
+
+      <section id="market-summary" class="section">
+        <div class="section__head">
+          <div>
+            <p class="section__eyebrow">Today</p>
+            <h2 class="section__title">오늘 시장 요약</h2>
+            <p class="section__desc">당일 공개 리서치 기준으로 국내 주식 시장의 분위기와 체크 포인트를 짧게 정리합니다.</p>
+          </div>
         </div>
-      </section>
-
-      <section class="section">
-        <div class="reading-strip">
-          <article class="summary-card">
-            <h3>처음 방문했다면</h3>
-            <p><strong>소개 → 방법론 → 용어 해설</strong> 순서로 읽으면 공개 페이지 전체 흐름을 가장 빠르게 파악할 수 있습니다.</p>
+        <div class="home-summary">
+          <article class="summary-card summary-card--focus">
+            <span class="home-summary__badge">핵심 결론</span>
+            <h3>현재 시장 해석은 중립, 추격 매수보다 선별 관찰이 우선입니다</h3>
+            <p>지수 방어력은 유지되지만 업종 순환이 빠르고 종목 확산도는 제한적입니다. 이런 구간에서는 점수보다 진입 가격과 손절 간격을 더 중요하게 봐야 합니다.</p>
           </article>
           <article class="summary-card">
-            <h3>핵심 읽기 원칙</h3>
-            <p><span class="term">점수</span>는 상대 비교이고, <span class="term term--accent">buy gate</span>는 실제 행동 강도에 더 가깝습니다.</p>
+            <h3>시장 분위기</h3>
+            <p>강한 방향성보다는 종목별 차별화가 큰 구간입니다. 방어 업종과 실적 가시성 높은 종목이 상대적으로 안정적입니다.</p>
           </article>
           <article class="summary-card">
-            <h3>낯선 용어가 보이면</h3>
-            <p><a class="text-link" href="/glossary">용어 해설</a>에서 <span class="term term--good">shadow</span>, <span class="term">confidence</span>, <span class="term term--accent">market regime</span>부터 확인하세요.</p>
-          </article>
-        </div>
-      </section>
-
-      <section class="section trust-band">
-        <article class="trust-band__item">
-          <span class="trust-band__label">핵심 관점</span>
-          <strong>운영 판단이 먼저</strong>
-        </article>
-        <article class="trust-band__item">
-          <span class="trust-band__label">공개 방향</span>
-          <strong>설명 중심 리서치</strong>
-        </article>
-        <article class="trust-band__item">
-          <span class="trust-band__label">읽는 대상</span>
-          <strong>비전문가도 이해 가능</strong>
-        </article>
-        <article class="trust-band__item">
-          <span class="trust-band__label">주요 구성</span>
-          <strong>소개 · 방법론 · 용어 · 해설</strong>
-        </article>
-      </section>
-
-      <section class="section">
-        <div class="reading-strip">
-          <article class="summary-card">
-            <h3>접속 안내</h3>
-            <p>이 시스템은 Render를 활용한 무료 호스팅 버전으로 배포되어 있습니다.</p>
-          </article>
-          <article class="summary-card">
-            <h3>잠자는 화면이 보이면</h3>
-            <p>약 15분간 트래픽이 없으면 서비스가 일시적으로 sleep 상태로 들어갈 수 있습니다.</p>
-          </article>
-          <article class="summary-card">
-            <h3>조금만 기다리면 됩니다</h3>
-            <p>잠시 후 자동으로 다시 깨어나며, 조금만 기다리면 시스템 이용이 가능합니다.</p>
+            <h3>오늘의 관찰 포인트</h3>
+            <p>거래대금 집중, 업종 순환 속도, 장초반 변동성 확대 여부를 먼저 확인하세요. 숫자보다 리스크 해석이 중요합니다.</p>
           </article>
         </div>
       </section>
@@ -123,35 +102,98 @@
       <section class="section">
         <div class="section__head">
           <div>
-            <p class="section__eyebrow">Start Here</p>
-            <h2 class="section__title">먼저 무엇을 읽으면 좋은가</h2>
-            <p class="section__desc">각 페이지는 역할이 다릅니다. 시작 순서를 잡아두면 긴 글도 훨씬 덜 피곤하게 읽을 수 있습니다.</p>
+            <p class="section__eyebrow">Top Picks</p>
+            <h2 class="section__title">추천 종목과 이유 설명</h2>
+            <p class="section__desc">아래 종목은 정보 제공 목적의 관찰 후보입니다. 추천 사유와 함께 유의할 점까지 같이 확인하는 구조로 설계했습니다.</p>
           </div>
         </div>
-        <div class="quick-guide-grid">
+        <div class="pick-grid">
+          <article class="pick-card">
+            <div class="pick-card__head">
+              <div>
+                <p class="pick-card__ticker">000660</p>
+                <h3>SK하이닉스</h3>
+              </div>
+              <span class="chip chip--accent">반도체</span>
+            </div>
+            <p class="pick-card__lead">AI 서버 수요 기대와 메모리 업황 회복 기대가 동시에 반영되는 대표 종목입니다.</p>
+            <ul class="pick-card__reasons">
+              <li>실적 추정 상향 기대가 높아 업종 대표성 프리미엄이 유지됩니다.</li>
+              <li>대형주라 유동성이 좋고 개인 투자자가 가격 추적을 하기에 상대적으로 명확합니다.</li>
+              <li>업종 전체 심리와 동행하는 경향이 강해 시장 바로미터 역할도 합니다.</li>
+            </ul>
+            <p class="pick-card__risk">유의사항: 단기 급등 후에는 변동성이 커질 수 있어 분할 접근과 손절 기준 확인이 필요합니다.</p>
+          </article>
+          <article class="pick-card">
+            <div class="pick-card__head">
+              <div>
+                <p class="pick-card__ticker">267260</p>
+                <h3>HD현대일렉트릭</h3>
+              </div>
+              <span class="chip chip--good">전력 인프라</span>
+            </div>
+            <p class="pick-card__lead">전력 설비 투자 확대 기대가 유지되는 가운데 실적 모멘텀이 비교적 명확한 종목입니다.</p>
+            <ul class="pick-card__reasons">
+              <li>테마성 기대뿐 아니라 실적 설명이 가능한 구간이라 정보형 콘텐츠와 궁합이 좋습니다.</li>
+              <li>글로벌 전력망 투자 이슈와 연결돼 배경 설명이 쉬운 편입니다.</li>
+              <li>업종 내 대표 종목으로 뉴스 흐름과 수급 해석 포인트가 분명합니다.</li>
+            </ul>
+            <p class="pick-card__risk">유의사항: 이미 기대가 많이 반영된 구간에서는 조정폭이 커질 수 있어 추격 매수는 신중해야 합니다.</p>
+          </article>
+          <article class="pick-card">
+            <div class="pick-card__head">
+              <div>
+                <p class="pick-card__ticker">207940</p>
+                <h3>삼성바이오로직스</h3>
+              </div>
+              <span class="chip">방어 성장</span>
+            </div>
+            <p class="pick-card__lead">중립 시장에서 방어력과 성장성을 함께 기대할 수 있는 대형주 후보로 자주 언급됩니다.</p>
+            <ul class="pick-card__reasons">
+              <li>대형 수주와 생산능력 확장 스토리가 있어 중장기 설명이 가능합니다.</li>
+              <li>지수 방어 구간에서 포트폴리오 안정성을 높이는 관점으로 자주 활용됩니다.</li>
+              <li>초보 투자자도 사업 구조를 이해하기 비교적 쉬운 대표 종목입니다.</li>
+            </ul>
+            <p class="pick-card__risk">유의사항: 바이오 업종 특성상 뉴스 이벤트에 따라 평가가 빠르게 바뀔 수 있으므로 일정 확인이 중요합니다.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section__head">
+          <div>
+            <p class="section__eyebrow">Study</p>
+            <h2 class="section__title">최신 투자 공부 글</h2>
+            <p class="section__desc">단기 추천보다 오래 읽히는 투자 기초, 리스크 관리, 데이터 해석 글을 우선 노출합니다.</p>
+          </div>
+          <a class="text-link" href="/blog">블로그 전체 보기</a>
+        </div>
+        <div id="studyPosts" class="article-grid"></div>
+      </section>
+
+      <section class="section">
+        <div class="section__head">
+          <div>
+            <p class="section__eyebrow">Trust</p>
+            <h2 class="section__title">왜 신뢰할 수 있나요</h2>
+            <p class="section__desc">추천만 보여주는 구조가 아니라 근거, 정책, 한계를 함께 공개하는 방식으로 신뢰를 만듭니다.</p>
+          </div>
+        </div>
+        <div class="trust-grid">
           <article class="guide-card">
             <span class="guide-card__step">1</span>
-            <h3>사이트가 무엇인지 알고 싶다면</h3>
-            <p>먼저 소개 페이지에서 목적과 공개 범위를 확인하세요. “무엇을 보여주고 무엇을 바로 행동으로 보지 않는지”를 정리해 둔 페이지입니다.</p>
-            <a class="text-link" href="/about">소개로 이동</a>
+            <h3>근거를 먼저 설명합니다</h3>
+            <p>시장 해설과 추천 종목마다 왜 주목하는지, 어떤 리스크를 같이 봐야 하는지 설명합니다.</p>
           </article>
           <article class="guide-card">
             <span class="guide-card__step">2</span>
-            <h3>해석 기준이 궁금하다면</h3>
-            <p>방법론 페이지에서 점수, gate, 시장 상태, 장중 점검이 어떻게 연결되는지 볼 수 있습니다.</p>
-            <a class="text-link" href="/methodology">방법론 읽기</a>
+            <h3>운영 정보와 정책을 공개합니다</h3>
+            <p>회사 소개, 개인정보처리방침, 이용약관, 면책조항을 공개해 사이트 범위와 책임을 명확히 합니다.</p>
           </article>
           <article class="guide-card">
             <span class="guide-card__step">3</span>
-            <h3>단어가 낯설다면</h3>
-            <p>공개 글에 자주 나오는 핵심 단어를 쉬운 말로 다시 정리한 페이지입니다.</p>
-            <a class="text-link" href="/glossary">용어 해설 보기</a>
-          </article>
-          <article class="guide-card">
-            <span class="guide-card__step">4</span>
-            <h3>운영 기록의 의미가 궁금하다면</h3>
-            <p>보유종목과 매매이력이 무엇을 뜻하는지, 어디까지 관리자 기록인지 먼저 확인해 두면 공개 화면을 훨씬 덜 오해하게 됩니다.</p>
-            <a class="text-link" href="/operator-note">관리자 말씀 보기</a>
+            <h3>초보자도 읽을 수 있게 씁니다</h3>
+            <p>전문 용어는 줄이고, 낯선 표현은 용어 해설과 내부 링크로 연결해 이해 장벽을 낮췄습니다.</p>
           </article>
         </div>
       </section>
@@ -159,73 +201,28 @@
       <section class="section">
         <div class="section__head">
           <div>
-            <p class="section__eyebrow">How To Read</p>
-            <h2 class="section__title">공개 화면은 이렇게 읽는 편이 좋습니다</h2>
-            <p class="section__desc">처음 보는 분이 가장 자주 헷갈리는 포인트만 짧게 정리했습니다.</p>
+            <p class="section__eyebrow">Caution</p>
+            <h2 class="section__title">투자 유의사항</h2>
           </div>
         </div>
-        <div class="example-grid">
-          <article class="example-card">
-            <span class="example-card__label">1. 점수</span>
-            <h3>상위권이라고 바로 매수 뜻은 아닙니다</h3>
-            <p><span class="term">final score</span>는 오늘 후보들 사이의 상대 비교입니다. 실제 행동은 <span class="term term--accent">buy gate</span>와 시장 상태를 함께 봐야 합니다.</p>
-          </article>
-          <article class="example-card">
-            <span class="example-card__label">2. 장중</span>
-            <h3>장중 화면은 보조 점검으로 보셔야 합니다</h3>
-            <p>장중 데이터는 운영자가 필요할 때 수동 배포하는 보조 레이어이며, 마감 기준 데이터를 대체하지 않습니다.</p>
-          </article>
-          <article class="example-card">
-            <span class="example-card__label">3. 기록</span>
-            <h3>보유종목과 매매이력은 운영 기록입니다</h3>
-            <p>공개 기록은 관리자만 직접 입력하는 운영 로그입니다. 현재는 소액 테스트 단계라는 점까지 함께 읽는 편이 맞습니다.</p>
-          </article>
+        <div class="risk-panel">
+          <p>본 사이트의 시장 요약과 추천 종목 설명은 정보 제공 목적이며, 특정 종목의 매수·매도를 직접 권유하는 투자 자문이 아닙니다. 실제 투자 판단과 손익 책임은 이용자 본인에게 있습니다. 보다 자세한 기준은 <a class="text-link" href="/disclaimer">면책조항</a>과 <a class="text-link" href="/terms">이용약관</a>을 확인하세요.</p>
         </div>
-      </section>
-
-      <section class="section">
-        <div class="section__head">
-          <div>
-            <p class="section__eyebrow">Featured</p>
-            <h2 class="section__title">먼저 읽을 글</h2>
-          </div>
-        </div>
-        <div id="featuredGrid" class="article-grid"></div>
-      </section>
-
-      <section class="section">
-        <div class="section__head">
-          <div>
-            <p class="section__eyebrow">Latest Reports</p>
-            <h2 class="section__title">최신 시장 해설</h2>
-          </div>
-          <a class="text-link" href="/reports">전체 시장 해설 보기</a>
-        </div>
-        <div id="latestReports" class="article-grid"></div>
-      </section>
-
-      <section class="section">
-        <div class="section__head">
-          <div>
-            <p class="section__eyebrow">Latest Blog</p>
-            <h2 class="section__title">최신 블로그</h2>
-          </div>
-          <a class="text-link" href="/blog">전체 블로그 보기</a>
-        </div>
-        <div id="latestPosts" class="article-grid"></div>
       </section>
     </div>
   </main>
 
   <footer class="site-footer">
     <div class="site-container site-footer__inner">
-      <div>Lee Trader Lab · 데이터 기반 국내 주식 운영 해석과 시장 브리프</div>
+      <div>Lee Trader Lab · 설명 중심 국내 주식 정보 플랫폼</div>
       <div>
-        <a class="text-link" href="/privacy">개인정보 처리방침</a>
+        <a class="text-link" href="/about">회사소개</a>
+        ·
+        <a class="text-link" href="/privacy">개인정보처리방침</a>
         ·
         <a class="text-link" href="/terms">이용약관</a>
         ·
-        <a class="text-link" href="/disclaimer">면책 문구</a>
+        <a class="text-link" href="/disclaimer">면책조항</a>
       </div>
     </div>
   </footer>
@@ -235,5 +232,3 @@
   <script src="/site-app.js"></script>
 </body>
 </html>
-
-
