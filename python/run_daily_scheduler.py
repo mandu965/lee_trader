@@ -240,6 +240,14 @@ def _parse_daily_time(raw: str) -> tuple[int, int]:
     return hour, minute
 
 
+def _parse_daily_times(raw: str) -> list[tuple[int, int]]:
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    parsed = {_parse_daily_time(part.strip()) for part in text.split(",") if part.strip()}
+    return sorted(parsed)
+
+
 def _parse_interval_minutes() -> int:
     raw_minutes = str(os.environ.get("SCHEDULER_INTERVAL_MINUTES", "")).strip()
     raw_hours = str(os.environ.get("SCHEDULER_INTERVAL_HOURS", "")).strip()
@@ -274,6 +282,32 @@ def _should_run_today(now: datetime, scheduled_hour: int, scheduled_minute: int,
     if failure_skip_date == today:
         return False
     return (now.hour, now.minute) >= (scheduled_hour, scheduled_minute)
+
+
+def _should_run_daily_slots(now: datetime, schedule_slots: list[tuple[int, int]], status: dict[str, object]) -> bool:
+    if not schedule_slots:
+        return False
+    bootstrap_skip_date = str(status.get("bootstrap_skip_until_date") or "").strip()
+    policy_skip_date = str(status.get("last_policy_skip_date") or "").strip()
+    failure_skip_date = str(status.get("last_failure_skip_date") or "").strip()
+    today = now.strftime("%Y-%m-%d")
+    if bootstrap_skip_date == today:
+        return False
+    if policy_skip_date == today:
+        return False
+    if failure_skip_date == today:
+        return False
+
+    eligible_slots = [
+        f"{today} {hour:02d}:{minute:02d}"
+        for hour, minute in schedule_slots
+        if (now.hour, now.minute) >= (hour, minute)
+    ]
+    if not eligible_slots:
+        return False
+
+    last_success_slot = str(status.get("last_success_schedule_slot") or "").strip()
+    return last_success_slot != eligible_slots[-1]
 
 
 def _should_run_interval(now: datetime, interval_minutes: int, status: dict[str, object]) -> bool:
@@ -362,6 +396,7 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
                 "status": "idle",
                 "last_success_at": finished_at,
                 "last_success_date": finished_at[:10],
+                "last_success_schedule_slot": str(status.get("pending_schedule_slot") or ""),
                 "last_completed_step": run_steps[-1][0],
                 "last_error": "",
             }
@@ -394,6 +429,7 @@ def main() -> int:
     tz_name = os.environ.get("SCHEDULER_TIMEZONE", DEFAULT_TIMEZONE).strip() or DEFAULT_TIMEZONE
     tz = ZoneInfo(tz_name)
     scheduled_hour, scheduled_minute = _parse_daily_time(os.environ.get("SCHEDULER_DAILY_TIME", DEFAULT_TIME))
+    scheduled_times = _parse_daily_times(os.environ.get("SCHEDULER_DAILY_TIMES", ""))
     interval_minutes = _parse_interval_minutes()
     poll_seconds = int(os.environ.get("SCHEDULER_POLL_SECONDS", str(DEFAULT_POLL_SECONDS)))
     run_policy = os.environ.get("SCHEDULER_RUN_POLICY", DEFAULT_RUN_POLICY).strip() or DEFAULT_RUN_POLICY
@@ -406,10 +442,11 @@ def main() -> int:
     }
 
     logging.info(
-        "Scheduler started timezone=%s daily_time=%02d:%02d interval_minutes=%d poll_seconds=%d skip_catchup=%s run_policy=%s command_set=%s status_path=%s",
+        "Scheduler started timezone=%s daily_time=%02d:%02d daily_times=%s interval_minutes=%d poll_seconds=%d skip_catchup=%s run_policy=%s command_set=%s status_path=%s",
         tz_name,
         scheduled_hour,
         scheduled_minute,
+        ",".join(f"{hour:02d}:{minute:02d}" for hour, minute in scheduled_times) or "-",
         interval_minutes,
         poll_seconds,
         skip_catchup,
@@ -422,7 +459,12 @@ def main() -> int:
     status.setdefault("timezone", tz_name)
     status.setdefault("scheduler_mode", _scheduler_mode())
     status.setdefault("status", "idle")
-    status["configured_daily_time"] = f"{scheduled_hour:02d}:{scheduled_minute:02d}"
+    configured_daily_time = (
+        ",".join(f"{hour:02d}:{minute:02d}" for hour, minute in scheduled_times)
+        if scheduled_times
+        else f"{scheduled_hour:02d}:{scheduled_minute:02d}"
+    )
+    status["configured_daily_time"] = configured_daily_time
     status["configured_interval_minutes"] = interval_minutes
     status["skip_catchup_on_start"] = skip_catchup
     status["run_policy"] = run_policy
@@ -439,7 +481,10 @@ def main() -> int:
         )
     ):
         now = _now(tz)
-        if (now.hour, now.minute) >= (scheduled_hour, scheduled_minute):
+        first_scheduled_hour, first_scheduled_minute = (
+            scheduled_times[0] if scheduled_times else (scheduled_hour, scheduled_minute)
+        )
+        if (now.hour, now.minute) >= (first_scheduled_hour, first_scheduled_minute):
             status["bootstrap_skip_until_date"] = now.strftime("%Y-%m-%d")
             status["status_note"] = "Started after scheduled time; first catch-up run skipped until next day."
         else:
@@ -451,9 +496,24 @@ def main() -> int:
         should_run = (
             _should_run_interval(now, interval_minutes, status)
             if interval_minutes > 0
-            else _should_run_today(now, scheduled_hour, scheduled_minute, status)
+            else (
+                _should_run_daily_slots(now, scheduled_times, status)
+                if scheduled_times
+                else _should_run_today(now, scheduled_hour, scheduled_minute, status)
+            )
         )
         if should_run:
+            if interval_minutes > 0:
+                status["pending_schedule_slot"] = ""
+            elif scheduled_times:
+                eligible_slots = [
+                    f"{now.strftime('%Y-%m-%d')} {hour:02d}:{minute:02d}"
+                    for hour, minute in scheduled_times
+                    if (now.hour, now.minute) >= (hour, minute)
+                ]
+                status["pending_schedule_slot"] = eligible_slots[-1] if eligible_slots else ""
+            else:
+                status["pending_schedule_slot"] = f"{now.strftime('%Y-%m-%d')} {scheduled_hour:02d}:{scheduled_minute:02d}"
             can_run, reason = _evaluate_run_policy(now, run_policy)
             status["last_policy_check_at"] = now.isoformat()
             status["last_policy_reason"] = reason

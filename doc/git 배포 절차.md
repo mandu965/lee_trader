@@ -38,6 +38,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 - `run_manual_close_batch.py`가 `pipeline -> 산출물 날짜 검증 -> run_operational_refresh -> serving 날짜 검증 -> sync_web_display_data -> node-api 재기동` 흐름을 강제합니다.
 - 수동 close 배치는 이 경로를 기본으로 씁니다.
+- 자동매매 종목선정의 기준 입력도 이 close batch 이후 갱신된 `ranking_final`, `operational_buy_gate`, `trade_intents` 계열 산출물입니다.
 
 ## 2. 거래 CSV 내보내기
 
@@ -168,6 +169,8 @@ git push origin main
 ## 9. 현재 자동매매 운영 상태
 
 - 현재 코드 기준 실운용 상태는 `PILOT 제한 실운용`까지 구현된 상태입니다.
+- 자동매매 종목선정은 기본적으로 장마감 이후 close batch에서 확정된 랭킹과 게이트 산출물을 기준으로 이뤄집니다.
+- 즉 장중 `intraday`는 보조 참고용이고, 실제 자동주문 대상 선정의 기준본은 close batch 결과입니다.
 - `WATCH`에서는 아래 제한 규칙만 허용합니다.
   - 최대 `2종목`
   - 총 신규 노출 `15%`
@@ -179,7 +182,14 @@ git push origin main
 - `HOLD`, `BLOCK`에서는 신규 진입을 허용하지 않습니다.
 - `BUY_ALLOWED`는 정식 자동매수 승인 단계입니다.
 
-## 10. 향후 방향
+## 10. auto_buy 점검 메모
+
+- `auto_buy` 스케줄은 `run_operational_refresh -> submit_live_orders` 순서로 동작합니다.
+- 따라서 `Scheduler Runtime`에서 `auto_buy 오류`가 보이면 먼저 `trade_intents.json`, `order_requests_preview.json`, `order_requests_execution.json` 생성 여부를 확인합니다.
+- 현재 코드는 주문 산출물 생성 후 웹 DB 동기화가 실패해도 전체 주문 단계가 바로 실패로 끝나지 않도록 보강되어 있습니다.
+- BUY 주문은 `order_buy_approvals.json`의 `approved_request_ids`가 비어 있으면 승인 가드에 의해 제출이 보류될 수 있습니다.
+
+## 11. 향후 방향
 
 - 현재 운영 기준은 `WATCH`와 `PILOT`를 함께 사용합니다.
 - 문서상 권장 해석은 아래와 같습니다.

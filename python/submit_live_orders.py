@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -556,6 +557,7 @@ def sync_web_display_if_configured() -> None:
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     args = parse_args()
 
     intents_payload = _safe_read_json(args.trade_intents_json)
@@ -580,7 +582,12 @@ def main() -> int:
     print(f"order_requests_preview_md: {_resolve(args.out_md)}")
 
     if not args.execute:
-        sync_web_display_if_configured()
+        try:
+            sync_web_display_if_configured()
+        except subprocess.CalledProcessError as exc:
+            logging.warning("Post-preview web display sync failed: %s", exc)
+        except Exception:
+            logging.warning("Post-preview web display sync failed", exc_info=True)
         return 0
 
     execution_payload = execute_order_requests(preview_payload=preview_payload, args=args)
@@ -588,7 +595,12 @@ def main() -> int:
     write_text(args.out_exec_md, render_execution_markdown(execution_payload))
     print(f"order_requests_execution_json: {_resolve(args.out_exec_json)}")
     print(f"order_requests_execution_md: {_resolve(args.out_exec_md)}")
-    sync_web_display_if_configured()
+    try:
+        sync_web_display_if_configured()
+    except subprocess.CalledProcessError as exc:
+        logging.warning("Post-execution web display sync failed: %s", exc)
+    except Exception:
+        logging.warning("Post-execution web display sync failed", exc_info=True)
     return 0
 
 

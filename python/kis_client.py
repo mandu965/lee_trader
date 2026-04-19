@@ -3,6 +3,8 @@ import os
 import time
 import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import requests
@@ -17,6 +19,10 @@ DEFAULT_TIMEOUT_SEC = 20
 DEFAULT_MAX_RETRIES = 2
 DEFAULT_RETRY_BACKOFF_BASE_SEC = 1.5
 DEFAULT_RETRY_BACKOFF_MAX_SEC = 5.0
+DEFAULT_TOKEN_CACHE_TTL_SEC = 60 * 60 * 6
+DEFAULT_TOKEN_CACHE_SKEW_SEC = 300
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_TOKEN_CACHE_PATH = ROOT / "outputs" / "kis_access_token_cache.json"
 
 
 class KISError(Exception):
@@ -57,6 +63,99 @@ class KISClient:
         self._session = requests.Session()
         self._access_token: Optional[str] = None
 
+    @staticmethod
+    def _token_cache_path() -> Path:
+        raw = str(os.getenv("KIS_TOKEN_CACHE_PATH", "")).strip()
+        if not raw:
+            return DEFAULT_TOKEN_CACHE_PATH
+        path = Path(raw)
+        return path if path.is_absolute() else ROOT / path
+
+    @staticmethod
+    def _token_cache_ttl_sec() -> int:
+        raw = str(os.getenv("KIS_TOKEN_CACHE_TTL_SEC", str(DEFAULT_TOKEN_CACHE_TTL_SEC))).strip()
+        try:
+            return max(60, int(raw))
+        except Exception:
+            return DEFAULT_TOKEN_CACHE_TTL_SEC
+
+    @staticmethod
+    def _token_cache_skew_sec() -> int:
+        raw = str(os.getenv("KIS_TOKEN_CACHE_SKEW_SEC", str(DEFAULT_TOKEN_CACHE_SKEW_SEC))).strip()
+        try:
+            return max(0, int(raw))
+        except Exception:
+            return DEFAULT_TOKEN_CACHE_SKEW_SEC
+
+    def _load_cached_access_token(self) -> Optional[str]:
+        cache_path = self._token_cache_path()
+        if not cache_path.exists():
+            return None
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if str(payload.get("base_url") or "").rstrip("/") != self.base_url:
+            return None
+        if str(payload.get("app_key") or "") != self.app_key:
+            return None
+        token = str(payload.get("access_token") or "").strip()
+        if not token:
+            return None
+        expires_at = self._parse_expiry(payload)
+        if expires_at is None:
+            return None
+        if expires_at <= datetime.utcnow() + timedelta(seconds=self._token_cache_skew_sec()):
+            return None
+        self._access_token = token
+        return token
+
+    def _write_token_cache(self, *, access_token: str, response_data: Dict[str, Any]) -> None:
+        cache_path = self._token_cache_path()
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        expires_at = self._resolve_expiry(response_data)
+        payload = {
+            "base_url": self.base_url,
+            "app_key": self.app_key,
+            "access_token": access_token,
+            "expires_at": expires_at.isoformat(),
+            "cached_at": datetime.utcnow().isoformat(),
+        }
+        cache_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _resolve_expiry(self, response_data: Dict[str, Any]) -> datetime:
+        explicit_expiry = self._parse_expiry(response_data)
+        if explicit_expiry is not None:
+            return explicit_expiry
+        return datetime.utcnow() + timedelta(seconds=self._token_cache_ttl_sec())
+
+    @staticmethod
+    def _parse_expiry(payload: Dict[str, Any]) -> Optional[datetime]:
+        expiry_candidates = [
+            payload.get("expires_at"),
+            payload.get("access_token_token_expired"),
+            payload.get("token_expired"),
+        ]
+        for candidate in expiry_candidates:
+            text = str(candidate or "").strip()
+            if not text:
+                continue
+            normalized = text.replace("Z", "+00:00")
+            try:
+                parsed = datetime.fromisoformat(normalized)
+            except ValueError:
+                continue
+            return parsed.astimezone().replace(tzinfo=None) if parsed.tzinfo else parsed
+        for seconds_key in ("expires_in", "expires_in_sec"):
+            raw_seconds = payload.get(seconds_key)
+            try:
+                seconds = int(str(raw_seconds).strip())
+            except Exception:
+                continue
+            if seconds > 0:
+                return datetime.utcnow() + timedelta(seconds=seconds)
+        return None
+
     @classmethod
     def from_env(cls) -> "KISClient":
         if load_dotenv:
@@ -86,6 +185,11 @@ class KISClient:
     def issue_access_token(self, *, force_refresh: bool = False) -> str:
         if self._access_token and not force_refresh:
             return self._access_token
+        if not force_refresh:
+            cached = self._load_cached_access_token()
+            if cached:
+                logging.info("Using cached KIS access token from %s", self._token_cache_path())
+                return cached
 
         url = f"{self.base_url}/oauth2/tokenP"
         payload = {
@@ -113,6 +217,7 @@ class KISClient:
                 if not access_token:
                     raise KISAuthError(f"tokenP missing access_token: {data}")
                 self._access_token = access_token
+                self._write_token_cache(access_token=access_token, response_data=data)
                 return access_token
             except (requests.RequestException, ValueError, KISAuthError) as exc:
                 last_error = exc

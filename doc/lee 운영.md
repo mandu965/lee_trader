@@ -14,7 +14,7 @@
 - 종가 close 배치: `16:00`
 - 장중 refresh: `12:00`
 - 실자동매매 신규 매수 판단: `09:30`
-- 실계좌 동기화: `3시간마다`
+- 실계좌 동기화: `10:00, 14:00, 18:00`
 
 메모:
 
@@ -22,6 +22,7 @@
 - 따라서 실자동매매는 `12:10` 장중 신규 진입보다 `09:30` 장초반 보수 집행이 현재 설계와 더 잘 맞는다.
 - 장중 `12:00` refresh는 신규 매수 주 실행 시간이 아니라 관제와 재평가 성격으로 본다.
 - `09:30` auto-buy 스케줄러는 이제 `run_operational_refresh -> submit_live_orders -> sync_live_account_holdings -> sync_web_display_data` 순서로 동작한다.
+- `submit_live_orders.py`는 이제 KIS 접근토큰을 `outputs/kis_access_token_cache.json`에 캐시해, 같은 분 안의 후속 프로세스 재발급으로 `1분당 1회` 제한에 걸리지 않도록 보강했다.
 - 따라서 주문 직후 웹 조회에서도 `order execution`뿐 아니라 `실계좌 보유/현금`이 최대한 빠르게 갱신되도록 맞춘다.
 - Docker Postgres 호스트 포트는 `15432:5432` 기준으로 사용한다.
 - 즉 로컬 PC에서 직접 붙을 때는 `localhost:15432`, 컨테이너 내부에서는 계속 `postgres:5432`를 사용한다.
@@ -457,6 +458,70 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 - `09:30`에 무조건 실제 매수가 체결되는 것은 아닙니다.
 - `PILOT` 상태, 계좌 현금, KIS 주문 가능 수량, 차단 사유를 다시 반영한 뒤 실제 주문 여부가 결정됩니다.
 
+### 장중 auto_buy 검증 절차
+
+- 목적: `tokenP 1분당 1회` 오류가 해소됐는지와 장중 주문 API 경로가 끝까지 도는지 확인
+- 권장 시각: `09:30` 직후 또는 장중 연속호가 시간
+- 비권장 시각: 장 시작 전, 장 종료 후, 점검 시간
+
+사전 확인:
+
+```powershell
+Get-Content outputs\operational_buy_gate.json
+Get-Content outputs\trade_intents.json
+Get-Content outputs\order_requests_preview.json
+Get-Content outputs\order_buy_approvals.json
+Get-Content outputs\kis_access_token_cache.json
+```
+
+기대 포인트:
+
+- `operational_buy_gate.json`: `overall_status`가 현재 운영 기대와 일치할 것
+- `trade_intents.json`: `gate_status`, `BUY/SELL` intent 수가 기대와 크게 다르지 않을 것
+- `order_requests_preview.json`: `executable_now=true` 항목이 실제 주문 후보로 내려올 것
+- `order_buy_approvals.json`: BUY를 실제 제출할 경우 `approved_request_ids`가 비어 있지 않을 것
+- `kis_access_token_cache.json`: 최근 시각으로 갱신돼 있을 것
+
+장중 수동 검증 명령:
+
+```powershell
+docker compose exec -T scheduler-auto-buy python python/submit_live_orders.py --execute --confirm-text LIVE_ORDER --allow-buy
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+실행 직후 확인:
+
+```powershell
+Get-Content outputs\order_requests_execution.json
+Get-Content outputs\auto_ops_auto_buy_scheduler_status.json
+Get-Content .\logs\auto_ops_auto_buy_scheduler.log -Tail 100
+```
+
+성공 판정:
+
+- `order_requests_execution.json` 생성됨
+- 로그에 `Using cached KIS access token` 또는 토큰 발급 성공 후 정상 진행 로그가 보임
+- `submission_status=submitted`가 1건 이상 있거나, 적어도 프로세스 전체가 `exit 1` 없이 끝남
+- `auto_ops_auto_buy_scheduler_status.json`의 다음 정상 사이클에서 `status=idle`, `last_success_at` 갱신
+
+실패 해석:
+
+- `tokenP failed ... 1분당 1회`
+  - 토큰 재사용 경로 이상 여부 확인
+  - `outputs/kis_access_token_cache.json` 생성/갱신 여부 확인
+- `장운영시간이 아닙니다`
+  - 코드 문제가 아니라 실행 시각 문제
+- `buy_approval_required`
+  - BUY 승인 목록이 비어 있어서 스킵된 것
+- `submission_status=failed`와 KIS business error
+  - 토큰 문제가 아니라 주문 API 또는 시장 상태 문제
+
+운영 메모:
+
+- 화면에 `auto_buy 오류`가 남아 있어도, 그 값은 직전 실패 상태를 보여줄 수 있습니다.
+- 장중 정상 사이클이 한 번 완료돼야 `Scheduler Runtime`의 `auto_buy` 행도 자동으로 정상화됩니다.
+- 상태 파일을 수동으로 성공처럼 고치기보다, 장중 실제 검증으로 갱신하는 쪽이 운영상 안전합니다.
+
 
 # 수동 배포
 docker compose build --no-cache --progress=plain python-pipeline
@@ -483,7 +548,7 @@ docker compose up -d postgres
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Start-Sleep -Seconds 65
 
-docker compose up -d node-api
+docker compose up -d --build node-api
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Start-Sleep -Seconds 65
 
@@ -503,4 +568,3 @@ docker compose up -d scheduler-live-account-sync
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 docker compose logs -f scheduler
-

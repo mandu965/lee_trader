@@ -34,6 +34,47 @@ const escapeHtml = (value) =>
     "'": "&#39;",
   }[m]));
 
+const fmtRuntimeDate = (value) => {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleDateString("ko-KR");
+};
+
+const fmtRuntimeDateTime = (value) => {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+};
+
+function summarizeRuntimeError(message) {
+  const text = String(message || "").trim();
+  if (!text) return "-";
+  const exitMatch = text.match(/\(exit=\d+\)\s*$/);
+  const exitSuffix = exitMatch ? ` ${exitMatch[0]}` : "";
+  const commandMatch = text.match(/\/([^/\s]+\.py)'?/);
+  if (commandMatch) return `${commandMatch[1]} failed${exitSuffix}`.trim();
+  return text;
+}
+
+function runtimeErrorCell(row) {
+  const errorText = summarizeRuntimeError(row?.last_error);
+  const failedAt = fmtRuntimeDateTime(row?.last_failure_at);
+  if (errorText === "-" && failedAt === "-") return "-";
+  if (failedAt === "-") return errorText;
+  if (errorText === "-") return `실패 시각 ${failedAt}`;
+  return `${errorText} · 실패 ${failedAt}`;
+}
+
 async function fetchJsonMaybe(url) {
   const res = await fetch(url, { credentials: "same-origin" });
   if (res.status === 404) return null;
@@ -461,7 +502,7 @@ function renderRuntime(runtime) {
     ["close", runtime?.close_scheduler],
     ["intraday", runtime?.intraday_scheduler],
     ["auto_buy", runtime?.auto_buy_scheduler],
-    ["live_sync_3h", runtime?.live_account_sync_scheduler],
+    ["live_sync", runtime?.live_account_sync_scheduler],
   ].filter(([, payload]) => payload);
   if (!rows.length) {
     document.getElementById("runtimeWrap").innerHTML = `<div class="empty-state">scheduler runtime status 산출물이 아직 없습니다.</div>`;
@@ -471,9 +512,9 @@ function renderRuntime(runtime) {
     <tr>
       <td>${escapeHtml(label)}</td>
       <td>${schedulerStateChip(row)}</td>
-      <td>${escapeHtml(row.last_success_date || "-")}</td>
-      <td>${escapeHtml(row.last_success_at || "-")}</td>
-      <td>${escapeHtml(row.last_error || "-")}</td>
+      <td>${escapeHtml(fmtRuntimeDate(row.last_success_date || row.last_success_at))}</td>
+      <td>${escapeHtml(fmtRuntimeDateTime(row.last_success_at))}</td>
+      <td>${escapeHtml(runtimeErrorCell(row))}</td>
     </tr>
   `).join("");
 }
