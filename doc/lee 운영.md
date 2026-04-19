@@ -403,7 +403,27 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 - `2026-04-20 09:00~09:20` 사이에 아래를 먼저 확인합니다.
 
 ```powershell
-docker compose up -d postgres node-api scheduler scheduler-recovery scheduler-auto-buy scheduler-live-account-sync
+docker compose up -d postgres
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 65
+
+docker compose up -d node-api
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 65
+
+docker compose up -d scheduler
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 65
+
+docker compose up -d scheduler-recovery
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 65
+
+docker compose up -d scheduler-auto-buy
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 65
+
+docker compose up -d scheduler-live-account-sync
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 docker compose ps
@@ -459,7 +479,28 @@ docker compose up -d --build scheduler-live-account-sync
 docker compose up -d --build node-api
 
 # 상시운용 컨테이너 
-docker compose up -d postgres node-api scheduler scheduler-recovery scheduler-auto-buy scheduler-live-account-sync
+docker compose up -d postgres
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 65
+
+docker compose up -d node-api
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 65
+
+docker compose up -d scheduler
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 65
+
+docker compose up -d scheduler-recovery
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 65
+
+docker compose up -d scheduler-auto-buy
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+Start-Sleep -Seconds 65
+
+docker compose up -d scheduler-live-account-sync
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 docker compose logs -f scheduler
+

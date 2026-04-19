@@ -250,16 +250,28 @@ def _parse_interval_minutes() -> int:
     return DEFAULT_INTERVAL_MINUTES
 
 
+def _skip_after_failure_until_next_day() -> bool:
+    return str(os.environ.get("SCHEDULER_SKIP_AFTER_FAILURE_UNTIL_NEXT_DAY", "0")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _should_run_today(now: datetime, scheduled_hour: int, scheduled_minute: int, status: dict[str, object]) -> bool:
     last_success_date = str(status.get("last_success_date") or "").strip()
     bootstrap_skip_date = str(status.get("bootstrap_skip_until_date") or "").strip()
     policy_skip_date = str(status.get("last_policy_skip_date") or "").strip()
+    failure_skip_date = str(status.get("last_failure_skip_date") or "").strip()
     today = now.strftime("%Y-%m-%d")
     if last_success_date == today:
         return False
     if bootstrap_skip_date == today:
         return False
     if policy_skip_date == today:
+        return False
+    if failure_skip_date == today:
         return False
     return (now.hour, now.minute) >= (scheduled_hour, scheduled_minute)
 
@@ -368,6 +380,9 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
                 "last_error": f"{exc.cmd} (exit={exc.returncode})",
             }
         )
+        if _skip_after_failure_until_next_day():
+            payload["last_failure_skip_date"] = finished_at[:10]
+            payload["status_note"] = "Last run failed; skipping further runs until next day."
         logging.exception("Daily cycle failed")
     _write_status(payload)
     return payload
