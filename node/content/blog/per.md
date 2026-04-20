@@ -21,9 +21,7 @@ PER은 **Price Earnings Ratio**의 약자이며, 한국어로는 **주가수익�
 
 즉,
 
-```text id="u3c4z8"
-주가 ÷ 주당순이익(EPS) = PER
-```
+> PER = 주가 ÷ 주당순이익(EPS)
 
 예를 들어,
 
