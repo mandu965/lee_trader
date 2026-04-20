@@ -285,7 +285,8 @@ git push -u origin main
 git fetch origin
 git switch main
 git pull --ff-only origin main
-
+## 파일이관 
+python python\import_git_release.py --source D:\ai\git\lee_trader --clean-target
 
 # 로컬 배포본 다시 생성 후 커밋
 cd D:\ai\Lee_trader
