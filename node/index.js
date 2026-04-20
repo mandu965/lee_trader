@@ -5274,17 +5274,27 @@ app.get("/api/watch-auto-buy-simulation", async (req, res) => {
 
 app.get("/api/auto-trading/runtime-status", async (req, res) => {
   try {
+    const policyPayload = await readJsonPayloadDbFirst("auto_trading_policy", [path.join(OUTPUTS_DIR, "auto_trading_policy.json")]);
+    const envPolicy = {
+      auto_trade_execute: ["1", "true", "yes", "on"].includes(String(process.env.AUTO_TRADE_EXECUTE || "").toLowerCase()),
+      auto_trade_allow_buy: ["1", "true", "yes", "on"].includes(String(process.env.AUTO_TRADE_ALLOW_BUY || "").toLowerCase()),
+      buy_approval_required: !["0", "false", "no", "off"].includes(String(process.env.AUTO_TRADE_BUY_APPROVAL_REQUIRED || "1").toLowerCase()),
+      confirm_configured: String(process.env.AUTO_TRADE_CONFIRM_TEXT || "").trim() === "LIVE_ORDER",
+      source: "process_env",
+    };
     const payload = {
       close_scheduler: await readJsonPayloadDbFirst("auto_ops_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_scheduler_status.json")]),
       intraday_scheduler: await readJsonPayloadDbFirst("auto_ops_recovery_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_recovery_scheduler_status.json")]),
       auto_buy_scheduler: await readJsonPayloadDbFirst("auto_ops_auto_buy_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_auto_buy_scheduler_status.json")]),
       live_account_sync_scheduler: await readJsonPayloadDbFirst("auto_ops_live_account_sync_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_live_account_sync_scheduler_status.json")]),
-      policy: {
-        auto_trade_execute: ["1", "true", "yes", "on"].includes(String(process.env.AUTO_TRADE_EXECUTE || "").toLowerCase()),
-        auto_trade_allow_buy: ["1", "true", "yes", "on"].includes(String(process.env.AUTO_TRADE_ALLOW_BUY || "").toLowerCase()),
-        buy_approval_required: !["0", "false", "no", "off"].includes(String(process.env.AUTO_TRADE_BUY_APPROVAL_REQUIRED || "1").toLowerCase()),
-        confirm_configured: String(process.env.AUTO_TRADE_CONFIRM_TEXT || "").trim() === "LIVE_ORDER",
-      },
+      policy: (policyPayload && Object.keys(policyPayload).length ? {
+        auto_trade_execute: !!policyPayload.auto_trade_execute,
+        auto_trade_allow_buy: !!policyPayload.auto_trade_allow_buy,
+        buy_approval_required: typeof policyPayload.buy_approval_required === "boolean" ? policyPayload.buy_approval_required : true,
+        confirm_configured: !!policyPayload.confirm_configured,
+        source: policyPayload.source || "payload_store",
+        generated_at: policyPayload.generated_at || null,
+      } : envPolicy),
     };
     if (!payload.close_scheduler && !payload.intraday_scheduler && !payload.auto_buy_scheduler && !payload.live_account_sync_scheduler) {
       return res.status(404).json({ error: "auto trading runtime status not found" });

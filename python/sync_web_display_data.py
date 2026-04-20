@@ -54,6 +54,7 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("order_requests_execution", OUTPUT_DIR / "order_requests_execution.json", "executed_at"),
     ("auto_ops_auto_buy_scheduler_status", OUTPUT_DIR / "auto_ops_auto_buy_scheduler_status.json", None),
     ("auto_ops_live_account_sync_scheduler_status", OUTPUT_DIR / "auto_ops_live_account_sync_scheduler_status.json", None),
+    ("auto_trading_policy", OUTPUT_DIR / "auto_trading_policy.json", None),
 ]
 
 

@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "outputs"
 HISTORY_DIR = DATA_DIR / "history"
+AUTO_TRADING_POLICY_PATH = OUTPUT_DIR / "auto_trading_policy.json"
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -145,6 +146,35 @@ def sync_inventory_payload() -> None:
     )
 
 
+def _env_flag(name: str, default: bool) -> bool:
+    raw = str(__import__("os").environ.get(name, "1" if default else "0")).strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def sync_auto_trading_policy_payload() -> None:
+    payload = {
+        "entity": "auto_trading_policy",
+        "generated_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
+        "auto_trade_execute": _env_flag("AUTO_TRADE_EXECUTE", False),
+        "auto_trade_allow_buy": _env_flag("AUTO_TRADE_ALLOW_BUY", False),
+        "buy_approval_required": _env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", True),
+        "confirm_configured": str(__import__("os").environ.get("AUTO_TRADE_CONFIRM_TEXT", "")).strip() == "LIVE_ORDER",
+        "source": "env_snapshot",
+    }
+    AUTO_TRADING_POLICY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    AUTO_TRADING_POLICY_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    upsert_json_payload(
+        "auto_trading_policy",
+        payload,
+        generated_at=payload.get("generated_at"),
+        source_path=AUTO_TRADING_POLICY_PATH,
+    )
+
+
 def main() -> int:
     sync_json_payload("operational_daily_cycle_status", OUTPUT_DIR / "operational_daily_cycle_status.json")
     sync_json_payload(
@@ -163,6 +193,7 @@ def main() -> int:
         asof_field="as_of_date",
     )
     sync_inventory_payload()
+    sync_auto_trading_policy_payload()
     return 0
 
 
