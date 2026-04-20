@@ -116,6 +116,13 @@ def normalize_holdings(df: pd.DataFrame) -> pd.DataFrame:
     work["code"] = work["code"].str.zfill(6)
     for col in ["qty", "avg_price", "current_price", "eval_amount", "pnl_amount", "pnl_pct"]:
         work[col] = pd.to_numeric(work.get(col), errors="coerce")
+    # KIS balance responses can include zero-quantity placeholders after liquidation.
+    # Exclude them so downstream previews and the live dashboard reflect actual holdings only.
+    work = work[work["qty"].fillna(0) > 0].copy()
+    if work.empty:
+        return pd.DataFrame(
+            columns=["code", "name", "qty", "avg_price", "current_price", "eval_amount", "pnl_amount", "pnl_pct", "weight", "status"]
+        )
     # KIS returns evaluation PnL rate in percentage points (for example 3.99),
     # while the UI formatter expects ratio values (0.0399 -> 3.99%).
     work["pnl_pct"] = (work["pnl_pct"] / 100.0).round(6)

@@ -5162,12 +5162,13 @@ app.get("/api/live-account/summary", async (req, res) => {
     const execution = await readJsonPayloadDbFirst("order_requests_execution", [path.join(OUTPUTS_DIR, "order_requests_execution.json")]);
     const holdingsPayload = await readJsonPayloadDbFirst("live_account_holdings");
     const holdings = Array.isArray(holdingsPayload?.items) ? holdingsPayload.items : (readCsv(path.join(DATA_DIR, "live_account_holdings.csv")) || []);
-    if (!summary && !preview && !execution && !holdings.length) {
+    const visibleHoldingCount = holdings.filter((row) => Number(toNum(row.qty)) > 0).length;
+    if (!summary && !preview && !execution && !visibleHoldingCount) {
       return res.status(404).json({ error: "live account artifacts not found" });
     }
     res.json({
       summary: summary || null,
-      holding_count: holdings.length,
+      holding_count: visibleHoldingCount,
       order_preview_count: Array.isArray(preview?.items) ? preview.items.length : 0,
       preview_gate_status: preview?.gate_status || null,
       order_execution_count: Array.isArray(execution?.items) ? execution.items.length : 0,
@@ -5184,9 +5185,6 @@ app.get("/api/live-account/holdings", async (req, res) => {
   try {
     const payload = await readJsonPayloadDbFirst("live_account_holdings");
     const rows = Array.isArray(payload?.items) ? payload.items : (readCsv(path.join(DATA_DIR, "live_account_holdings.csv")) || []);
-    if (!rows.length) {
-      return res.status(404).json({ error: "live account holdings not found" });
-    }
     const items = rows.map((row) => ({
       code: String(row.code || "").trim(),
       name: row.name || getName(String(row.code || "").trim()) || null,
@@ -5198,7 +5196,10 @@ app.get("/api/live-account/holdings", async (req, res) => {
       pnl_pct: toNum(row.pnl_pct),
       weight: toNum(row.weight),
       status: row.status || "OPEN",
-    }));
+    })).filter((row) => Number(row.qty) > 0);
+    if (!items.length) {
+      return res.status(404).json({ error: "live account holdings not found" });
+    }
     res.json({ count: items.length, items });
   } catch (e) {
     console.error("GET /api/live-account/holdings error", e);
