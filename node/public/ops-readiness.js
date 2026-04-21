@@ -34,6 +34,13 @@ async function fetchJson(url) {
   return res.json();
 }
 
+async function fetchJsonMaybe(url) {
+  const res = await fetch(url);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 function isIsoDate(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
 }
@@ -143,7 +150,14 @@ function renderList(targetId, items, emptyText) {
     el.innerHTML = `<li>${escapeHtml(emptyText)}</li>`;
     return;
   }
-  el.innerHTML = items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  el.innerHTML = items.map((item) => {
+    const text = String(item || "");
+    const parts = text.split(/:\s(.+)/, 2);
+    if (parts.length === 2) {
+      return `<li><span class="list-keyword">${escapeHtml(parts[0])}</span>: <span class="list-value">${escapeHtml(parts[1])}</span></li>`;
+    }
+    return `<li>${escapeHtml(text)}</li>`;
+  }).join("");
 }
 
 function renderMetricList(targetId, items, emptyText) {
@@ -158,7 +172,7 @@ function renderMetricList(targetId, items, emptyText) {
       const metric = item.metric || "-";
       const value = Number.isFinite(Number(item.value)) ? fmtNum(item.value, 4) : String(item.value || "-");
       const status = item.status || "-";
-      return `<li><strong>${escapeHtml(metric)}</strong> · ${escapeHtml(value)} · ${escapeHtml(status)}</li>`;
+      return `<li><span class="list-keyword">${escapeHtml(metric)}</span> <span class="list-value">${escapeHtml(value)}</span> <span class="muted">(${escapeHtml(status)})</span></li>`;
     })
     .join("");
 }
@@ -542,6 +556,105 @@ function renderVisitorAnalytics(analytics) {
   });
 }
 
+function fmtRuntimeDate(value) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleDateString("ko-KR");
+}
+
+function fmtRuntimeDateTime(value) {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function summarizeRuntimeError(message) {
+  const text = String(message || "").trim();
+  if (!text) return "-";
+  const exitMatch = text.match(/\(exit=\d+\)\s*$/);
+  const exitSuffix = exitMatch ? ` ${exitMatch[0]}` : "";
+  const commandMatch = text.match(/\/([^/\s]+\.py)'?/);
+  if (commandMatch) return `${commandMatch[1]} failed${exitSuffix}`.trim();
+  return text;
+}
+
+function schedulerRuntimeChip(row) {
+  const status = String(row?.status || "").toLowerCase();
+  if (status === "idle") return `<span class="chip good">대기</span>`;
+  if (status === "running") return `<span class="chip watch">실행중</span>`;
+  if (status === "failed" || status === "error") return `<span class="chip bad">오류</span>`;
+  return `<span class="chip info">${escapeHtml(status || "unknown")}</span>`;
+}
+
+function runtimeErrorCell(row) {
+  const errorText = summarizeRuntimeError(row?.last_error);
+  const failedAt = fmtRuntimeDateTime(row?.last_failure_at);
+  const successAtRaw = row?.last_success_at;
+  const failureAtRaw = row?.last_failure_at;
+  const successTs = successAtRaw ? Date.parse(successAtRaw) : NaN;
+  const failureTs = failureAtRaw ? Date.parse(failureAtRaw) : NaN;
+  const recoveredAfterFailure = Number.isFinite(successTs) && Number.isFinite(failureTs) && successTs > failureTs;
+
+  if (errorText === "-" && failedAt === "-") return "실패 이력 없음";
+  if (failedAt === "-") return errorText === "-" ? "실패 이력 없음" : errorText;
+  if (errorText === "-") return recoveredAfterFailure ? `과거 실패 ${failedAt} / 현재 정상` : `실패 시각 ${failedAt}`;
+  return recoveredAfterFailure
+    ? `${errorText} / 과거 실패 ${failedAt} / 현재 정상`
+    : `${errorText} / 실패 ${failedAt}`;
+}
+
+function renderSchedulerRuntime(runtime) {
+  const wrap = document.getElementById("runtimeTableWrap");
+  if (!wrap) return;
+
+  const rows = [
+    ["close", runtime?.close_scheduler],
+    ["intraday", runtime?.intraday_scheduler],
+    ["auto_buy", runtime?.auto_buy_scheduler],
+    ["live_sync", runtime?.live_account_sync_scheduler],
+  ].filter(([, payload]) => payload);
+
+  if (!rows.length) {
+    wrap.innerHTML = `<div class="empty-state">scheduler runtime status 산출물이 아직 없습니다.</div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <table class="runtime-table">
+      <thead>
+        <tr>
+          <th>스케줄러</th>
+          <th>상태</th>
+          <th>마지막 성공일</th>
+          <th>마지막 성공시각</th>
+          <th>최근 실패 이력</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map(([label, row]) => `
+          <tr>
+            <td>${escapeHtml(label)}</td>
+            <td>${schedulerRuntimeChip(row)}</td>
+            <td>${escapeHtml(fmtRuntimeDate(row.last_success_date || row.last_success_at))}</td>
+            <td>${escapeHtml(fmtRuntimeDateTime(row.last_success_at))}</td>
+            <td>${escapeHtml(runtimeErrorCell(row))}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
 function renderOperatorMemo(notes) {
   const textarea = document.getElementById("operatorMemo");
   const meta = document.getElementById("operatorMemoMeta");
@@ -575,12 +688,14 @@ async function loadOpsReadiness() {
   const state = document.getElementById("pageState");
   state.textContent = "운영 readiness 대시보드를 불러오는 중입니다.";
   try {
-    const [data, policy] = await Promise.all([
+    const [data, policy, runtime] = await Promise.all([
       fetchJson("/api/ops-readiness"),
       fetchTradingPolicySafe(),
+      fetchJsonMaybe("/api/auto-trading/runtime-status"),
     ]);
     renderTradingPolicy(policy);
     renderHero(data);
+    renderSchedulerRuntime(runtime);
 
     const outputs = data.outputs || {};
     const latestRefDate = outputs.ranking_latest_date || data.asof_date || null;
@@ -780,21 +895,18 @@ async function loadOpsReadiness() {
     renderIntradayOps("intradayOpsGrid", {});
     renderShadowCandidates("shadowCandidateGrid", []);
     renderShadowRepeatability({});
+    renderSchedulerRuntime(null);
     state.textContent = `조회 실패: ${error.message}`;
   }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  const pageActions = document.querySelector(".page-actions");
-  if (pageActions && !pageActions.querySelector('[data-link="score-check"]')) {
-    const scoreCheckBtn = document.createElement("button");
-    scoreCheckBtn.type = "button";
-    scoreCheckBtn.dataset.link = "score-check";
-    scoreCheckBtn.textContent = "점수 검증";
-    scoreCheckBtn.addEventListener("click", () => {
-      window.location.href = "/score-check";
+  const navActions = document.querySelector(".page-header .page-actions");
+  if (navActions) {
+    Array.from(navActions.querySelectorAll("button, a")).forEach((item) => {
+      const label = String(item.textContent || "").replace(/\s+/g, "").trim();
+      if (label === "점수검증") item.remove();
     });
-    pageActions.insertBefore(scoreCheckBtn, pageActions.children[4] || null);
   }
   document.getElementById("saveOperatorMemoBtn")?.addEventListener("click", () => {
     saveOperatorMemo().catch((error) => console.error(error));

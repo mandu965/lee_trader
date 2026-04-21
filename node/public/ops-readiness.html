@@ -13,35 +13,65 @@
       .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
       .page-actions button { flex: 0 0 auto; }
       .page-actions button.is-active { border-color: rgba(56, 189, 248, 0.44); background: rgba(56, 189, 248, 0.12); color: #bae6fd; }
+      .page-actions .nav-link { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(71, 85, 105, 0.7); background: rgba(30, 41, 59, 0.9); color: #f8fafc; font-size: 14px; font-weight: 700; text-decoration: none; }
+      .page-actions .nav-link:hover { background: rgba(51, 65, 85, 0.96); }
+      .page-actions .nav-link.is-active { border-color: rgba(56, 189, 248, 0.44); background: rgba(56, 189, 248, 0.12); color: #bae6fd; }
       .section { margin-bottom: 18px; }
+      .section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+      .section-kicker { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #60a5fa; font-weight: 800; }
+      .section-title { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
+      .section-note { color: #94a3b8; font-size: 12px; line-height: 1.6; }
       .grid-hero { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+      .grid-hero > .card:first-child { grid-column: span 2; }
       .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
       .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-      .card { border: 1px solid var(--border); border-radius: 18px; background: rgba(255,255,255,0.03); padding: 16px; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16); }
+      .focus-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr); gap: 12px; }
+      .card { border: 1px solid rgba(71, 85, 105, 0.55); border-radius: 18px; background: linear-gradient(180deg, rgba(15,23,42,0.92), rgba(15,23,42,0.74)); padding: 18px; box-shadow: 0 18px 40px rgba(2, 6, 23, 0.34); }
       .card h2, .card h3 { margin: 0 0 10px; }
-      .eyebrow { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.08em; }
+      .eyebrow { font-size: 11px; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
       .big-value { margin-top: 8px; font-size: 30px; font-weight: 800; }
-      .muted { color: var(--color-text-secondary); }
-      .kv { display: grid; gap: 8px; margin-top: 12px; }
-      .kv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+      .muted { color: #cbd5e1; }
+      .kv { display: grid; gap: 10px; margin-top: 12px; }
+      .kv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid rgba(51, 65, 85, 0.55); }
+      .kv-row:last-child { border-bottom: none; }
+      .kv-row strong { color: #f8fafc; font-weight: 700; }
       .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
       .chip { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); }
       .chip.good { color: #86efac; border-color: rgba(34,197,94,0.28); background: rgba(34,197,94,0.12); }
       .chip.watch { color: #fde68a; border-color: rgba(250,204,21,0.28); background: rgba(250,204,21,0.12); }
       .chip.bad { color: #fca5a5; border-color: rgba(248,113,113,0.28); background: rgba(248,113,113,0.12); }
       .chip.info { color: #93c5fd; border-color: rgba(96,165,250,0.28); background: rgba(96,165,250,0.12); }
-      .metric-list, .reason-list, .candidate-list, .check-list { margin: 0; padding-left: 18px; display: grid; gap: 8px; }
-      .note-box { width: 100%; min-height: 132px; border-radius: 14px; border: 1px solid var(--border); background: rgba(15,23,42,0.45); color: var(--color-text-primary); padding: 12px 14px; font: inherit; resize: vertical; }
+      .metric-list, .reason-list, .candidate-list, .check-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+      .metric-list li, .reason-list li, .candidate-list li, .check-list li { position: relative; padding: 6px 0 6px 16px; color: #e2e8f0; line-height: 1.7; }
+      .metric-list li::before, .reason-list li::before, .candidate-list li::before, .check-list li::before { content: ""; position: absolute; left: 0; top: 13px; width: 6px; height: 6px; border-radius: 999px; background: rgba(96, 165, 250, 0.9); box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.14); }
+      .metric-list li strong, .reason-list li strong, .candidate-list li strong, .check-list li strong { color: #93c5fd; font-weight: 800; }
+      .list-keyword { color: #93c5fd; font-weight: 800; }
+      .list-value { color: #f8fafc; }
+      .note-box { width: 100%; min-height: 88px; border-radius: 14px; border: 1px solid var(--border); background: rgba(15,23,42,0.45); color: var(--color-text-primary); padding: 12px 14px; font: inherit; resize: vertical; }
       .note-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; }
       .note-meta { font-size: 12px; color: var(--color-text-secondary); }
       .candidate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-      .candidate-card { border: 1px solid var(--border); border-radius: 16px; background: rgba(255,255,255,0.03); padding: 14px; }
+      .candidate-grid--single { grid-template-columns: 1fr; }
+      .candidate-card { border: 1px solid rgba(71, 85, 105, 0.55); border-radius: 16px; background: linear-gradient(180deg, rgba(15,23,42,0.82), rgba(15,23,42,0.68)); padding: 14px; }
+      .runtime-table-wrap { overflow-x: auto; border: 1px solid rgba(71, 85, 105, 0.55); border-radius: 16px; background: rgba(15,23,42,0.42); }
+      .runtime-table { width: 100%; min-width: 760px; border-collapse: collapse; }
+      .runtime-table th, .runtime-table td { padding: 14px 16px; text-align: left; border-bottom: 1px solid rgba(148, 163, 184, 0.12); font-size: 13px; }
+      .runtime-table td { color: #f8fafc; }
+      .runtime-table th { color: #cbd5e1; font-weight: 800; background: rgba(15,23,42,0.56); }
+      .runtime-table tbody tr:nth-child(odd) { background: rgba(15,23,42,0.40); }
+      .runtime-table tbody tr:nth-child(even) { background: rgba(15,23,42,0.22); }
+      .runtime-table tbody tr:last-child td { border-bottom: none; }
       .candidate-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
       .candidate-name { margin: 0; font-size: 18px; }
-      .candidate-meta { margin-top: 6px; font-size: 12px; color: var(--color-text-secondary); }
+      .candidate-meta { margin-top: 6px; font-size: 12px; color: #cbd5e1; }
       .candidate-score { font-size: 24px; font-weight: 800; }
       .empty-state { padding: 18px; border: 1px dashed var(--border); border-radius: 16px; color: var(--color-text-secondary); text-align: center; }
-      .state-line { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); }
+      .state-line { margin-top: 10px; font-size: 12px; color: #cbd5e1; line-height: 1.65; }
+      .section-emphasis { background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.8)); border-color: rgba(96, 165, 250, 0.22); }
+      .section-emphasis .state-line { color: #dbeafe; }
+      .summary-card { background: linear-gradient(135deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.86)); border-color: rgba(96, 165, 250, 0.28); }
+      .summary-card .kv-row { border-bottom-color: rgba(96, 165, 250, 0.2); }
+      .compact-card { padding-top: 16px; }
       .chart-bg { fill: rgba(148, 163, 184, 0.06); stroke: rgba(148, 163, 184, 0.14); }
       .chart-axis { stroke: rgba(148, 163, 184, 0.22); stroke-width: 1; }
       .chart-line-a { fill: none; stroke: #38bdf8; stroke-width: 3; }
@@ -49,7 +79,7 @@
       .chart-dot-a { fill: #38bdf8; }
       .chart-dot-b { fill: #f59e0b; }
       .chart-label { fill: #94a3b8; font-size: 11px; }
-      @media (max-width: 1100px) { .grid-hero, .grid-2, .grid-3, .candidate-grid { grid-template-columns: 1fr; } .page-header { flex-direction: column; } }
+      @media (max-width: 1100px) { .grid-hero, .grid-2, .grid-3, .candidate-grid, .candidate-grid--single, .focus-grid { grid-template-columns: 1fr; } .page-header { flex-direction: column; } .grid-hero > .card:first-child { grid-column: span 1; } .section-heading { flex-direction: column; align-items: flex-start; } }
       @media (max-width: 640px) {
         .ops-page { padding: 18px 12px 36px; }
         .page-title { font-size: 24px; }
@@ -87,54 +117,93 @@
           <h1 class="page-title">운영자 페이지</h1>
           <p class="page-subtitle">운영 readiness, buy gate, KPI, 산출물 최신 상태와 오늘 수동 검토 후보를 한 화면에서 확인하는 운영 대시보드입니다.</p>
         </div>
-        <div class="page-actions" data-unified-ops-nav data-nav-class="" data-nav-active="operator"></div>
+        <div class="page-actions">
+          <a class="nav-link" href="/app">메인</a>
+          <a class="nav-link" href="/ranking.html">리서치랭킹</a>
+          <a class="nav-link" href="/meaningfulness.html">리서치리뷰</a>
+          <a class="nav-link is-active" href="/ops-readiness.html">운영자</a>
+          <a class="nav-link" href="/manual-trading.html">수동매매</a>
+          <a class="nav-link" href="/holdings.html">보유종목</a>
+          <a class="nav-link" href="/paper-trading.html">모의투자</a>
+          <a class="nav-link" href="/trade-history.html">매매기록</a>
+          <a class="nav-link" href="/live-auto-trading.html">실자동매매</a>
+        </div>
       </header>
 
       <section class="section">
-        <article class="card">
-          <div class="eyebrow">Score Check</div>
-          <h2>점수 검증 바로가기</h2>
-          <div class="page-actions">
-            <button type="button" onclick="location.href='/score-check'">점수 검증 열기</button>
+        <div class="section-heading">
+          <div>
+            <div class="section-kicker">Daily Brief</div>
+            <h2 class="section-title">오늘 판단</h2>
           </div>
-        </article>
+          <div class="section-note">운영자가 먼저 읽어야 할 결론과 핵심 사유를 위로 올렸습니다.</div>
+        </div>
+        <div class="focus-grid">
+          <article class="card summary-card">
+            <div class="eyebrow">운영 해석</div>
+            <h2>오늘 해석</h2>
+            <div id="interpretationChips" class="chip-row"></div>
+            <div class="kv" id="interpretationKv"></div>
+          </article>
+          <article class="card section-emphasis">
+            <div class="eyebrow">핵심 사유</div>
+            <h2>꼭 확인할 사유</h2>
+            <ul id="criticalReasons" class="reason-list"></ul>
+          </article>
+        </div>
       </section>
 
       <section class="section grid-hero" id="heroGrid"></section>
       <section class="section"><div id="policyStrip"></div></section>
       <section class="section"><div id="opsPolicyRules"></div></section>
 
-      <section class="section">
-        <article class="card">
-          <div class="eyebrow">운영 해석</div>
-          <h2>오늘 해석</h2>
-          <div id="interpretationChips" class="chip-row"></div>
-          <div class="kv" id="interpretationKv"></div>
-        </article>
-      </section>
-
-      <section class="section">
-        <article class="card">
-          <div class="eyebrow">핵심 사유</div>
-          <h2>꼭 확인할 사유</h2>
-          <ul id="criticalReasons" class="reason-list"></ul>
-        </article>
-      </section>
-
       <section class="section grid-2">
-        <article class="card">
+        <article class="card compact-card">
           <div class="eyebrow">준비 상태</div>
           <h2>이력 축적 상태</h2>
           <div class="kv" id="readinessKv"></div>
           <div id="readinessHelp" class="state-line"></div>
         </article>
-        <article class="card">
+        <article class="card compact-card">
           <div class="eyebrow">집행 판단</div>
           <h2>운영 전환 판단</h2>
           <div id="goChipRow" class="chip-row"></div>
           <ul id="goReasons" class="reason-list"></ul>
           <div id="transitionHelp" class="state-line"></div>
         </article>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <div class="section-kicker">Action Queue</div>
+            <h2 class="section-title">바로 볼 것</h2>
+          </div>
+          <div class="section-note">지금 걸리는 항목과 오늘 확인 사항을 같은 레벨로 묶었습니다.</div>
+        </div>
+      </section>
+
+      <section class="section grid-2">
+        <article class="card section-emphasis">
+          <div class="eyebrow">알림</div>
+          <h3>지금 걸리는 항목</h3>
+          <ul id="alertMetrics" class="metric-list"></ul>
+        </article>
+        <article class="card section-emphasis">
+          <div class="eyebrow">체크리스트</div>
+          <h3>오늘 확인 사항</h3>
+          <ul id="dailyChecklist" class="check-list"></ul>
+        </article>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <div class="section-kicker">Operations</div>
+            <h2 class="section-title">운영 상태</h2>
+          </div>
+          <div class="section-note">게이트, 시장 국면, KPI, 산출물과 스케줄러 상태를 한 묶음으로 확인합니다.</div>
+        </div>
       </section>
 
       <section class="section grid-3">
@@ -172,35 +241,76 @@
           <div id="schedulerChipRow" class="chip-row"></div>
           <div class="kv" id="schedulerKv"></div>
         </article>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <div class="section-kicker">Runtime</div>
+            <h2 class="section-title">자동 스케줄</h2>
+          </div>
+          <div class="section-note">현재 상태와 과거 실패 이력을 분리해서 읽을 수 있게 유지합니다.</div>
+        </div>
+        <article class="card">
+          <div class="eyebrow">Auto Trading Runtime</div>
+          <h2>Scheduler Runtime</h2>
+          <div class="state-line">자동매매 화면에 있던 스케줄러 상세 상태를 운영자 화면으로 이관했습니다. 상태는 현재 기준이고, 실패 이력은 과거 로그 참고용입니다.</div>
+          <div class="runtime-table-wrap" id="runtimeTableWrap">
+            <div class="state-line">runtime loading...</div>
+          </div>
+        </article>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <div class="section-kicker">Review Set</div>
+            <h2 class="section-title">수동 검토 후보</h2>
+          </div>
+          <div class="section-note">실제 운영 판단에 직접 쓰는 후보와 shadow 비교를 먼저 배치했습니다.</div>
+        </div>
+      </section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">오늘 후보</div>
+          <h2>오늘 수동 검토 후보</h2>
+          <div class="candidate-grid" id="candidateGrid"></div>
+        </article>
+      </section>
+
+      <section class="section">
+        <article class="card">
+          <div class="eyebrow">Shadow</div>
+          <h2>Shadow 개선 후보 상위 5개</h2>
+          <div class="candidate-grid" id="shadowCandidateGrid"></div>
+        </article>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <div class="section-kicker">Reference</div>
+            <h2 class="section-title">추이와 참고 자료</h2>
+          </div>
+          <div class="section-note">방문 추이, 장중 변화, shadow 반복성, 운영 메모를 아래에서 이어서 봅니다.</div>
+        </div>
+      </section>
+
+      <section class="section grid-2">
+        <article class="card">
+          <div class="eyebrow">7D Visitors</div>
+          <h3>방문 추이</h3>
+          <svg id="visitorTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="방문 추이 차트"></svg>
+          <div id="visitorTrendBadges" class="chip-row"></div>
+          <div class="state-line">최근 7일 페이지뷰와 순방문자 추이입니다.</div>
+        </article>
         <article class="card">
           <div class="eyebrow">Visitors</div>
           <h3>방문 집계</h3>
           <div id="visitorChipRow" class="chip-row"></div>
           <div class="kv" id="visitorKv"></div>
           <ul id="visitorTopPages" class="candidate-list"></ul>
-        </article>
-      </section>
-
-      <section class="section grid-2">
-        <article class="card">
-          <div class="eyebrow">알림</div>
-          <h3>지금 걸리는 항목</h3>
-          <ul id="alertMetrics" class="metric-list"></ul>
-        </article>
-        <article class="card">
-          <div class="eyebrow">체크리스트</div>
-          <h3>오늘 확인 사항</h3>
-          <ul id="dailyChecklist" class="check-list"></ul>
-        </article>
-        </section>
-
-      <section class="section">
-        <article class="card">
-          <div class="eyebrow">7??Visitors</div>
-          <h3>방문 추이</h3>
-          <svg id="visitorTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="방문 추이 차트"></svg>
-          <div id="visitorTrendBadges" class="chip-row"></div>
-          <div class="state-line">최근 7일 페이지뷰와 순방문자 추이입니다.</div>
         </article>
       </section>
 
@@ -245,35 +355,7 @@
         </article>
       </section>
 
-      <section class="section">
-        <article class="card">
-          <div class="eyebrow">운영 메모</div>
-          <h2>운영 메모</h2>
-          <textarea id="operatorMemo" class="note-box" placeholder="오늘 파이프라인 상태, 수동 검토 메모, 보류 사유를 기록합니다."></textarea>
-          <div class="note-actions">
-            <div id="operatorMemoMeta" class="note-meta">아직 저장한 메모가 없습니다.</div>
-            <button type="button" id="saveOperatorMemoBtn">메모 저장</button>
-          </div>
-        </article>
-      </section>
-
-      <section class="section">
-        <article class="card">
-          <div class="eyebrow">오늘 후보</div>
-          <h2>오늘 수동 검토 후보</h2>
-          <div class="candidate-grid" id="candidateGrid"></div>
-        </article>
-      </section>
-
-      <section class="section">
-        <article class="card">
-          <div class="eyebrow">Shadow</div>
-          <h2>Shadow 개선 후보 상위 5개</h2>
-          <div class="candidate-grid" id="shadowCandidateGrid"></div>
-        </article>
-      </section>
-
-      <section class="section">
+      <section class="section grid-2">
         <article class="card">
           <div class="eyebrow">Shadow Repeatability</div>
           <h2>Shadow 반복 유효성 확인</h2>
@@ -282,13 +364,23 @@
           <div id="shadowRepeatabilityHelp" class="state-line"></div>
           <ul id="shadowRepeatabilityList" class="candidate-list"></ul>
         </article>
+        <article class="card compact-card">
+          <div class="eyebrow">운영 메모</div>
+          <h2>운영 메모</h2>
+          <div class="state-line">핵심 판단과 보류 사유만 짧게 적는 보조 기록 영역입니다.</div>
+          <textarea id="operatorMemo" class="note-box" placeholder="예: auto_buy 정상, intraday 후보 없음, 특정 이슈 보류"></textarea>
+          <div class="note-actions">
+            <div id="operatorMemoMeta" class="note-meta">아직 저장한 메모가 없습니다.</div>
+            <button type="button" id="saveOperatorMemoBtn">메모 저장</button>
+          </div>
+        </article>
       </section>
 
       <div id="pageState" class="state-line"></div>
     </div>
-    <script src="./trading-policy-ui.js"></script>
-    <script src="./ops-unified-nav.js"></script>
-    <script src="./ops-readiness.js"></script>
+    <script src="./trading-policy-ui.js?v=20260422-3"></script>
+    <script src="./ops-unified-nav.js?v=20260422-3"></script>
+    <script src="./ops-readiness.js?v=20260422-3"></script>
   </body>
 </html>
 

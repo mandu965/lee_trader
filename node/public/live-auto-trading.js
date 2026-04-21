@@ -496,29 +496,6 @@ function renderExecution(execution) {
   `).join("");
 }
 
-function renderRuntime(runtime) {
-  const tbody = document.getElementById("runtimeTbody");
-  const rows = [
-    ["close", runtime?.close_scheduler],
-    ["intraday", runtime?.intraday_scheduler],
-    ["auto_buy", runtime?.auto_buy_scheduler],
-    ["live_sync", runtime?.live_account_sync_scheduler],
-  ].filter(([, payload]) => payload);
-  if (!rows.length) {
-    document.getElementById("runtimeWrap").innerHTML = `<div class="empty-state">scheduler runtime status 산출물이 아직 없습니다.</div>`;
-    return;
-  }
-  tbody.innerHTML = rows.map(([label, row]) => `
-    <tr>
-      <td>${escapeHtml(label)}</td>
-      <td>${schedulerStateChip(row)}</td>
-      <td>${escapeHtml(fmtRuntimeDate(row.last_success_date || row.last_success_at))}</td>
-      <td>${escapeHtml(fmtRuntimeDateTime(row.last_success_at))}</td>
-      <td>${escapeHtml(runtimeErrorCell(row))}</td>
-    </tr>
-  `).join("");
-}
-
 function renderHoldings(holdings) {
   const tbody = document.getElementById("holdingsTbody");
   const rows = holdings?.items || [];
@@ -671,7 +648,6 @@ async function main() {
     renderIntents(intents);
     renderPreview(preview);
     renderExecution(execution);
-    renderRuntime(runtime);
     renderHoldings(holdings);
 
     const loaded = [

@@ -19,6 +19,12 @@
       .filter(Boolean));
   }
 
+  function getItemsForContainer(container) {
+    const hiddenKeys = splitKeys(container?.dataset?.navHiddenKeys);
+    if (!hiddenKeys.size) return ITEMS;
+    return ITEMS.filter((item) => !hiddenKeys.has(item.key));
+  }
+
   function renderItem(container, item) {
     const element = String(container.dataset.navElement || "button").trim().toLowerCase() === "a" ? "a" : "button";
     const baseClass = String(container.dataset.navClass || "").trim();
@@ -30,6 +36,7 @@
     if (activeKeys.has(item.key) && activeClass) classNames.push(activeClass);
     else if (secondaryKeys.has(item.key) && secondaryClass) classNames.push(secondaryClass);
     const classAttr = classNames.filter(Boolean).join(" ");
+
     if (element === "a") {
       return `<a class="${classAttr}" href="${item.href}">${item.label}</a>`;
     }
@@ -43,7 +50,10 @@
     if (options.activeClass) container.dataset.navActiveClass = options.activeClass;
     if (options.secondaryClass) container.dataset.navSecondaryClass = options.secondaryClass;
     if (options.activeKey) container.dataset.navActive = options.activeKey;
-    container.innerHTML = ITEMS.map((item) => renderItem(container, item)).join("");
+    if (options.hiddenKeys) container.dataset.navHiddenKeys = options.hiddenKeys;
+
+    const items = getItemsForContainer(container);
+    container.innerHTML = items.map((item) => renderItem(container, item)).join("");
   }
 
   const path = window.location.pathname || "/";
@@ -76,8 +86,14 @@
         `<button id="scoreCheckBtn" class="nav-tab" aria-label="점수 검증 화면으로 이동">점수검증</button>
          <button id="liveAutoTradingBtn" class="nav-tab" aria-label="실자동매매 화면으로 이동">실자동매매</button>`
       );
-      document.getElementById("scoreCheckBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "/score-check"; });
-      document.getElementById("liveAutoTradingBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./live-auto-trading.html"; });
+      document.getElementById("scoreCheckBtn")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        window.location.href = "/score-check";
+      });
+      document.getElementById("liveAutoTradingBtn")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        window.location.href = "./live-auto-trading.html";
+      });
     }
     if (secondaryNav && !secondaryNav.querySelector('[data-nav-key="ranking"]')) {
       secondaryNav.querySelectorAll("button").forEach((button) => {
