@@ -375,7 +375,7 @@ def execute_order_requests(
 ) -> dict[str, Any]:
     _require_execution_confirmation(args)
     previous_success_ids = set() if args.force_resubmit else _load_previous_success_ids(_resolve(args.out_exec_json))
-    buy_approval_required = _env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", True)
+    buy_approval_required = _env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", False)
     approved_request_ids = _load_approved_request_ids(args.approval_json) if buy_approval_required else set()
     client = KISClient.from_env()
     client.issue_access_token()

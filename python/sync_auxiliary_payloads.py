@@ -161,7 +161,7 @@ def sync_auto_trading_policy_payload() -> None:
         "generated_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
         "auto_trade_execute": _env_flag("AUTO_TRADE_EXECUTE", False),
         "auto_trade_allow_buy": _env_flag("AUTO_TRADE_ALLOW_BUY", False),
-        "buy_approval_required": _env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", True),
+        "buy_approval_required": _env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", False),
         "confirm_configured": str(__import__("os").environ.get("AUTO_TRADE_CONFIRM_TEXT", "")).strip() == "LIVE_ORDER",
         "source": "env_snapshot",
     }

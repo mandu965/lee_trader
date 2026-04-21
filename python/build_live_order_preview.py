@@ -16,6 +16,7 @@ from kis_live_account import (
     resolve_account_env,
     summarize_cash,
 )
+from production_config import get_production_config_value
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +31,7 @@ OUT_JSON = OUTPUT_DIR / "live_order_preview.json"
 OUT_MD = OUTPUT_DIR / "live_order_preview.md"
 STATUS_BUY_ALLOWED = "BUY_ALLOWED"
 STATUS_PILOT = "PILOT"
+STATUS_WATCH = "WATCH"
 
 
 def parse_args() -> argparse.Namespace:
@@ -134,6 +136,28 @@ def _fmt_pct(v: object, digits: int = 2) -> str:
     return f"{float(x) * 100:.{digits}f}%"
 
 
+def gate_allows_preview_buy(gate: dict[str, Any]) -> bool:
+    limited_entry_mode = resolve_limited_entry_mode(gate)
+    gate_status = str(gate.get("overall_status") or "").upper()
+    if gate_status in {STATUS_BUY_ALLOWED, STATUS_PILOT}:
+        return True
+    if gate_status != STATUS_WATCH:
+        return False
+    return limited_entry_mode == "watch"
+
+
+def resolve_limited_entry_mode(gate: dict[str, Any]) -> str | None:
+    explicit = str(gate.get("limited_entry_mode") or "").strip().lower()
+    if explicit:
+        return explicit
+    gate_status = str(gate.get("overall_status") or "").upper()
+    if gate_status == STATUS_WATCH and bool(get_production_config_value(["execution_policy", "watch_limited_auto_buy_enabled"], False)):
+        return "watch"
+    if gate_status == STATUS_PILOT and bool(get_production_config_value(["execution_policy", "pilot_limited_auto_buy_enabled"], False)):
+        return "pilot"
+    return None
+
+
 def main() -> int:
     args = parse_args()
     candidates = merge_candidates_with_prices(
@@ -176,8 +200,7 @@ def main() -> int:
         allowed_values = [int(v) for v in [nrcvb_buy_qty, max_buy_qty] if pd.notna(v)]
         allowed_qty = min(allowed_values) if allowed_values else 0
         final_qty = min(planned_qty, allowed_qty) if allowed_qty > 0 else 0
-        gate_status = str(gate.get("overall_status") or "").upper()
-        gate_buy_enabled = gate_status in {STATUS_BUY_ALLOWED, STATUS_PILOT}
+        gate_buy_enabled = gate_allows_preview_buy(gate)
         rows.append(
             {
                 "code": code,
@@ -198,8 +221,10 @@ def main() -> int:
     preview_df = pd.DataFrame(rows)
     payload = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "asof_date": gate.get("asof_date"),
         "env_dv": account.env_dv,
         "gate_status": gate.get("overall_status"),
+        "limited_entry_mode": resolve_limited_entry_mode(gate),
         "cash_summary": cash_summary,
         "items": preview_df.where(pd.notna(preview_df), None).to_dict(orient="records"),
     }
@@ -208,8 +233,10 @@ def main() -> int:
         "# Live Order Preview",
         "",
         f"- generated_at: {payload['generated_at']}",
+        f"- asof_date: {payload.get('asof_date') or 'NA'}",
         f"- env_dv: {account.env_dv}",
         f"- gate_status: {gate.get('overall_status')}",
+        f"- limited_entry_mode: {payload.get('limited_entry_mode') or 'none'}",
         f"- available_cash: {_fmt_num(available_cash)}",
         "",
         "| code | name | buy_rank | ref_price | held_now | planned_qty | final_preview_qty | blocked_reason |",

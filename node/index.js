@@ -958,6 +958,20 @@ function toIsoDate(v) {
   return s.slice(0, 10);
 }
 
+function compareTradesChronologically(a, b) {
+  const da = toIsoDate(a?.date || "");
+  const db = toIsoDate(b?.date || "");
+  if (da !== db) return da < db ? -1 : 1;
+
+  const ca = String(a?.created_at || "");
+  const cb = String(b?.created_at || "");
+  if (ca !== cb) return ca < cb ? -1 : 1;
+
+  const ia = Number(a?.trade_id) || 0;
+  const ib = Number(b?.trade_id) || 0;
+  return ia - ib;
+}
+
 function parseTimestampMs(v) {
   if (v === null || v === undefined) return NaN;
   const s = String(v).trim();
@@ -3157,14 +3171,7 @@ async function deleteTradeById(tradeId) {
 // ---------------------
 function computePositions(trades) {
   const stateByCode = new Map();
-  const sorted = trades
-    .slice()
-    .sort((a, b) => {
-      const da = toIsoDate(a.date || "");
-      const db = toIsoDate(b.date || "");
-      if (da !== db) return da < db ? -1 : 1;
-      return (Number(a.trade_id) || 0) - (Number(b.trade_id) || 0);
-    });
+  const sorted = trades.slice().sort(compareTradesChronologically);
 
   for (const t of sorted) {
     const code = (t.code || "").trim();
@@ -3339,10 +3346,7 @@ function buildHoldings(trades, latestRankByCode) {
     };
   };
   const sortedTrades = [...trades].sort((a, b) => {
-    const da = toIsoDate(a.date || "");
-    const db = toIsoDate(b.date || "");
-    if (da !== db) return da < db ? -1 : 1;
-    return (Number(a.trade_id) || 0) - (Number(b.trade_id) || 0);
+    return compareTradesChronologically(a, b);
   });
 
   for (const trade of sortedTrades) {
@@ -4616,10 +4620,7 @@ app.get("/api/trades/history", async (req, res) => {
 
     // 1) 계산용: 오름차순(날짜 asc, trade_id asc)
     rows.sort((a, b) => {
-      const da = toIsoDate(a.date || "");
-      const db = toIsoDate(b.date || "");
-      if (da !== db) return da < db ? -1 : 1; // asc
-      return (Number(a.trade_id) || 0) - (Number(b.trade_id) || 0);
+      return compareTradesChronologically(a, b);
     });
 
     for (const r of rows) {
@@ -4682,10 +4683,7 @@ app.get("/api/trades/history", async (req, res) => {
 
     // 2) 응답용: 시간순(날짜 asc, trade_id asc) + 날짜 포맷 고정
     items.sort((a, b) => {
-      const da = toIsoDate(a.date || "");
-      const db = toIsoDate(b.date || "");
-      if (da !== db) return da < db ? -1 : 1;
-      return (Number(a.trade_id) || 0) - (Number(b.trade_id) || 0);
+      return compareTradesChronologically(a, b);
     });
 
     res.json({ items });
@@ -4705,12 +4703,7 @@ app.get("/api/holding/:code", async (req, res) => {
     const tradesAll = await listTrades();
     const trades = tradesAll
       .filter((t) => (t.code || "").trim() === code)
-      .sort((a, b) => {
-        const da = String(a.date || "");
-        const db = String(b.date || "");
-        if (da !== db) return da < db ? -1 : 1;
-        return (Number(a.trade_id) || 0) - (Number(b.trade_id) || 0);
-      });
+      .sort(compareTradesChronologically);
 
     const rank = (
       await queryRows(
@@ -4812,7 +4805,6 @@ app.get("/api/holding/:code", async (req, res) => {
         unrealized_pnl_pct: unrealizedPnlPct,
         realized_pnl: realizedPnl,
         realized_pnl_pct: realizedPnlPct,
-        live_score: rank ? getLiveScore(rank) : null,
         live_score: rank ? getLiveScore(rank) : null,
         live_rank: rank ? getLiveRank(rank) : null,
         live_score_source: rank ? getLiveScoreSource(rank) : null,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+import os
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +22,15 @@ def read_json(path: Path) -> dict[str, Any]:
 def summarize(label: str, ok: bool, detail: str) -> str:
     state = "OK" if ok else "WARN"
     return f"[{state}] {label}: {detail}"
+
+
+def env_flag(name: str, default: bool) -> bool:
+    raw = str(os.environ.get(name, "1" if default else "0")).strip().lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def main() -> int:
@@ -67,15 +77,20 @@ def main() -> int:
         )
     )
 
+    buy_approval_required = env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", False)
     approved_request_ids = approvals.get("approved_request_ids") or approvals.get("request_ids") or []
-    approval_ok = bool(approved_request_ids) or not buy_intents
+    approval_ok = (not buy_approval_required) or bool(approved_request_ids) or not buy_intents
     if not approval_ok:
         warnings += 1
     lines.append(
         summarize(
             "buy_approval",
             approval_ok,
-            f"approved_request_ids={len(approved_request_ids)} expected_buy_candidates={len(buy_intents)}",
+            (
+                f"required={buy_approval_required} "
+                f"approved_request_ids={len(approved_request_ids)} "
+                f"expected_buy_candidates={len(buy_intents)}"
+            ),
         )
     )
 
@@ -111,7 +126,7 @@ def main() -> int:
     for line in lines:
         print(line)
 
-    if buy_intents and not approved_request_ids:
+    if buy_approval_required and buy_intents and not approved_request_ids:
         print("")
         print("Action needed:")
         print("- BUY intents exist, but order_buy_approvals.json is empty, so new BUY orders will be skipped.")
