@@ -5163,6 +5163,7 @@ app.get("/api/live-account/summary", async (req, res) => {
       holding_count: visibleHoldingCount,
       order_preview_count: Array.isArray(preview?.items) ? preview.items.length : 0,
       preview_gate_status: preview?.gate_status || null,
+      preview_gate_display_status: preview?.gate_display_status || preview?.gate_status || null,
       order_execution_count: Array.isArray(execution?.items) ? execution.items.length : 0,
       last_execution_at: execution?.executed_at || null,
       last_execution_submitted_count: execution?.summary?.submitted_count ?? null,

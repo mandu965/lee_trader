@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -427,6 +428,18 @@ def gate_decision_runtime(gate_payload: dict[str, object]) -> dict[str, object]:
         if isinstance(decision, dict) and int(decision.get("bucket") or -1) == primary_bucket:
             reason = str(decision.get("reason_summary") or "")
             break
+
+    override_mode = str(
+        os.environ.get("AUTO_TRADE_LIMITED_ENTRY_OVERRIDE")
+        or get_production_config_value(["execution_policy", "watch_limited_entry_override_mode"], "")
+        or ""
+    ).strip().lower()
+    if status == STATUS_WATCH and override_mode == "pilot":
+        status = STATUS_PILOT
+        if reason:
+            reason = f"{reason}; WATCH gate runtime override -> PILOT limited entry"
+        else:
+            reason = "WATCH gate runtime override -> PILOT limited entry"
 
     if status == STATUS_BUY_ALLOWED:
         return {

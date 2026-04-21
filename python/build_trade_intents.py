@@ -18,19 +18,12 @@ from apply_execution_policy import (
     _fmt_pct,
     _markdown_table,
     _safe_read_json,
-    build_execution_actions,
-    build_reference_maps,
-    classify_holdings,
-    enrich_candidates_with_snapshot,
-    extract_cooldown_map,
     gate_decision_runtime,
     load_candidates,
-    load_holdings,
-    load_snapshot_archive,
     markdown_summary_list,
-    select_buy_ready_queue,
 )
 from production_config import get_production_config_value
+from strategy_core import evaluate_strategy
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -161,27 +154,21 @@ def main() -> int:
     candidates = load_candidates(args.candidates_csv)
     candidates = candidates.loc[pd.to_numeric(candidates["buy_rank"], errors="coerce").le(args.candidate_universe_top_n)].copy()
     candidates = candidates.sort_values(["buy_rank", "rank_source", "code"]).reset_index(drop=True)
-    snapshot_archive = load_snapshot_archive(args.snapshot_archive_csv)
-    latest_snapshot, previous_snapshot = build_reference_maps(snapshot_archive)
     gate_payload = _safe_read_json(args.gate_json)
     gate = gate_decision_runtime(gate_payload)
 
     candidate_asof_raw = str(candidates["asof_date"].iloc[0]) if "asof_date" in candidates.columns and not candidates.empty else ""
     candidate_asof = pd.to_datetime(candidate_asof_raw, errors="coerce")
-    latest_snapshot_date = latest_snapshot["asof_date"].iloc[0] if not latest_snapshot.empty else pd.NaT
+    strategy = evaluate_strategy(
+        args=args,
+        candidates=candidates,
+        snapshot_archive_csv=args.snapshot_archive_csv,
+        gate=gate,
+        aggregate_paper_holdings=aggregate_open_positions_by_code,
+    )
+    latest_snapshot_date = strategy.latest_snapshot["asof_date"].iloc[0] if not strategy.latest_snapshot.empty else pd.NaT
     asof_date = pd.Timestamp(candidate_asof if pd.notna(candidate_asof) else latest_snapshot_date if pd.notna(latest_snapshot_date) else pd.Timestamp.today()).normalize()
-
-    holdings_context = load_holdings(args, candidates, latest_snapshot)
-    if "paper_trading_positions.csv" in str(holdings_context.source):
-        holdings_context.open_positions = aggregate_open_positions_by_code(holdings_context.open_positions)
-    cooldown_map = extract_cooldown_map(holdings_context.closed_positions, asof_date, args.reentry_cooldown_days)
-    candidates = enrich_candidates_with_snapshot(candidates, latest_snapshot, previous_snapshot)
-    holdings_review = classify_holdings(holdings_context.open_positions, candidates, latest_snapshot, gate, args)
-    held_codes = set(holdings_context.open_positions["code"].astype(str).str.zfill(6).tolist()) if not holdings_context.open_positions.empty else set()
-    buy_ready_queue = select_buy_ready_queue(candidates, held_codes, cooldown_map, args)
-    execution_actions = build_execution_actions(holdings_review, buy_ready_queue, gate, args)
-
-    intents = build_intent_rows(execution_actions, asof_date=asof_date, gate_status=str(gate["status"]))
+    intents = build_intent_rows(strategy.execution_actions, asof_date=asof_date, gate_status=str(gate["status"]))
     payload = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "asof_date": asof_date.strftime("%Y-%m-%d"),
@@ -189,7 +176,7 @@ def main() -> int:
         "score_formula_version": SCORE_FORMULA_VERSION,
         "gate_version": GATE_VERSION,
         "portfolio_version": PORTFOLIO_VERSION,
-        "holdings_source": holdings_context.source,
+        "holdings_source": strategy.holdings_context.source,
         "gate_status": gate["status"],
         "gate_guidance": gate["guidance"],
         "intent_count": len(intents),

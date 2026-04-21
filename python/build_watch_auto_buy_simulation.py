@@ -11,23 +11,18 @@ import pandas as pd
 from apply_execution_policy import (
     DEFAULT_CANDIDATES_CSV,
     DEFAULT_SNAPSHOT_ARCHIVE_CSV,
-    POLICY_VERSION,
-    SCORE_FORMULA_VERSION,
     GATE_VERSION,
+    POLICY_VERSION,
     PORTFOLIO_VERSION,
+    SCORE_FORMULA_VERSION,
+    HoldingsContext,
     _markdown_table,
-    build_execution_actions,
-    build_reference_maps,
-    classify_holdings,
-    enrich_candidates_with_snapshot,
-    extract_cooldown_map,
     load_candidates,
     load_holdings,
-    load_snapshot_archive,
     parse_args as parse_policy_args,
-    select_buy_ready_queue,
 )
 from payload_store import upsert_json_payload
+from strategy_core import evaluate_strategy
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -74,18 +69,22 @@ def _build_scenario_payload(
     holdings: pd.DataFrame,
     holdings_source: str,
     candidates: pd.DataFrame,
-    latest_snapshot: pd.DataFrame,
-    previous_snapshot: pd.DataFrame,
     policy_args: argparse.Namespace,
-    asof_date: pd.Timestamp,
 ) -> dict[str, object]:
-    gate = _watch_gate()
-    cooldown_map = extract_cooldown_map(pd.DataFrame(columns=["code", "name", "exit_date"]), asof_date, policy_args.reentry_cooldown_days)
-    enriched = enrich_candidates_with_snapshot(candidates, latest_snapshot, previous_snapshot)
-    holdings_review = classify_holdings(holdings, enriched, latest_snapshot, gate, policy_args)
-    held_codes = set(holdings["code"].astype(str).str.zfill(6).tolist()) if not holdings.empty else set()
-    buy_ready_queue = select_buy_ready_queue(enriched, held_codes, cooldown_map, policy_args)
-    execution_actions = build_execution_actions(holdings_review, buy_ready_queue, gate, policy_args)
+    holdings_context = HoldingsContext(
+        open_positions=holdings.copy(),
+        closed_positions=pd.DataFrame(columns=["code", "name", "exit_date"]),
+        source=holdings_source,
+    )
+    strategy = evaluate_strategy(
+        args=policy_args,
+        candidates=candidates,
+        snapshot_archive_csv=policy_args.snapshot_archive_csv,
+        gate=_watch_gate(),
+        holdings_context_override=holdings_context,
+    )
+    execution_actions = strategy.execution_actions
+    buy_ready_queue = strategy.buy_ready_queue
 
     actionable = execution_actions.loc[execution_actions["action"].astype(str).eq("ENTER")].copy()
     actionable["target_weight"] = pd.to_numeric(actionable["target_weight"], errors="coerce")
@@ -119,43 +118,55 @@ def main() -> int:
         policy_args = parse_policy_args()
     finally:
         sys.argv = original_argv
+
+    policy_args.snapshot_archive_csv = args.snapshot_archive_csv
     candidates = load_candidates(args.candidates_csv)
-    candidates = candidates.loc[pd.to_numeric(candidates["buy_rank"], errors="coerce").le(policy_args.candidate_universe_top_n)].copy()
+    candidates = candidates.loc[
+        pd.to_numeric(candidates["buy_rank"], errors="coerce").le(policy_args.candidate_universe_top_n)
+    ].copy()
     candidates = candidates.sort_values(["buy_rank", "rank_source", "code"]).reset_index(drop=True)
-    snapshot_archive = load_snapshot_archive(args.snapshot_archive_csv)
-    latest_snapshot, previous_snapshot = build_reference_maps(snapshot_archive)
 
-    candidate_asof_raw = str(candidates["asof_date"].iloc[0]) if "asof_date" in candidates.columns and not candidates.empty else ""
+    candidate_asof_raw = (
+        str(candidates["asof_date"].iloc[0]) if "asof_date" in candidates.columns and not candidates.empty else ""
+    )
     candidate_asof = pd.to_datetime(candidate_asof_raw, errors="coerce")
-    latest_snapshot_date = latest_snapshot["asof_date"].iloc[0] if not latest_snapshot.empty else pd.NaT
-    asof_date = pd.Timestamp(candidate_asof if pd.notna(candidate_asof) else latest_snapshot_date if pd.notna(latest_snapshot_date) else pd.Timestamp.today()).normalize()
+    baseline = evaluate_strategy(
+        args=policy_args,
+        candidates=candidates,
+        snapshot_archive_csv=args.snapshot_archive_csv,
+        gate=_watch_gate(),
+    )
+    latest_snapshot_date = (
+        baseline.latest_snapshot["asof_date"].iloc[0] if not baseline.latest_snapshot.empty else pd.NaT
+    )
+    asof_date = pd.Timestamp(
+        candidate_asof
+        if pd.notna(candidate_asof)
+        else latest_snapshot_date
+        if pd.notna(latest_snapshot_date)
+        else pd.Timestamp.today()
+    ).normalize()
 
-    current_holdings_context = load_holdings(policy_args, candidates, latest_snapshot)
+    current_holdings_context = load_holdings(policy_args, candidates, baseline.latest_snapshot)
     current_holdings = current_holdings_context.open_positions.copy()
     empty_holdings = _empty_holdings_frame()
 
     scenarios = [
         _build_scenario_payload(
             scenario_key="watch_current_holdings",
-            scenario_label="WATCH 가정 / 현재 실계좌 보유 기준",
+            scenario_label="WATCH current holdings",
             holdings=current_holdings,
             holdings_source=current_holdings_context.source,
             candidates=candidates,
-            latest_snapshot=latest_snapshot,
-            previous_snapshot=previous_snapshot,
             policy_args=policy_args,
-            asof_date=asof_date,
         ),
         _build_scenario_payload(
             scenario_key="watch_empty_account",
-            scenario_label="WATCH 가정 / 빈 계좌 기준",
+            scenario_label="WATCH empty account",
             holdings=empty_holdings,
             holdings_source="empty_account_simulation",
             candidates=candidates,
-            latest_snapshot=latest_snapshot,
-            previous_snapshot=previous_snapshot,
             policy_args=policy_args,
-            asof_date=asof_date,
         ),
     ]
 
@@ -200,7 +211,11 @@ def main() -> int:
                 f"- total_target_weight: {scenario['summary']['total_target_weight']:.2%}",
                 "",
                 _markdown_table(
-                    actions_df if not actions_df.empty else pd.DataFrame([{"code": "-", "name": "", "action": "NO_ACTION", "target_weight": None, "reason": "no actions"}]),
+                    actions_df
+                    if not actions_df.empty
+                    else pd.DataFrame(
+                        [{"code": "-", "name": "", "action": "NO_ACTION", "target_weight": None, "reason": "no actions"}]
+                    ),
                     ["code", "name", "action", "target_weight", "reason"],
                 ),
                 "",

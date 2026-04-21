@@ -8,40 +8,40 @@ from typing import Any
 
 import pandas as pd
 
-from kis_client import KISClient
-from kis_live_account import (
-    compute_market_order_preview_qty,
-    inquire_balance,
-    inquire_psbl_order,
-    resolve_account_env,
-    summarize_cash,
+from submit_live_orders import (
+    INPUT_LIVE_HOLDINGS,
+    OUT_JSON as INPUT_ORDER_REQUESTS_PREVIEW,
+    INPUT_PRICE_FALLBACK,
+    INPUT_RANKING,
+    INPUT_TRADE_INTENTS,
+    build_order_requests,
+    load_live_holdings,
+    load_price_fallback,
+    load_ranking,
+    merge_ranking_with_prices,
 )
-from production_config import get_production_config_value
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "outputs"
 
-INPUT_CANDIDATES = DATA_DIR / "ranking_final.csv"
-INPUT_PRICE_FALLBACK = DATA_DIR / "ranking_final.csv"
-INPUT_GATE = OUTPUT_DIR / "operational_buy_gate.json"
-INPUT_LIVE_HOLDINGS = DATA_DIR / "live_account_holdings.csv"
 OUT_JSON = OUTPUT_DIR / "live_order_preview.json"
 OUT_MD = OUTPUT_DIR / "live_order_preview.md"
+INPUT_GATE = OUTPUT_DIR / "operational_buy_gate.json"
+
 STATUS_BUY_ALLOWED = "BUY_ALLOWED"
 STATUS_PILOT = "PILOT"
 STATUS_WATCH = "WATCH"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build live-account order preview without sending real orders.")
-    parser.add_argument("--candidates-csv", type=Path, default=INPUT_CANDIDATES)
+    parser = argparse.ArgumentParser(description="Build live-account order preview aligned with guarded order requests.")
+    parser.add_argument("--order-requests-preview-json", type=Path, default=INPUT_ORDER_REQUESTS_PREVIEW)
+    parser.add_argument("--trade-intents-json", type=Path, default=INPUT_TRADE_INTENTS)
+    parser.add_argument("--live-holdings-csv", type=Path, default=INPUT_LIVE_HOLDINGS)
+    parser.add_argument("--ranking-csv", type=Path, default=INPUT_RANKING)
     parser.add_argument("--price-fallback-csv", type=Path, default=INPUT_PRICE_FALLBACK)
     parser.add_argument("--gate-json", type=Path, default=INPUT_GATE)
-    parser.add_argument("--live-holdings-csv", type=Path, default=INPUT_LIVE_HOLDINGS)
-    parser.add_argument("--target-count", type=int, default=5)
-    parser.add_argument("--max-position-weight", type=float, default=0.20)
     parser.add_argument("--ord-dvsn", default="01", help="01 market, 00 limit")
     parser.add_argument("--out-json", type=Path, default=OUT_JSON)
     parser.add_argument("--out-md", type=Path, default=OUT_MD)
@@ -52,70 +52,7 @@ def _resolve(path: Path) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
-def load_candidates(path: Path) -> pd.DataFrame:
-    df = pd.read_csv(_resolve(path), dtype={"code": str}, low_memory=False)
-    if df.empty:
-        return df
-    work = df.copy()
-    work["code"] = work["code"].astype(str).str.zfill(6)
-    work["name"] = work.get("name", "").fillna("").astype(str)
-    for col in ["buy_rank", "rank_final", "final_score", "confidence_score", "close"]:
-        work[col] = pd.to_numeric(work.get(col), errors="coerce")
-    if "buy_rank" not in work.columns or work["buy_rank"].isna().all():
-        work["buy_rank"] = pd.to_numeric(work.get("rank_final"), errors="coerce")
-    if work["buy_rank"].isna().all():
-        work["buy_rank"] = (
-            pd.to_numeric(work["final_score"], errors="coerce")
-            .rank(method="first", ascending=False)
-            .astype(float)
-        )
-    return work.sort_values(["buy_rank", "code"]).reset_index(drop=True)
-
-
-def load_price_fallback(path: Path) -> pd.DataFrame:
-    resolved = _resolve(path)
-    if not resolved.exists():
-        return pd.DataFrame(columns=["code", "close"])
-    df = pd.read_csv(resolved, dtype={"code": str}, low_memory=False)
-    if df.empty:
-        return pd.DataFrame(columns=["code", "close"])
-    work = df.copy()
-    work["code"] = work["code"].astype(str).str.zfill(6)
-    work["close"] = pd.to_numeric(work.get("close"), errors="coerce")
-    if "date" in work.columns:
-        work["date"] = pd.to_datetime(work.get("date"), errors="coerce")
-        work = work.sort_values(["date", "code"], ascending=[False, True], na_position="last")
-    return work.loc[:, ["code", "close"]].dropna(subset=["close"]).drop_duplicates("code", keep="first").reset_index(drop=True)
-
-
-def merge_candidates_with_prices(candidates: pd.DataFrame, price_fallback: pd.DataFrame) -> pd.DataFrame:
-    if candidates.empty:
-        return candidates
-    if price_fallback.empty:
-        return candidates
-    merged = candidates.merge(
-        price_fallback.rename(columns={"close": "fallback_close"}),
-        on="code",
-        how="left",
-    )
-    merged["close"] = pd.to_numeric(merged.get("close"), errors="coerce").where(
-        pd.to_numeric(merged.get("close"), errors="coerce").notna(),
-        pd.to_numeric(merged.get("fallback_close"), errors="coerce"),
-    )
-    return merged.drop(columns=["fallback_close"])
-
-
-def load_holdings_codes(path: Path) -> set[str]:
-    resolved = _resolve(path)
-    if not resolved.exists():
-        return set()
-    df = pd.read_csv(resolved, dtype={"code": str}, low_memory=False)
-    if df.empty or "code" not in df.columns:
-        return set()
-    return set(df["code"].astype(str).str.zfill(6).tolist())
-
-
-def load_gate(path: Path) -> dict[str, Any]:
+def _safe_read_json(path: Path) -> dict[str, Any]:
     resolved = _resolve(path)
     if not resolved.exists():
         return {}
@@ -129,21 +66,31 @@ def _fmt_num(v: object, digits: int = 2) -> str:
     return f"{float(x):,.{digits}f}"
 
 
-def _fmt_pct(v: object, digits: int = 2) -> str:
-    x = pd.to_numeric(v, errors="coerce")
-    if pd.isna(x):
-        return "NA"
-    return f"{float(x) * 100:.{digits}f}%"
+def _clean_text(value: object) -> str | None:
+    if value is None:
+        return None
+    if pd.isna(value):
+        return None
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return None
+    return text
 
 
-def gate_allows_preview_buy(gate: dict[str, Any]) -> bool:
-    limited_entry_mode = resolve_limited_entry_mode(gate)
-    gate_status = str(gate.get("overall_status") or "").upper()
-    if gate_status in {STATUS_BUY_ALLOWED, STATUS_PILOT}:
-        return True
-    if gate_status != STATUS_WATCH:
-        return False
-    return limited_entry_mode == "watch"
+def _clean_value(value: object) -> object:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            return value
+    return value
 
 
 def resolve_limited_entry_mode(gate: dict[str, Any]) -> str | None:
@@ -151,109 +98,157 @@ def resolve_limited_entry_mode(gate: dict[str, Any]) -> str | None:
     if explicit:
         return explicit
     gate_status = str(gate.get("overall_status") or "").upper()
-    if gate_status == STATUS_WATCH and bool(get_production_config_value(["execution_policy", "watch_limited_auto_buy_enabled"], False)):
+    if gate_status == STATUS_WATCH:
         return "watch"
-    if gate_status == STATUS_PILOT and bool(get_production_config_value(["execution_policy", "pilot_limited_auto_buy_enabled"], False)):
+    if gate_status == STATUS_PILOT:
         return "pilot"
     return None
 
 
-def main() -> int:
-    args = parse_args()
-    candidates = merge_candidates_with_prices(
-        load_candidates(args.candidates_csv),
-        load_price_fallback(args.price_fallback_csv),
-    )
-    held_codes = load_holdings_codes(args.live_holdings_csv)
-    gate = load_gate(args.gate_json)
+def convert_order_preview_to_live_preview(
+    *,
+    preview_payload: dict[str, Any],
+    intents_payload: dict[str, Any],
+    holdings: pd.DataFrame,
+    ranking: pd.DataFrame,
+    gate: dict[str, Any],
+) -> dict[str, Any]:
+    items = preview_payload.get("items") or []
+    preview_df = pd.DataFrame(items)
+    if preview_df.empty:
+        preview_df = pd.DataFrame(columns=["code", "name", "reference_price", "allowed_qty", "planned_qty", "final_request_qty", "blocked_reason"])
 
-    client = KISClient.from_env()
-    client.issue_access_token()
-    account = resolve_account_env()
-    _, summary_df = inquire_balance(client, account)
-    cash_summary = summarize_cash(summary_df)
-    available_cash = cash_summary.get("dnca_tot_amt")
+    preview_df["code"] = preview_df.get("code", pd.Series(dtype="object")).fillna("").astype(str).str.zfill(6)
+    preview_df["side"] = preview_df.get("side", pd.Series(dtype="object")).fillna("").astype(str).str.upper()
+    preview_df = preview_df.loc[preview_df["side"].eq("BUY")].copy()
 
-    selected = candidates.head(args.target_count).copy()
+    holdings_lookup = holdings.drop_duplicates("code").set_index("code") if not holdings.empty else pd.DataFrame()
+    ranking_lookup = ranking.drop_duplicates("code").set_index("code") if not ranking.empty else pd.DataFrame()
+
+    intent_rows = pd.DataFrame(intents_payload.get("intents") or [])
+    if not intent_rows.empty:
+        intent_rows["code"] = intent_rows.get("code", pd.Series(dtype="object")).fillna("").astype(str).str.zfill(6)
+        intent_rows["intent_type"] = intent_rows.get("intent_type", pd.Series(dtype="object")).fillna("").astype(str).str.upper()
+        intent_rows = intent_rows.loc[intent_rows["intent_type"].eq("BUY")].copy()
+        intent_rows = intent_rows.sort_values(["priority", "code"], ascending=[False, True], na_position="last")
+        intent_rows = intent_rows.drop_duplicates("code", keep="first")
+        preview_df = preview_df.merge(
+            intent_rows.loc[:, ["code", "intent_type", "reason", "target_weight"]].rename(
+                columns={"reason": "intent_reason"}
+            ),
+            on="code",
+            how="left",
+        )
+
     rows: list[dict[str, Any]] = []
-    for _, row in selected.iterrows():
-        code = str(row["code"]).zfill(6)
-        ref_price = pd.to_numeric(row.get("close"), errors="coerce")
-        order_price = int(ref_price) if pd.notna(ref_price) and ref_price > 0 else 0
-        psbl = inquire_psbl_order(
-            client,
-            account,
-            pdno=code,
-            ord_unpr=str(order_price),
-            ord_dvsn=args.ord_dvsn,
-        )
-        psbl_row = psbl.iloc[0] if not psbl.empty else pd.Series(dtype="object")
-        nrcvb_buy_qty = pd.to_numeric(psbl_row.get("nrcvb_buy_qty"), errors="coerce")
-        max_buy_qty = pd.to_numeric(psbl_row.get("max_buy_qty"), errors="coerce")
-        planned_qty = compute_market_order_preview_qty(
-            available_cash=available_cash,
-            total_assets=cash_summary.get("tot_evlu_amt"),
-            target_weight=args.max_position_weight,
-            current_position_value=None,
-            price=float(order_price) if order_price else None,
-        )
-        allowed_values = [int(v) for v in [nrcvb_buy_qty, max_buy_qty] if pd.notna(v)]
-        allowed_qty = min(allowed_values) if allowed_values else 0
-        final_qty = min(planned_qty, allowed_qty) if allowed_qty > 0 else 0
-        gate_buy_enabled = gate_allows_preview_buy(gate)
+    for _, row in preview_df.iterrows():
+        code = str(row.get("code") or "").zfill(6)
+        ranking_row = ranking_lookup.loc[code] if not ranking_lookup.empty and code in ranking_lookup.index else pd.Series(dtype="object")
+        held_now = bool(not holdings_lookup.empty and code in holdings_lookup.index)
         rows.append(
             {
                 "code": code,
-                "name": row.get("name"),
-                "buy_rank": pd.to_numeric(row.get("buy_rank"), errors="coerce"),
-                "final_score": pd.to_numeric(row.get("final_score"), errors="coerce"),
-                "confidence_score": pd.to_numeric(row.get("confidence_score"), errors="coerce"),
-                "reference_price": order_price if order_price else None,
-                "held_now": code in held_codes,
-                "nrcvb_buy_qty": nrcvb_buy_qty,
-                "max_buy_qty": max_buy_qty,
-                "planned_qty": planned_qty,
-                "final_preview_qty": final_qty,
-                "blocked_reason": "already_held" if code in held_codes else ("gate_not_buy_enabled" if not gate_buy_enabled else ("buy_qty_zero" if final_qty <= 0 else "")),
+                "name": _clean_text(row.get("name")) or _clean_text(ranking_row.get("name")),
+                "buy_rank": pd.to_numeric(ranking_row.get("buy_rank"), errors="coerce"),
+                "final_score": pd.to_numeric(ranking_row.get("final_score"), errors="coerce"),
+                "confidence_score": pd.to_numeric(ranking_row.get("confidence_score"), errors="coerce"),
+                "reference_price": pd.to_numeric(row.get("reference_price"), errors="coerce"),
+                "held_now": held_now,
+                "nrcvb_buy_qty": pd.to_numeric(row.get("allowed_qty"), errors="coerce"),
+                "max_buy_qty": pd.to_numeric(row.get("allowed_qty"), errors="coerce"),
+                "planned_qty": pd.to_numeric(row.get("planned_qty"), errors="coerce"),
+                "final_preview_qty": pd.to_numeric(row.get("final_request_qty"), errors="coerce"),
+                "target_weight": pd.to_numeric(row.get("target_weight"), errors="coerce"),
+                "blocked_reason": _clean_text(row.get("blocked_reason")) or "",
+                "reason": _clean_text(row.get("intent_reason")) or _clean_text(row.get("reason")),
             }
         )
 
-    preview_df = pd.DataFrame(rows)
-    payload = {
+    cleaned_rows = [{key: _clean_value(value) for key, value in row.items()} for row in rows]
+    source_gate_status = str(gate.get("overall_status") or "").upper() or None
+    runtime_gate_status = str(preview_payload.get("gate_status") or source_gate_status or "").upper() or None
+    runtime_override_applied = bool(
+        source_gate_status
+        and runtime_gate_status
+        and source_gate_status != runtime_gate_status
+    )
+    gate_display_status = (
+        f"{source_gate_status} (runtime {runtime_gate_status} override)"
+        if runtime_override_applied
+        else runtime_gate_status
+    )
+
+    return {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "asof_date": gate.get("asof_date"),
-        "env_dv": account.env_dv,
-        "gate_status": gate.get("overall_status"),
+        "asof_date": preview_payload.get("asof_date"),
+        "env_dv": preview_payload.get("env_dv"),
+        "gate_status": runtime_gate_status,
+        "gate_source_status": source_gate_status,
+        "gate_runtime_status": runtime_gate_status,
+        "gate_display_status": gate_display_status,
+        "runtime_override_applied": runtime_override_applied,
         "limited_entry_mode": resolve_limited_entry_mode(gate),
-        "cash_summary": cash_summary,
-        "items": preview_df.where(pd.notna(preview_df), None).to_dict(orient="records"),
+        "cash_summary": preview_payload.get("cash_summary") or {},
+        "items": cleaned_rows,
     }
 
+
+def render_markdown(payload: dict[str, Any]) -> str:
     lines = [
         "# Live Order Preview",
         "",
         f"- generated_at: {payload['generated_at']}",
         f"- asof_date: {payload.get('asof_date') or 'NA'}",
-        f"- env_dv: {account.env_dv}",
-        f"- gate_status: {gate.get('overall_status')}",
+        f"- env_dv: {payload.get('env_dv') or 'NA'}",
+        f"- gate_status: {payload.get('gate_status') or 'NA'}",
+        f"- gate_display_status: {payload.get('gate_display_status') or payload.get('gate_status') or 'NA'}",
         f"- limited_entry_mode: {payload.get('limited_entry_mode') or 'none'}",
-        f"- available_cash: {_fmt_num(available_cash)}",
+        f"- available_cash: {_fmt_num((payload.get('cash_summary') or {}).get('dnca_tot_amt'))}",
         "",
         "| code | name | buy_rank | ref_price | held_now | planned_qty | final_preview_qty | blocked_reason |",
         "| ---- | ---- | -------- | --------- | -------- | ----------- | ----------------- | -------------- |",
     ]
-    for item in payload["items"]:
+    for item in payload.get("items") or []:
         lines.append(
             f"| {item.get('code') or ''} | {item.get('name') or ''} | {_fmt_num(item.get('buy_rank'), 0)} | {_fmt_num(item.get('reference_price'), 0)} | {'Y' if item.get('held_now') else 'N'} | {_fmt_num(item.get('planned_qty'), 0)} | {_fmt_num(item.get('final_preview_qty'), 0)} | {item.get('blocked_reason') or ''} |"
         )
     lines.append("")
+    return "\n".join(lines)
+
+
+def main() -> int:
+    args = parse_args()
+    holdings = load_live_holdings(args.live_holdings_csv)
+    ranking = merge_ranking_with_prices(
+        load_ranking(args.ranking_csv),
+        load_price_fallback(args.price_fallback_csv),
+    )
+    order_preview = _safe_read_json(args.order_requests_preview_json)
+    intents_payload = _safe_read_json(args.trade_intents_json)
+    if not order_preview:
+        if not intents_payload:
+            raise FileNotFoundError("trade intents payload not found")
+        order_preview = build_order_requests(
+            intents_payload=intents_payload,
+            holdings=holdings,
+            ranking=ranking,
+            ord_dvsn=args.ord_dvsn,
+        )
+    gate = _safe_read_json(args.gate_json)
+    payload = convert_order_preview_to_live_preview(
+        preview_payload=order_preview,
+        intents_payload=intents_payload,
+        holdings=holdings,
+        ranking=ranking,
+        gate=gate,
+    )
 
     out_json = _resolve(args.out_json)
     out_md = _resolve(args.out_md)
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    out_md.write_text("\n".join(lines), encoding="utf-8")
+    out_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8-sig")
+    out_md.write_text(render_markdown(payload), encoding="utf-8-sig")
     print(f"preview_json: {out_json}")
     print(f"preview_md: {out_md}")
     return 0

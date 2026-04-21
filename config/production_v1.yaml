@@ -56,7 +56,7 @@ portfolio:
   trading_value_very_low: 4000000000.0
 
 buy_gate:
-  primary_bucket: 5
+  primary_bucket: 8
   min_matured_benchmark_dates: 3
   pilot_min_matured_benchmark_dates: 0
   max_liquidity_risk_ratio: 0.40
@@ -81,6 +81,7 @@ execution_policy:
   candidate_universe_top_n: 20
   entry_review_top_n: 8
   entry_review_extended_top_n: 10
+  watch_limited_entry_override_mode: pilot
   standard_entry_confidence: 76.0
   extended_entry_confidence: 70.0
   max_holdings: 8
@@ -94,7 +95,7 @@ execution_policy:
   watch_limited_position_cap: 0.08
   pilot_limited_auto_buy_enabled: true
   pilot_limited_max_entries: 4
-  pilot_limited_total_exposure: 0.30
+  pilot_limited_total_exposure: 0.36
   pilot_limited_position_cap: 0.12
   min_entry_confidence: 55.0
   min_hold_confidence: 55.0

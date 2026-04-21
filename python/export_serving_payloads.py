@@ -662,6 +662,7 @@ def performance_payload(
             else None,
             "order_preview_count": len(live_order_preview.get("items") or []),
             "gate_status_for_preview": live_order_preview.get("gate_status"),
+            "gate_display_status_for_preview": live_order_preview.get("gate_display_status") or live_order_preview.get("gate_status"),
         }
 
     return {
