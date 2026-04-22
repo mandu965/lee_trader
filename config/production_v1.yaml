@@ -94,8 +94,8 @@ execution_policy:
   watch_limited_total_exposure: 0.15
   watch_limited_position_cap: 0.08
   pilot_limited_auto_buy_enabled: true
-  pilot_limited_max_entries: 4
-  pilot_limited_total_exposure: 0.36
+  pilot_limited_max_entries: 5
+  pilot_limited_total_exposure: 0.45
   pilot_limited_position_cap: 0.12
   min_entry_confidence: 55.0
   min_hold_confidence: 55.0

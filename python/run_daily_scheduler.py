@@ -269,6 +269,16 @@ def _skip_after_failure_until_next_day() -> bool:
     }
 
 
+def _latest_eligible_slot(now: datetime, schedule_slots: list[tuple[int, int]]) -> str:
+    today = now.strftime("%Y-%m-%d")
+    eligible_slots = [
+        f"{today} {hour:02d}:{minute:02d}"
+        for hour, minute in schedule_slots
+        if (now.hour, now.minute) >= (hour, minute)
+    ]
+    return eligible_slots[-1] if eligible_slots else ""
+
+
 def _should_run_today(now: datetime, scheduled_hour: int, scheduled_minute: int, status: dict[str, object]) -> bool:
     last_success_date = str(status.get("last_success_date") or "").strip()
     bootstrap_skip_date = str(status.get("bootstrap_skip_until_date") or "").strip()
@@ -292,24 +302,20 @@ def _should_run_daily_slots(now: datetime, schedule_slots: list[tuple[int, int]]
     bootstrap_skip_date = str(status.get("bootstrap_skip_until_date") or "").strip()
     policy_skip_date = str(status.get("last_policy_skip_date") or "").strip()
     failure_skip_date = str(status.get("last_failure_skip_date") or "").strip()
+    last_failure_slot = str(status.get("last_failure_schedule_slot") or "").strip()
     today = now.strftime("%Y-%m-%d")
     if bootstrap_skip_date == today:
         return False
     if policy_skip_date == today:
         return False
-    if failure_skip_date == today:
+    latest_eligible_slot = _latest_eligible_slot(now, schedule_slots)
+    if not latest_eligible_slot:
         return False
-
-    eligible_slots = [
-        f"{today} {hour:02d}:{minute:02d}"
-        for hour, minute in schedule_slots
-        if (now.hour, now.minute) >= (hour, minute)
-    ]
-    if not eligible_slots:
+    if failure_skip_date == today and last_failure_slot == latest_eligible_slot:
         return False
 
     last_success_slot = str(status.get("last_success_schedule_slot") or "").strip()
-    return last_success_slot != eligible_slots[-1]
+    return last_success_slot != latest_eligible_slot
 
 
 def _should_run_interval(now: datetime, interval_minutes: int, status: dict[str, object]) -> bool:
@@ -434,7 +440,10 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
                 "last_success_date": finished_at[:10],
                 "last_success_schedule_slot": str(status.get("pending_schedule_slot") or ""),
                 "last_completed_step": run_steps[-1][0],
+                "last_failure_skip_date": "",
+                "last_failure_schedule_slot": "",
                 "last_error": "",
+                "status_note": "",
             }
         )
         _write_status(payload)
@@ -453,6 +462,7 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
         )
         if _skip_after_failure_until_next_day():
             payload["last_failure_skip_date"] = finished_at[:10]
+            payload["last_failure_schedule_slot"] = str(status.get("pending_schedule_slot") or "")
             payload["status_note"] = "Last run failed; skipping further runs until next day."
         logging.exception("Daily cycle failed")
     _write_status(payload)
@@ -542,12 +552,7 @@ def main() -> int:
             if interval_minutes > 0:
                 status["pending_schedule_slot"] = ""
             elif scheduled_times:
-                eligible_slots = [
-                    f"{now.strftime('%Y-%m-%d')} {hour:02d}:{minute:02d}"
-                    for hour, minute in scheduled_times
-                    if (now.hour, now.minute) >= (hour, minute)
-                ]
-                status["pending_schedule_slot"] = eligible_slots[-1] if eligible_slots else ""
+                status["pending_schedule_slot"] = _latest_eligible_slot(now, scheduled_times)
             else:
                 status["pending_schedule_slot"] = f"{now.strftime('%Y-%m-%d')} {scheduled_hour:02d}:{scheduled_minute:02d}"
             can_run, reason = _evaluate_run_policy(now, run_policy)
