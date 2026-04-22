@@ -163,6 +163,29 @@ def _coalesce_allowed_qty(*values: object) -> int:
     return min(numeric_values)
 
 
+def _preview_expected_hold_reason(*, side: str, blocked_reason: str | None, final_qty: object) -> str:
+    blocked = str(blocked_reason or "").strip()
+    if blocked == "buy_context_unavailable":
+        return "Live BUY context is unavailable, so the order stays on preview only."
+    if blocked == "buy_qty_zero":
+        return "Final BUY quantity is zero, so nothing will be submitted."
+    if blocked == "holding_qty_missing":
+        return "Live holding quantity is missing, so the SELL order cannot be submitted."
+    if blocked == "non_executable_intent_type":
+        return "This intent type is not submit-ready."
+    qty = pd.to_numeric(final_qty, errors="coerce")
+    side_upper = str(side or "").upper()
+    if not pd.notna(qty) or int(qty) <= 0:
+        return "Final order quantity is zero, so submission will be skipped."
+    if not _env_flag("AUTO_TRADE_EXECUTE", False):
+        return "AUTO_TRADE_EXECUTE is OFF, so this stays as preview only."
+    if side_upper == "BUY" and not _env_flag("AUTO_TRADE_ALLOW_BUY", False):
+        return "AUTO_TRADE_ALLOW_BUY is OFF, so BUY submission will be held."
+    if side_upper == "BUY" and _env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", False):
+        return "BUY approval is required. If request_id is not approved, submission will be skipped."
+    return "No expected submit hold reason at preview stage."
+
+
 def build_order_requests(
     *,
     intents_payload: dict[str, Any],
@@ -243,6 +266,11 @@ def build_order_requests(
                         "priority": pd.to_numeric(row.get("priority"), errors="coerce"),
                         "reason": row.get("reason"),
                         "blocked_reason": blocked_reason,
+                        "expected_hold_reason": _preview_expected_hold_reason(
+                            side=side,
+                            blocked_reason=blocked_reason,
+                            final_qty=0,
+                        ),
                         "executable_now": False,
                     }
                 )
@@ -309,6 +337,11 @@ def build_order_requests(
                 "priority": pd.to_numeric(row.get("priority"), errors="coerce"),
                 "reason": row.get("reason"),
                 "blocked_reason": blocked_reason,
+                "expected_hold_reason": _preview_expected_hold_reason(
+                    side=side,
+                    blocked_reason=blocked_reason,
+                    final_qty=final_qty,
+                ),
                 "executable_now": blocked_reason in {None, ""},
             }
         )
@@ -493,12 +526,12 @@ def render_preview_markdown(payload: dict[str, Any]) -> str:
         f"- buy_count: {payload['summary']['buy_count']}",
         f"- sell_count: {payload['summary']['sell_count']}",
         "",
-        "| request_id | code | name | side | intent_type | ref_price | final_qty | executable_now | blocked_reason | reason |",
-        "| ---------- | ---- | ---- | ---- | ----------- | --------- | --------- | -------------- | -------------- | ------ |",
+        "| request_id | code | name | side | intent_type | ref_price | final_qty | executable_now | blocked_reason | expected_hold_reason | reason |",
+        "| ---------- | ---- | ---- | ---- | ----------- | --------- | --------- | -------------- | -------------- | -------------------- | ------ |",
     ]
     for item in payload["items"]:
         lines.append(
-            f"| {item.get('request_id') or ''} | {item.get('code') or ''} | {item.get('name') or ''} | {item.get('side') or ''} | {item.get('intent_type') or ''} | {_fmt_num(item.get('reference_price'), 0)} | {_fmt_num(item.get('final_request_qty'), 0)} | {'Y' if item.get('executable_now') else 'N'} | {item.get('blocked_reason') or ''} | {item.get('reason') or ''} |"
+            f"| {item.get('request_id') or ''} | {item.get('code') or ''} | {item.get('name') or ''} | {item.get('side') or ''} | {item.get('intent_type') or ''} | {_fmt_num(item.get('reference_price'), 0)} | {_fmt_num(item.get('final_request_qty'), 0)} | {'Y' if item.get('executable_now') else 'N'} | {item.get('blocked_reason') or ''} | {item.get('expected_hold_reason') or ''} | {item.get('reason') or ''} |"
         )
     lines.append("")
     return "\n".join(lines)

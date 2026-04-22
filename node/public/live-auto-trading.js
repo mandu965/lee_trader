@@ -118,6 +118,154 @@ function executionStateChip(row) {
   return `<span class="chip warn">미상</span>`;
 }
 
+function describeExecutionReason(reason, row, runtime) {
+  const key = String(reason || "").trim();
+  if (!key) return "-";
+  const side = String(row?.side || "").toUpperCase();
+  const buyApprovalRequired = !!runtime?.policy?.buy_approval_required;
+  switch (key) {
+    case "buy_approval_required":
+      return buyApprovalRequired
+        ? "매수 승인 목록에 없는 요청이라 실주문이 보류되었습니다."
+        : "매수 승인 조건 때문에 실주문이 보류되었습니다.";
+    case "buy_requires_allow_buy":
+      return "BUY 실주문 스위치가 꺼져 있어 매수 제출이 보류되었습니다.";
+    case "duplicate_request_id":
+      return "이미 성공 처리된 요청 ID라 중복 제출을 건너뛰었습니다.";
+    case "invalid_final_request_qty":
+      return "최종 주문 수량이 0 이하라 제출하지 않았습니다.";
+    case "missing_request_id":
+      return "요청 ID가 없어 제출할 수 없었습니다.";
+    case "unsupported_side":
+      return `현재 제출기는 ${side || "해당"} 주문 유형을 지원하지 않습니다.`;
+    case "holding_qty_missing":
+      return "실계좌 보유수량을 찾지 못해 매도 주문을 만들지 못했습니다.";
+    case "buy_qty_zero":
+      return "매수 가능 수량 또는 계산 수량이 0이라 매수 주문이 보류되었습니다.";
+    case "buy_context_unavailable":
+      return "실계좌 조회 문맥이 없어 매수 주문 계산을 진행하지 못했습니다.";
+    default:
+      if (key === "execution blocked: --confirm-text LIVE_ORDER is required") {
+        return "실주문 확인 문구가 맞지 않아 제출이 차단되었습니다.";
+      }
+      if (key.includes("market_closed")) {
+        return "장 운영 시간이 아니어서 주문이 제출되지 않았습니다.";
+      }
+      return key;
+  }
+}
+
+function summarizeExecutionFlow(preview, execution, runtime) {
+  const previewRows = preview?.items || [];
+  const executionRows = execution?.items || [];
+  const executablePreview = previewRows.filter((row) => row.executable_now);
+  const buyPreview = executablePreview.filter((row) => String(row.side || "").toUpperCase() === "BUY");
+  const skippedRows = executionRows.filter((row) => String(row.submission_status || "").toLowerCase() === "skipped");
+  const failedRows = executionRows.filter((row) => String(row.submission_status || "").toLowerCase() === "failed");
+  const submittedRows = executionRows.filter((row) => String(row.submission_status || "").toLowerCase() === "submitted");
+  const skipCounts = new Map();
+  skippedRows.forEach((row) => {
+    const key = String(row.skip_reason || "unknown").trim() || "unknown";
+    skipCounts.set(key, (skipCounts.get(key) || 0) + 1);
+  });
+  const topSkip = [...skipCounts.entries()].sort((a, b) => b[1] - a[1])[0] || null;
+  const topSkipText = topSkip ? `${describeExecutionReason(topSkip[0], { side: "BUY" }, runtime)} (${fmtNum(topSkip[1])}건)` : "-";
+
+  if (!executionRows.length) {
+    if (!runtime?.policy?.auto_trade_execute) {
+      return {
+        tone: "warn",
+        title: "실주문 미시도",
+        detail: `제출 가능 주문 ${fmtNum(executablePreview.length)}건이 있어도 execute 스위치가 OFF라 실제 주문은 나가지 않습니다.`,
+      };
+    }
+    if (buyPreview.length) {
+      return {
+        tone: "warn",
+        title: "실주문 결과 없음",
+        detail: `매수 후보 ${fmtNum(buyPreview.length)}건이 있었지만 execution 산출물이 없어 제출 시도 여부를 아직 확인할 수 없습니다.`,
+      };
+    }
+    return {
+      tone: "warn",
+      title: "실주문 산출물 없음",
+      detail: "아직 execution 파일이 없어 실제 제출 결과를 확인할 수 없습니다.",
+    };
+  }
+
+  if (submittedRows.length) {
+    return {
+      tone: "primary",
+      title: `실제 제출 ${fmtNum(submittedRows.length)}건`,
+      detail: failedRows.length
+        ? `일부는 제출되었고 실패 ${fmtNum(failedRows.length)}건이 함께 있었습니다.`
+        : "가장 최근 사이클에서 브로커 주문 제출이 발생했습니다.",
+    };
+  }
+
+  if (skippedRows.length) {
+    return {
+      tone: "warn",
+      title: `주문 보류 ${fmtNum(skippedRows.length)}건`,
+      detail: topSkipText,
+    };
+  }
+
+  if (failedRows.length) {
+    return {
+      tone: "bad",
+      title: `주문 실패 ${fmtNum(failedRows.length)}건`,
+      detail: describeExecutionReason(failedRows[0]?.skip_reason, failedRows[0], runtime),
+    };
+  }
+
+  return {
+    tone: "warn",
+    title: "실주문 결과 확인 필요",
+    detail: "execution 산출물은 있으나 제출/보류/실패 상태를 명확히 읽지 못했습니다.",
+  };
+}
+
+function describePreviewExecutionRisk(row, runtime) {
+  const expectedHoldReason = String(row?.expected_hold_reason || "").trim();
+  if (expectedHoldReason) {
+    return expectedHoldReason;
+  }
+  const blockedReason = String(row?.blocked_reason || "").trim();
+  if (blockedReason) {
+    return describeExecutionReason(blockedReason, row, runtime);
+  }
+
+  const side = String(row?.side || "").toUpperCase();
+  const qty = Number(row?.final_request_qty);
+  if (!Number.isFinite(qty) || qty <= 0) {
+    return "최종 주문 수량이 0이라 실제 제출이 진행되지 않습니다.";
+  }
+  if (side === "BUY" && !runtime?.policy?.auto_trade_execute) {
+    return "현재 execute 스위치가 OFF라 실주문은 시도되지 않습니다.";
+  }
+  if (side === "BUY" && !runtime?.policy?.auto_trade_allow_buy) {
+    return "현재 BUY 실주문 스위치가 OFF라 매수는 제출 직전 보류됩니다.";
+  }
+  if (side === "BUY" && runtime?.policy?.buy_approval_required) {
+    return "승인 파일에 request ID가 없으면 제출 단계에서 매수가 보류됩니다.";
+  }
+  if (!runtime?.policy?.auto_trade_execute) {
+    return "현재 execute 스위치가 OFF라 실주문은 시도되지 않습니다.";
+  }
+  return "현재 preview 기준으로는 제출 가능 상태입니다.";
+}
+
+function ensurePreviewHeaderColumn() {
+  const headerRow = document.querySelector("#previewWrap thead tr");
+  if (!headerRow) return;
+  if (headerRow.children.length >= 11) return;
+  const th = document.createElement("th");
+  th.textContent = "예상 보류 사유";
+  const reasonHeader = headerRow.children[headerRow.children.length - 1];
+  headerRow.insertBefore(th, reasonHeader);
+}
+
 function schedulerStateChip(row) {
   const status = String(row?.status || "").toLowerCase();
   if (status === "idle") return `<span class="chip good">대기</span>`;
@@ -130,11 +278,13 @@ function renderDecisionBanner(summary, intents, preview, execution, runtime) {
   const root = document.getElementById("decisionBanner");
   const gate = String(intents?.gate_status || preview?.gate_status || "").toUpperCase();
   const submittedCount = Number(execution?.summary?.submitted_count || 0);
+  const skippedCount = Number(execution?.summary?.skipped_count || 0);
   const executableCount = Number((preview?.items || []).filter((item) => item.executable_now).length || 0);
   const blockedCount = Number((preview?.items || []).filter((item) => item.blocked_reason).length || 0);
   const executeOn = !!runtime?.policy?.auto_trade_execute;
   const buyOn = !!runtime?.policy?.auto_trade_allow_buy;
   const accountSyncedAt = summary?.summary?.generated_at || runtime?.live_account_sync_scheduler?.last_success_at || "-";
+  const executionFlow = summarizeExecutionFlow(preview, execution, runtime);
   let body = "";
 
   let headline = "현재 상태를 판정할 수 없습니다";
@@ -161,6 +311,10 @@ function renderDecisionBanner(summary, intents, preview, execution, runtime) {
     headline = `최근 주문 제출 ${submittedCount}건`;
     headlineTone = "primary";
     headlineDetail = "가장 최근 사이클에서 실제 주문 제출이 있었습니다. 상세 결과와 계좌 반영 상태를 같이 확인하세요.";
+  } else if (skippedCount > 0) {
+    headline = `주문 보류 ${fmtNum(skippedCount)}건`;
+    headlineTone = executionFlow.tone || "warn";
+    headlineDetail = executionFlow.detail;
   } else if (executableCount > 0) {
     headline = `제출 가능 주문 ${executableCount}건`;
     headlineTone = "primary";
@@ -214,9 +368,10 @@ function renderHero(summary, intents, preview, holdings, execution) {
   `;
 }
 
-function renderStatus(summary, intents, preview, execution) {
+function renderStatus(summary, intents, preview, execution, runtime) {
   const summaryInfo = summary?.summary || {};
   const cash = summaryInfo?.cash_summary || {};
+  const executionFlow = summarizeExecutionFlow(preview, execution, runtime);
   const cards = [
     {
       label: "계좌 요약",
@@ -235,8 +390,44 @@ function renderStatus(summary, intents, preview, execution) {
     },
     {
       label: "최근 제출 결과",
-      value: execution?.summary?.submitted_count,
+      value: execution?.summary?.submitted_count ?? 0,
         detail: `실패 ${fmtNum(execution?.summary?.failed_count)} | 건너뜀 ${fmtNum(execution?.summary?.skipped_count)}`,
+    },
+  ];
+
+  document.getElementById("statusGrid").innerHTML = cards.map((item) => `
+    <article class="hero-card">
+      <div class="card-label">${escapeHtml(item.label)}</div>
+      <div class="card-value">${fmtNum(item.value)}</div>
+      <div class="card-detail">${escapeHtml(item.detail)}</div>
+    </article>
+  `).join("");
+}
+
+function renderStatusV2(summary, intents, preview, execution, runtime) {
+  const summaryInfo = summary?.summary || {};
+  const cash = summaryInfo?.cash_summary || {};
+  const executionFlow = summarizeExecutionFlow(preview, execution, runtime);
+  const cards = [
+    {
+      label: "怨꾩쥖 ?붿빟",
+      value: summaryInfo?.tot_evlu_amt ?? summaryInfo?.total_evaluation_amount,
+      detail: `?덉닔湲?${fmtNum(cash?.dnca_tot_amt ?? cash?.ord_psbl_cash)} | ?됯??먯씡 ${fmtNum(summaryInfo?.evlu_pfls_smtl_amt ?? summaryInfo?.pnl_amount)}`,
+    },
+    {
+      label: "Intent 遺꾪룷",
+      value: (intents?.intents || []).length,
+      detail: `BUY ${fmtNum((intents?.intents || []).filter((item) => item.intent_type === "BUY").length)} | TRIM ${fmtNum((intents?.intents || []).filter((item) => item.intent_type === "TRIM").length)} | REVIEW ${fmtNum((intents?.intents || []).filter((item) => item.intent_type === "REVIEW").length)}`,
+    },
+    {
+      label: "二쇰Ц 珥덉븞 ?곹깭",
+      value: preview?.summary?.request_count,
+      detail: `?ㅽ뻾 媛??${fmtNum((preview?.items || []).filter((item) => item.executable_now).length)} | 李⑤떒 ${fmtNum((preview?.items || []).filter((item) => item.blocked_reason).length)}`,
+    },
+    {
+      label: "실주문 결과",
+      value: execution?.summary?.submitted_count ?? 0,
+      detail: `${executionFlow.title} | 실패 ${fmtNum(execution?.summary?.failed_count)} | 보류 ${fmtNum(execution?.summary?.skipped_count)}`,
     },
   ];
 
@@ -453,9 +644,10 @@ function renderIntents(intents) {
   `).join("");
 }
 
-function renderPreview(preview) {
+function renderPreview(preview, runtime) {
   const tbody = document.getElementById("previewTbody");
   const rows = preview?.items || [];
+  ensurePreviewHeaderColumn();
   if (!rows.length) {
     document.getElementById("previewWrap").innerHTML = `<div class="empty-state">order requests preview 산출물이 아직 없습니다.</div>`;
     return;
@@ -471,15 +663,17 @@ function renderPreview(preview) {
       <td class="right">${fmtNum(row.final_request_qty)}</td>
       <td class="right">${fmtNum(row.allowed_qty)}</td>
       <td>${escapeHtml(row.blocked_reason || "-")}</td>
+      <td>${escapeHtml(describePreviewExecutionRisk(row, runtime))}</td>
       <td>${escapeHtml(row.reason || "-")}</td>
     </tr>
   `).join("");
 }
 
-function renderExecution(execution) {
+function renderExecution(execution, preview, runtime) {
   const tbody = document.getElementById("executionTbody");
   const rows = execution?.items || [];
   if (!rows.length) {
+    const summary = summarizeExecutionFlow(preview, execution, runtime);
     document.getElementById("executionWrap").innerHTML = `<div class="empty-state">order requests execution 산출물이 아직 없습니다.</div>`;
     return;
   }
@@ -491,7 +685,29 @@ function renderExecution(execution) {
       <td>${escapeHtml(row.side || "-")}</td>
       <td class="right">${fmtNum(row.final_request_qty)}</td>
       <td class="mono">${escapeHtml(row.broker_order_id || "-")}</td>
-      <td>${escapeHtml(row.skip_reason || "-")}</td>
+      <td>${escapeHtml(describeExecutionReason(row.skip_reason, row, runtime))}</td>
+    </tr>
+  `).join("");
+}
+
+function renderExecutionV2(execution, preview, runtime) {
+  const wrap = document.getElementById("executionWrap");
+  const tbody = document.getElementById("executionTbody");
+  const rows = execution?.items || [];
+  if (!rows.length) {
+    const summary = summarizeExecutionFlow(preview, execution, runtime);
+    wrap.innerHTML = `<div class="empty-state"><strong>${escapeHtml(summary.title)}</strong><br>${escapeHtml(summary.detail)}</div>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${executionStateChip(row)}</td>
+      <td class="mono">${escapeHtml(row.request_id || "-")}</td>
+      <td class="mono">${escapeHtml(row.code || "-")}</td>
+      <td>${escapeHtml(row.side || "-")}</td>
+      <td class="right">${fmtNum(row.final_request_qty)}</td>
+      <td class="mono">${escapeHtml(row.broker_order_id || "-")}</td>
+      <td>${escapeHtml(describeExecutionReason(row.skip_reason, row, runtime))}</td>
     </tr>
   `).join("");
 }
@@ -639,15 +855,15 @@ async function main() {
 
     renderHero(summary, intents, preview, holdings, execution);
     renderDecisionBanner(summary, intents, preview, execution, runtime);
-    renderStatus(summary, intents, preview, execution);
+    renderStatusV2(summary, intents, preview, execution, runtime);
     renderAccountDetailsV3(summary, runtime);
     renderRunSummary(intents, preview, holdings, runtime);
     renderFocus(intents, preview, holdings);
     renderOperationalExplain(intents, preview, runtime, holdings);
     renderWatchSimulation(watchSimulation);
     renderIntents(intents);
-    renderPreview(preview);
-    renderExecution(execution);
+    renderPreview(preview, runtime);
+    renderExecutionV2(execution, preview, runtime);
     renderHoldings(holdings);
 
     const loaded = [
