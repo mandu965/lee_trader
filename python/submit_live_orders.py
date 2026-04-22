@@ -37,6 +37,7 @@ OUT_MD = OUTPUT_DIR / "order_requests_preview.md"
 OUT_EXEC_JSON = OUTPUT_DIR / "order_requests_execution.json"
 OUT_EXEC_MD = OUTPUT_DIR / "order_requests_execution.md"
 BUY_APPROVAL_JSON = OUTPUT_DIR / "order_buy_approvals.json"
+OUT_RUNTIME_DIAGNOSTICS_JSON = OUTPUT_DIR / "order_requests_runtime_diagnostics.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,6 +56,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-md", type=Path, default=OUT_MD)
     parser.add_argument("--out-exec-json", type=Path, default=OUT_EXEC_JSON)
     parser.add_argument("--out-exec-md", type=Path, default=OUT_EXEC_MD)
+    parser.add_argument("--out-runtime-diagnostics-json", type=Path, default=OUT_RUNTIME_DIAGNOSTICS_JSON)
     return parser.parse_args()
 
 
@@ -167,6 +169,8 @@ def _preview_expected_hold_reason(*, side: str, blocked_reason: str | None, fina
     blocked = str(blocked_reason or "").strip()
     if blocked == "buy_context_unavailable":
         return "Live BUY context is unavailable, so the order stays on preview only."
+    if blocked == "buy_psbl_order_lookup_failed":
+        return "Live BUY allowance lookup failed, so the order stays on preview only."
     if blocked == "buy_qty_zero":
         return "Final BUY quantity is zero, so nothing will be submitted."
     if blocked == "holding_qty_missing":
@@ -218,14 +222,21 @@ def build_order_requests(
     cash_summary: dict[str, Any] = {}
     available_cash = None
     total_assets = None
+    buy_context_available = False
     if has_buy_intents:
-        client = KISClient.from_env()
-        client.issue_access_token()
-        account = resolve_account_env()
-        _, summary_df = inquire_balance(client, account)
-        cash_summary = summarize_cash(summary_df)
-        available_cash = cash_summary.get("dnca_tot_amt")
-        total_assets = cash_summary.get("tot_evlu_amt")
+        try:
+            client = KISClient.from_env()
+            client.issue_access_token()
+            account = resolve_account_env()
+            _, summary_df = inquire_balance(client, account)
+            cash_summary = summarize_cash(summary_df)
+            available_cash = cash_summary.get("dnca_tot_amt")
+            total_assets = cash_summary.get("tot_evlu_amt")
+            buy_context_available = True
+        except Exception as exc:
+            logging.warning("Failed to load live BUY context; all BUY requests will stay in preview: %s", exc)
+            client = None
+            account = None
 
     items: list[dict[str, Any]] = []
     for _, row in intents.iterrows():
@@ -244,7 +255,7 @@ def build_order_requests(
         blocked_reason = None
 
         if side == "BUY":
-            if client is None or account is None:
+            if not buy_context_available or client is None or account is None:
                 blocked_reason = "buy_context_unavailable"
                 final_qty = 0
                 planned_qty = 0
@@ -275,14 +286,47 @@ def build_order_requests(
                     }
                 )
                 continue
-            psbl = inquire_psbl_order(
-                client,
-                account,
-                pdno=code,
-                ord_unpr=str(order_price),
-                ord_dvsn=ord_dvsn,
-            )
-            psbl_row = psbl.iloc[0] if not psbl.empty else pd.Series(dtype="object")
+            try:
+                psbl = inquire_psbl_order(
+                    client,
+                    account,
+                    pdno=code,
+                    ord_unpr=str(order_price),
+                    ord_dvsn=ord_dvsn,
+                )
+                psbl_row = psbl.iloc[0] if not psbl.empty else pd.Series(dtype="object")
+            except Exception as exc:
+                logging.warning("Failed to load BUY allowance for %s; keeping request on preview only: %s", code, exc)
+                blocked_reason = "buy_psbl_order_lookup_failed"
+                planned_qty = 0
+                allowed_qty = 0
+                final_qty = 0
+                items.append(
+                    {
+                        "request_id": f"{intents_payload.get('asof_date') or 'unknown'}:{intent_type}:{code}",
+                        "intent_id": row.get("intent_id"),
+                        "code": code,
+                        "name": str(ranking_row.get("name") or row.get("name") or "").strip() or None,
+                        "side": side,
+                        "intent_type": intent_type,
+                        "ord_dvsn": ord_dvsn,
+                        "reference_price": order_price if order_price else None,
+                        "planned_qty": 0,
+                        "allowed_qty": 0,
+                        "final_request_qty": 0,
+                        "target_weight": pd.to_numeric(row.get("target_weight"), errors="coerce"),
+                        "priority": pd.to_numeric(row.get("priority"), errors="coerce"),
+                        "reason": row.get("reason"),
+                        "blocked_reason": blocked_reason,
+                        "expected_hold_reason": _preview_expected_hold_reason(
+                            side=side,
+                            blocked_reason=blocked_reason,
+                            final_qty=0,
+                        ),
+                        "executable_now": False,
+                    }
+                )
+                continue
             nrcvb_buy_qty = pd.to_numeric(psbl_row.get("nrcvb_buy_qty"), errors="coerce")
             max_buy_qty = pd.to_numeric(psbl_row.get("max_buy_qty"), errors="coerce")
             target_weight = pd.to_numeric(row.get("target_weight"), errors="coerce")
@@ -514,6 +558,54 @@ def execute_order_requests(
     }
 
 
+def build_failed_execution_payload(
+    *,
+    preview_payload: dict[str, Any],
+    args: argparse.Namespace,
+    exc: Exception,
+) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    for item in preview_payload.get("items") or []:
+        qty = pd.to_numeric(item.get("final_request_qty"), errors="coerce")
+        items.append(
+            {
+                "request_id": item.get("request_id"),
+                "intent_id": item.get("intent_id"),
+                "code": item.get("code"),
+                "name": item.get("name"),
+                "side": item.get("side"),
+                "intent_type": item.get("intent_type"),
+                "ord_dvsn": item.get("ord_dvsn") or args.ord_dvsn,
+                "reference_price": item.get("reference_price"),
+                "final_request_qty": int(qty) if pd.notna(qty) else None,
+                "submitted_at": None,
+                "submission_status": "failed",
+                "skip_reason": f"execution_bootstrap_failed: {exc}",
+                "broker_order_id": None,
+                "broker_org_order_id": None,
+                "raw_response": None,
+            }
+        )
+    return {
+        "generated_at": preview_payload.get("generated_at"),
+        "executed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "asof_date": preview_payload.get("asof_date"),
+        "gate_status": preview_payload.get("gate_status"),
+        "env_dv": preview_payload.get("env_dv"),
+        "allow_buy": bool(args.allow_buy),
+        "buy_approval_required": bool(_env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", False)),
+        "approved_request_count": 0,
+        "force_resubmit": bool(args.force_resubmit),
+        "items": items,
+        "summary": {
+            "request_count": len(items),
+            "submitted_count": 0,
+            "failed_count": len(items),
+            "skipped_count": 0,
+        },
+    }
+
+
 def render_preview_markdown(payload: dict[str, Any]) -> str:
     lines = [
         "# Order Requests Preview",
@@ -573,6 +665,21 @@ def write_text(path: Path, text: str) -> None:
     resolved.write_text(text, encoding="utf-8-sig")
 
 
+def append_runtime_diagnostics(path: Path, event: dict[str, Any]) -> None:
+    resolved = _resolve(path)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    payload = _safe_read_json(resolved)
+    events = payload.get("events") if isinstance(payload.get("events"), list) else []
+    events.append(event)
+    trimmed_events = events[-50:]
+    diagnostic_payload = {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "event_count": len(trimmed_events),
+        "events": trimmed_events,
+    }
+    resolved.write_text(json.dumps(diagnostic_payload, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8-sig")
+
+
 def sync_web_display_if_configured() -> None:
     if not str(os.environ.get("WEB_DATABASE_URL", "")).strip():
         return
@@ -611,6 +718,22 @@ def main() -> int:
 
     write_payload(args.out_json, preview_payload)
     write_text(args.out_md, render_preview_markdown(preview_payload))
+    append_runtime_diagnostics(
+        args.out_runtime_diagnostics_json,
+        {
+            "recorded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "stage": "preview_built",
+            "asof_date": preview_payload.get("asof_date"),
+            "request_count": preview_payload.get("summary", {}).get("request_count"),
+            "buy_count": preview_payload.get("summary", {}).get("buy_count"),
+            "sell_count": preview_payload.get("summary", {}).get("sell_count"),
+            "executable_request_ids": [
+                str(item.get("request_id") or "")
+                for item in preview_payload.get("items") or []
+                if bool(item.get("executable_now"))
+            ],
+        },
+    )
     print(f"order_requests_preview_json: {_resolve(args.out_json)}")
     print(f"order_requests_preview_md: {_resolve(args.out_md)}")
 
@@ -623,9 +746,57 @@ def main() -> int:
             logging.warning("Post-preview web display sync failed", exc_info=True)
         return 0
 
-    execution_payload = execute_order_requests(preview_payload=preview_payload, args=args)
+    try:
+        execution_payload = execute_order_requests(preview_payload=preview_payload, args=args)
+    except Exception as exc:
+        logging.exception("Order execution failed before submission loop completed")
+        execution_payload = build_failed_execution_payload(preview_payload=preview_payload, args=args, exc=exc)
+        write_payload(args.out_exec_json, execution_payload)
+        write_text(args.out_exec_md, render_execution_markdown(execution_payload))
+        append_runtime_diagnostics(
+            args.out_runtime_diagnostics_json,
+            {
+                "recorded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "stage": "execution_bootstrap_failed",
+                "asof_date": preview_payload.get("asof_date"),
+                "error": str(exc),
+                "request_ids": [
+                    str(item.get("request_id") or "")
+                    for item in preview_payload.get("items") or []
+                ],
+            },
+        )
+        print(f"order_requests_execution_json: {_resolve(args.out_exec_json)}")
+        print(f"order_requests_execution_md: {_resolve(args.out_exec_md)}")
+        try:
+            sync_web_display_if_configured()
+        except subprocess.CalledProcessError as sync_exc:
+            logging.warning("Post-execution web display sync failed: %s", sync_exc)
+        except Exception:
+            logging.warning("Post-execution web display sync failed", exc_info=True)
+        raise
+
     write_payload(args.out_exec_json, execution_payload)
     write_text(args.out_exec_md, render_execution_markdown(execution_payload))
+    append_runtime_diagnostics(
+        args.out_runtime_diagnostics_json,
+        {
+            "recorded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "stage": "execution_completed",
+            "asof_date": execution_payload.get("asof_date"),
+            "submitted_count": execution_payload.get("summary", {}).get("submitted_count"),
+            "failed_count": execution_payload.get("summary", {}).get("failed_count"),
+            "skipped_count": execution_payload.get("summary", {}).get("skipped_count"),
+            "result_by_request_id": {
+                str(item.get("request_id") or ""): {
+                    "status": item.get("submission_status"),
+                    "reason": item.get("skip_reason"),
+                    "broker_order_id": item.get("broker_order_id"),
+                }
+                for item in execution_payload.get("items") or []
+            },
+        },
+    )
     print(f"order_requests_execution_json: {_resolve(args.out_exec_json)}")
     print(f"order_requests_execution_md: {_resolve(args.out_exec_md)}")
     try:

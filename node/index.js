@@ -67,9 +67,26 @@ function resolveServingDir() {
 const SERVING_DIR = resolveServingDir();
 console.log("[SERVING_DIR]", SERVING_DIR);
 
-const { DATABASE_URL } = process.env;
+const DATABASE_URL = String(process.env.WEB_DATABASE_URL || process.env.DATABASE_URL || "").trim();
+const DATABASE_URL_SOURCE = process.env.WEB_DATABASE_URL ? "WEB_DATABASE_URL" : "DATABASE_URL";
+function maskDatabaseUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const schemeSep = text.indexOf("://");
+  if (schemeSep < 0) return text.length > 15 ? `${text.slice(0, 12)}...` : text;
+  const scheme = text.slice(0, schemeSep + 3);
+  let rest = text.slice(schemeSep + 3);
+  if (rest.includes("@")) {
+    rest = rest.split("@")[1];
+  }
+  const hostPort = rest.split("/")[0];
+  return `${scheme}${hostPort}`;
+}
 if (!DATABASE_URL) {
   console.error("DATABASE_URL not set. API will fail to reach Postgres.");
+} else {
+  console.log("[DATABASE_URL_SOURCE]", DATABASE_URL_SOURCE);
+  console.log("[DATABASE_URL]", maskDatabaseUrl(DATABASE_URL));
 }
 
 const pool = new Pool({

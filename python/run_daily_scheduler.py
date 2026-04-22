@@ -24,6 +24,8 @@ DEFAULT_RUN_POLICY = "always"
 DEFAULT_PRIMARY_MAX_AGE_HOURS = 20
 DEFAULT_SCHEDULER_MODE = "internal_service"
 DEFAULT_INTERVAL_MINUTES = 0
+DEFAULT_AUTO_TRADE_SUBMIT_MAX_ATTEMPTS = 3
+DEFAULT_AUTO_TRADE_SUBMIT_RETRY_DELAY_SEC = 20
 
 
 def _should_sync_web_display() -> bool:
@@ -369,7 +371,41 @@ def _evaluate_run_policy(now: datetime, policy: str) -> tuple[bool, str]:
 
 def _run_step(name: str, command: list[str]) -> None:
     logging.info("START %s", name)
-    subprocess.run(command, cwd=ROOT, check=True)
+    max_attempts = 1
+    retry_delay_sec = 0
+    if name == "submit_live_orders":
+        max_attempts = max(
+            1,
+            int(os.environ.get("AUTO_TRADE_SUBMIT_MAX_ATTEMPTS", str(DEFAULT_AUTO_TRADE_SUBMIT_MAX_ATTEMPTS))),
+        )
+        retry_delay_sec = max(
+            0,
+            int(os.environ.get("AUTO_TRADE_SUBMIT_RETRY_DELAY_SEC", str(DEFAULT_AUTO_TRADE_SUBMIT_RETRY_DELAY_SEC))),
+        )
+
+    last_error: subprocess.CalledProcessError | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            subprocess.run(command, cwd=ROOT, check=True)
+            last_error = None
+            break
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+            if attempt >= max_attempts:
+                break
+            logging.warning(
+                "STEP %s failed (attempt %d/%d, exit=%s). Retrying in %ds.",
+                name,
+                attempt,
+                max_attempts,
+                exc.returncode,
+                retry_delay_sec,
+            )
+            if retry_delay_sec > 0:
+                time.sleep(retry_delay_sec)
+
+    if last_error is not None:
+        raise last_error
     logging.info("OK %s", name)
 
 

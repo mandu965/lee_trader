@@ -52,6 +52,7 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("live_order_preview", OUTPUT_DIR / "live_order_preview.json", "asof_date"),
     ("order_requests_preview", OUTPUT_DIR / "order_requests_preview.json", "asof_date"),
     ("order_requests_execution", OUTPUT_DIR / "order_requests_execution.json", "executed_at"),
+    ("order_requests_runtime_diagnostics", OUTPUT_DIR / "order_requests_runtime_diagnostics.json", "generated_at"),
     ("auto_ops_auto_buy_scheduler_status", OUTPUT_DIR / "auto_ops_auto_buy_scheduler_status.json", None),
     ("auto_ops_live_account_sync_scheduler_status", OUTPUT_DIR / "auto_ops_live_account_sync_scheduler_status.json", None),
     ("auto_trading_policy", OUTPUT_DIR / "auto_trading_policy.json", None),
@@ -76,15 +77,33 @@ def load_environment() -> None:
     load_dotenv(ROOT / ".env", override=False)
 
 
+def _mask_database_url(url: str) -> str:
+    text = str(url or "").strip()
+    if not text:
+        return ""
+    scheme_sep = text.find("://")
+    if scheme_sep < 0:
+        return text[:12] + "..." if len(text) > 15 else text
+    scheme = text[: scheme_sep + 3]
+    rest = text[scheme_sep + 3 :]
+    if "@" in rest:
+        _, rest = rest.split("@", 1)
+    host_port = rest.split("/", 1)[0]
+    return f"{scheme}{host_port}"
+
+
 def configure_target_database() -> str:
     web_database_url = str(os.environ.get("WEB_DATABASE_URL", "")).strip()
     if web_database_url:
         os.environ["DATABASE_URL"] = web_database_url
         db_module.get_database_url.cache_clear()
         db_module.get_engine.cache_clear()
-        logging.info("Using WEB_DATABASE_URL as sync target")
+        logging.info("Using WEB_DATABASE_URL as sync target: %s", _mask_database_url(web_database_url))
         return "WEB_DATABASE_URL"
-    logging.info("WEB_DATABASE_URL not set; falling back to DATABASE_URL")
+    logging.info(
+        "WEB_DATABASE_URL not set; falling back to DATABASE_URL: %s",
+        _mask_database_url(str(os.environ.get("DATABASE_URL", "")).strip()),
+    )
     return "DATABASE_URL"
 
 

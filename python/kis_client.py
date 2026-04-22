@@ -249,6 +249,14 @@ class KISClient:
             headers.update(extra_headers)
         return headers
 
+    @staticmethod
+    def _is_auth_refresh_response(status_code: int, response_text: str) -> bool:
+        if status_code in (401, 403):
+            return True
+        if status_code >= 500 and "EGW00123" in str(response_text or ""):
+            return True
+        return False
+
     def get(
         self,
         path: str,
@@ -290,8 +298,8 @@ class KISClient:
                     timeout=timeout,
                 )
 
-                if response.status_code in (401, 403) and not refreshed_token:
-                    logging.info("KIS auth appears expired; refreshing token and retrying")
+                if self._is_auth_refresh_response(response.status_code, response.text) and not refreshed_token:
+                    logging.info("KIS auth appears expired for GET; refreshing token and retrying")
                     self.issue_access_token(force_refresh=True)
                     refreshed_token = True
                     continue
@@ -389,7 +397,7 @@ class KISClient:
                     timeout=timeout,
                 )
 
-                if response.status_code in (401, 403) and not refreshed_token:
+                if self._is_auth_refresh_response(response.status_code, response.text) and not refreshed_token:
                     logging.info("KIS auth appears expired for POST; refreshing token and retrying")
                     self.issue_access_token(force_refresh=True)
                     refreshed_token = True
