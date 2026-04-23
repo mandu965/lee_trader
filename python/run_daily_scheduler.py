@@ -21,6 +21,7 @@ DEFAULT_POLL_SECONDS = 30
 DEFAULT_TIMEZONE = "Asia/Seoul"
 DEFAULT_SKIP_CATCHUP = True
 DEFAULT_RUN_POLICY = "always"
+DEFAULT_MULTI_SLOT_SUCCESS_POLICY = "per_slot"
 DEFAULT_PRIMARY_MAX_AGE_HOURS = 20
 DEFAULT_SCHEDULER_MODE = "internal_service"
 DEFAULT_INTERVAL_MINUTES = 0
@@ -269,6 +270,18 @@ def _skip_after_failure_until_next_day() -> bool:
     }
 
 
+def _multi_slot_success_policy() -> str:
+    policy = str(os.environ.get("SCHEDULER_MULTI_SLOT_SUCCESS_POLICY", DEFAULT_MULTI_SLOT_SUCCESS_POLICY)).strip().lower()
+    if policy not in {"per_slot", "once_per_day"}:
+        logging.warning(
+            "Unknown SCHEDULER_MULTI_SLOT_SUCCESS_POLICY='%s' -> fallback to '%s'",
+            policy,
+            DEFAULT_MULTI_SLOT_SUCCESS_POLICY,
+        )
+        return DEFAULT_MULTI_SLOT_SUCCESS_POLICY
+    return policy
+
+
 def _latest_eligible_slot(now: datetime, schedule_slots: list[tuple[int, int]]) -> str:
     today = now.strftime("%Y-%m-%d")
     eligible_slots = [
@@ -299,11 +312,14 @@ def _should_run_today(now: datetime, scheduled_hour: int, scheduled_minute: int,
 def _should_run_daily_slots(now: datetime, schedule_slots: list[tuple[int, int]], status: dict[str, object]) -> bool:
     if not schedule_slots:
         return False
+    last_success_date = str(status.get("last_success_date") or "").strip()
     bootstrap_skip_date = str(status.get("bootstrap_skip_until_date") or "").strip()
     policy_skip_date = str(status.get("last_policy_skip_date") or "").strip()
     failure_skip_date = str(status.get("last_failure_skip_date") or "").strip()
     last_failure_slot = str(status.get("last_failure_schedule_slot") or "").strip()
     today = now.strftime("%Y-%m-%d")
+    if _multi_slot_success_policy() == "once_per_day" and last_success_date == today:
+        return False
     if bootstrap_skip_date == today:
         return False
     if policy_skip_date == today:
@@ -514,6 +530,7 @@ def main() -> int:
     status["configured_interval_minutes"] = interval_minutes
     status["skip_catchup_on_start"] = skip_catchup
     status["run_policy"] = run_policy
+    status["multi_slot_success_policy"] = _multi_slot_success_policy()
     status["command_set"] = command_set
     status["status_path"] = str(_status_path())
     status["log_path"] = str(_log_path())
