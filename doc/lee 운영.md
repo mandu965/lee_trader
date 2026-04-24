@@ -13,27 +13,17 @@
 
 - 종가 close 배치: `16:00`
 - 장중 refresh: `12:00`
-- 실자동매매 신규 매수 판단: `09:30` 본 실행, `10:00` 재시도 슬롯
+- 실자동매매 신규 매수 판단: `09:30`
 - 실계좌 동기화: `10:00, 14:00, 18:00`
 
 메모:
 
 - `09:30`은 전날 종가 기준 `top20` 후보를 바탕으로, 장초반 갭/과열/추격매수 위험을 1차 확인한 뒤 신규 매수 판단을 내리는 운영 기준 시각이다.
-- `10:00`은 추가 매수 전략 시간이 아니라 `09:30` 미성공 시 1회 재시도하는 복구 슬롯이다.
-- 자동매수 다중 슬롯은 `SCHEDULER_AUTO_BUY_MULTI_SLOT_SUCCESS_POLICY=once_per_day` 기준으로 운영하며, 당일 `09:30` 실행이 성공하면 `10:00`은 스킵한다.
 - 따라서 실자동매매는 `12:10` 장중 신규 진입보다 `09:30` 장초반 보수 집행이 현재 설계와 더 잘 맞는다.
 - 장중 `12:00` refresh는 신규 매수 주 실행 시간이 아니라 관제와 재평가 성격으로 본다.
 - `09:30` auto-buy 스케줄러는 이제 `run_operational_refresh -> submit_live_orders -> sync_live_account_holdings -> sync_web_display_data` 순서로 동작한다.
 - `submit_live_orders.py`는 이제 KIS 접근토큰을 `outputs/kis_access_token_cache.json`에 캐시해, 같은 분 안의 후속 프로세스 재발급으로 `1분당 1회` 제한에 걸리지 않도록 보강했다.
 - 따라서 주문 직후 웹 조회에서도 `order execution`뿐 아니라 `실계좌 보유/현금`이 최대한 빠르게 갱신되도록 맞춘다.
-- 매도는 `EXIT/TRIM` 실패분 재시도를 허용하되, 매도 성공 자금을 같은 날 10:00 신규 BUY로 자동 재투입하지 않는다.
-- 교체매매는 같은 사이클의 명시적 replacement pair 또는 다음 영업일 신규 BUY로만 운영한다.
-- 현재 `PILOT`은 실험적 소액 모드가 아니라 제한적 실운용 모드로 해석한다.
-- 제한적 실운용 신규 BUY 상한은 최대 4종목, 총 신규 노출 35%, 종목당 신규 진입 12%다.
-- 단, `max_holdings=8`과 현재 보유 종목 수를 먼저 적용하므로 보유가 이미 많으면 신규 BUY 수는 줄어든다.
-- 가격 리스크 매도 기준은 `-5% REVIEW`, `-8% TRIM`, `-12% EXIT 후보`, `+10% 수익보호 TRIM 후보`다.
-- confidence 데이터 누락은 데이터 문제와 종목 문제를 구분하기 위해 자동 EXIT가 아니라 REVIEW로 둔다.
-- `PILOT`에서는 점수 기반 교체매매를 자동 실행하지 않고 REVIEW로 보류한다.
 - Docker Postgres 호스트 포트는 `15432:5432` 기준으로 사용한다.
 - 즉 로컬 PC에서 직접 붙을 때는 `localhost:15432`, 컨테이너 내부에서는 계속 `postgres:5432`를 사용한다.
 
@@ -544,7 +534,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 # 컨테이너 역할
 scheduler: 16:00 close 배치
 scheduler-recovery: 12:00 intraday refresh
-scheduler-auto-buy: 09:30 자동매매, 09:30 미성공 시 10:00 재시도
+scheduler-auto-buy: 09:30 자동매매
 scheduler-live-account-sync: 실계좌 동기화
 node-api: 웹 조회 API
 postgres: 웹/API/동기화 대상 DB

@@ -116,12 +116,8 @@ def main() -> int:
     lines.append(
         summarize(
             "scheduler_config",
-            str(scheduler.get("configured_daily_time") or "").strip() in {"09:30", "09:30,10:00"}
-            and str(scheduler.get("multi_slot_success_policy") or "").strip() in {"", "once_per_day"},
-            (
-                f"configured_daily_time={scheduler.get('configured_daily_time') or '-'} "
-                f"multi_slot_success_policy={scheduler.get('multi_slot_success_policy') or '-'}"
-            ),
+            str(scheduler.get("configured_daily_time") or "").strip() == "09:30",
+            f"configured_daily_time={scheduler.get('configured_daily_time') or '-'}",
         )
     )
 

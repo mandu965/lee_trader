@@ -95,7 +95,7 @@ execution_policy:
   watch_limited_position_cap: 0.08
   pilot_limited_auto_buy_enabled: true
   pilot_limited_max_entries: 4
-  pilot_limited_total_exposure: 0.35
+  pilot_limited_total_exposure: 0.36
   pilot_limited_position_cap: 0.12
   min_entry_confidence: 55.0
   min_hold_confidence: 55.0
@@ -113,8 +113,3 @@ execution_policy:
   min_replace_score_gap: 3.0
   max_replacements_per_cycle: 2
   reentry_cooldown_days: 10
-  price_risk_review_loss_pct: -0.05
-  price_risk_trim_loss_pct: -0.08
-  price_risk_force_exit_loss_pct: -0.12
-  price_risk_take_profit_trim_pct: 0.10
-  price_risk_trim_fraction: 0.50

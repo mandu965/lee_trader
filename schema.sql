@@ -798,6 +798,21 @@ CREATE TABLE research.app_payload_store (
 
 
 --
+-- Name: meaningfulness_review_note; Type: TABLE; Schema: research; Owner: -
+--
+
+CREATE TABLE research.meaningfulness_review_note (
+    analysis_date date NOT NULL,
+    code text NOT NULL,
+    decision text,
+    note text,
+    updated_by text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: backtest_outcome; Type: TABLE; Schema: research; Owner: -
 --
 
@@ -1281,6 +1296,14 @@ ALTER TABLE ONLY research.app_payload_store
 
 
 --
+-- Name: meaningfulness_review_note meaningfulness_review_note_pkey; Type: CONSTRAINT; Schema: research; Owner: -
+--
+
+ALTER TABLE ONLY research.meaningfulness_review_note
+    ADD CONSTRAINT meaningfulness_review_note_pkey PRIMARY KEY (analysis_date, code);
+
+
+--
 -- Name: backtest_outcome backtest_outcome_pkey; Type: CONSTRAINT; Schema: research; Owner: -
 --
 
@@ -1660,6 +1683,13 @@ CREATE INDEX idx_app_payload_store_asof ON research.app_payload_store USING btre
 
 
 --
+-- Name: idx_meaningfulness_review_note_updated; Type: INDEX; Schema: research; Owner: -
+--
+
+CREATE INDEX idx_meaningfulness_review_note_updated ON research.meaningfulness_review_note USING btree (updated_at DESC);
+
+
+--
 -- Name: idx_dim_model_run_type; Type: INDEX; Schema: research; Owner: -
 --
 
@@ -1846,5 +1876,4 @@ ALTER TABLE ONLY research.ranking_history
 --
 -- PostgreSQL database dump complete
 --
-
 

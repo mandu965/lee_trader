@@ -7,11 +7,6 @@
 - `top5` is retained only as a priority interpretation bucket, not as the execution input file.
 - Max holdings is `8`.
 - `WATCH` allows limited auto-buy with max `2` new names, max `15%` total new exposure, and max `8%` per new position.
-- Runtime `PILOT` is interpreted as active limited live operation, not a tiny experimental mode.
-- `PILOT` allows max `4` new names, max `35%` total new exposure, and max `12%` per new position, subject to max holdings and existing positions.
-- Price-risk holding rules are active: `-5% REVIEW`, `-8% TRIM`, `-12% EXIT candidate`, `+10% profit-protection TRIM candidate`.
-- Missing confidence data becomes `REVIEW`, not automatic `EXIT`.
-- Score-driven replacement is deferred in `PILOT`; it becomes review unless full replacement is explicitly allowed.
 - If older sections below still mention `buy_candidates_top5.csv` or `top5` as the primary execution input, treat this note as the source of truth.
 
 # Execution Policy V1

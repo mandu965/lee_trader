@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 
 import db as db_module
 from db import get_engine
@@ -52,12 +52,10 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("live_order_preview", OUTPUT_DIR / "live_order_preview.json", "asof_date"),
     ("order_requests_preview", OUTPUT_DIR / "order_requests_preview.json", "asof_date"),
     ("order_requests_execution", OUTPUT_DIR / "order_requests_execution.json", "executed_at"),
-    ("order_requests_runtime_diagnostics", OUTPUT_DIR / "order_requests_runtime_diagnostics.json", "generated_at"),
     ("auto_ops_auto_buy_scheduler_status", OUTPUT_DIR / "auto_ops_auto_buy_scheduler_status.json", None),
     ("auto_ops_live_account_sync_scheduler_status", OUTPUT_DIR / "auto_ops_live_account_sync_scheduler_status.json", None),
     ("auto_trading_policy", OUTPUT_DIR / "auto_trading_policy.json", None),
 ]
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sync local display artifacts into the web DB.")
@@ -65,6 +63,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-payloads", action="store_true", help="Skip app_payload_store JSON sync.")
     parser.add_argument("--skip-paper-trading", action="store_true", help="Skip research.paper_trading_* sync.")
     parser.add_argument("--skip-trades", action="store_true", help="Skip trades.csv -> trades sync.")
+    parser.add_argument("--skip-meaningfulness-review", action="store_true", help="Skip research.meaningfulness_review_note sync.")
     parser.add_argument("--reset-first", action="store_true", help="Delete existing display tables first, then reload from local artifacts.")
     return parser.parse_args()
 
@@ -77,19 +76,12 @@ def load_environment() -> None:
     load_dotenv(ROOT / ".env", override=False)
 
 
-def _mask_database_url(url: str) -> str:
-    text = str(url or "").strip()
-    if not text:
-        return ""
-    scheme_sep = text.find("://")
-    if scheme_sep < 0:
-        return text[:12] + "..." if len(text) > 15 else text
-    scheme = text[: scheme_sep + 3]
-    rest = text[scheme_sep + 3 :]
-    if "@" in rest:
-        _, rest = rest.split("@", 1)
-    host_port = rest.split("/", 1)[0]
-    return f"{scheme}{host_port}"
+def resolve_source_database_url() -> str:
+    local_database_url = str(os.environ.get("LOCAL_DATABASE_URL", "")).strip()
+    if local_database_url:
+        logging.info("Using LOCAL_DATABASE_URL as source DB")
+        return local_database_url
+    return str(os.environ.get("DATABASE_URL", "")).strip()
 
 
 def configure_target_database() -> str:
@@ -98,12 +90,9 @@ def configure_target_database() -> str:
         os.environ["DATABASE_URL"] = web_database_url
         db_module.get_database_url.cache_clear()
         db_module.get_engine.cache_clear()
-        logging.info("Using WEB_DATABASE_URL as sync target: %s", _mask_database_url(web_database_url))
+        logging.info("Using WEB_DATABASE_URL as sync target")
         return "WEB_DATABASE_URL"
-    logging.info(
-        "WEB_DATABASE_URL not set; falling back to DATABASE_URL: %s",
-        _mask_database_url(str(os.environ.get("DATABASE_URL", "")).strip()),
-    )
+    logging.info("WEB_DATABASE_URL not set; falling back to DATABASE_URL")
     return "DATABASE_URL"
 
 
@@ -115,6 +104,7 @@ def reset_display_tables() -> None:
     engine = get_engine()
     with engine.begin() as conn:
         delete_order = [
+            ("research.meaningfulness_review_note", "DELETE FROM research.meaningfulness_review_note"),
             ("research.paper_trading_position", "DELETE FROM research.paper_trading_position"),
             ("research.paper_trading_nav", "DELETE FROM research.paper_trading_nav"),
             ("research.paper_trading_run", "DELETE FROM research.paper_trading_run"),
@@ -199,6 +189,93 @@ def sync_payloads() -> None:
     logging.info("Synced display payload store")
 
 
+def ensure_meaningfulness_review_table(engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS research"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS research.meaningfulness_review_note (
+                    analysis_date DATE NOT NULL,
+                    code TEXT NOT NULL,
+                    decision TEXT NULL,
+                    note TEXT NULL,
+                    updated_by TEXT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    PRIMARY KEY (analysis_date, code)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_meaningfulness_review_note_updated
+                ON research.meaningfulness_review_note(updated_at DESC)
+                """
+            )
+        )
+
+
+def sync_meaningfulness_review_notes(source_database_url: str) -> None:
+    source_url = str(source_database_url or "").strip()
+    target_url = str(os.environ.get("DATABASE_URL", "")).strip()
+    if not source_url:
+        logging.info("Skip meaningfulness review sync: source DATABASE_URL not set")
+        return
+    if not target_url:
+        logging.info("Skip meaningfulness review sync: target DATABASE_URL not set")
+        return
+    if source_url == target_url:
+        logging.info("Skip meaningfulness review sync: source and target DB are identical")
+        return
+
+    source_engine = create_engine(source_url, future=True)
+    target_engine = get_engine()
+    try:
+        with source_engine.connect() as conn:
+            source_exists = bool(
+                conn.execute(text("SELECT to_regclass('research.meaningfulness_review_note')")).scalar()
+            )
+            if not source_exists:
+                logging.info("Skip meaningfulness review sync: source table not found")
+                return
+            rows = [
+                dict(row)
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT analysis_date, code, decision, note, updated_by, created_at, updated_at
+                        FROM research.meaningfulness_review_note
+                        ORDER BY analysis_date DESC, updated_at DESC, code ASC
+                        """
+                    )
+                ).mappings()
+            ]
+
+        ensure_meaningfulness_review_table(target_engine)
+        with target_engine.begin() as conn:
+            conn.execute(text("DELETE FROM research.meaningfulness_review_note"))
+            if rows:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO research.meaningfulness_review_note (
+                            analysis_date, code, decision, note, updated_by, created_at, updated_at
+                        ) VALUES (
+                            :analysis_date, :code, :decision, :note, :updated_by, :created_at, :updated_at
+                        )
+                        """
+                    ),
+                    rows,
+                )
+        logging.info("Synced meaningfulness review notes rows=%d", len(rows))
+    finally:
+        source_engine.dispose()
+        target_engine.dispose()
+
+
 def run_script(script_name: str, *extra_args: str) -> None:
     script_path = ROOT / "python" / script_name
     command = [PYTHON, str(script_path), *extra_args]
@@ -209,6 +286,7 @@ def main() -> int:
     args = parse_args()
     setup_logging()
     load_environment()
+    source_database_url = resolve_source_database_url()
     configure_target_database()
     if args.reset_first:
         reset_display_tables()
@@ -224,6 +302,8 @@ def main() -> int:
             run_script("sync_trades_db.py")
         else:
             logging.info("Skip trades sync: %s not found", trades_csv)
+    if not args.skip_meaningfulness_review:
+        sync_meaningfulness_review_notes(source_database_url)
     logging.info("Web display sync completed")
     return 0
 

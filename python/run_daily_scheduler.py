@@ -21,12 +21,9 @@ DEFAULT_POLL_SECONDS = 30
 DEFAULT_TIMEZONE = "Asia/Seoul"
 DEFAULT_SKIP_CATCHUP = True
 DEFAULT_RUN_POLICY = "always"
-DEFAULT_MULTI_SLOT_SUCCESS_POLICY = "per_slot"
 DEFAULT_PRIMARY_MAX_AGE_HOURS = 20
 DEFAULT_SCHEDULER_MODE = "internal_service"
 DEFAULT_INTERVAL_MINUTES = 0
-DEFAULT_AUTO_TRADE_SUBMIT_MAX_ATTEMPTS = 3
-DEFAULT_AUTO_TRADE_SUBMIT_RETRY_DELAY_SEC = 20
 
 
 def _should_sync_web_display() -> bool:
@@ -270,28 +267,6 @@ def _skip_after_failure_until_next_day() -> bool:
     }
 
 
-def _multi_slot_success_policy() -> str:
-    policy = str(os.environ.get("SCHEDULER_MULTI_SLOT_SUCCESS_POLICY", DEFAULT_MULTI_SLOT_SUCCESS_POLICY)).strip().lower()
-    if policy not in {"per_slot", "once_per_day"}:
-        logging.warning(
-            "Unknown SCHEDULER_MULTI_SLOT_SUCCESS_POLICY='%s' -> fallback to '%s'",
-            policy,
-            DEFAULT_MULTI_SLOT_SUCCESS_POLICY,
-        )
-        return DEFAULT_MULTI_SLOT_SUCCESS_POLICY
-    return policy
-
-
-def _latest_eligible_slot(now: datetime, schedule_slots: list[tuple[int, int]]) -> str:
-    today = now.strftime("%Y-%m-%d")
-    eligible_slots = [
-        f"{today} {hour:02d}:{minute:02d}"
-        for hour, minute in schedule_slots
-        if (now.hour, now.minute) >= (hour, minute)
-    ]
-    return eligible_slots[-1] if eligible_slots else ""
-
-
 def _should_run_today(now: datetime, scheduled_hour: int, scheduled_minute: int, status: dict[str, object]) -> bool:
     last_success_date = str(status.get("last_success_date") or "").strip()
     bootstrap_skip_date = str(status.get("bootstrap_skip_until_date") or "").strip()
@@ -312,26 +287,27 @@ def _should_run_today(now: datetime, scheduled_hour: int, scheduled_minute: int,
 def _should_run_daily_slots(now: datetime, schedule_slots: list[tuple[int, int]], status: dict[str, object]) -> bool:
     if not schedule_slots:
         return False
-    last_success_date = str(status.get("last_success_date") or "").strip()
     bootstrap_skip_date = str(status.get("bootstrap_skip_until_date") or "").strip()
     policy_skip_date = str(status.get("last_policy_skip_date") or "").strip()
     failure_skip_date = str(status.get("last_failure_skip_date") or "").strip()
-    last_failure_slot = str(status.get("last_failure_schedule_slot") or "").strip()
     today = now.strftime("%Y-%m-%d")
-    if _multi_slot_success_policy() == "once_per_day" and last_success_date == today:
-        return False
     if bootstrap_skip_date == today:
         return False
     if policy_skip_date == today:
         return False
-    latest_eligible_slot = _latest_eligible_slot(now, schedule_slots)
-    if not latest_eligible_slot:
+    if failure_skip_date == today:
         return False
-    if failure_skip_date == today and last_failure_slot == latest_eligible_slot:
+
+    eligible_slots = [
+        f"{today} {hour:02d}:{minute:02d}"
+        for hour, minute in schedule_slots
+        if (now.hour, now.minute) >= (hour, minute)
+    ]
+    if not eligible_slots:
         return False
 
     last_success_slot = str(status.get("last_success_schedule_slot") or "").strip()
-    return last_success_slot != latest_eligible_slot
+    return last_success_slot != eligible_slots[-1]
 
 
 def _should_run_interval(now: datetime, interval_minutes: int, status: dict[str, object]) -> bool:
@@ -393,41 +369,7 @@ def _evaluate_run_policy(now: datetime, policy: str) -> tuple[bool, str]:
 
 def _run_step(name: str, command: list[str]) -> None:
     logging.info("START %s", name)
-    max_attempts = 1
-    retry_delay_sec = 0
-    if name == "submit_live_orders":
-        max_attempts = max(
-            1,
-            int(os.environ.get("AUTO_TRADE_SUBMIT_MAX_ATTEMPTS", str(DEFAULT_AUTO_TRADE_SUBMIT_MAX_ATTEMPTS))),
-        )
-        retry_delay_sec = max(
-            0,
-            int(os.environ.get("AUTO_TRADE_SUBMIT_RETRY_DELAY_SEC", str(DEFAULT_AUTO_TRADE_SUBMIT_RETRY_DELAY_SEC))),
-        )
-
-    last_error: subprocess.CalledProcessError | None = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            subprocess.run(command, cwd=ROOT, check=True)
-            last_error = None
-            break
-        except subprocess.CalledProcessError as exc:
-            last_error = exc
-            if attempt >= max_attempts:
-                break
-            logging.warning(
-                "STEP %s failed (attempt %d/%d, exit=%s). Retrying in %ds.",
-                name,
-                attempt,
-                max_attempts,
-                exc.returncode,
-                retry_delay_sec,
-            )
-            if retry_delay_sec > 0:
-                time.sleep(retry_delay_sec)
-
-    if last_error is not None:
-        raise last_error
+    subprocess.run(command, cwd=ROOT, check=True)
     logging.info("OK %s", name)
 
 
@@ -456,10 +398,7 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
                 "last_success_date": finished_at[:10],
                 "last_success_schedule_slot": str(status.get("pending_schedule_slot") or ""),
                 "last_completed_step": run_steps[-1][0],
-                "last_failure_skip_date": "",
-                "last_failure_schedule_slot": "",
                 "last_error": "",
-                "status_note": "",
             }
         )
         _write_status(payload)
@@ -478,7 +417,6 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
         )
         if _skip_after_failure_until_next_day():
             payload["last_failure_skip_date"] = finished_at[:10]
-            payload["last_failure_schedule_slot"] = str(status.get("pending_schedule_slot") or "")
             payload["status_note"] = "Last run failed; skipping further runs until next day."
         logging.exception("Daily cycle failed")
     _write_status(payload)
@@ -530,7 +468,6 @@ def main() -> int:
     status["configured_interval_minutes"] = interval_minutes
     status["skip_catchup_on_start"] = skip_catchup
     status["run_policy"] = run_policy
-    status["multi_slot_success_policy"] = _multi_slot_success_policy()
     status["command_set"] = command_set
     status["status_path"] = str(_status_path())
     status["log_path"] = str(_log_path())
@@ -569,7 +506,12 @@ def main() -> int:
             if interval_minutes > 0:
                 status["pending_schedule_slot"] = ""
             elif scheduled_times:
-                status["pending_schedule_slot"] = _latest_eligible_slot(now, scheduled_times)
+                eligible_slots = [
+                    f"{now.strftime('%Y-%m-%d')} {hour:02d}:{minute:02d}"
+                    for hour, minute in scheduled_times
+                    if (now.hour, now.minute) >= (hour, minute)
+                ]
+                status["pending_schedule_slot"] = eligible_slots[-1] if eligible_slots else ""
             else:
                 status["pending_schedule_slot"] = f"{now.strftime('%Y-%m-%d')} {scheduled_hour:02d}:{scheduled_minute:02d}"
             can_run, reason = _evaluate_run_policy(now, run_policy)

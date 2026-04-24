@@ -67,26 +67,9 @@ function resolveServingDir() {
 const SERVING_DIR = resolveServingDir();
 console.log("[SERVING_DIR]", SERVING_DIR);
 
-const DATABASE_URL = String(process.env.WEB_DATABASE_URL || process.env.DATABASE_URL || "").trim();
-const DATABASE_URL_SOURCE = process.env.WEB_DATABASE_URL ? "WEB_DATABASE_URL" : "DATABASE_URL";
-function maskDatabaseUrl(value) {
-  const text = String(value || "").trim();
-  if (!text) return "";
-  const schemeSep = text.indexOf("://");
-  if (schemeSep < 0) return text.length > 15 ? `${text.slice(0, 12)}...` : text;
-  const scheme = text.slice(0, schemeSep + 3);
-  let rest = text.slice(schemeSep + 3);
-  if (rest.includes("@")) {
-    rest = rest.split("@")[1];
-  }
-  const hostPort = rest.split("/")[0];
-  return `${scheme}${hostPort}`;
-}
+const { DATABASE_URL } = process.env;
 if (!DATABASE_URL) {
   console.error("DATABASE_URL not set. API will fail to reach Postgres.");
-} else {
-  console.log("[DATABASE_URL_SOURCE]", DATABASE_URL_SOURCE);
-  console.log("[DATABASE_URL]", maskDatabaseUrl(DATABASE_URL));
 }
 
 const pool = new Pool({
@@ -102,6 +85,7 @@ const ANALYTICS_EXTENSIONS_EXCLUDE = new Set([
   ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".map", ".txt", ".xml", ".json", ".woff", ".woff2",
 ]);
 let pageViewSchemaReady = null;
+let meaningfulnessReviewSchemaReady = null;
 
 // ---------------------
 // Helpers
@@ -2185,6 +2169,115 @@ async function ensurePageViewSchema() {
   return pageViewSchemaReady;
 }
 
+async function ensureMeaningfulnessReviewSchema() {
+  if (meaningfulnessReviewSchemaReady) return meaningfulnessReviewSchemaReady;
+  meaningfulnessReviewSchemaReady = (async () => {
+    await queryRows("CREATE SCHEMA IF NOT EXISTS research");
+    await queryRows(`
+      CREATE TABLE IF NOT EXISTS research.meaningfulness_review_note (
+        analysis_date DATE NOT NULL,
+        code TEXT NOT NULL,
+        decision TEXT NULL,
+        note TEXT NULL,
+        updated_by TEXT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (analysis_date, code)
+      )
+    `);
+    await queryRows(`
+      CREATE INDEX IF NOT EXISTS idx_meaningfulness_review_note_updated
+      ON research.meaningfulness_review_note(updated_at DESC)
+    `);
+  })().catch((error) => {
+    meaningfulnessReviewSchemaReady = null;
+    throw error;
+  });
+  return meaningfulnessReviewSchemaReady;
+}
+
+async function buildMeaningfulnessOutcomes({ analysisDate, codes }) {
+  const normalizedCodes = Array.from(new Set((codes || []).map((code) => String(code || "").trim()).filter(Boolean)));
+  if (!analysisDate || !normalizedCodes.length) return [];
+
+  const rows = await queryRows(
+    `
+    WITH price_rows AS (
+      SELECT
+        code,
+        date::date AS date,
+        COALESCE(adj_close, close) AS px
+      FROM fact_price_daily
+      WHERE code = ANY($1::text[])
+        AND date >= $2::date
+        AND COALESCE(adj_close, close) IS NOT NULL
+    ),
+    first_rows AS (
+      SELECT DISTINCT ON (code)
+        code,
+        date AS entry_date,
+        px AS entry_close
+      FROM price_rows
+      ORDER BY code, date ASC
+    ),
+    latest_rows AS (
+      SELECT DISTINCT ON (code)
+        code,
+        date AS latest_date,
+        px AS latest_close
+      FROM price_rows
+      ORDER BY code, date DESC
+    ),
+    agg_rows AS (
+      SELECT
+        code,
+        MAX(px) AS peak_close,
+        MIN(px) AS trough_close,
+        COUNT(*)::int AS observed_days
+      FROM price_rows
+      GROUP BY code
+    )
+    SELECT
+      f.code,
+      f.entry_date,
+      f.entry_close,
+      l.latest_date,
+      l.latest_close,
+      a.peak_close,
+      a.trough_close,
+      a.observed_days
+    FROM first_rows f
+    JOIN latest_rows l USING (code)
+    JOIN agg_rows a USING (code)
+    ORDER BY f.code ASC
+    `,
+    [normalizedCodes, analysisDate]
+  );
+
+  return rows.map((row) => {
+    const entryClose = toNum(row.entry_close);
+    const latestClose = toNum(row.latest_close);
+    const peakClose = toNum(row.peak_close);
+    const troughClose = toNum(row.trough_close);
+    const latestReturn = entryClose && latestClose ? (latestClose / entryClose) - 1 : null;
+    const peakReturn = entryClose && peakClose ? (peakClose / entryClose) - 1 : null;
+    const troughReturn = entryClose && troughClose ? (troughClose / entryClose) - 1 : null;
+    return {
+      code: row.code,
+      entry_date: row.entry_date,
+      entry_close: entryClose,
+      latest_date: row.latest_date,
+      latest_close: latestClose,
+      peak_close: peakClose,
+      trough_close: troughClose,
+      observed_days: toNum(row.observed_days),
+      latest_return: latestReturn,
+      peak_return: peakReturn,
+      trough_return: troughReturn,
+    };
+  });
+}
+
 async function recordPageView(req, res) {
   if (!shouldTrackPageView(req)) return;
   try {
@@ -3767,6 +3860,83 @@ app.get("/api/top20-meaningfulness", async (req, res) => {
   } catch (e) {
     console.error("GET /api/top20-meaningfulness error", e);
     res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/meaningfulness-review-notes", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    await ensureMeaningfulnessReviewSchema();
+    const date = typeof req.query.date === "string" ? req.query.date.trim() : "";
+    const params = [];
+    let whereClause = "";
+    if (date) {
+      params.push(date);
+      whereClause = "WHERE analysis_date = $1";
+    }
+    const rows = await queryRows(
+      `
+      SELECT analysis_date, code, decision, note, updated_by, created_at, updated_at
+      FROM research.meaningfulness_review_note
+      ${whereClause}
+      ORDER BY analysis_date DESC, updated_at DESC, code ASC
+      `,
+      params
+    );
+    res.json({ rows });
+  } catch (e) {
+    console.error("GET /api/meaningfulness-review-notes error", e);
+    res.status(500).json({ error: "meaningfulness_review_notes_failed" });
+  }
+});
+
+app.post("/api/meaningfulness-review-notes", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    await ensureMeaningfulnessReviewSchema();
+    const analysisDate = typeof req.body?.analysis_date === "string" ? req.body.analysis_date.trim() : "";
+    const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
+    const decision = typeof req.body?.decision === "string" ? req.body.decision.trim() : "";
+    const note = typeof req.body?.note === "string" ? req.body.note.trim() : "";
+    const updatedBy = typeof req.body?.updated_by === "string" ? req.body.updated_by.trim() : "";
+
+    if (!analysisDate || !code) {
+      return res.status(400).json({ error: "analysis_date_and_code_required" });
+    }
+
+    const rows = await queryRows(
+      `
+      INSERT INTO research.meaningfulness_review_note
+        (analysis_date, code, decision, note, updated_by, updated_at)
+      VALUES
+        ($1::date, $2, NULLIF($3, ''), NULLIF($4, ''), NULLIF($5, ''), now())
+      ON CONFLICT (analysis_date, code) DO UPDATE
+      SET decision = EXCLUDED.decision,
+          note = EXCLUDED.note,
+          updated_by = EXCLUDED.updated_by,
+          updated_at = now()
+      RETURNING analysis_date, code, decision, note, updated_by, created_at, updated_at
+      `,
+      [analysisDate, code, decision, note, updatedBy || "operator"]
+    );
+
+    res.json({ ok: true, row: rows[0] || null });
+  } catch (e) {
+    console.error("POST /api/meaningfulness-review-notes error", e);
+    res.status(500).json({ error: "meaningfulness_review_notes_save_failed" });
+  }
+});
+
+app.post("/api/meaningfulness-outcomes", async (req, res) => {
+  try {
+    const analysisDate = typeof req.body?.analysis_date === "string" ? req.body.analysis_date.trim() : "";
+    const codes = Array.isArray(req.body?.codes) ? req.body.codes : [];
+    if (!analysisDate || !codes.length) {
+      return res.status(400).json({ error: "analysis_date_and_codes_required" });
+    }
+    const rows = await buildMeaningfulnessOutcomes({ analysisDate, codes });
+    res.json({ rows });
+  } catch (e) {
+    console.error("POST /api/meaningfulness-outcomes error", e);
+    res.status(500).json({ error: "meaningfulness_outcomes_failed" });
   }
 });
 
@@ -5362,7 +5532,3 @@ app.get("/api/debug/data-dir", (req, res) => {
 });
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
-
-
-
-

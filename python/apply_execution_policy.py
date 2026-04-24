@@ -107,11 +107,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-replace-score-gap", type=float, default=float(get_production_config_value(["execution_policy", "min_replace_score_gap"], 3.0)))
     parser.add_argument("--max-replacements-per-cycle", type=int, default=int(get_production_config_value(["execution_policy", "max_replacements_per_cycle"], 2)))
     parser.add_argument("--reentry-cooldown-days", type=int, default=int(get_production_config_value(["execution_policy", "reentry_cooldown_days"], 10)))
-    parser.add_argument("--price-risk-review-loss-pct", type=float, default=float(get_production_config_value(["execution_policy", "price_risk_review_loss_pct"], -0.05)))
-    parser.add_argument("--price-risk-trim-loss-pct", type=float, default=float(get_production_config_value(["execution_policy", "price_risk_trim_loss_pct"], -0.08)))
-    parser.add_argument("--price-risk-force-exit-loss-pct", type=float, default=float(get_production_config_value(["execution_policy", "price_risk_force_exit_loss_pct"], -0.12)))
-    parser.add_argument("--price-risk-take-profit-trim-pct", type=float, default=float(get_production_config_value(["execution_policy", "price_risk_take_profit_trim_pct"], 0.10)))
-    parser.add_argument("--price-risk-trim-fraction", type=float, default=float(get_production_config_value(["execution_policy", "price_risk_trim_fraction"], 0.50)))
     parser.add_argument("--min-liquidity-score", type=float, default=float(get_production_config_value(["buy_candidate", "min_liquidity_score"], 15.0)))
     parser.add_argument("--min-trading-value", type=float, default=float(get_production_config_value(["buy_candidate", "min_trading_value"], 5_000_000_000.0)))
     return parser.parse_args()
@@ -717,8 +712,6 @@ def classify_holdings(
         candidate_rank = pd.NA
         candidate_score = pd.NA
         latest_rank = pd.NA
-        pnl_pct = pd.to_numeric(row.get("pnl_pct"), errors="coerce")
-        risk_trim_target_weight = pd.NA
         confidence = pd.to_numeric(row.get("confidence_score"), errors="coerce")
         reasons: list[str] = []
         action = "HOLD"
@@ -756,33 +749,7 @@ def classify_holdings(
         if theme != "(none)" and theme_weights.get(theme, 0.0) > args.theme_cap + 1e-8:
             action = "TRIM"
             reasons.append(f"theme cap {_fmt_pct(args.theme_cap)} exceeded")
-        trim_fraction = min(max(float(args.price_risk_trim_fraction), 0.0), 1.0)
-        price_force_exit_applied = False
-        if pd.notna(pnl_pct) and float(pnl_pct) <= float(args.price_risk_force_exit_loss_pct):
-            action = "EXIT_CANDIDATE"
-            price_force_exit_applied = True
-            reasons.append(f"pnl {_fmt_pct(pnl_pct)} <= force exit loss {_fmt_pct(args.price_risk_force_exit_loss_pct)}")
-        elif pd.notna(pnl_pct) and float(pnl_pct) <= float(args.price_risk_trim_loss_pct):
-            action = "TRIM"
-            if pd.notna(current_weight):
-                risk_trim_target_weight = max(float(current_weight) * (1.0 - trim_fraction), 0.0)
-            reasons.append(f"pnl {_fmt_pct(pnl_pct)} <= trim loss {_fmt_pct(args.price_risk_trim_loss_pct)}")
-        elif pd.notna(pnl_pct) and float(pnl_pct) <= float(args.price_risk_review_loss_pct):
-            if action == "HOLD":
-                action = "HOLD_REVIEW"
-            reasons.append(f"pnl {_fmt_pct(pnl_pct)} <= review loss {_fmt_pct(args.price_risk_review_loss_pct)}")
-        elif pd.notna(pnl_pct) and float(pnl_pct) >= float(args.price_risk_take_profit_trim_pct):
-            if action == "HOLD":
-                action = "TRIM"
-            if pd.notna(current_weight):
-                risk_trim_target_weight = max(float(current_weight) * (1.0 - trim_fraction), 0.0)
-            reasons.append(f"pnl {_fmt_pct(pnl_pct)} >= profit trim {_fmt_pct(args.price_risk_take_profit_trim_pct)}")
-
-        if confidence_policy.band == "UNKNOWN":
-            if action in {"HOLD", "REPLACE_CANDIDATE"} or (action == "EXIT_CANDIDATE" and not price_force_exit_applied):
-                action = "HOLD_REVIEW"
-            reasons.append("confidence unavailable: review instead of automatic exit")
-        elif not confidence_policy.hold_allowed:
+        if not confidence_policy.hold_allowed:
             action = "EXIT_CANDIDATE"
             reasons.append(confidence_policy.guidance)
         elif pd.notna(candidate_rank) and int(candidate_rank) > args.max_holdings:
@@ -816,14 +783,12 @@ def classify_holdings(
                 "code": code,
                 "name": row.get("name"),
                 "current_weight": current_weight,
-                "pnl_pct": pnl_pct,
                 "candidate_rank": candidate_rank,
                 "latest_snapshot_rank": latest_rank,
                 "confidence_score": confidence,
                 "confidence_band": confidence_policy.band,
                 "candidate_final_score": candidate_score,
                 "policy_cap_weight": policy_cap_weight,
-                "risk_trim_target_weight": risk_trim_target_weight,
                 "action": action,
                 "reason": "; ".join(reasons),
             }
@@ -886,8 +851,6 @@ def build_execution_actions(
     args: argparse.Namespace,
 ) -> pd.DataFrame:
     def _replacement_plan() -> tuple[dict[str, dict[str, object]], set[str]]:
-        if not bool(gate.get("allow_score_replacement")):
-            return {}, set()
         if holdings_review.empty or buy_ready_queue.empty:
             return {}, set()
 
@@ -1020,10 +983,7 @@ def build_execution_actions(
         elif action == "TRIM":
             current_weight = pd.to_numeric(row.get("current_weight"), errors="coerce")
             policy_cap_weight = pd.to_numeric(row.get("policy_cap_weight"), errors="coerce")
-            risk_trim_target_weight = pd.to_numeric(row.get("risk_trim_target_weight"), errors="coerce")
             trim_cap = float(policy_cap_weight) if pd.notna(policy_cap_weight) else args.max_position_weight
-            if pd.notna(risk_trim_target_weight):
-                trim_cap = min(trim_cap, float(risk_trim_target_weight))
             target_weight = min(float(current_weight), trim_cap) if pd.notna(current_weight) else pd.NA
             kept_codes.add(code)
         elif action == "HOLD_REVIEW":
@@ -1264,11 +1224,9 @@ def main() -> None:
     holdings_display = holdings_review.copy()
     if not holdings_display.empty:
         holdings_display["current_weight"] = holdings_display["current_weight"].map(_fmt_pct)
-        holdings_display["pnl_pct"] = holdings_display["pnl_pct"].map(_fmt_pct)
         holdings_display["confidence_score"] = holdings_display["confidence_score"].map(_fmt_num)
         holdings_display["candidate_final_score"] = holdings_display["candidate_final_score"].map(_fmt_num)
         holdings_display["policy_cap_weight"] = holdings_display["policy_cap_weight"].map(_fmt_pct)
-        holdings_display["risk_trim_target_weight"] = holdings_display["risk_trim_target_weight"].map(_fmt_pct)
 
     actions_display = execution_actions.copy()
     if not actions_display.empty:
@@ -1314,12 +1272,10 @@ def main() -> None:
         f"- reduced cap scale: {_fmt_num(args.confidence_reduced_position_cap_scale)} / expanded cap scale: {_fmt_num(args.confidence_expanded_position_cap_scale)}",
         f"- max_hold_rank: top{args.max_hold_rank}",
         f"- reentry_cooldown_days: {args.reentry_cooldown_days}",
-        f"- price risk review loss: {_fmt_pct(args.price_risk_review_loss_pct)} / trim loss: {_fmt_pct(args.price_risk_trim_loss_pct)} / force exit loss: {_fmt_pct(args.price_risk_force_exit_loss_pct)}",
-        f"- price risk profit trim: {_fmt_pct(args.price_risk_take_profit_trim_pct)} / trim fraction: {_fmt_pct(args.price_risk_trim_fraction)}",
         "",
         "## Current Holdings Review",
         "",
-        _markdown_table(holdings_display, ["code", "name", "current_weight", "pnl_pct", "policy_cap_weight", "risk_trim_target_weight", "candidate_rank", "latest_snapshot_rank", "confidence_score", "confidence_band", "candidate_final_score", "action", "reason"]),
+        _markdown_table(holdings_display, ["code", "name", "current_weight", "policy_cap_weight", "candidate_rank", "latest_snapshot_rank", "confidence_score", "confidence_band", "candidate_final_score", "action", "reason"]),
         "",
         "## Recommended Actions",
         "",
