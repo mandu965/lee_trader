@@ -21,6 +21,7 @@ from kis_live_account import (
     resolve_account_env,
     summarize_cash,
 )
+from sync_live_trade_ledger import sync_live_trade_ledger
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,6 +83,33 @@ def _json_default(value: object) -> object:
     return str(value)
 
 
+def _json_sanitize(value: object) -> object:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(value, dict):
+        return {str(key): _json_sanitize(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_sanitize(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_sanitize(item) for item in value]
+    return value
+
+
+def _num_or_none(value: object) -> float | None:
+    numeric = pd.to_numeric(value, errors="coerce")
+    return float(numeric) if pd.notna(numeric) else None
+
+
+def _int_or_none(value: object) -> int | None:
+    numeric = pd.to_numeric(value, errors="coerce")
+    return int(numeric) if pd.notna(numeric) else None
+
+
 def load_live_holdings(path: Path) -> pd.DataFrame:
     resolved = _resolve(path)
     if not resolved.exists():
@@ -117,6 +145,42 @@ def load_ranking(path: Path) -> pd.DataFrame:
             .astype(float)
         )
     return work.sort_values(["buy_rank", "code"]).reset_index(drop=True)
+
+
+def build_ranking_context(row: pd.Series, intent_row: pd.Series | None = None) -> dict[str, object]:
+    intent_row = intent_row if intent_row is not None else pd.Series(dtype="object")
+    def first(*keys: str) -> object:
+        for key in keys:
+            if key in intent_row.index and pd.notna(intent_row.get(key)):
+                return intent_row.get(key)
+            if key in row.index and pd.notna(row.get(key)):
+                return row.get(key)
+        return None
+
+    return {
+        "ranking_run_id": _int_or_none(first("ranking_run_id", "run_id")),
+        "ranking_rank": _int_or_none(first("ranking_rank", "live_rank", "rank_final", "buy_rank")),
+        "buy_rank": _int_or_none(first("buy_rank")),
+        "rank_final": _int_or_none(first("rank_final")),
+        "live_rank": _int_or_none(first("live_rank")),
+        "final_score": _num_or_none(first("final_score", "live_score")),
+        "live_score": _num_or_none(first("live_score")),
+        "confidence_score": _num_or_none(first("confidence_score")),
+        "risk_penalty": _num_or_none(first("risk_penalty")),
+        "ret_score": _num_or_none(first("ret_score")),
+        "prob_score": _num_or_none(first("prob_score")),
+        "qual_score": _num_or_none(first("qual_score")),
+        "tech_score": _num_or_none(first("tech_score")),
+        "liquidity_score": _num_or_none(first("liquidity_score")),
+        "safety_score": _num_or_none(first("safety_score")),
+        "dominant_theme": str(first("dominant_theme") or "").strip() or None,
+        "score_driver_1": str(first("score_driver_1") or "").strip() or None,
+        "score_driver_2": str(first("score_driver_2") or "").strip() or None,
+        "score_driver_3": str(first("score_driver_3") or "").strip() or None,
+        "risk_factor_1": str(first("risk_factor_1") or "").strip() or None,
+        "risk_factor_2": str(first("risk_factor_2") or "").strip() or None,
+        "action_note": str(first("action_note") or "").strip() or None,
+    }
 
 
 def load_price_fallback(path: Path) -> pd.DataFrame:
@@ -234,6 +298,7 @@ def build_order_requests(
             continue
         ranking_row = ranking_lookup.loc[code] if not ranking_lookup.empty and code in ranking_lookup.index else pd.Series(dtype="object")
         holding_row = holdings_lookup.loc[code] if not holdings_lookup.empty and code in holdings_lookup.index else pd.Series(dtype="object")
+        ranking_context = build_ranking_context(ranking_row, row)
         intent_type = str(row.get("intent_type") or "").upper()
         side = "BUY" if intent_type == "BUY" else "SELL" if intent_type in {"TRIM", "EXIT"} else "HOLD"
         reference_price = pd.to_numeric(ranking_row.get("close"), errors="coerce")
@@ -262,9 +327,10 @@ def build_order_requests(
                         "planned_qty": 0,
                         "allowed_qty": 0,
                         "final_request_qty": 0,
-                        "target_weight": pd.to_numeric(row.get("target_weight"), errors="coerce"),
-                        "priority": pd.to_numeric(row.get("priority"), errors="coerce"),
+                        "target_weight": _num_or_none(row.get("target_weight")),
+                        "priority": _int_or_none(row.get("priority")),
                         "reason": row.get("reason"),
+                        **ranking_context,
                         "blocked_reason": blocked_reason,
                         "expected_hold_reason": _preview_expected_hold_reason(
                             side=side,
@@ -333,9 +399,10 @@ def build_order_requests(
                 "planned_qty": int(planned_qty) if pd.notna(planned_qty) else None,
                 "allowed_qty": int(allowed_qty) if pd.notna(allowed_qty) else None,
                 "final_request_qty": int(final_qty) if final_qty is not None else None,
-                "target_weight": pd.to_numeric(row.get("target_weight"), errors="coerce"),
-                "priority": pd.to_numeric(row.get("priority"), errors="coerce"),
+                "target_weight": _num_or_none(row.get("target_weight")),
+                "priority": _int_or_none(row.get("priority")),
                 "reason": row.get("reason"),
+                **ranking_context,
                 "blocked_reason": blocked_reason,
                 "expected_hold_reason": _preview_expected_hold_reason(
                     side=side,
@@ -564,7 +631,10 @@ def render_execution_markdown(payload: dict[str, Any]) -> str:
 def write_payload(path: Path, payload: dict[str, Any]) -> None:
     resolved = _resolve(path)
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    resolved.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=_json_default), encoding="utf-8-sig")
+    resolved.write_text(
+        json.dumps(_json_sanitize(payload), ensure_ascii=False, indent=2, default=_json_default, allow_nan=False),
+        encoding="utf-8-sig",
+    )
 
 
 def write_text(path: Path, text: str) -> None:
@@ -589,6 +659,23 @@ def sync_web_display_if_configured() -> None:
     )
 
 
+def sync_live_trade_ledger_best_effort(
+    *,
+    intents_payload: dict[str, Any],
+    preview_payload: dict[str, Any],
+    execution_payload: dict[str, Any] | None = None,
+) -> None:
+    try:
+        result = sync_live_trade_ledger(
+            intents_payload=intents_payload,
+            preview_payload=preview_payload,
+            execution_payload=execution_payload or {},
+        )
+        logging.info("Live trade ledger sync completed: %s", result)
+    except Exception:
+        logging.warning("Live trade ledger sync failed", exc_info=True)
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     args = parse_args()
@@ -611,6 +698,10 @@ def main() -> int:
 
     write_payload(args.out_json, preview_payload)
     write_text(args.out_md, render_preview_markdown(preview_payload))
+    sync_live_trade_ledger_best_effort(
+        intents_payload=intents_payload,
+        preview_payload=preview_payload,
+    )
     print(f"order_requests_preview_json: {_resolve(args.out_json)}")
     print(f"order_requests_preview_md: {_resolve(args.out_md)}")
 
@@ -626,6 +717,11 @@ def main() -> int:
     execution_payload = execute_order_requests(preview_payload=preview_payload, args=args)
     write_payload(args.out_exec_json, execution_payload)
     write_text(args.out_exec_md, render_execution_markdown(execution_payload))
+    sync_live_trade_ledger_best_effort(
+        intents_payload=intents_payload,
+        preview_payload=preview_payload,
+        execution_payload=execution_payload,
+    )
     print(f"order_requests_execution_json: {_resolve(args.out_exec_json)}")
     print(f"order_requests_execution_md: {_resolve(args.out_exec_md)}")
     try:

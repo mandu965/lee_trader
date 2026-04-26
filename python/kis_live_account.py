@@ -18,6 +18,7 @@ except Exception:
 BALANCE_API_URL = "/uapi/domestic-stock/v1/trading/inquire-balance"
 PSBL_ORDER_API_URL = "/uapi/domestic-stock/v1/trading/inquire-psbl-order"
 ORDER_CASH_API_URL = "/uapi/domestic-stock/v1/trading/order-cash"
+DAILY_CCLD_API_URL = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
 
 
 @dataclass(frozen=True)
@@ -164,6 +165,49 @@ def order_cash(
         require_hashkey=False,
     )
     return _to_frame(payload, "output")
+
+
+def inquire_daily_ccld(
+    client: KISClient,
+    account: KISAccountEnv,
+    *,
+    start_date: str,
+    end_date: str,
+    sll_buy_dvsn_cd: str = "00",
+    inqr_dvsn: str = "00",
+    pdno: str = "",
+    odno: str = "",
+    ccld_dvsn: str = "00",
+    inqr_dvsn_3: str = "00",
+    inqr_dvsn_1: str = "",
+    inqr_dvsn_2: str = "",
+    ord_gno_brno: str = "",
+    ctx_area_fk100: str = "",
+    ctx_area_nk100: str = "",
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    tr_id = "VTTC8001R" if account.env_dv == "demo" else "TTTC8001R"
+    payload = client.get(
+        DAILY_CCLD_API_URL,
+        tr_id=tr_id,
+        params={
+            "CANO": account.cano,
+            "ACNT_PRDT_CD": account.acnt_prdt_cd,
+            "INQR_STRT_DT": str(start_date).replace("-", ""),
+            "INQR_END_DT": str(end_date).replace("-", ""),
+            "SLL_BUY_DVSN_CD": sll_buy_dvsn_cd,
+            "INQR_DVSN": inqr_dvsn,
+            "PDNO": str(pdno).zfill(6) if str(pdno or "").strip() else "",
+            "CCLD_DVSN": ccld_dvsn,
+            "ORD_GNO_BRNO": ord_gno_brno,
+            "ODNO": str(odno or "").strip(),
+            "INQR_DVSN_3": inqr_dvsn_3,
+            "INQR_DVSN_1": inqr_dvsn_1,
+            "INQR_DVSN_2": inqr_dvsn_2,
+            "CTX_AREA_FK100": ctx_area_fk100,
+            "CTX_AREA_NK100": ctx_area_nk100,
+        },
+    )
+    return _to_frame(payload, "output1"), _to_frame(payload, "output2")
 
 
 def summarize_cash(balance_summary: pd.DataFrame) -> dict[str, float | None]:

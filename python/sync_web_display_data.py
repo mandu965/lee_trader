@@ -52,6 +52,7 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("live_order_preview", OUTPUT_DIR / "live_order_preview.json", "asof_date"),
     ("order_requests_preview", OUTPUT_DIR / "order_requests_preview.json", "asof_date"),
     ("order_requests_execution", OUTPUT_DIR / "order_requests_execution.json", "executed_at"),
+    ("live_order_fills", OUTPUT_DIR / "live_order_fills.json", "end_date"),
     ("auto_ops_auto_buy_scheduler_status", OUTPUT_DIR / "auto_ops_auto_buy_scheduler_status.json", None),
     ("auto_ops_live_account_sync_scheduler_status", OUTPUT_DIR / "auto_ops_live_account_sync_scheduler_status.json", None),
     ("auto_trading_policy", OUTPUT_DIR / "auto_trading_policy.json", None),
@@ -62,9 +63,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-core", action="store_true", help="Skip stocks/market_status/predictions/daily_ranking sync.")
     parser.add_argument("--skip-payloads", action="store_true", help="Skip app_payload_store JSON sync.")
     parser.add_argument("--skip-paper-trading", action="store_true", help="Skip research.paper_trading_* sync.")
-    parser.add_argument("--skip-trades", action="store_true", help="Skip trades.csv -> trades sync.")
+    parser.add_argument("--skip-trades", action="store_true", help="Deprecated; trades are skipped unless --sync-trades-to-web is set.")
+    parser.add_argument(
+        "--sync-trades-to-web",
+        action="store_true",
+        help="Explicitly push data/trades.csv into web public.trades. Use only for recovery/import.",
+    )
     parser.add_argument("--skip-meaningfulness-review", action="store_true", help="Skip research.meaningfulness_review_note sync.")
     parser.add_argument("--reset-first", action="store_true", help="Delete existing display tables first, then reload from local artifacts.")
+    parser.add_argument(
+        "--reset-trades",
+        action="store_true",
+        help="With --reset-first, also delete web public.trades. Use only for recovery/import.",
+    )
     return parser.parse_args()
 
 
@@ -100,7 +111,7 @@ def table_exists(conn, qualified_name: str) -> bool:
     return bool(conn.execute(text("SELECT to_regclass(:name)"), {"name": qualified_name}).scalar())
 
 
-def reset_display_tables() -> None:
+def reset_display_tables(*, include_trades: bool = False) -> None:
     engine = get_engine()
     with engine.begin() as conn:
         delete_order = [
@@ -109,18 +120,21 @@ def reset_display_tables() -> None:
             ("research.paper_trading_nav", "DELETE FROM research.paper_trading_nav"),
             ("research.paper_trading_run", "DELETE FROM research.paper_trading_run"),
             ("research.app_payload_store", "DELETE FROM research.app_payload_store"),
-            ("public.trades", "DELETE FROM trades"),
             ("public.daily_ranking", "DELETE FROM daily_ranking"),
             ("public.predictions", "DELETE FROM predictions"),
             ("public.market_status", "DELETE FROM market_status"),
             ("public.etf_holdings_snapshot", "DELETE FROM etf_holdings_snapshot"),
             ("public.stocks", "DELETE FROM stocks"),
         ]
+        if include_trades:
+            delete_order.insert(5, ("public.trades", "DELETE FROM trades"))
         for qualified_name, statement in delete_order:
             if not table_exists(conn, qualified_name):
                 continue
             conn.execute(text(statement))
             logging.info("Cleared %s", qualified_name)
+        if not include_trades:
+            logging.info("Preserved public.trades during reset; pass --reset-trades to clear it")
 
 
 def verify_stocks_subset() -> dict[str, object]:
@@ -289,19 +303,22 @@ def main() -> int:
     source_database_url = resolve_source_database_url()
     configure_target_database()
     if args.reset_first:
-        reset_display_tables()
+        reset_display_tables(include_trades=args.reset_trades)
     if not args.skip_core:
         sync_core_tables()
     if not args.skip_payloads:
         sync_payloads()
+        run_script("sync_live_trade_ledger.py")
     if not args.skip_paper_trading:
         run_script("sync_paper_trading_db.py")
-    if not args.skip_trades:
+    if args.sync_trades_to_web:
         trades_csv = DATA_DIR / "trades.csv"
         if trades_csv.exists():
             run_script("sync_trades_db.py")
         else:
             logging.info("Skip trades sync: %s not found", trades_csv)
+    else:
+        logging.info("Skip trades.csv -> web trades sync; web public.trades is treated as source of truth")
     if not args.skip_meaningfulness_review:
         sync_meaningfulness_review_notes(source_database_url)
     logging.info("Web display sync completed")

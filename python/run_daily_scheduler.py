@@ -16,7 +16,7 @@ from payload_store import upsert_json_payload
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUTS_DIR = ROOT / "outputs"
 DEFAULT_LOG_DIR = ROOT / "logs"
-DEFAULT_TIME = "16:00"
+DEFAULT_TIME = "18:10"
 DEFAULT_POLL_SECONDS = 30
 DEFAULT_TIMEZONE = "Asia/Seoul"
 DEFAULT_SKIP_CATCHUP = True
@@ -71,6 +71,10 @@ def _live_account_sync_command() -> list[str]:
     return [sys.executable, str(ROOT / "python" / "sync_live_account_holdings.py")]
 
 
+def _live_order_fills_sync_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "sync_live_order_fills.py")]
+
+
 def _resolve_run_steps() -> list[tuple[str, list[str]]]:
     command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
     if command_set == "intraday":
@@ -83,7 +87,10 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
             ("submit_live_orders", _auto_buy_submit_command()),
         ]
     if command_set == "live_sync":
-        return [("sync_live_account_holdings", _live_account_sync_command())]
+        return [
+            ("sync_live_account_holdings", _live_account_sync_command()),
+            ("sync_live_order_fills", _live_order_fills_sync_command()),
+        ]
     return [("run_manual_close_batch", _close_batch_command())]
 
 
@@ -92,6 +99,7 @@ def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
     if command_set == "auto_buy":
         steps: list[tuple[str, list[str]]] = [
             ("sync_live_account_holdings", _live_account_sync_command()),
+            ("sync_live_order_fills", _live_order_fills_sync_command()),
         ]
         if not _should_sync_web_display():
             return steps
@@ -197,30 +205,33 @@ def _write_status(payload: dict[str, object]) -> None:
         payload_key = "auto_ops_scheduler_status"
     elif status_path.name == "auto_ops_recovery_scheduler_status.json":
         payload_key = "auto_ops_recovery_scheduler_status"
-    if payload_key:
-        upsert_json_payload(
-            payload_key,
-            payload,
-            asof_date=payload.get("last_success_date"),
-            generated_at=payload.get("last_success_at") or payload.get("last_attempt_at"),
-            source_path=status_path,
-        )
-    elif status_path.name == "auto_ops_auto_buy_scheduler_status.json":
-        upsert_json_payload(
-            "auto_ops_auto_buy_scheduler_status",
-            payload,
-            asof_date=payload.get("last_success_date"),
-            generated_at=payload.get("last_success_at") or payload.get("last_attempt_at"),
-            source_path=status_path,
-        )
-    elif status_path.name == "auto_ops_live_account_sync_scheduler_status.json":
-        upsert_json_payload(
-            "auto_ops_live_account_sync_scheduler_status",
-            payload,
-            asof_date=payload.get("last_success_date"),
-            generated_at=payload.get("last_success_at") or payload.get("last_attempt_at"),
-            source_path=status_path,
-        )
+    try:
+        if payload_key:
+            upsert_json_payload(
+                payload_key,
+                payload,
+                asof_date=payload.get("last_success_date"),
+                generated_at=payload.get("last_success_at") or payload.get("last_attempt_at"),
+                source_path=status_path,
+            )
+        elif status_path.name == "auto_ops_auto_buy_scheduler_status.json":
+            upsert_json_payload(
+                "auto_ops_auto_buy_scheduler_status",
+                payload,
+                asof_date=payload.get("last_success_date"),
+                generated_at=payload.get("last_success_at") or payload.get("last_attempt_at"),
+                source_path=status_path,
+            )
+        elif status_path.name == "auto_ops_live_account_sync_scheduler_status.json":
+            upsert_json_payload(
+                "auto_ops_live_account_sync_scheduler_status",
+                payload,
+                asof_date=payload.get("last_success_date"),
+                generated_at=payload.get("last_success_at") or payload.get("last_attempt_at"),
+                source_path=status_path,
+            )
+    except Exception:
+        logging.warning("Scheduler status file was written, but DB payload status sync failed", exc_info=True)
 
 
 def _now(tz: ZoneInfo) -> datetime:

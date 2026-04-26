@@ -121,16 +121,101 @@ def map_action_to_intent(action: str) -> tuple[str, bool, int]:
     return normalized or "UNKNOWN", False, 10
 
 
-def build_intent_rows(execution_actions: pd.DataFrame, *, asof_date: pd.Timestamp, gate_status: str) -> list[dict[str, object]]:
+RANKING_CONTEXT_COLUMNS = [
+    "buy_rank",
+    "rank_final",
+    "live_rank",
+    "final_score",
+    "live_score",
+    "confidence_score",
+    "risk_penalty",
+    "ret_score",
+    "prob_score",
+    "qual_score",
+    "tech_score",
+    "liquidity_score",
+    "safety_score",
+    "dominant_theme",
+    "score_driver_1",
+    "score_driver_2",
+    "score_driver_3",
+    "risk_factor_1",
+    "risk_factor_2",
+    "action_note",
+]
+
+
+def _num_or_none(value: object) -> float | None:
+    numeric = pd.to_numeric(value, errors="coerce")
+    return float(numeric) if pd.notna(numeric) else None
+
+
+def _int_or_none(value: object) -> int | None:
+    numeric = pd.to_numeric(value, errors="coerce")
+    return int(numeric) if pd.notna(numeric) else None
+
+
+def build_ranking_context(candidates: pd.DataFrame) -> dict[str, dict[str, object]]:
+    if candidates.empty or "code" not in candidates.columns:
+        return {}
+    work = candidates.copy()
+    work["code"] = work["code"].astype(str).str.zfill(6)
+    context: dict[str, dict[str, object]] = {}
+    for _, row in work.drop_duplicates("code", keep="first").iterrows():
+        code = str(row.get("code") or "").zfill(6)
+        if not code or code == "000000":
+            continue
+        item: dict[str, object] = {}
+        for col in RANKING_CONTEXT_COLUMNS:
+            if col not in row.index:
+                continue
+            value = row.get(col)
+            if col in {
+                "buy_rank",
+                "rank_final",
+                "live_rank",
+            }:
+                item[col] = _int_or_none(value)
+            elif col in {
+                "final_score",
+                "live_score",
+                "confidence_score",
+                "risk_penalty",
+                "ret_score",
+                "prob_score",
+                "qual_score",
+                "tech_score",
+                "liquidity_score",
+                "safety_score",
+            }:
+                item[col] = _num_or_none(value)
+            else:
+                item[col] = str(value).strip() if pd.notna(value) and str(value).strip() else None
+        rank = item.get("live_rank") or item.get("rank_final") or item.get("buy_rank")
+        item["ranking_rank"] = rank
+        item["final_score"] = item.get("final_score") if item.get("final_score") is not None else item.get("live_score")
+        context[code] = item
+    return context
+
+
+def build_intent_rows(
+    execution_actions: pd.DataFrame,
+    *,
+    asof_date: pd.Timestamp,
+    gate_status: str,
+    ranking_context: dict[str, dict[str, object]] | None = None,
+) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
+    ranking_context = ranking_context or {}
     for _, row in execution_actions.iterrows():
         action = str(row.get("action") or "")
         intent_type, executable, base_priority = map_action_to_intent(action)
-        code = str(row.get("code") or "").strip()
+        code = str(row.get("code") or "").strip().zfill(6)
         reason = str(row.get("reason") or "").strip()
         target_weight = pd.to_numeric(row.get("target_weight"), errors="coerce")
         if intent_type == "NO_ACTION":
             executable = False
+        ranking = ranking_context.get(code, {})
         rows.append(
             {
                 "intent_id": f"{asof_date.strftime('%Y%m%d')}:{intent_type}:{code or '-'}",
@@ -144,6 +229,27 @@ def build_intent_rows(execution_actions: pd.DataFrame, *, asof_date: pd.Timestam
                 "reason": reason or None,
                 "priority": base_priority,
                 "executable": bool(executable),
+                "ranking_rank": ranking.get("ranking_rank"),
+                "buy_rank": ranking.get("buy_rank"),
+                "rank_final": ranking.get("rank_final"),
+                "live_rank": ranking.get("live_rank"),
+                "final_score": ranking.get("final_score"),
+                "live_score": ranking.get("live_score"),
+                "confidence_score": ranking.get("confidence_score"),
+                "risk_penalty": ranking.get("risk_penalty"),
+                "ret_score": ranking.get("ret_score"),
+                "prob_score": ranking.get("prob_score"),
+                "qual_score": ranking.get("qual_score"),
+                "tech_score": ranking.get("tech_score"),
+                "liquidity_score": ranking.get("liquidity_score"),
+                "safety_score": ranking.get("safety_score"),
+                "dominant_theme": ranking.get("dominant_theme"),
+                "score_driver_1": ranking.get("score_driver_1"),
+                "score_driver_2": ranking.get("score_driver_2"),
+                "score_driver_3": ranking.get("score_driver_3"),
+                "risk_factor_1": ranking.get("risk_factor_1"),
+                "risk_factor_2": ranking.get("risk_factor_2"),
+                "action_note": ranking.get("action_note"),
             }
         )
     return rows
@@ -168,7 +274,13 @@ def main() -> int:
     )
     latest_snapshot_date = strategy.latest_snapshot["asof_date"].iloc[0] if not strategy.latest_snapshot.empty else pd.NaT
     asof_date = pd.Timestamp(candidate_asof if pd.notna(candidate_asof) else latest_snapshot_date if pd.notna(latest_snapshot_date) else pd.Timestamp.today()).normalize()
-    intents = build_intent_rows(strategy.execution_actions, asof_date=asof_date, gate_status=str(gate["status"]))
+    ranking_context = build_ranking_context(candidates)
+    intents = build_intent_rows(
+        strategy.execution_actions,
+        asof_date=asof_date,
+        gate_status=str(gate["status"]),
+        ranking_context=ranking_context,
+    )
     payload = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "asof_date": asof_date.strftime("%Y-%m-%d"),
@@ -202,7 +314,7 @@ def main() -> int:
         "",
         _markdown_table(
             intents_df if not intents_df.empty else pd.DataFrame([{"intent_id": "-", "code": "-", "name": "", "intent_type": "NO_ACTION", "target_weight": None, "gate_status": payload["gate_status"], "priority": 0, "executable": False, "reason": "no intents"}]),
-            ["intent_id", "code", "name", "intent_type", "target_weight", "gate_status", "priority", "executable", "reason"],
+            ["intent_id", "code", "name", "intent_type", "ranking_rank", "final_score", "confidence_score", "risk_penalty", "target_weight", "gate_status", "priority", "executable", "reason"],
         ),
         "",
         "## Intent Notes",

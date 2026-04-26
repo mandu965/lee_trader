@@ -12,6 +12,8 @@ PYTHON = sys.executable
 OPS_REFRESH_SCRIPT = ROOT / "python" / "run_operational_refresh.py"
 SUBMIT_LIVE_ORDERS_SCRIPT = ROOT / "python" / "submit_live_orders.py"
 SYNC_WEB_DISPLAY_SCRIPT = ROOT / "python" / "sync_web_display_data.py"
+SYNC_LIVE_ACCOUNT_HOLDINGS_SCRIPT = ROOT / "python" / "sync_live_account_holdings.py"
+SYNC_LIVE_ORDER_FILLS_SCRIPT = ROOT / "python" / "sync_live_order_fills.py"
 
 
 def parse_args() -> argparse.Namespace:
@@ -75,6 +77,8 @@ def main() -> int:
         "submit_live_orders",
         _submit_command(execute=execute, allow_buy=allow_buy, force_resubmit=force_resubmit),
     )
+    _run_step("sync_live_account_holdings", [PYTHON, str(SYNC_LIVE_ACCOUNT_HOLDINGS_SCRIPT)])
+    _run_step("sync_live_order_fills", [PYTHON, str(SYNC_LIVE_ORDER_FILLS_SCRIPT)])
     if str(os.environ.get("WEB_DATABASE_URL", "")).strip():
         _run_step(
             "sync_web_display_data",

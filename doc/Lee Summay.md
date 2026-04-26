@@ -498,9 +498,9 @@ docker compose up -d --build node-api
 
 원칙
 
-- 메인 scheduler는 16:00 마감 기준 정식 배치
+- 메인 scheduler는 18:10 마감 기준 정식 배치
 - scheduler-recovery는 이름은 그대로지만 현재는 12:00 장중 refresh 역할
-- 현재 자동운영은 `12:00 장중 + 16:00 마감` 2회 구조
+- 현재 자동운영은 `12:00 장중 + 18:10 마감` 2회 구조
 
 ---
 

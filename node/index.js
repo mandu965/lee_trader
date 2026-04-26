@@ -86,6 +86,7 @@ const ANALYTICS_EXTENSIONS_EXCLUDE = new Set([
 ]);
 let pageViewSchemaReady = null;
 let meaningfulnessReviewSchemaReady = null;
+let liveTradeReviewSchemaReady = null;
 
 // ---------------------
 // Helpers
@@ -2169,6 +2170,46 @@ async function ensurePageViewSchema() {
   return pageViewSchemaReady;
 }
 
+async function ensureLiveTradeReviewSchema() {
+  if (liveTradeReviewSchemaReady) return liveTradeReviewSchemaReady;
+  liveTradeReviewSchemaReady = (async () => {
+    await queryRows("CREATE SCHEMA IF NOT EXISTS research");
+    await queryRows(`
+      CREATE TABLE IF NOT EXISTS research.live_trade_review (
+        review_id BIGSERIAL PRIMARY KEY,
+        intent_id TEXT NULL,
+        request_id TEXT NULL,
+        code VARCHAR(10) NOT NULL,
+        review_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        pre_tags TEXT[] NULL,
+        post_tags TEXT[] NULL,
+        outcome_label TEXT NULL,
+        review_note TEXT NULL,
+        next_action_note TEXT NULL,
+        reviewer TEXT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await queryRows(`
+      CREATE INDEX IF NOT EXISTS idx_live_trade_review_code_date
+      ON research.live_trade_review(code, review_date DESC)
+    `);
+    await queryRows(`
+      CREATE INDEX IF NOT EXISTS idx_live_trade_review_request
+      ON research.live_trade_review(request_id)
+    `);
+    await queryRows(`
+      CREATE INDEX IF NOT EXISTS idx_live_trade_review_intent
+      ON research.live_trade_review(intent_id)
+    `);
+  })().catch((error) => {
+    liveTradeReviewSchemaReady = null;
+    throw error;
+  });
+  return liveTradeReviewSchemaReady;
+}
+
 async function ensureMeaningfulnessReviewSchema() {
   if (meaningfulnessReviewSchemaReady) return meaningfulnessReviewSchemaReady;
   meaningfulnessReviewSchemaReady = (async () => {
@@ -3922,6 +3963,145 @@ app.post("/api/meaningfulness-review-notes", operatorAccess.apiGuard, async (req
   } catch (e) {
     console.error("POST /api/meaningfulness-review-notes error", e);
     res.status(500).json({ error: "meaningfulness_review_notes_save_failed" });
+  }
+});
+
+function normalizeReviewTags(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || "").trim().toUpperCase())
+    .filter(Boolean)
+    .filter((item, idx, arr) => arr.indexOf(item) === idx)
+    .slice(0, 20);
+}
+
+function normalizeOptionalText(value, maxLength = 2000) {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, maxLength);
+}
+
+app.get("/api/live-trade-reviews", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    await ensureLiveTradeReviewSchema();
+    const code = typeof req.query.code === "string" ? req.query.code.trim().padStart(6, "0") : "";
+    const requestId = typeof req.query.request_id === "string" ? req.query.request_id.trim() : "";
+    const intentId = typeof req.query.intent_id === "string" ? req.query.intent_id.trim() : "";
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.floor(rawLimit), 1), 200) : 100;
+
+    const clauses = [];
+    const params = [];
+    if (code) {
+      params.push(code);
+      clauses.push(`code = $${params.length}`);
+    }
+    if (requestId) {
+      params.push(requestId);
+      clauses.push(`request_id = $${params.length}`);
+    }
+    if (intentId) {
+      params.push(intentId);
+      clauses.push(`intent_id = $${params.length}`);
+    }
+    params.push(limit);
+    const whereClause = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    const rows = await queryRows(
+      `
+      SELECT review_id, intent_id, request_id, code, review_date,
+             pre_tags, post_tags, outcome_label, review_note,
+             next_action_note, reviewer, created_at, updated_at
+      FROM research.live_trade_review
+      ${whereClause}
+      ORDER BY review_date DESC, updated_at DESC, review_id DESC
+      LIMIT $${params.length}
+      `,
+      params
+    );
+    res.json({ count: rows.length, rows });
+  } catch (e) {
+    console.error("GET /api/live-trade-reviews error", e);
+    res.status(500).json({ error: "live_trade_reviews_failed" });
+  }
+});
+
+app.post("/api/live-trade-reviews", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    await ensureLiveTradeReviewSchema();
+    const reviewId = Number(req.body?.review_id);
+    const code = normalizeOptionalText(req.body?.code, 10).padStart(6, "0");
+    const intentId = normalizeOptionalText(req.body?.intent_id, 120);
+    const requestId = normalizeOptionalText(req.body?.request_id, 160);
+    const reviewDate = normalizeOptionalText(req.body?.review_date, 10) || new Date().toISOString().slice(0, 10);
+    const preTags = normalizeReviewTags(req.body?.pre_tags);
+    const postTags = normalizeReviewTags(req.body?.post_tags);
+    const outcomeLabel = normalizeOptionalText(req.body?.outcome_label, 80);
+    const reviewNote = normalizeOptionalText(req.body?.review_note, 4000);
+    const nextActionNote = normalizeOptionalText(req.body?.next_action_note, 2000);
+    const reviewer = normalizeOptionalText(req.body?.reviewer || req.body?.updated_by, 80) || "operator";
+
+    if (!code || code === "000000") {
+      return res.status(400).json({ error: "code_required" });
+    }
+
+    const params = [
+      intentId || null,
+      requestId || null,
+      code,
+      reviewDate,
+      preTags.length ? preTags : null,
+      postTags.length ? postTags : null,
+      outcomeLabel || null,
+      reviewNote || null,
+      nextActionNote || null,
+      reviewer,
+    ];
+
+    let rows;
+    if (Number.isFinite(reviewId) && reviewId > 0) {
+      rows = await queryRows(
+        `
+        UPDATE research.live_trade_review
+        SET intent_id = $1,
+            request_id = $2,
+            code = $3,
+            review_date = $4::date,
+            pre_tags = $5::text[],
+            post_tags = $6::text[],
+            outcome_label = $7,
+            review_note = $8,
+            next_action_note = $9,
+            reviewer = $10,
+            updated_at = now()
+        WHERE review_id = $11
+        RETURNING review_id, intent_id, request_id, code, review_date,
+                  pre_tags, post_tags, outcome_label, review_note,
+                  next_action_note, reviewer, created_at, updated_at
+        `,
+        [...params, reviewId]
+      );
+      if (!rows.length) {
+        return res.status(404).json({ error: "review_not_found" });
+      }
+    } else {
+      rows = await queryRows(
+        `
+        INSERT INTO research.live_trade_review (
+          intent_id, request_id, code, review_date, pre_tags, post_tags,
+          outcome_label, review_note, next_action_note, reviewer, updated_at
+        )
+        VALUES ($1, $2, $3, $4::date, $5::text[], $6::text[], $7, $8, $9, $10, now())
+        RETURNING review_id, intent_id, request_id, code, review_date,
+                  pre_tags, post_tags, outcome_label, review_note,
+                  next_action_note, reviewer, created_at, updated_at
+        `,
+        params
+      );
+    }
+
+    res.json({ ok: true, row: rows[0] || null });
+  } catch (e) {
+    console.error("POST /api/live-trade-reviews error", e);
+    res.status(500).json({ error: "live_trade_review_save_failed", detail: String(e) });
   }
 });
 

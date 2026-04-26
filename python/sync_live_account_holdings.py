@@ -9,6 +9,7 @@ import pandas as pd
 
 from kis_client import KISClient
 from kis_live_account import inquire_balance, resolve_account_env, summarize_cash
+from sync_live_trade_ledger import sync_live_trade_ledger
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -159,6 +160,14 @@ def main() -> int:
     out_summary.parent.mkdir(parents=True, exist_ok=True)
     holdings.to_csv(out_holdings, index=False, encoding="utf-8-sig")
     out_summary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        sync_result = sync_live_trade_ledger(
+            holdings_csv=out_holdings,
+            balance_summary_payload=payload,
+        )
+        print(f"live_trade_ledger_sync: {sync_result}")
+    except Exception as exc:
+        print(f"live_trade_ledger_sync_failed: {exc}")
 
     print(f"holdings_csv: {out_holdings}")
     print(f"summary_json: {out_summary}")

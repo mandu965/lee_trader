@@ -31,7 +31,7 @@ def _resolve_path(path: Path | None, default_path: Path) -> Path:
 
 
 def _default_daily_time(command_set: str) -> str:
-    return "12:00" if command_set == "intraday" else "16:00"
+    return "12:00" if command_set == "intraday" else "18:10"
 
 
 def _default_status_path(command_set: str) -> Path:

@@ -11,7 +11,7 @@
 
 ### 자동 스케줄 기준 시각
 
-- 종가 close 배치: `16:00`
+- 종가 close 배치: `18:10`
 - 장중 refresh: `12:00`
 - 실자동매매 신규 매수 판단: `09:30`
 - 실계좌 동기화: `10:00, 14:00, 18:00`
@@ -532,7 +532,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # 컨테이너 역할
-scheduler: 16:00 close 배치
+scheduler: 18:10 close 배치
 scheduler-recovery: 12:00 intraday refresh
 scheduler-auto-buy: 09:30 자동매매
 scheduler-live-account-sync: 실계좌 동기화
