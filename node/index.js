@@ -5619,6 +5619,21 @@ app.get("/api/order-requests-execution", async (req, res) => {
   }
 });
 
+app.get("/api/live-trade-consistency", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("live_trade_consistency_report", [
+      path.join(OUTPUTS_DIR, "live_trade_consistency_report.json"),
+    ]);
+    if (!payload || !Object.keys(payload).length) {
+      return res.status(404).json({ error: "live trade consistency report not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/live-trade-consistency error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 app.get("/api/watch-auto-buy-simulation", async (req, res) => {
   try {
     const payload = await readJsonPayloadDbFirst("watch_auto_buy_simulation", [path.join(OUTPUTS_DIR, "watch_auto_buy_simulation.json")]);

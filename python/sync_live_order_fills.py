@@ -53,10 +53,11 @@ def _num(value: Any) -> float | None:
 
 def _side_from_row(row: pd.Series) -> str:
     for key in ("sll_buy_dvsn_cd_name", "sll_buy_dvsn_cd"):
-        value = str(row.get(key) or "").strip().upper()
-        if value in {"BUY", "매수", "02"}:
+        raw_value = str(row.get(key) or "").strip()
+        value = raw_value.upper()
+        if value in {"BUY", "02"} or raw_value in {"매수", "매수2", "買收"}:
             return "BUY"
-        if value in {"SELL", "매도", "01"}:
+        if value in {"SELL", "01"} or raw_value in {"매도", "賣渡"}:
             return "SELL"
     return ""
 
@@ -270,10 +271,14 @@ def main() -> int:
                 end_date=end_date,
                 pdno=str(order.get("code") or ""),
                 odno=str(order.get("broker_order_id") or ""),
+                ord_gno_brno=str(order.get("broker_org_order_id") or ""),
             )
             frames.append(frame)
 
     combined = pd.concat([frame for frame in frames if not frame.empty], ignore_index=True) if frames else pd.DataFrame()
+    if not args.query_all and request_map and combined.empty:
+        logging.info("No fill rows returned by broker order lookup; retrying full date-range fill inquiry")
+        combined, _ = inquire_daily_ccld(client, account, start_date=start_date, end_date=end_date)
     fill_rows = build_fill_rows(combined, request_map=request_map, fallback_date=end_date)
     inserted = insert_fill_rows(fill_rows)
     payload = {

@@ -839,11 +839,81 @@ function renderAccountDetailsV3(summary, runtime) {
   `).join("");
 }
 
+function renderConsistency(consistency) {
+  const root = document.getElementById("consistencyPanel");
+  if (!root) return;
+  if (!consistency || !Object.keys(consistency).length) {
+    root.innerHTML = `<div class="empty-state">live_trade_consistency_report 산출물이 아직 없습니다.</div>`;
+    return;
+  }
+
+  const counts = consistency.counts || {};
+  const warnings = Array.isArray(consistency.warnings) ? consistency.warnings : [];
+  const missingFills = Array.isArray(consistency.submitted_without_fill) ? consistency.submitted_without_fill : [];
+  const requestsWithoutExecution = Array.isArray(consistency.request_without_execution) ? consistency.request_without_execution : [];
+  const warningCount = Number(consistency.warning_count || warnings.length || 0);
+  const tone = warningCount > 0 ? "bad" : "good";
+  const fillCount = Number(counts.filled_count || 0);
+  const submittedCount = Number(counts.submitted_count || 0);
+  const fillDetail = submittedCount > 0
+    ? `${fmtNum(fillCount)} / ${fmtNum(submittedCount)}`
+    : fmtNum(fillCount);
+
+  const warningHtml = warnings.length
+    ? warnings.slice(0, 4).map((item) => `<div class="state-line">${escapeHtml(item)}</div>`).join("")
+    : `<div class="state-line">정합성 경고가 없습니다.</div>`;
+
+  const missingHtml = missingFills.length
+    ? `
+      <div class="table-wrap" style="margin-top:12px;">
+        <table class="status-table">
+          <thead>
+            <tr>
+              <th>request_id</th>
+              <th>주문번호</th>
+              <th>종목</th>
+              <th>구분</th>
+              <th>제출시각</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${missingFills.slice(0, 8).map((row) => `
+              <tr>
+                <td class="mono">${escapeHtml(row.request_id || "")}</td>
+                <td class="mono">${escapeHtml(row.broker_order_id || "")}</td>
+                <td>${escapeHtml(row.code || "")}</td>
+                <td>${escapeHtml(row.side || "")}</td>
+                <td>${escapeHtml(fmtRuntimeDateTime(row.submitted_at))}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `
+    : "";
+
+  root.innerHTML = `
+    <div class="kv">
+      <div class="kv-row"><span>기준일</span><strong>${escapeHtml(consistency.as_of_date || "-")}</strong></div>
+      <div class="kv-row"><span>Intent / Preview / Execution</span><strong>${fmtNum(counts.intent_count)} / ${fmtNum(counts.request_count)} / ${fmtNum(counts.execution_count)}</strong></div>
+      <div class="kv-row"><span>Submitted / Filled</span><strong>${escapeHtml(fillDetail)}</strong></div>
+      <div class="kv-row"><span>Request without execution</span><strong>${fmtNum(requestsWithoutExecution.length)}</strong></div>
+    </div>
+    <div class="chip-row">
+      <span class="chip ${tone}">warnings ${fmtNum(warningCount)}</span>
+      <span class="chip ${missingFills.length ? "bad" : "good"}">missing fill ${fmtNum(missingFills.length)}</span>
+      <span class="chip ${requestsWithoutExecution.length ? "warn" : "good"}">missing execution ${fmtNum(requestsWithoutExecution.length)}</span>
+    </div>
+    ${warningHtml}
+    ${missingHtml}
+  `;
+}
+
 async function main() {
   const state = document.getElementById("pageState");
   state.textContent = "실자동매매 데이터를 불러오는 중입니다.";
   try {
-    const [summary, intents, preview, execution, runtime, holdings, watchSimulation] = await Promise.all([
+    const [summary, intents, preview, execution, runtime, holdings, watchSimulation, consistency] = await Promise.all([
       fetchJsonMaybe("/api/live-account/summary"),
       fetchJsonMaybe("/api/trade-intents"),
       fetchJsonMaybe("/api/order-requests-preview"),
@@ -851,11 +921,13 @@ async function main() {
       fetchJsonMaybe("/api/auto-trading/runtime-status"),
       fetchJsonMaybe("/api/live-account/holdings"),
       fetchJsonMaybe("/api/watch-auto-buy-simulation"),
+      fetchJsonMaybe("/api/live-trade-consistency"),
     ]);
 
     renderHero(summary, intents, preview, holdings, execution);
     renderDecisionBanner(summary, intents, preview, execution, runtime);
     renderStatusV2(summary, intents, preview, execution, runtime);
+    renderConsistency(consistency);
     renderAccountDetailsV3(summary, runtime);
     renderRunSummary(intents, preview, holdings, runtime);
     renderFocus(intents, preview, holdings);
@@ -874,6 +946,7 @@ async function main() {
       runtime ? "runtime" : null,
       holdings ? "holdings" : null,
       watchSimulation ? "watchSimulation" : null,
+      consistency ? "consistency" : null,
     ].filter(Boolean);
     state.textContent = loaded.length
       ? `불러온 데이터: ${loaded.join(", ")}`
