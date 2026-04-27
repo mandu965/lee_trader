@@ -65,6 +65,31 @@ def _count(conn, table: str, where_sql: str = "", params: dict[str, Any] | None 
     return int(_scalar(conn, f"SELECT COUNT(*) FROM {table}{suffix}", params) or 0)
 
 
+def _matched_fill_count(conn, as_of_date: str | None) -> int:
+    if not as_of_date:
+        return 0
+    if not _table_exists(conn, LIVE_TABLES["execution"]) or not _table_exists(conn, LIVE_TABLES["fill"]):
+        return 0
+    return int(
+        _scalar(
+            conn,
+            """
+            SELECT COUNT(DISTINCT f.fill_id)
+            FROM research.live_order_execution e
+            JOIN research.live_order_fill f
+              ON f.broker_order_id = e.broker_order_id
+             AND f.code = e.code
+             AND f.side = e.side
+            WHERE e.as_of_date = CAST(:as_of_date AS date)
+              AND e.submission_status = 'submitted'
+              AND e.broker_order_id IS NOT NULL
+            """,
+            {"as_of_date": as_of_date},
+        )
+        or 0
+    )
+
+
 def resolve_as_of_date(conn, requested: str) -> str | None:
     requested = str(requested or "").strip()
     if requested:
@@ -103,7 +128,7 @@ def build_report(as_of_date: str | None) -> dict[str, Any]:
             "submitted_count": _count(conn, LIVE_TABLES["execution"], f"{date_filter} AND submission_status = 'submitted'", params) if as_of_date else 0,
             "failed_count": _count(conn, LIVE_TABLES["execution"], f"{date_filter} AND submission_status = 'failed'", params) if as_of_date else 0,
             "skipped_count": _count(conn, LIVE_TABLES["execution"], f"{date_filter} AND submission_status = 'skipped'", params) if as_of_date else 0,
-            "filled_count": _count(conn, LIVE_TABLES["fill"], date_filter, params),
+            "filled_count": _matched_fill_count(conn, as_of_date),
         }
 
         request_without_execution = []

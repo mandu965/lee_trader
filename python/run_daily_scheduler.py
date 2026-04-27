@@ -75,6 +75,18 @@ def _live_order_fills_sync_command() -> list[str]:
     return [sys.executable, str(ROOT / "python" / "sync_live_order_fills.py")]
 
 
+def _live_trade_consistency_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "build_live_trade_consistency_report.py")]
+
+
+def _live_trade_review_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "build_live_trade_review.py")]
+
+
+def _live_trade_review_summary_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "build_live_trade_review_summary.py")]
+
+
 def _resolve_run_steps() -> list[tuple[str, list[str]]]:
     command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
     if command_set == "intraday":
@@ -90,6 +102,9 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
         return [
             ("sync_live_account_holdings", _live_account_sync_command()),
             ("sync_live_order_fills", _live_order_fills_sync_command()),
+            ("build_live_trade_consistency_report", _live_trade_consistency_command()),
+            ("build_live_trade_review", _live_trade_review_command()),
+            ("build_live_trade_review_summary", _live_trade_review_summary_command()),
         ]
     return [("run_manual_close_batch", _close_batch_command())]
 
@@ -100,6 +115,9 @@ def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
         steps: list[tuple[str, list[str]]] = [
             ("sync_live_account_holdings", _live_account_sync_command()),
             ("sync_live_order_fills", _live_order_fills_sync_command()),
+            ("build_live_trade_consistency_report", _live_trade_consistency_command()),
+            ("build_live_trade_review", _live_trade_review_command()),
+            ("build_live_trade_review_summary", _live_trade_review_summary_command()),
         ]
         if not _should_sync_web_display():
             return steps

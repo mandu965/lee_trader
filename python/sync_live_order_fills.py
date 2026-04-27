@@ -167,8 +167,8 @@ def insert_fill_rows(fill_rows: list[dict[str, Any]]) -> int:
                         :fee, :tax, :fill_status, :source, CAST(:raw_response_json AS jsonb), now()
                     )
                     ON CONFLICT (broker_order_id, code, side, filled_at, filled_qty, filled_price) DO UPDATE SET
-                        request_id = EXCLUDED.request_id,
-                        broker_org_order_id = EXCLUDED.broker_org_order_id,
+                        request_id = COALESCE(EXCLUDED.request_id, research.live_order_fill.request_id),
+                        broker_org_order_id = COALESCE(EXCLUDED.broker_org_order_id, research.live_order_fill.broker_org_order_id),
                         as_of_date = EXCLUDED.as_of_date,
                         name = EXCLUDED.name,
                         filled_amount = EXCLUDED.filled_amount,
@@ -223,6 +223,16 @@ def build_fill_rows(frame: pd.DataFrame, *, request_map: dict[str, dict[str, Any
     return rows
 
 
+def filter_known_order_rows(frame: pd.DataFrame, request_map: dict[str, dict[str, Any]]) -> pd.DataFrame:
+    if frame.empty or not request_map:
+        return frame.iloc[0:0].copy()
+    known_order_ids = {str(order_id).strip() for order_id in request_map if str(order_id).strip()}
+    if not known_order_ids:
+        return frame.iloc[0:0].copy()
+    mask = frame.apply(lambda row: (_broker_order_id_from_row(row) or "") in known_order_ids, axis=1)
+    return frame.loc[mask].copy()
+
+
 def main() -> int:
     args = parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -256,29 +266,14 @@ def main() -> int:
     client.issue_access_token()
     account = resolve_account_env()
 
-    frames: list[pd.DataFrame] = []
     if args.query_all:
         frame, _ = inquire_daily_ccld(client, account, start_date=start_date, end_date=end_date)
-        frames.append(frame)
+        combined = frame
     elif not request_map:
-        frames = []
+        combined = pd.DataFrame()
     else:
-        for order in known_orders:
-            frame, _ = inquire_daily_ccld(
-                client,
-                account,
-                start_date=start_date,
-                end_date=end_date,
-                pdno=str(order.get("code") or ""),
-                odno=str(order.get("broker_order_id") or ""),
-                ord_gno_brno=str(order.get("broker_org_order_id") or ""),
-            )
-            frames.append(frame)
-
-    combined = pd.concat([frame for frame in frames if not frame.empty], ignore_index=True) if frames else pd.DataFrame()
-    if not args.query_all and request_map and combined.empty:
-        logging.info("No fill rows returned by broker order lookup; retrying full date-range fill inquiry")
-        combined, _ = inquire_daily_ccld(client, account, start_date=start_date, end_date=end_date)
+        frame, _ = inquire_daily_ccld(client, account, start_date=start_date, end_date=end_date)
+        combined = filter_known_order_rows(frame, request_map)
     fill_rows = build_fill_rows(combined, request_map=request_map, fallback_date=end_date)
     inserted = insert_fill_rows(fill_rows)
     payload = {

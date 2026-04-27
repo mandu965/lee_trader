@@ -297,6 +297,11 @@ class KISClient:
                     continue
 
                 if response.status_code >= 400:
+                    if not refreshed_token and self._is_token_expired_response(response):
+                        logging.info("KIS auth appears expired; refreshing token and retrying")
+                        self.issue_access_token(force_refresh=True)
+                        refreshed_token = True
+                        continue
                     raise KISHTTPError(
                         f"KIS GET failed: path={path} status={response.status_code} body={response.text[:500]}"
                     )
@@ -396,6 +401,11 @@ class KISClient:
                     continue
 
                 if response.status_code >= 400:
+                    if not refreshed_token and self._is_token_expired_response(response):
+                        logging.info("KIS auth appears expired for POST; refreshing token and retrying")
+                        self.issue_access_token(force_refresh=True)
+                        refreshed_token = True
+                        continue
                     raise KISHTTPError(
                         f"KIS POST failed: path={path} status={response.status_code} body={response.text[:500]}"
                     )
@@ -425,6 +435,16 @@ class KISClient:
             raise KISBusinessError(
                 f"KIS business error: path={path} rt_cd={rt_cd} msg_cd={msg_cd} msg1={msg1}"
             )
+
+    @staticmethod
+    def _is_token_expired_response(response: requests.Response) -> bool:
+        try:
+            data = response.json()
+        except ValueError:
+            return False
+        msg_cd = str(data.get("msg_cd") or "").strip().upper()
+        msg1 = str(data.get("msg1") or "").strip().lower()
+        return msg_cd == "EGW00123" or "token" in msg1 and ("만료" in msg1 or "expired" in msg1)
 
     def _should_retry(self, *, exc: Exception, attempt: int) -> bool:
         if attempt >= self.max_retries:

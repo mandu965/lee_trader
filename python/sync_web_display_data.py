@@ -16,6 +16,7 @@ import db as db_module
 from db import get_engine
 from sync_auxiliary_payloads import sync_history_payload, sync_inventory_payload, sync_json_payload, sync_rows_payload
 from sync_csv_db_parity import sync_table, verify_table, SYNC_TABLES, VERIFY_TABLES
+from sync_live_trade_ledger import ensure_tables
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,6 +54,9 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("order_requests_preview", OUTPUT_DIR / "order_requests_preview.json", "asof_date"),
     ("order_requests_execution", OUTPUT_DIR / "order_requests_execution.json", "executed_at"),
     ("live_order_fills", OUTPUT_DIR / "live_order_fills.json", "end_date"),
+    ("live_trade_consistency_report", OUTPUT_DIR / "live_trade_consistency_report.json", "as_of_date"),
+    ("live_trade_review_report", OUTPUT_DIR / "live_trade_review_report.json", "review_date"),
+    ("live_trade_review_summary", OUTPUT_DIR / "live_trade_review_summary.json", "overview"),
     ("auto_ops_auto_buy_scheduler_status", OUTPUT_DIR / "auto_ops_auto_buy_scheduler_status.json", None),
     ("auto_ops_live_account_sync_scheduler_status", OUTPUT_DIR / "auto_ops_live_account_sync_scheduler_status.json", None),
     ("auto_trading_policy", OUTPUT_DIR / "auto_trading_policy.json", None),
@@ -105,6 +109,26 @@ def configure_target_database() -> str:
         return "WEB_DATABASE_URL"
     logging.info("WEB_DATABASE_URL not set; falling back to DATABASE_URL")
     return "DATABASE_URL"
+
+
+def sync_local_display_state_if_needed(args: argparse.Namespace, source_database_url: str) -> None:
+    web_database_url = str(os.environ.get("WEB_DATABASE_URL", "")).strip()
+    if not web_database_url or not source_database_url or web_database_url == source_database_url:
+        return
+    original_database_url = str(os.environ.get("DATABASE_URL", "")).strip()
+    try:
+        os.environ["DATABASE_URL"] = source_database_url
+        db_module.get_database_url.cache_clear()
+        db_module.get_engine.cache_clear()
+        if not args.skip_payloads:
+            sync_payloads()
+            run_script("sync_live_trade_ledger.py")
+        logging.info("Synced local display payload store before web sync")
+    finally:
+        if original_database_url:
+            os.environ["DATABASE_URL"] = original_database_url
+        db_module.get_database_url.cache_clear()
+        db_module.get_engine.cache_clear()
 
 
 def table_exists(conn, qualified_name: str) -> bool:
@@ -290,6 +314,144 @@ def sync_meaningfulness_review_notes(source_database_url: str) -> None:
         target_engine.dispose()
 
 
+def sync_live_order_fills_table(source_database_url: str) -> None:
+    source_url = str(source_database_url or "").strip()
+    target_url = str(os.environ.get("DATABASE_URL", "")).strip()
+    if not source_url:
+        logging.info("Skip live order fill table sync: source DATABASE_URL not set")
+        return
+    if not target_url:
+        logging.info("Skip live order fill table sync: target DATABASE_URL not set")
+        return
+    if source_url == target_url:
+        logging.info("Skip live order fill table sync: source and target DB are identical")
+        return
+
+    source_engine = create_engine(source_url, future=True)
+    target_engine = get_engine()
+    try:
+        with source_engine.connect() as conn:
+            source_exists = bool(conn.execute(text("SELECT to_regclass('research.live_order_fill')")).scalar())
+            if not source_exists:
+                logging.info("Skip live order fill table sync: source table not found")
+                return
+            rows = [
+                dict(row)
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT
+                            request_id, broker_order_id, broker_org_order_id, as_of_date, filled_at,
+                            code, name, side, filled_qty, filled_price, filled_amount,
+                            fee, tax, fill_status, source, raw_response_json, created_at, updated_at
+                        FROM research.live_order_fill
+                        ORDER BY filled_at, broker_order_id, code, side
+                        """
+                    )
+                ).mappings()
+            ]
+
+        ensure_tables()
+        with target_engine.begin() as conn:
+            for row in rows:
+                row["raw_response_json"] = json.dumps(row.get("raw_response_json"), ensure_ascii=False, default=str)
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO research.live_order_fill (
+                            request_id, broker_order_id, broker_org_order_id, as_of_date, filled_at,
+                            code, name, side, filled_qty, filled_price, filled_amount,
+                            fee, tax, fill_status, source, raw_response_json, created_at, updated_at
+                        )
+                        VALUES (
+                            :request_id, :broker_order_id, :broker_org_order_id, :as_of_date, :filled_at,
+                            :code, :name, :side, :filled_qty, :filled_price, :filled_amount,
+                            :fee, :tax, :fill_status, :source, CAST(:raw_response_json AS jsonb), :created_at, :updated_at
+                        )
+                        ON CONFLICT (broker_order_id, code, side, filled_at, filled_qty, filled_price) DO UPDATE SET
+                            request_id = COALESCE(EXCLUDED.request_id, research.live_order_fill.request_id),
+                            broker_org_order_id = COALESCE(EXCLUDED.broker_org_order_id, research.live_order_fill.broker_org_order_id),
+                            as_of_date = EXCLUDED.as_of_date,
+                            name = EXCLUDED.name,
+                            filled_amount = EXCLUDED.filled_amount,
+                            fee = EXCLUDED.fee,
+                            tax = EXCLUDED.tax,
+                            fill_status = EXCLUDED.fill_status,
+                            source = EXCLUDED.source,
+                            raw_response_json = EXCLUDED.raw_response_json,
+                            updated_at = EXCLUDED.updated_at
+                        """
+                    ),
+                    row,
+                )
+        logging.info("Synced live order fill table rows=%d", len(rows))
+    finally:
+        source_engine.dispose()
+        target_engine.dispose()
+
+
+def sync_live_trade_review_table(source_database_url: str) -> None:
+    source_url = str(source_database_url or "").strip()
+    target_url = str(os.environ.get("DATABASE_URL", "")).strip()
+    if not source_url:
+        logging.info("Skip live trade review table sync: source DATABASE_URL not set")
+        return
+    if not target_url:
+        logging.info("Skip live trade review table sync: target DATABASE_URL not set")
+        return
+    if source_url == target_url:
+        logging.info("Skip live trade review table sync: source and target DB are identical")
+        return
+
+    source_engine = create_engine(source_url, future=True)
+    target_engine = get_engine()
+    try:
+        with source_engine.connect() as conn:
+            source_exists = bool(conn.execute(text("SELECT to_regclass('research.live_trade_review')")).scalar())
+            if not source_exists:
+                logging.info("Skip live trade review table sync: source table not found")
+                return
+            rows = [
+                dict(row)
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT
+                            intent_id, request_id, code, review_date, pre_tags, post_tags,
+                            outcome_label, review_note, next_action_note, reviewer, created_at, updated_at
+                        FROM research.live_trade_review
+                        WHERE reviewer = 'auto_review'
+                        ORDER BY review_date, request_id, code
+                        """
+                    )
+                ).mappings()
+            ]
+
+        ensure_tables()
+        with target_engine.begin() as conn:
+            conn.execute(text("DELETE FROM research.live_trade_review WHERE reviewer = 'auto_review'"))
+            if rows:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO research.live_trade_review (
+                            intent_id, request_id, code, review_date, pre_tags, post_tags,
+                            outcome_label, review_note, next_action_note, reviewer, created_at, updated_at
+                        )
+                        VALUES (
+                            :intent_id, :request_id, :code, :review_date, :pre_tags, :post_tags,
+                            :outcome_label, :review_note, :next_action_note, :reviewer, :created_at, :updated_at
+                        )
+                        """
+                    ),
+                    rows,
+                )
+        logging.info("Synced live trade review table rows=%d", len(rows))
+    finally:
+        source_engine.dispose()
+        target_engine.dispose()
+
+
 def run_script(script_name: str, *extra_args: str) -> None:
     script_path = ROOT / "python" / script_name
     command = [PYTHON, str(script_path), *extra_args]
@@ -301,6 +463,7 @@ def main() -> int:
     setup_logging()
     load_environment()
     source_database_url = resolve_source_database_url()
+    sync_local_display_state_if_needed(args, source_database_url)
     configure_target_database()
     if args.reset_first:
         reset_display_tables(include_trades=args.reset_trades)
@@ -309,6 +472,8 @@ def main() -> int:
     if not args.skip_payloads:
         sync_payloads()
         run_script("sync_live_trade_ledger.py")
+        sync_live_order_fills_table(source_database_url)
+        sync_live_trade_review_table(source_database_url)
     if not args.skip_paper_trading:
         run_script("sync_paper_trading_db.py")
     if args.sync_trades_to_web:

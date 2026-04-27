@@ -14,6 +14,9 @@ SUBMIT_LIVE_ORDERS_SCRIPT = ROOT / "python" / "submit_live_orders.py"
 SYNC_WEB_DISPLAY_SCRIPT = ROOT / "python" / "sync_web_display_data.py"
 SYNC_LIVE_ACCOUNT_HOLDINGS_SCRIPT = ROOT / "python" / "sync_live_account_holdings.py"
 SYNC_LIVE_ORDER_FILLS_SCRIPT = ROOT / "python" / "sync_live_order_fills.py"
+BUILD_LIVE_TRADE_CONSISTENCY_SCRIPT = ROOT / "python" / "build_live_trade_consistency_report.py"
+BUILD_LIVE_TRADE_REVIEW_SCRIPT = ROOT / "python" / "build_live_trade_review.py"
+BUILD_LIVE_TRADE_REVIEW_SUMMARY_SCRIPT = ROOT / "python" / "build_live_trade_review_summary.py"
 
 
 def parse_args() -> argparse.Namespace:
@@ -79,6 +82,9 @@ def main() -> int:
     )
     _run_step("sync_live_account_holdings", [PYTHON, str(SYNC_LIVE_ACCOUNT_HOLDINGS_SCRIPT)])
     _run_step("sync_live_order_fills", [PYTHON, str(SYNC_LIVE_ORDER_FILLS_SCRIPT)])
+    _run_step("build_live_trade_consistency_report", [PYTHON, str(BUILD_LIVE_TRADE_CONSISTENCY_SCRIPT)])
+    _run_step("build_live_trade_review", [PYTHON, str(BUILD_LIVE_TRADE_REVIEW_SCRIPT)])
+    _run_step("build_live_trade_review_summary", [PYTHON, str(BUILD_LIVE_TRADE_REVIEW_SUMMARY_SCRIPT)])
     if str(os.environ.get("WEB_DATABASE_URL", "")).strip():
         _run_step(
             "sync_web_display_data",

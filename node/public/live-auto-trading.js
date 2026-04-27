@@ -285,8 +285,6 @@ function renderDecisionBanner(summary, intents, preview, execution, runtime) {
   const buyOn = !!runtime?.policy?.auto_trade_allow_buy;
   const accountSyncedAt = summary?.summary?.generated_at || runtime?.live_account_sync_scheduler?.last_success_at || "-";
   const executionFlow = summarizeExecutionFlow(preview, execution, runtime);
-  let body = "";
-
   let headline = "현재 상태를 판정할 수 없습니다";
   let headlineTone = "warn";
   let headlineDetail = "필수 산출물이 아직 부족합니다.";
@@ -321,7 +319,6 @@ function renderDecisionBanner(summary, intents, preview, execution, runtime) {
     headlineDetail = "차단되지 않은 주문 초안이 존재합니다. 실행 스위치와 승인 조건을 함께 확인하세요.";
   }
 
-  body += " ?대? ?붾㈃? ?ㅺ퀎醫?嫄곕옒?댁뿭怨?遺꾨━??먮룞留ㅻℓ ?곗텧臾?怨쇱젙怨?寃곌낵瑜??꾨줈 蹂대뒗 ?꾩슜 ?붾㈃?낅땲??";
   root.innerHTML = `
     <article class="decision-card ${headlineTone}">
       <h2 class="decision-title">현재 한줄 결론</h2>
@@ -410,19 +407,19 @@ function renderStatusV2(summary, intents, preview, execution, runtime) {
   const executionFlow = summarizeExecutionFlow(preview, execution, runtime);
   const cards = [
     {
-      label: "怨꾩쥖 ?붿빟",
+      label: "계좌 요약",
       value: summaryInfo?.tot_evlu_amt ?? summaryInfo?.total_evaluation_amount,
-      detail: `?덉닔湲?${fmtNum(cash?.dnca_tot_amt ?? cash?.ord_psbl_cash)} | ?됯??먯씡 ${fmtNum(summaryInfo?.evlu_pfls_smtl_amt ?? summaryInfo?.pnl_amount)}`,
+      detail: `예수금 ${fmtNum(cash?.dnca_tot_amt ?? cash?.ord_psbl_cash)} | 평가손익 ${fmtNum(summaryInfo?.evlu_pfls_smtl_amt ?? summaryInfo?.pnl_amount)}`,
     },
     {
-      label: "Intent 遺꾪룷",
+      label: "Intent 분포",
       value: (intents?.intents || []).length,
       detail: `BUY ${fmtNum((intents?.intents || []).filter((item) => item.intent_type === "BUY").length)} | TRIM ${fmtNum((intents?.intents || []).filter((item) => item.intent_type === "TRIM").length)} | REVIEW ${fmtNum((intents?.intents || []).filter((item) => item.intent_type === "REVIEW").length)}`,
     },
     {
-      label: "二쇰Ц 珥덉븞 ?곹깭",
+      label: "주문 초안 상태",
       value: preview?.summary?.request_count,
-      detail: `?ㅽ뻾 媛??${fmtNum((preview?.items || []).filter((item) => item.executable_now).length)} | 李⑤떒 ${fmtNum((preview?.items || []).filter((item) => item.blocked_reason).length)}`,
+      detail: `실행 가능 ${fmtNum((preview?.items || []).filter((item) => item.executable_now).length)} | 차단 ${fmtNum((preview?.items || []).filter((item) => item.blocked_reason).length)}`,
     },
     {
       label: "실주문 결과",
@@ -909,11 +906,149 @@ function renderConsistency(consistency) {
   `;
 }
 
+function extractSignedReturn(item) {
+  const returns = item?.returns || {};
+  const order = ["d10", "d5", "d3", "d1", "d0"];
+  for (const key of order) {
+    const row = returns[key];
+    const value = Number(row?.signed_return);
+    if (Number.isFinite(value)) return { horizon: key.toUpperCase(), value };
+  }
+  const match = String(item?.review_note || "").match(/(d\d+)_signed_return=([-+]?\d+(?:\.\d+)?)%/i);
+  if (match) return { horizon: match[1].toUpperCase(), value: Number(match[2]) / 100 };
+  return { horizon: "-", value: null };
+}
+
+function reviewOutcomeChip(outcome) {
+  const value = String(outcome || "").toLowerCase();
+  if (value.includes("positive") || value.includes("good")) return "good";
+  if (value.includes("pending")) return "warn";
+  if (value.includes("bad") || value.includes("negative")) return "bad";
+  return "watch";
+}
+
+function renderReviewSummaryRows(title, rows, keyName) {
+  const values = Array.isArray(rows) ? rows.slice(0, 4) : [];
+  if (!values.length) return "";
+  return `
+    <div class="table-wrap" style="margin-top:12px;">
+      <table class="status-table">
+        <thead>
+          <tr>
+            <th>${escapeHtml(title)}</th>
+            <th class="right">건수</th>
+            <th class="right">관찰</th>
+            <th class="right">평균</th>
+            <th class="right">승률</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${values.map((row) => `
+            <tr>
+              <td>${escapeHtml(row[keyName] || "-")}</td>
+              <td class="right">${fmtNum(row.count)}</td>
+              <td class="right">${fmtNum(row.observed_count)}</td>
+              <td class="right ${signedClass(row.avg_signed_return)}">${escapeHtml(fmtPct(row.avg_signed_return, 2))}</td>
+              <td class="right">${escapeHtml(fmtPct(row.win_rate, 1))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderReviewRecommendations(summary) {
+  const recommendations = Array.isArray(summary?.recommendations) ? summary.recommendations.slice(0, 3) : [];
+  if (!recommendations.length) return "";
+  return `
+    <div class="chip-row">
+      ${recommendations.map((item) => `
+        <span class="chip ${item.level === "watch" ? "warn" : "watch"}">${escapeHtml(item.topic || "review")}</span>
+      `).join("")}
+    </div>
+    ${recommendations.map((item) => `
+      <div class="state-line">${escapeHtml([item.group, item.message].filter(Boolean).join(": "))}</div>
+    `).join("")}
+  `;
+}
+
+function renderTradeReview(review, summary) {
+  const root = document.getElementById("reviewPanel");
+  if (!root) return;
+  if (!review || !Object.keys(review).length) {
+    root.innerHTML = `<div class="empty-state">live_trade_review_report 산출물이 아직 없습니다.</div>`;
+    return;
+  }
+
+  const items = Array.isArray(review.items) ? review.items : [];
+  const outcomeCounts = Array.isArray(review.outcome_counts) ? review.outcome_counts : [];
+  const overview = summary?.overview || {};
+  const rows = items.slice(0, 10);
+  const countsHtml = outcomeCounts.length
+    ? outcomeCounts.map((row) => `
+      <span class="chip ${reviewOutcomeChip(row.outcome_label)}">${escapeHtml(row.outcome_label || "-")} ${fmtNum(row.count)}</span>
+    `).join("")
+    : `<span class="chip warn">no outcome summary</span>`;
+
+  const tableHtml = rows.length
+    ? `
+      <div class="table-wrap" style="margin-top:12px;">
+        <table class="status-table">
+          <thead>
+            <tr>
+              <th>request_id</th>
+              <th>코드</th>
+              <th>종목명</th>
+              <th>매수/매도</th>
+              <th>Intent</th>
+              <th class="right">체결가</th>
+              <th class="right">성과</th>
+              <th>판정</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map((item) => {
+              const ret = extractSignedReturn(item);
+              return `
+                <tr>
+                  <td class="mono">${escapeHtml(item.request_id || "")}</td>
+                  <td class="mono">${escapeHtml(item.code || "")}</td>
+                  <td>${escapeHtml(item.name || "")}</td>
+                  <td>${escapeHtml(item.side || "")}</td>
+                  <td>${escapeHtml(item.intent_type || "")}</td>
+                  <td class="right">${escapeHtml(fmtNum(item.filled_price, 0))}</td>
+                  <td class="right ${signedClass(ret.value)}">${escapeHtml(ret.value === null ? "-" : `${ret.horizon} ${fmtPct(ret.value, 2)}`)}</td>
+                  <td><span class="chip ${reviewOutcomeChip(item.outcome_label)}">${escapeHtml(item.outcome_label || "-")}</span></td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    `
+    : `<div class="empty-state" style="margin-top:12px;">리뷰 대상 체결이 없습니다.</div>`;
+
+  root.innerHTML = `
+    <div class="kv">
+      <div class="kv-row"><span>기준일 / 리뷰일</span><strong>${escapeHtml(review.as_of_date || "-")} / ${escapeHtml(review.review_date || "-")}</strong></div>
+      <div class="kv-row"><span>가격 최신일</span><strong>${escapeHtml(review.price_latest_date || "-")}</strong></div>
+      <div class="kv-row"><span>리뷰 건수</span><strong>${fmtNum(review.reviewed_count || items.length)}</strong></div>
+      <div class="kv-row"><span>누적 평균 / 승률</span><strong>${escapeHtml(fmtPct(overview.avg_signed_return, 2))} / ${escapeHtml(fmtPct(overview.win_rate, 1))}</strong></div>
+    </div>
+    <div class="chip-row">${countsHtml}</div>
+    ${renderReviewRecommendations(summary)}
+    ${renderReviewSummaryRows("Intent", summary?.by_intent, "intent_type")}
+    ${renderReviewSummaryRows("Rank", summary?.by_rank_bucket, "rank_bucket")}
+    ${tableHtml}
+  `;
+}
+
 async function main() {
   const state = document.getElementById("pageState");
   state.textContent = "실자동매매 데이터를 불러오는 중입니다.";
   try {
-    const [summary, intents, preview, execution, runtime, holdings, watchSimulation, consistency] = await Promise.all([
+    const [summary, intents, preview, execution, runtime, holdings, watchSimulation, consistency, tradeReview, tradeReviewSummary] = await Promise.all([
       fetchJsonMaybe("/api/live-account/summary"),
       fetchJsonMaybe("/api/trade-intents"),
       fetchJsonMaybe("/api/order-requests-preview"),
@@ -922,12 +1057,15 @@ async function main() {
       fetchJsonMaybe("/api/live-account/holdings"),
       fetchJsonMaybe("/api/watch-auto-buy-simulation"),
       fetchJsonMaybe("/api/live-trade-consistency"),
+      fetchJsonMaybe("/api/live-trade-review-report"),
+      fetchJsonMaybe("/api/live-trade-review-summary"),
     ]);
 
     renderHero(summary, intents, preview, holdings, execution);
     renderDecisionBanner(summary, intents, preview, execution, runtime);
     renderStatusV2(summary, intents, preview, execution, runtime);
     renderConsistency(consistency);
+    renderTradeReview(tradeReview, tradeReviewSummary);
     renderAccountDetailsV3(summary, runtime);
     renderRunSummary(intents, preview, holdings, runtime);
     renderFocus(intents, preview, holdings);
@@ -947,6 +1085,8 @@ async function main() {
       holdings ? "holdings" : null,
       watchSimulation ? "watchSimulation" : null,
       consistency ? "consistency" : null,
+      tradeReview ? "tradeReview" : null,
+      tradeReviewSummary ? "tradeReviewSummary" : null,
     ].filter(Boolean);
     state.textContent = loaded.length
       ? `불러온 데이터: ${loaded.join(", ")}`
