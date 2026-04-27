@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -38,6 +39,25 @@ def _fmt_num(value: object, digits: int = 2) -> str:
     if pd.isna(x):
         return "NA"
     return f"{float(x):.{digits}f}"
+
+
+def _json_safe(value: object) -> object:
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_json_safe(v) for v in value]
+    if value is pd.NA:
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
 
 
 def load_variant_metrics() -> tuple[dict[str, object], dict[str, object]]:
@@ -206,7 +226,10 @@ def build_markdown(payload: dict[str, object]) -> str:
 def main() -> int:
     payload = build_payload()
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    OUT_JSON.write_text(
+        json.dumps(_json_safe(payload), ensure_ascii=False, indent=2, default=str, allow_nan=False),
+        encoding="utf-8",
+    )
     OUT_MD.write_text(build_markdown(payload), encoding="utf-8")
     print(f"quality_risk_guard_promotion_report_json: {OUT_JSON}")
     print(f"quality_risk_guard_promotion_report_md: {OUT_MD}")

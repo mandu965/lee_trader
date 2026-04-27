@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pandas as pd
@@ -34,6 +35,25 @@ def _fmt_rank(value: object) -> str:
 
 def _fmt_num(value: object) -> str:
     return f"{float(value):.1f}" if pd.notna(value) else "-"
+
+
+def _json_safe(value: object) -> object:
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [_json_safe(v) for v in value]
+    if value is pd.NA:
+        return None
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return value
 
 
 def load_latest_ranking() -> tuple[pd.DataFrame, str]:
@@ -259,7 +279,10 @@ def main() -> int:
     report_df.to_csv(OUT_CSV, index=False, encoding="utf-8-sig")
 
     payload = build_payload(report_df, latest_date)
-    OUT_JSON.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    OUT_JSON.write_text(
+        json.dumps(_json_safe(payload), ensure_ascii=False, indent=2, default=str, allow_nan=False),
+        encoding="utf-8",
+    )
     OUT_MD.write_text(build_markdown(payload, repeatability_payload), encoding="utf-8")
 
     print(f"shadow_daily_report_csv: {OUT_CSV}")
