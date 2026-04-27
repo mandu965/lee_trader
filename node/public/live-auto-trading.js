@@ -1044,6 +1044,134 @@ function renderTradeReview(review, summary) {
   `;
 }
 
+function summarizeLiveGateForBanner(summary, intents, preview, execution, consistency) {
+  const intentRows = Array.isArray(intents?.intents) ? intents.intents : [];
+  const previewRows = Array.isArray(preview?.items) ? preview.items : [];
+  const executionRows = Array.isArray(execution?.items) ? execution.items : [];
+  const consistencyCounts = consistency?.counts || {};
+  const gateStatus = String(
+    intents?.gate_status ||
+    preview?.gate_status ||
+    summary?.preview_gate_status ||
+    ""
+  ).toUpperCase();
+  const previewDisplayStatus = String(
+    preview?.gate_display_status ||
+    summary?.preview_gate_display_status ||
+    gateStatus ||
+    ""
+  ).toUpperCase();
+  const buyIntentCount = intentRows.filter((row) => String(row.intent_type || "").toUpperCase() === "BUY").length;
+  const executableBuyIntentCount = intentRows.filter((row) =>
+    String(row.intent_type || "").toUpperCase() === "BUY" && row.executable
+  ).length;
+  const executablePreviewCount = previewRows.filter((row) => row.executable_now).length;
+  const executableBuyPreviewCount = previewRows.filter((row) =>
+    row.executable_now && String(row.side || "").toUpperCase() === "BUY"
+  ).length;
+  const executionSubmittedCount = Number(execution?.summary?.submitted_count || 0);
+  const executionSubmittedBuyCount = executionRows.filter((row) =>
+    String(row.submission_status || "").toLowerCase() === "submitted" &&
+    String(row.side || "").toUpperCase() === "BUY"
+  ).length;
+  const submittedCount = Math.max(Number(consistencyCounts.submitted_count || 0), executionSubmittedCount);
+  const submittedBuyCount = Math.max(Number(consistencyCounts.buy_intent_count || 0), executionSubmittedBuyCount);
+  const filledCount = Number(consistencyCounts.filled_count || 0);
+  const missingFillCount = Array.isArray(consistency?.submitted_without_fill)
+    ? consistency.submitted_without_fill.length
+    : null;
+  const limitedEntryEvidence =
+    gateStatus === "PILOT" ||
+    previewDisplayStatus === "PILOT" ||
+    /limited auto-buy|PILOT limited/i.test(JSON.stringify([intentRows, previewRows]));
+
+  return {
+    gateStatus,
+    previewDisplayStatus,
+    buyIntentCount,
+    executableBuyIntentCount,
+    executablePreviewCount,
+    executableBuyPreviewCount,
+    submittedCount,
+    submittedBuyCount,
+    filledCount,
+    missingFillCount,
+    blockedPreviewCount: previewRows.filter((row) => row.blocked_reason).length,
+    limitedEntryEvidence,
+    consistencyAsOfDate: consistency?.as_of_date || consistency?.asof_date || null,
+  };
+}
+
+function renderDecisionBanner(summary, intents, preview, execution, runtime, consistency) {
+  const root = document.getElementById("decisionBanner");
+  const liveGate = summarizeLiveGateForBanner(summary, intents, preview, execution, consistency);
+  const gate = liveGate.gateStatus;
+  const skippedCount = Number(execution?.summary?.skipped_count || 0);
+  const executeOn = !!runtime?.policy?.auto_trade_execute;
+  const buyOn = !!runtime?.policy?.auto_trade_allow_buy;
+  const accountSyncedAt = summary?.summary?.generated_at || runtime?.live_account_sync_scheduler?.last_success_at || "-";
+  const executionFlow = summarizeExecutionFlow(preview, execution, runtime);
+  let headline = "Status not resolved";
+  let headlineTone = "warn";
+  let headlineDetail = "Required live trading artifacts are not complete yet.";
+
+  if (liveGate.submittedCount > 0) {
+    headline = liveGate.submittedBuyCount > 0
+      ? `Submitted BUY ${fmtNum(liveGate.submittedBuyCount)} / total ${fmtNum(liveGate.submittedCount)}`
+      : `Submitted orders ${fmtNum(liveGate.submittedCount)}`;
+    headlineTone = "primary";
+    headlineDetail = liveGate.missingFillCount > 0
+      ? `Broker submissions exist, but ${fmtNum(liveGate.missingFillCount)} submitted rows still have no matching fill row.`
+      : "Broker submission records exist. Check fills separately because submission and fill can differ.";
+  } else if (!executeOn) {
+    headline = "Execution switch OFF";
+    headlineTone = "warn";
+    headlineDetail = "The system may build intents and previews, but it will not submit broker orders.";
+  } else if (gate === "BLOCK" && liveGate.limitedEntryEvidence) {
+    headline = "Formal gate BLOCK, limited-entry evidence exists";
+    headlineTone = "warn";
+    headlineDetail = "The formal portfolio gate is BLOCK, but recent artifacts include PILOT or limited-entry buy flow. Check preview and execution rows before treating this as a pure no-buy day.";
+  } else if (gate === "BLOCK") {
+    headline = "New entries blocked";
+    headlineTone = "bad";
+    headlineDetail = "The formal gate is BLOCK, so new BUY intents are blocked and risk reduction has priority.";
+  } else if (gate === "WATCH") {
+    headline = "WATCH limited-entry zone";
+    headlineTone = "warn";
+    headlineDetail = "Only constrained entry should be considered. This is not full BUY_ALLOWED operation.";
+  } else if (gate === "PILOT") {
+    headline = "PILOT limited live entry";
+    headlineTone = "primary";
+    headlineDetail = "Limited BUY entries can be submitted, but full-size allocation and score-driven replacement are still restricted.";
+  } else if (skippedCount > 0) {
+    headline = `Skipped orders ${fmtNum(skippedCount)}`;
+    headlineTone = executionFlow.tone || "warn";
+    headlineDetail = executionFlow.detail;
+  } else if (liveGate.executablePreviewCount > 0) {
+    headline = `Executable preview ${fmtNum(liveGate.executablePreviewCount)}`;
+    headlineTone = "primary";
+    headlineDetail = "Preview rows are executable. Confirm runtime switches and approval policy before submission.";
+  }
+
+  root.innerHTML = `
+    <article class="decision-card ${headlineTone}">
+      <h2 class="decision-title">Live Conclusion</h2>
+      <div class="decision-value">${escapeHtml(headline)}</div>
+      <div class="decision-detail">${escapeHtml(headlineDetail)}</div>
+    </article>
+    <article class="decision-card">
+      <h2 class="decision-title">Gate / Limited Entry</h2>
+      <div class="decision-value">${escapeHtml(gate || "-")}</div>
+      <div class="decision-detail">BUY intents ${fmtNum(liveGate.buyIntentCount)} / executable BUY preview ${fmtNum(liveGate.executableBuyPreviewCount)} / limited ${liveGate.limitedEntryEvidence ? "YES" : "NO"} / buy switch ${buyOn ? "ON" : "OFF"}</div>
+    </article>
+    <article class="decision-card">
+      <h2 class="decision-title">Account Sync</h2>
+      <div class="decision-value">${escapeHtml(String(accountSyncedAt).slice(0, 16) || "-")}</div>
+      <div class="decision-detail">Executable ${fmtNum(liveGate.executablePreviewCount)} / blocked ${fmtNum(liveGate.blockedPreviewCount)} / submitted ${fmtNum(liveGate.submittedCount)} / filled ${fmtNum(liveGate.filledCount)}${liveGate.consistencyAsOfDate ? ` / basis ${escapeHtml(liveGate.consistencyAsOfDate)}` : ""}</div>
+    </article>
+  `;
+}
+
 async function main() {
   const state = document.getElementById("pageState");
   state.textContent = "실자동매매 데이터를 불러오는 중입니다.";
@@ -1062,7 +1190,7 @@ async function main() {
     ]);
 
     renderHero(summary, intents, preview, holdings, execution);
-    renderDecisionBanner(summary, intents, preview, execution, runtime);
+    renderDecisionBanner(summary, intents, preview, execution, runtime, consistency);
     renderStatusV2(summary, intents, preview, execution, runtime);
     renderConsistency(consistency);
     renderTradeReview(tradeReview, tradeReviewSummary);
