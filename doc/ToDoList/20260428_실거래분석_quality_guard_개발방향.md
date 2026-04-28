@@ -421,20 +421,30 @@ quality guard 승격 검토 최소 조건:
 
 ## 11. 체크리스트
 
-- [ ] `analytics.live_trade_fact` 설계
-- [ ] guard shadow 컬럼 조인 가능 여부 확인
-- [ ] `analytics.live_review_kpi` 설계
-- [ ] `analytics.live_score_bucket_kpi` 설계
-- [ ] `analytics.live_quality_guard_kpi` 설계
-- [ ] sample_status 계산 규칙 구현
-- [ ] `outputs/live_kpi_daily_report.json` 생성
-- [ ] `outputs/live_kpi_daily_report.md` 생성
-- [ ] `outputs/quality_risk_guard_live_review.json` 생성
-- [ ] `outputs/quality_risk_guard_live_review.md` 생성
-- [ ] strict JSON sanitizer 공통화
-- [ ] 자동매매 화면 요약 섹션 설계
-- [ ] promotion_status 기준 구현
-- [ ] Closed Trade 설계는 2차로 분리
+- [x] `analytics.live_trade_fact` 설계
+- [x] guard shadow 컬럼 조인 가능 여부 확인
+- [x] `analytics.live_review_kpi` 설계
+- [x] `analytics.live_score_bucket_kpi` 설계
+- [x] `analytics.live_quality_guard_kpi` 설계
+- [x] sample_status 계산 규칙 구현
+- [x] `outputs/live_kpi_daily_report.json` 생성
+- [x] `outputs/live_kpi_daily_report.md` 생성
+- [x] `outputs/quality_risk_guard_live_review.json` 생성
+- [x] `outputs/quality_risk_guard_live_review.md` 생성
+- [x] strict JSON sanitizer 공통화
+- [x] 자동매매 화면 요약 섹션 설계
+- [x] promotion_status 기준 구현
+- [x] Closed Trade 설계는 2차로 분리
+- [x] `analytics.live_daily_account_nav` 2차 초기 view 추가
+- [x] `analytics.live_closed_trade` 2차 초기 view 추가
+- [x] `outputs/live_closed_trade_report.json` 생성
+- [x] `outputs/live_closed_trade_report.md` 생성
+- [x] Closed Trade 자동 생성 체인 연결
+- [x] Closed Trade FIFO/부분청산 매칭 로직 초기 구현
+- [x] 기존 보유 청산분 position snapshot 평균단가 fallback 구현
+- [x] quality guard 승격 판단에 Closed Trade 실현손익 요약 연결
+- [x] 자동매매 화면 promotion gate/closed guard KPI 표시 강화
+- [x] live quality guard 산출물 검증 스크립트/자동 체인/화면 표시 추가
 
 ## 12. 최종 방향
 
@@ -445,3 +455,46 @@ quality guard 승격 검토 최소 조건:
 ```
 
 이 개발은 매매 로직 변경이 아니라 측정 체계 구축이다. 측정 체계가 안정되고 표본 기준을 충족하기 전까지는 `quality_risk_guard`를 shadow 후보로 유지한다.
+
+## 13. 데이터 축적 모드 전환
+
+현재 단계에서는 추가 매매 로직 개발보다 실운영 데이터를 축적하는 것이 우선이다.
+
+운영 모드:
+
+- `quality_risk_guard`는 계속 shadow 상태로 유지한다.
+- production 점수, score cutoff, 매수/매도 파라미터는 변경하지 않는다.
+- 실자동매매 화면에서 `Live KPI`, `Quality Guard`, `Closed Trade`, `검증 상태`를 매일 확인한다.
+- `live_quality_guard_output_check`가 `PASS`인지 확인한다.
+- 검증이 `FAIL`이면 quality guard 관련 판단을 중단하고 산출물 원인을 먼저 수정한다.
+
+운영 중 매일 확인할 항목:
+
+- `quality_risk_guard_live_review.promotion_status`
+- D+5 `observed_count`
+- guard 적용군/미적용군 `observed_count`
+- `live_closed_trade_report.observed_count`
+- `snapshot_fallback_count`
+- `promotion_blockers`
+- `live_quality_guard_output_check.validation_status`
+
+승격 검토 전 최소 조건:
+
+- D+5 관찰 30건 이상
+- guard 적용군 관찰 30건 이상
+- guard 미적용군 관찰 30건 이상
+- closed trade 관찰 30건 이상
+- production top20 vs shadow top20 비교 가능
+- 최근 산출물 JSON strict parse 통과
+- `live_quality_guard_output_check.validation_status = PASS`
+- snapshot fallback 비중이 충분히 낮거나, fallback 사용분을 별도로 제외하고도 판단 가능한 표본 확보
+
+이 조건을 만족하기 전까지는 `promotion_status`가 일시적으로 좋아 보이더라도 production 반영 후보로 보지 않는다.
+
+운영 중 해석 원칙:
+
+- D0 성과만으로 룰을 변경하지 않는다.
+- 표본 부족 상태에서는 손익 방향보다 표본 축적 여부를 먼저 본다.
+- snapshot 평균단가 fallback을 사용한 closed trade 손익은 참고용으로만 본다.
+- `KEEP_SHADOW`는 실패가 아니라 데이터 축적 상태다.
+- quality guard 검토는 매매 실행 로직 변경이 아니라 측정/검증 체계 운영이다.

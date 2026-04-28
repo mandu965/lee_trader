@@ -18,6 +18,32 @@
         color: #86efac;
       }
       .page-actions button.is-secondary { opacity: 0.86; }
+      .section-jumps {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+      }
+      .section-jump {
+        display: inline-flex;
+        align-items: center;
+        min-height: 34px;
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius-md);
+        background: rgba(255,255,255,0.03);
+        color: var(--color-text);
+        font-size: 12px;
+        font-weight: 700;
+        text-decoration: none;
+        white-space: nowrap;
+      }
+      .section-jump:hover {
+        border-color: rgba(96,165,250,0.38);
+        background: rgba(96,165,250,0.10);
+      }
       .panel-block { margin-bottom: 16px; padding: 16px; }
       .decision-banner {
         display: grid;
@@ -92,6 +118,55 @@
       }
       .section-title { margin: 0; font-size: 17px; }
       .section-note { color: var(--color-text-secondary); font-size: 12px; }
+      .card-guide {
+        margin: 0 0 12px;
+        color: var(--color-text-secondary);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .help-tip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        margin-left: 5px;
+        border: 1px solid rgba(148,163,184,0.36);
+        border-radius: 999px;
+        color: #bfdbfe;
+        font-size: 10px;
+        font-weight: 800;
+        line-height: 1;
+        cursor: help;
+        vertical-align: middle;
+      }
+      .details-help {
+        margin-top: 12px;
+        border-top: 1px solid var(--border);
+        padding-top: 10px;
+      }
+      .details-help summary {
+        cursor: pointer;
+        color: #bfdbfe;
+        font-size: 12px;
+        font-weight: 800;
+      }
+      .details-help[open] summary { margin-bottom: 8px; }
+      .help-list {
+        display: grid;
+        gap: 6px;
+        margin: 0;
+        color: var(--color-text-secondary);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .help-list div {
+        display: grid;
+        grid-template-columns: 150px 1fr;
+        gap: 10px;
+      }
+      .help-list dt { color: var(--color-text); font-weight: 800; }
+      .help-list dd { margin: 0; }
       .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
       .chip {
         display: inline-flex;
@@ -148,56 +223,6 @@
         line-height: 1.7;
         color: var(--color-text-secondary);
       }
-      .sim-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
-      }
-      .sim-card {
-        border: 1px solid var(--border);
-        border-radius: var(--radius-lg);
-        background: rgba(255,255,255,0.03);
-        padding: 14px;
-      }
-      .sim-card-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        gap: 12px;
-      }
-      .sim-card-title {
-        margin: 0;
-        font-size: 15px;
-        font-weight: 800;
-      }
-      .sim-meta {
-        margin-top: 6px;
-        font-size: 12px;
-        color: var(--color-text-secondary);
-      }
-      .sim-list {
-        margin: 12px 0 0;
-        padding: 0;
-        list-style: none;
-        display: grid;
-        gap: 8px;
-      }
-      .sim-item {
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 12px;
-        padding: 10px 12px;
-        background: rgba(255,255,255,0.02);
-      }
-      .sim-item-row {
-        display: flex;
-        justify-content: space-between;
-        gap: 12px;
-        font-size: 13px;
-      }
-      .sim-item-row + .sim-item-row {
-        margin-top: 6px;
-        color: var(--color-text-secondary);
-      }
       .mono { font-family: Consolas, "SFMono-Regular", monospace; }
       .right { text-align: right; }
       .pos { color: #86efac; }
@@ -205,7 +230,7 @@
       .muted { color: var(--color-text-secondary); }
       @media (max-width: 1100px) {
         .page-header { flex-direction: column; }
-        .decision-banner, .hero-grid, .status-grid, .board-grid, .sim-grid { grid-template-columns: 1fr; }
+        .decision-banner, .hero-grid, .status-grid, .board-grid { grid-template-columns: 1fr; }
       }
       @media (max-width: 640px) {
         .live-page { padding: 18px 12px 36px; }
@@ -216,10 +241,17 @@
           padding-bottom: 4px;
           -webkit-overflow-scrolling: touch;
         }
+        .section-jumps {
+          flex-wrap: nowrap;
+          overflow-x: auto;
+          padding-bottom: 4px;
+          -webkit-overflow-scrolling: touch;
+        }
         .panel-block { padding: 12px; }
         .card-value { font-size: 22px; }
         .kv-row { flex-direction: column; align-items: flex-start; gap: 4px; }
         .kv-row strong { text-align: left; }
+        .help-list div { grid-template-columns: 1fr; gap: 2px; }
       }
       @media (max-width: 430px) {
         .live-page { padding: 14px 10px 28px; }
@@ -245,7 +277,21 @@
       </header>
 
       <section class="panel panel-block">
-        <div class="page-actions" data-unified-ops-nav data-nav-class="" data-nav-active="live-auto-trading" data-nav-secondary-class="is-secondary"></div>
+        <div class="page-actions" data-unified-ops-nav data-nav-class="" data-nav-active="live-auto-trading" data-nav-secondary-class="is-secondary">
+          <button type="button" onclick="location.href='/app'">메인</button>
+          <button type="button" onclick="location.href='/ranking.html'" class="is-secondary">리서치랭킹</button>
+          <button type="button" onclick="location.href='/meaningfulness.html'" class="is-secondary">리서치리뷰</button>
+          <button type="button" onclick="location.href='/ops-readiness.html'">운영자</button>
+          <button type="button" onclick="location.href='/manual-trading.html'">수동매매</button>
+          <button type="button" onclick="location.href='/live-auto-trading.html'" class="is-active">실자동매매</button>
+        </div>
+        <nav class="section-jumps" aria-label="실자동매매 섹션 바로가기">
+          <a class="section-jump" href="#liveKpiSection">Live KPI</a>
+          <a class="section-jump" href="#qualityGuardPanel">Quality Guard</a>
+          <a class="section-jump" href="#closedTradeSection">Closed Trade</a>
+          <a class="section-jump" href="#qualityGuardPanel">검증 상태</a>
+          <a class="section-jump" href="#reviewSection">Trade Review</a>
+        </nav>
       </section>
 
       <section class="panel panel-block">
@@ -270,7 +316,7 @@
         <div class="panel-card" id="consistencyPanel"></div>
       </section>
 
-      <section class="panel panel-block">
+      <section class="panel panel-block" id="reviewSection">
         <div class="section-head">
           <div>
             <h2 class="section-title">Live Trade Review</h2>
@@ -278,6 +324,29 @@
           </div>
         </div>
         <div class="panel-card" id="reviewPanel"></div>
+      </section>
+
+      <section class="panel panel-block" id="liveKpiSection">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Live KPI / Quality Guard</h2>
+            <div class="section-note">실거래 KPI와 quality_risk_guard shadow 승격 검토 상태입니다.</div>
+          </div>
+        </div>
+        <div class="board-grid">
+          <div class="panel-card" id="liveKpiPanel"></div>
+          <div class="panel-card" id="qualityGuardPanel"></div>
+        </div>
+      </section>
+
+      <section class="panel panel-block" id="closedTradeSection">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Closed Trade</h2>
+            <div class="section-note">매도 체결 기준 실현손익과 표본 상태입니다. 부분청산은 현재 평균매수가 기반으로 계산합니다.</div>
+          </div>
+        </div>
+        <div class="panel-card" id="closedTradePanel"></div>
       </section>
 
       <section class="panel panel-block">
@@ -327,17 +396,6 @@
           </div>
         </div>
         <div class="explain-box warn" id="operationalExplain"></div>
-      </section>
-
-      <section class="panel panel-block">
-        <div class="section-head">
-          <div>
-            <h2 class="section-title">WATCH 가정 시뮬레이션</h2>
-            <div class="section-note">실운영과 분리된 가정용 후보입니다. 여기 나온 종목은 그대로 주문되지 않습니다.</div>
-          </div>
-        </div>
-        <div class="explain-box primary" id="simulationExplain"></div>
-        <div class="sim-grid" id="watchSimulationGrid" style="margin-top:12px;"></div>
       </section>
 
       <section class="panel panel-block">
@@ -449,6 +507,6 @@
       <div class="state-line" id="pageState"></div>
     </div>
     <script src="./ops-unified-nav.js"></script>
-    <script src="./live-auto-trading.js?v=20260428-encoding-fix"></script>
+    <script src="./live-auto-trading.js?v=20260428-live-summary-ko-v1"></script>
   </body>
 </html>

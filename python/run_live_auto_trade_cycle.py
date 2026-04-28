@@ -17,6 +17,10 @@ SYNC_LIVE_ORDER_FILLS_SCRIPT = ROOT / "python" / "sync_live_order_fills.py"
 BUILD_LIVE_TRADE_CONSISTENCY_SCRIPT = ROOT / "python" / "build_live_trade_consistency_report.py"
 BUILD_LIVE_TRADE_REVIEW_SCRIPT = ROOT / "python" / "build_live_trade_review.py"
 BUILD_LIVE_TRADE_REVIEW_SUMMARY_SCRIPT = ROOT / "python" / "build_live_trade_review_summary.py"
+BUILD_LIVE_KPI_DAILY_REPORT_SCRIPT = ROOT / "python" / "build_live_kpi_daily_report.py"
+BUILD_QUALITY_RISK_GUARD_LIVE_REVIEW_SCRIPT = ROOT / "python" / "build_quality_risk_guard_live_review.py"
+BUILD_LIVE_CLOSED_TRADE_REPORT_SCRIPT = ROOT / "python" / "build_live_closed_trade_report.py"
+CHECK_LIVE_QUALITY_GUARD_OUTPUTS_SCRIPT = ROOT / "python" / "check_live_quality_guard_outputs.py"
 
 
 def parse_args() -> argparse.Namespace:
@@ -85,6 +89,10 @@ def main() -> int:
     _run_step("build_live_trade_consistency_report", [PYTHON, str(BUILD_LIVE_TRADE_CONSISTENCY_SCRIPT)])
     _run_step("build_live_trade_review", [PYTHON, str(BUILD_LIVE_TRADE_REVIEW_SCRIPT)])
     _run_step("build_live_trade_review_summary", [PYTHON, str(BUILD_LIVE_TRADE_REVIEW_SUMMARY_SCRIPT)])
+    _run_step("build_live_kpi_daily_report", [PYTHON, str(BUILD_LIVE_KPI_DAILY_REPORT_SCRIPT)])
+    _run_step("build_live_closed_trade_report", [PYTHON, str(BUILD_LIVE_CLOSED_TRADE_REPORT_SCRIPT)])
+    _run_step("build_quality_risk_guard_live_review", [PYTHON, str(BUILD_QUALITY_RISK_GUARD_LIVE_REVIEW_SCRIPT)])
+    _run_step("check_live_quality_guard_outputs", [PYTHON, str(CHECK_LIVE_QUALITY_GUARD_OUTPUTS_SCRIPT)])
     if str(os.environ.get("WEB_DATABASE_URL", "")).strip():
         _run_step(
             "sync_web_display_data",

@@ -341,6 +341,17 @@ function renderDecisionBanner(summary, intents, preview, execution, runtime) {
 function renderHero(summary, intents, preview, holdings, execution) {
   const summaryInfo = summary?.summary || {};
   const heroGrid = document.getElementById("heroGrid");
+  const intentRows = Array.isArray(intents?.intents) ? intents.intents : [];
+  const previewRows = Array.isArray(preview?.items) ? preview.items : [];
+  const executionRows = Array.isArray(execution?.items) ? execution.items : [];
+  const gate = intents?.gate_status || preview?.gate_status || summary?.preview_gate_status || "-";
+  const executableIntentCount = intentRows.filter((item) => item.executable).length;
+  const blockedPreviewCount = previewRows.filter((item) => item.blocked_reason).length;
+  const submittedCount = Number(execution?.summary?.submitted_count || 0);
+  const submittedBuyCount = executionRows.filter((row) =>
+    String(row.submission_status || "").toLowerCase() === "submitted" &&
+    String(row.side || "").toUpperCase() === "BUY"
+  ).length;
   heroGrid.innerHTML = `
     <article class="hero-card">
       <div class="card-label">기준일</div>
@@ -348,19 +359,19 @@ function renderHero(summary, intents, preview, holdings, execution) {
       <div class="card-detail">주문 판단 생성 ${escapeHtml(intents?.generated_at || "-")}</div>
     </article>
     <article class="hero-card">
-      <div class="card-label">Gate</div>
-      <div class="card-value">${escapeHtml(intents?.gate_status || preview?.gate_status || summary?.preview_gate_status || "-")}</div>
-      <div class="card-detail">${escapeHtml(intents?.gate_guidance || "gate 설명 정보 없음")}</div>
+      <div class="card-label">운영 모드</div>
+      <div class="card-value">${escapeHtml(gateChipText(gate))}</div>
+      <div class="card-detail">${escapeHtml(intents?.gate_guidance || "현재 신규 진입 허용 범위를 나타냅니다.")}</div>
     </article>
     <article class="hero-card">
-      <div class="card-label">Intent / Preview / Execute</div>
+      <div class="card-label">판단 / 주문초안</div>
       <div class="card-value">${fmtNum(intents?.intent_count)} / ${fmtNum(preview?.summary?.request_count)}</div>
-      <div class="card-detail">실행 후보 ${fmtNum((intents?.intents || []).filter((item) => item.executable).length)}건 | 주문 초안 ${fmtNum(summary?.order_preview_count ?? preview?.summary?.request_count)} | 실제 제출 ${fmtNum(execution?.summary?.submitted_count)}</div>
+      <div class="card-detail">실행 후보 ${fmtNum(executableIntentCount)}건 | 차단 ${fmtNum(blockedPreviewCount)}건 | 제출 ${fmtNum(submittedCount)}건</div>
     </article>
     <article class="hero-card">
-      <div class="card-label">실계좌 보유</div>
+      <div class="card-label">실계좌 보유 / BUY 제출</div>
       <div class="card-value">${fmtNum(summary?.holding_count ?? holdings?.count)}</div>
-      <div class="card-detail">계좌 요약 파일 ${summaryInfo ? "연결" : "없음"} | holdings csv ${holdings?.count ? "존재" : "없음"}</div>
+      <div class="card-detail">BUY 제출 ${fmtNum(submittedBuyCount)}건 | 계좌 요약 ${summaryInfo ? "연결" : "없음"} | holdings csv ${holdings?.count ? "존재" : "없음"}</div>
     </article>
   `;
 }
@@ -538,7 +549,7 @@ function renderOperationalExplain(intents, preview, runtime, holdings) {
       : "빈 계좌여도 BLOCK에서는 신규 매수 후보를 실운영 intent로 올리지 않습니다. 지금 화면은 매수 후보 누락이 아니라 정책상 차단 상태입니다.";
   } else if (gate === "WATCH") {
     title = "현재는 WATCH 제한 진입 구간입니다";
-    body = "실운영에서도 소액 제한 진입만 허용됩니다. 다만 현재 표는 실제 산출물만 보여주므로, 가정 후보는 아래 WATCH 시뮬레이션에서 따로 봐야 합니다.";
+    body = "실운영에서도 소액 제한 진입만 허용됩니다. 현재 화면은 실제 운영 산출물만 보여주며, 연구용 가정 후보와 섞어 보지 않습니다.";
   } else if (gate === "PILOT") {
     title = "현재는 PILOT 제한 실운용 구간입니다";
     body = "실운영에서 제한된 신규 진입이 실제로 허용되는 단계입니다. WATCH보다 넓게 진입할 수 있지만, BUY_ALLOWED처럼 전면 자동매수로 해석하면 안 됩니다.";
@@ -557,68 +568,6 @@ function renderOperationalExplain(intents, preview, runtime, holdings) {
     <h3 class="explain-title">${escapeHtml(title)}</h3>
     <div class="explain-body">${escapeHtml(body)}</div>
   `;
-}
-
-function renderWatchSimulation(simulation) {
-  const explainRoot = document.getElementById("simulationExplain");
-  const grid = document.getElementById("watchSimulationGrid");
-  if (!explainRoot || !grid) return;
-  if (!simulation || !Array.isArray(simulation.scenarios) || !simulation.scenarios.length) {
-    explainRoot.innerHTML = `
-      <h3 class="explain-title">WATCH 시뮬레이션 산출물이 아직 없습니다</h3>
-      <div class="explain-body">운영 refresh 이후에 가정용 진입 후보가 별도 산출됩니다. 이 섹션은 실운영 주문 결과와 분리되어야 하므로, 산출물이 없으면 비워두는 편이 맞습니다.</div>
-    `;
-    grid.innerHTML = `<div class="empty-state">watch_auto_buy_simulation payload not found.</div>`;
-    return;
-  }
-
-  const emptyScenario = simulation.scenarios.find((item) => item?.scenario_key === "watch_empty_account");
-  const emptyCodes = ((emptyScenario?.summary?.enter_codes) || []).filter(Boolean);
-  const summaryLine = emptyCodes.length
-    ? `빈 계좌 WATCH 가정에서는 ${emptyCodes.join(", ")} 같은 신규 진입 후보를 별도 계산합니다. 이 결과는 연구용 참고이며 실제 주문 제출과 직접 연결되지 않습니다.`
-    : "WATCH 가정 결과는 실운영 표와 별도입니다. 가정상 신규 진입 후보가 없으면 이 섹션도 비어 보일 수 있습니다.";
-
-  explainRoot.innerHTML = `
-    <h3 class="explain-title">가정용 후보를 실운영과 분리해서 보여줍니다</h3>
-    <div class="explain-body">${escapeHtml(summaryLine)}</div>
-  `;
-
-  grid.innerHTML = simulation.scenarios.map((scenario) => {
-    const actions = Array.isArray(scenario.actions) ? scenario.actions : [];
-    const enters = actions.filter((row) => String(row.action || "").toUpperCase() === "ENTER");
-    const itemsHtml = enters.length
-      ? enters.slice(0, 5).map((row) => `
-        <li class="sim-item">
-          <div class="sim-item-row">
-            <strong>${escapeHtml(row.code || "-")} ${escapeHtml(row.name || "")}</strong>
-            <span>${escapeHtml(row.action || "-")}</span>
-          </div>
-          <div class="sim-item-row">
-            <span>${escapeHtml(row.reason || "-")}</span>
-            <span>${fmtPct(row.target_weight, 1)}</span>
-          </div>
-        </li>
-      `).join("")
-      : `<li class="sim-item"><div class="sim-item-row"><strong>신규 진입 후보 없음</strong><span>-</span></div><div class="sim-item-row"><span>이 시나리오에서는 ENTER action이 생성되지 않았습니다.</span><span></span></div></li>`;
-
-    return `
-      <article class="sim-card">
-        <div class="sim-card-header">
-          <div>
-            <h3 class="sim-card-title">${escapeHtml(scenario.scenario_label || scenario.scenario_key || "WATCH simulation")}</h3>
-            <div class="sim-meta">보유기준 ${escapeHtml(scenario.holdings_source || "-")} | 보유 ${fmtNum(scenario.holding_count)}종목 | 신규 ${fmtNum(scenario.summary?.enter_count)}건</div>
-          </div>
-          <span class="chip watch">실운영 아님</span>
-        </div>
-        <div class="chip-row">
-          <span class="chip ${scenario.summary?.enter_count ? "good" : "warn"}">신규 진입 ${fmtNum(scenario.summary?.enter_count)}건</span>
-          <span class="chip watch">총 비중 ${fmtPct(scenario.summary?.total_target_weight, 1)}</span>
-          <span class="chip watch">최대 단일 ${fmtPct(scenario.summary?.max_single_target_weight, 1)}</span>
-        </div>
-        <ul class="sim-list">${itemsHtml}</ul>
-      </article>
-    `;
-  }).join("");
 }
 
 function renderIntents(intents) {
@@ -1044,6 +993,303 @@ function renderTradeReview(review, summary) {
   `;
 }
 
+function sampleTone(status) {
+  const value = String(status || "").toUpperCase();
+  if (value === "ACTIONABLE") return "good";
+  if (value === "MONITOR_ONLY" || value === "REVIEW_READY") return "watch";
+  if (value === "PROMOTE_CANDIDATE") return "good";
+  if (value === "REJECT") return "bad";
+  return "warn";
+}
+
+function gateStatusChip(ok, label, value, failTone = "warn") {
+  return `<span class="chip ${ok ? "good" : failTone}">${escapeHtml(label)} ${escapeHtml(value)}</span>`;
+}
+
+function helpTip(text) {
+  return `<span class="help-tip" title="${escapeHtml(text)}">?</span>`;
+}
+
+function metricLabel(label, help) {
+  return `${escapeHtml(label)}${help ? helpTip(help) : ""}`;
+}
+
+function statusText(value) {
+  const key = String(value || "").toUpperCase();
+  const labels = {
+    ACTIONABLE: "운영 참고 가능",
+    MONITOR_ONLY: "관찰 전용",
+    REVIEW_READY: "검토 가능",
+    PROMOTE_CANDIDATE: "운영 반영 후보",
+    KEEP_SHADOW: "데이터 축적 중",
+    REJECT: "반영 보류",
+    PASS: "검증 통과",
+    FAIL: "검증 실패",
+  };
+  return labels[key] || key || "-";
+}
+
+function statusChip(value) {
+  const raw = String(value || "-").toUpperCase();
+  const label = statusText(raw);
+  const suffix = raw && raw !== label && raw !== "-" ? ` · ${raw}` : "";
+  return `<span class="chip ${sampleTone(raw)}">${escapeHtml(label + suffix)}</span>`;
+}
+
+function validationChip(value) {
+  const raw = String(value || "MISSING").toUpperCase();
+  const ok = raw === "PASS";
+  return `<span class="chip ${ok ? "good" : "bad"}">${escapeHtml(statusText(raw))}${raw !== statusText(raw) ? ` · ${escapeHtml(raw)}` : ""}</span>`;
+}
+
+function gateLabel(value) {
+  const key = String(value || "").toUpperCase();
+  const labels = {
+    BUY_ALLOWED: "매수 허용",
+    PILOT: "제한 실운용",
+    WATCH: "관찰 진입",
+    BLOCK: "신규 진입 차단",
+  };
+  return labels[key] || key || "-";
+}
+
+function gateChipText(value) {
+  const raw = String(value || "").toUpperCase();
+  const label = gateLabel(raw);
+  return raw && raw !== label && raw !== "-" ? `${label} · ${raw}` : label;
+}
+
+function helpDetails(items) {
+  return `
+    <details class="details-help">
+      <summary>용어와 판단 기준</summary>
+      <dl class="help-list">
+        ${items.map((item) => `
+          <div>
+            <dt>${escapeHtml(item.term)}</dt>
+            <dd>${escapeHtml(item.desc)}</dd>
+          </div>
+        `).join("")}
+      </dl>
+    </details>
+  `;
+}
+
+function translatePromotionBlocker(text) {
+  const value = String(text || "");
+  if (value.includes("D+5 observed_count is below 30")) return "D+5 관찰 표본이 30건 미만입니다.";
+  if (value.includes("Guard-applied observed_count is below 30")) return "Guard 적용군 관찰 표본이 30건 미만입니다.";
+  if (value.includes("Guard-not-applied observed_count is below 30")) return "Guard 미적용군 관찰 표본이 30건 미만입니다.";
+  if (value.includes("Production top20 vs shadow top20 comparison is not available")) return "Production Top20과 Shadow Top20 비교가 아직 불가능합니다.";
+  if (value.includes("Closed-trade report is not available")) return "Closed Trade 리포트가 아직 없습니다.";
+  if (value.includes("Closed-trade observed_count is below 30")) return "Closed Trade 관찰 표본이 30건 미만입니다.";
+  if (value.includes("position snapshot avg_price fallback")) return "스냅샷 평균단가를 보조 원가로 사용해 lot 단위 손익이 근사값입니다.";
+  if (value.includes("unmatched SELL basis")) return "일부 매도 체결의 매수 원가 기준을 찾지 못했습니다.";
+  return value;
+}
+
+function latestHorizonRow(rows, horizon) {
+  return (Array.isArray(rows) ? rows : []).find((row) => Number(row.horizon) === horizon) || {};
+}
+
+function guardAppliedRow(rows, applied, horizon = 5) {
+  return (Array.isArray(rows) ? rows : []).find((row) =>
+    Number(row.horizon) === horizon && Boolean(row.shadow_quality_risk_guard_applied) === applied
+  ) || {};
+}
+
+function renderClosedQualityGuardTable(rows) {
+  const values = Array.isArray(rows) ? rows.slice(0, 6) : [];
+  if (!values.length) return "";
+  return `
+    <div class="table-wrap" style="margin-top:12px;">
+      <table class="status-table">
+        <thead>
+          <tr>
+            <th>Penalty</th>
+            <th>Shadow Delta</th>
+            <th class="right">건수</th>
+            <th class="right">관찰</th>
+            <th class="right">실현손익</th>
+            <th class="right">평균</th>
+            <th class="right">승률</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${values.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.guard_penalty_bucket || "-")}</td>
+              <td>${escapeHtml(row.shadow_rank_delta_bucket || "-")}</td>
+              <td class="right">${fmtNum(row.count)}</td>
+              <td class="right">${fmtNum(row.observed_count)}</td>
+              <td class="right ${signedClass(row.realized_net_pnl)}">${escapeHtml(fmtNum(row.realized_net_pnl))}</td>
+              <td class="right ${signedClass(row.avg_realized_return)}">${escapeHtml(fmtPct(row.avg_realized_return, 2))}</td>
+              <td class="right">${escapeHtml(fmtPct(row.win_rate, 1))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderLiveKpiDaily(report) {
+  const root = document.getElementById("liveKpiPanel");
+  if (!root) return;
+  if (!report || !Object.keys(report).length) {
+    root.innerHTML = `<div class="empty-state">live_kpi_daily_report 산출물이 아직 없습니다.</div>`;
+    return;
+  }
+  const overview = report.overview || {};
+  const account = report.account || {};
+  const today = report.today_counts || {};
+  const d0 = latestHorizonRow(report.horizon_summary, 0);
+  const d5 = latestHorizonRow(report.horizon_summary, 5);
+  const warnings = Array.isArray(report.warnings) ? report.warnings.slice(0, 3) : [];
+  root.innerHTML = `
+    <p class="card-guide">오늘 자동매매 산출물이 정상적으로 쌓였는지와, 체결 후 수익률 표본이 충분한지 보는 카드입니다.</p>
+    <div class="kv">
+      <div class="kv-row"><span>${metricLabel("기준일", "이 리포트가 계산된 거래 기준일입니다.")}</span><strong>${escapeHtml(report.as_of_date || "-")}</strong></div>
+      <div class="kv-row"><span>${metricLabel("표본 상태", "성과 판단에 필요한 관찰 건수가 충분한지 나타냅니다.")}</span><strong>${statusChip(report.sample_status)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("총자산 / 현금비중", "실계좌 요약 기준 총자산과 현금 비중입니다.")}</span><strong>${escapeHtml(fmtNum(account.total_assets))} / ${escapeHtml(fmtPct(account.cash_ratio, 1))}</strong></div>
+      <div class="kv-row"><span>${metricLabel("판단 / 요청 / 제출 / 체결", "전략 판단부터 실제 체결까지 오늘 생성된 건수 흐름입니다.")}</span><strong>${fmtNum(today.decision_count)} / ${fmtNum(today.request_count)} / ${fmtNum(today.execution_count)} / ${fmtNum(today.fill_count)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("D0 평균 / 관찰", "체결 당일 기준 수익률 평균과 계산 가능한 표본 수입니다.")}</span><strong class="${signedClass(d0.avg_return)}">${escapeHtml(fmtPct(d0.avg_return, 2))} / ${fmtNum(d0.observed_count)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("D+5 평균 / 관찰", "체결 후 5거래일 기준 수익률 평균과 계산 가능한 표본 수입니다. 승격 판단의 핵심 표본입니다.")}</span><strong class="${signedClass(d5.avg_return)}">${escapeHtml(fmtPct(d5.avg_return, 2))} / ${fmtNum(d5.observed_count)}</strong></div>
+    </div>
+    <div class="chip-row">
+      <span class="chip ${Number(overview.missing_ranking_context_count || 0) ? "warn" : "good"}">ranking missing ${fmtNum(overview.missing_ranking_context_count)}</span>
+      <span class="chip ${Number(report?.consistency?.warning_count || 0) ? "warn" : "good"}">consistency warnings ${fmtNum(report?.consistency?.warning_count)}</span>
+    </div>
+    ${warnings.map((item) => `<div class="state-line">${escapeHtml(item)}</div>`).join("")}
+    ${helpDetails([
+      { term: "표본 상태", desc: "ACTIONABLE이면 참고 가능, MONITOR_ONLY면 아직 데이터 축적 단계입니다." },
+      { term: "D0 / D+5", desc: "D0는 체결 당일, D+5는 체결 후 5거래일 성과입니다." },
+      { term: "ranking missing", desc: "체결 또는 판단 데이터와 리서치 랭킹 문맥이 연결되지 않은 건수입니다." },
+      { term: "consistency warnings", desc: "Intent, 주문 초안, 제출, 체결 산출물 사이에 확인이 필요한 항목 수입니다." },
+    ])}
+  `;
+}
+
+function renderQualityGuardReview(report, validation) {
+  const root = document.getElementById("qualityGuardPanel");
+  if (!root) return;
+  if (!report || !Object.keys(report).length) {
+    root.innerHTML = `<div class="empty-state">quality_risk_guard_live_review 산출물이 아직 없습니다.</div>`;
+    return;
+  }
+  const overview = report.overview || {};
+  const closed = report.closed_trade_summary || {};
+  const d0 = latestHorizonRow(report.horizon_summary, 0);
+  const d5 = latestHorizonRow(report.horizon_summary, 5);
+  const appliedD5 = guardAppliedRow(report.by_guard_applied, true, 5);
+  const notAppliedD5 = guardAppliedRow(report.by_guard_applied, false, 5);
+  const blockers = Array.isArray(report.promotion_blockers) ? report.promotion_blockers.slice(0, 6) : [];
+  const productionBlocked = String(report.promotion_status || "").toUpperCase() !== "PROMOTE_CANDIDATE";
+  const closedQualityRows = closed.by_quality_guard || [];
+  const validationStatus = String(validation?.validation_status || "").toUpperCase();
+  const validationOk = validationStatus === "PASS";
+  root.innerHTML = `
+    <p class="card-guide">quality_risk_guard를 실제 운영 점수에 반영해도 되는지 보는 카드입니다. 현재는 표본이 부족하면 자동으로 데이터 축적 상태로 남습니다.</p>
+    <div class="kv">
+      <div class="kv-row"><span>${metricLabel("승격 상태", "Quality Guard를 production 로직에 반영할 수 있는지의 최종 판단입니다.")}</span><strong>${statusChip(report.promotion_status)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("산출물 검증", "리포트 JSON 구조, 필수 값, 차단 조건이 깨지지 않았는지 검사한 결과입니다.")}</span><strong>${validationChip(validationStatus)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("표본 상태", "성과 비교에 필요한 표본이 충분한지 나타냅니다.")}</span><strong>${statusChip(report.sample_status)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("Guard 적용 / 미적용", "Shadow 계산에서 품질 가드 페널티가 걸린 후보와 걸리지 않은 후보 수입니다.")}</span><strong>${fmtNum(overview.guard_applied_count)} / ${fmtNum(overview.guard_not_applied_count)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("Production / Shadow Top20", "현재 운영 랭킹 Top20과 Quality Guard 적용 가정 Top20의 후보 수입니다.")}</span><strong>${fmtNum(overview.production_top20_count)} / ${fmtNum(overview.shadow_top20_count)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("D0 평균 / 관찰", "체결 당일 성과입니다. 방향성만 참고하고 승격 판단은 D+5와 청산 표본을 더 봅니다.")}</span><strong class="${signedClass(d0.avg_return)}">${escapeHtml(fmtPct(d0.avg_return, 2))} / ${fmtNum(d0.observed_count)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("D+5 평균 / 관찰", "체결 후 5거래일 성과입니다. 최소 30건 이상 쌓여야 비교가 의미 있습니다.")}</span><strong class="${signedClass(d5.avg_return)}">${escapeHtml(fmtPct(d5.avg_return, 2))} / ${fmtNum(d5.observed_count)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("Closed PnL / 관찰", "실제로 매도까지 끝난 거래의 실현손익과 표본 수입니다.")}</span><strong class="${signedClass(closed.realized_net_pnl)}">${escapeHtml(fmtNum(closed.realized_net_pnl))} / ${fmtNum(closed.observed_count)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("Closed 평균 / fallback", "청산 거래 평균 수익률과 스냅샷 평균단가로 원가를 보조 계산한 건수입니다.")}</span><strong class="${signedClass(closed.avg_realized_return)}">${escapeHtml(fmtPct(closed.avg_realized_return, 2))} / ${fmtNum(closed.snapshot_fallback_count)}</strong></div>
+    </div>
+    <div class="chip-row">
+      <span class="chip ${productionBlocked ? "bad" : "good"}">${productionBlocked ? "운영 반영 보류" : "운영 반영 후보"}</span>
+      <span class="chip ${Number(d5.observed_count || 0) >= 30 ? "good" : "warn"}">D+5 observed ${fmtNum(d5.observed_count)}</span>
+      ${gateStatusChip(Number(appliedD5.observed_count || 0) >= 30, "applied", fmtNum(appliedD5.observed_count))}
+      ${gateStatusChip(Number(notAppliedD5.observed_count || 0) >= 30, "not-applied", fmtNum(notAppliedD5.observed_count))}
+      <span class="chip ${overview.has_production_shadow_top20_comparison ? "good" : "warn"}">top20 compare ${overview.has_production_shadow_top20_comparison ? "YES" : "NO"}</span>
+      <span class="chip ${Number(closed.observed_count || 0) >= 30 ? "good" : "warn"}">closed observed ${fmtNum(closed.observed_count)}</span>
+      <span class="chip ${Number(closed.snapshot_fallback_count || 0) ? "warn" : "good"}">snapshot fallback ${fmtNum(closed.snapshot_fallback_count)}</span>
+      <span class="chip ${validationOk ? "good" : "bad"}">validation ${escapeHtml(validationStatus || "MISSING")}</span>
+    </div>
+    ${blockers.map((item) => `<div class="state-line">${escapeHtml(translatePromotionBlocker(item))}</div>`).join("")}
+    ${(Array.isArray(validation?.issues) ? validation.issues.slice(0, 3) : []).map((item) => `<div class="state-line">${escapeHtml(item)}</div>`).join("")}
+    ${renderClosedQualityGuardTable(closedQualityRows)}
+    ${helpDetails([
+      { term: "데이터 축적 중", desc: "KEEP_SHADOW 상태입니다. 실제 매매 로직은 바꾸지 않고 결과만 비교합니다." },
+      { term: "Guard 적용군", desc: "품질 가드가 위험하다고 판단해 Shadow 점수에 페널티를 준 후보입니다." },
+      { term: "Top20 비교", desc: "기존 운영 랭킹과 Guard 적용 가정 랭킹의 상위 후보가 얼마나 달라지는지 보는 비교입니다." },
+      { term: "snapshot fallback", desc: "매수 lot 원가가 부족해 계좌 스냅샷 평균단가로 보조 계산한 청산 거래입니다. 많으면 해석을 보수적으로 봅니다." },
+    ])}
+  `;
+}
+
+function renderClosedTradeReport(report) {
+  const root = document.getElementById("closedTradePanel");
+  if (!root) return;
+  if (!report || !Object.keys(report).length) {
+    root.innerHTML = `<div class="empty-state">live_closed_trade_report 산출물이 아직 없습니다.</div>`;
+    return;
+  }
+  const overview = report.overview || {};
+  const warnings = Array.isArray(report.warnings) ? report.warnings.slice(0, 3) : [];
+  const recentRows = Array.isArray(report.recent_closed_trades) ? report.recent_closed_trades.slice(0, 6) : [];
+  const recentHtml = recentRows.length
+    ? `
+      <div class="table-wrap" style="margin-top:12px;">
+        <table class="status-table">
+          <thead>
+            <tr>
+              <th>종목</th>
+              <th>Intent</th>
+              <th class="right">수량</th>
+              <th class="right">매칭</th>
+              <th class="right">미매칭</th>
+              <th class="right">실현손익</th>
+              <th class="right">수익률</th>
+              <th>매칭</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${recentRows.map((row) => `
+              <tr>
+                <td><span class="mono">${escapeHtml(row.code || "")}</span> ${escapeHtml(row.name || "")}</td>
+                <td>${escapeHtml(row.intent_type || "-")}</td>
+                <td class="right">${fmtNum(row.sell_qty)}</td>
+                <td class="right">${fmtNum(row.matched_qty)}</td>
+                <td class="right">${fmtNum(row.unmatched_qty)}</td>
+                <td class="right ${signedClass(row.realized_net_pnl)}">${escapeHtml(fmtNum(row.realized_net_pnl))}</td>
+                <td class="right ${signedClass(row.realized_return)}">${escapeHtml(fmtPct(row.realized_return, 2))}</td>
+                <td><span class="chip ${row.match_status === "MATCHED" ? "good" : "warn"}">${escapeHtml(row.match_status || "-")}</span></td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      </div>
+    `
+    : `<div class="empty-state" style="margin-top:12px;">닫힌 거래가 아직 없습니다.</div>`;
+  root.innerHTML = `
+    <p class="card-guide">매도까지 끝난 거래만 모아 실제로 돈을 벌었는지 확인하는 카드입니다. 아직 표본이 적으면 방향성만 참고합니다.</p>
+    <div class="kv">
+      <div class="kv-row"><span>${metricLabel("최근 청산일", "가장 최근 매도 체결이 반영된 날짜입니다.")}</span><strong>${escapeHtml(report.latest_closed_date || "-")}</strong></div>
+      <div class="kv-row"><span>${metricLabel("표본 상태", "청산 거래 표본이 판단 가능한 수준인지 나타냅니다.")}</span><strong>${statusChip(report.sample_status)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("닫힌 거래 / 관찰", "매도까지 끝난 거래 수와 수익률 계산에 사용 가능한 거래 수입니다.")}</span><strong>${fmtNum(overview.closed_trade_count)} / ${fmtNum(overview.observed_count)}</strong></div>
+      <div class="kv-row"><span>${metricLabel("매칭 방식", "매도 체결을 어떤 매수 원가와 연결해 손익을 계산했는지 나타냅니다.")}</span><strong>${escapeHtml(overview.match_method || "-")}</strong></div>
+      <div class="kv-row"><span>${metricLabel("실현손익", "닫힌 거래의 수수료/세금 반영 후 손익 합계입니다.")}</span><strong class="${signedClass(overview.realized_net_pnl)}">${escapeHtml(fmtNum(overview.realized_net_pnl))}</strong></div>
+      <div class="kv-row"><span>${metricLabel("평균 수익률 / 승률", "닫힌 거래당 평균 수익률과 플러스 거래 비율입니다.")}</span><strong class="${signedClass(overview.avg_realized_return)}">${escapeHtml(fmtPct(overview.avg_realized_return, 2))} / ${escapeHtml(fmtPct(overview.win_rate, 1))}</strong></div>
+      <div class="kv-row"><span>${metricLabel("최대손실 / 매칭주의", "가장 큰 단일 거래 손실과 원가 매칭에 주의가 필요한 건수입니다.")}</span><strong class="${signedClass(overview.max_loss)}">${escapeHtml(fmtPct(overview.max_loss, 2))} / ${fmtNum(overview.unmatched_count)} (${fmtNum(overview.partial_basis_count)} partial)</strong></div>
+      <div class="kv-row"><span>${metricLabel("스냅샷 원가 보조", "정확한 매수 lot이 부족해 보유 스냅샷 평균단가로 보조 계산한 건수입니다.")}</span><strong>${fmtNum(overview.snapshot_fallback_count)}</strong></div>
+    </div>
+    ${warnings.map((item) => `<div class="state-line">${escapeHtml(item)}</div>`).join("")}
+    ${recentHtml}
+    ${helpDetails([
+      { term: "닫힌 거래", desc: "매수 후 매도까지 발생해 실현손익을 계산할 수 있는 거래입니다." },
+      { term: "FIFO", desc: "먼저 산 수량을 먼저 판 것으로 보고 매도 원가를 연결하는 방식입니다." },
+      { term: "매칭주의", desc: "매도 수량에 대응되는 매수 원가가 일부 부족하거나 보조 계산이 들어간 상태입니다." },
+      { term: "표본 기준", desc: "현재 승격 판단에서는 청산 관찰 표본 30건 이상을 최소 기준으로 봅니다." },
+    ])}
+  `;
+}
+
 function summarizeLiveGateForBanner(summary, intents, preview, execution, consistency) {
   const intentRows = Array.isArray(intents?.intents) ? intents.intents : [];
   const previewRows = Array.isArray(preview?.items) ? preview.items : [];
@@ -1117,57 +1363,57 @@ function renderDecisionBanner(summary, intents, preview, execution, runtime, con
 
   if (liveGate.submittedCount > 0) {
     headline = liveGate.submittedBuyCount > 0
-      ? `Submitted BUY ${fmtNum(liveGate.submittedBuyCount)} / total ${fmtNum(liveGate.submittedCount)}`
-      : `Submitted orders ${fmtNum(liveGate.submittedCount)}`;
+      ? `BUY 제출 ${fmtNum(liveGate.submittedBuyCount)}건 / 전체 ${fmtNum(liveGate.submittedCount)}건`
+      : `주문 제출 ${fmtNum(liveGate.submittedCount)}건`;
     headlineTone = "primary";
     headlineDetail = liveGate.missingFillCount > 0
-      ? `Broker submissions exist, but ${fmtNum(liveGate.missingFillCount)} submitted rows still have no matching fill row.`
-      : "Broker submission records exist. Check fills separately because submission and fill can differ.";
+      ? `브로커 주문 제출 기록은 있지만 ${fmtNum(liveGate.missingFillCount)}건은 아직 체결 행과 연결되지 않았습니다.`
+      : "실제 주문 제출 기록이 있습니다. 제출과 체결은 다를 수 있으니 체결 결과를 별도로 확인하세요.";
   } else if (!executeOn) {
-    headline = "Execution switch OFF";
+    headline = "실주문 스위치 OFF";
     headlineTone = "warn";
-    headlineDetail = "The system may build intents and previews, but it will not submit broker orders.";
+    headlineDetail = "전략 판단과 주문 초안은 만들 수 있지만 브로커 주문은 제출하지 않습니다.";
   } else if (gate === "BLOCK" && liveGate.limitedEntryEvidence) {
-    headline = "Formal gate BLOCK, limited-entry evidence exists";
+    headline = "공식 Gate는 차단, 제한 진입 흔적 있음";
     headlineTone = "warn";
-    headlineDetail = "The formal portfolio gate is BLOCK, but recent artifacts include PILOT or limited-entry buy flow. Check preview and execution rows before treating this as a pure no-buy day.";
+    headlineDetail = "공식 포트폴리오 Gate는 BLOCK이지만 최근 산출물에 PILOT 또는 제한 진입 흐름이 있습니다. 주문 초안과 제출 결과를 함께 확인하세요.";
   } else if (gate === "BLOCK") {
-    headline = "New entries blocked";
+    headline = "신규 진입 차단";
     headlineTone = "bad";
-    headlineDetail = "The formal gate is BLOCK, so new BUY intents are blocked and risk reduction has priority.";
+    headlineDetail = "공식 Gate가 BLOCK이라 신규 BUY는 차단되고 리스크 축소가 우선입니다.";
   } else if (gate === "WATCH") {
-    headline = "WATCH limited-entry zone";
+    headline = "WATCH 제한 진입 구간";
     headlineTone = "warn";
-    headlineDetail = "Only constrained entry should be considered. This is not full BUY_ALLOWED operation.";
+    headlineDetail = "제한된 신규 진입만 고려하는 구간입니다. 완전한 BUY_ALLOWED 운용은 아닙니다.";
   } else if (gate === "PILOT") {
-    headline = "PILOT limited live entry";
+    headline = "PILOT 제한 실운용";
     headlineTone = "primary";
-    headlineDetail = "Limited BUY entries can be submitted, but full-size allocation and score-driven replacement are still restricted.";
+    headlineDetail = "제한된 BUY 진입은 제출될 수 있지만, 풀 비중 배정과 점수 기반 교체매매는 아직 제한됩니다.";
   } else if (skippedCount > 0) {
-    headline = `Skipped orders ${fmtNum(skippedCount)}`;
+    headline = `주문 보류 ${fmtNum(skippedCount)}건`;
     headlineTone = executionFlow.tone || "warn";
     headlineDetail = executionFlow.detail;
   } else if (liveGate.executablePreviewCount > 0) {
-    headline = `Executable preview ${fmtNum(liveGate.executablePreviewCount)}`;
+    headline = `제출 가능 주문초안 ${fmtNum(liveGate.executablePreviewCount)}건`;
     headlineTone = "primary";
-    headlineDetail = "Preview rows are executable. Confirm runtime switches and approval policy before submission.";
+    headlineDetail = "차단되지 않은 주문 초안이 있습니다. 제출 전 실행 스위치와 승인 정책을 확인하세요.";
   }
 
   root.innerHTML = `
     <article class="decision-card ${headlineTone}">
-      <h2 class="decision-title">Live Conclusion</h2>
+      <h2 class="decision-title">오늘 결론</h2>
       <div class="decision-value">${escapeHtml(headline)}</div>
       <div class="decision-detail">${escapeHtml(headlineDetail)}</div>
     </article>
     <article class="decision-card">
-      <h2 class="decision-title">Gate / Limited Entry</h2>
-      <div class="decision-value">${escapeHtml(gate || "-")}</div>
-      <div class="decision-detail">BUY intents ${fmtNum(liveGate.buyIntentCount)} / executable BUY preview ${fmtNum(liveGate.executableBuyPreviewCount)} / limited ${liveGate.limitedEntryEvidence ? "YES" : "NO"} / buy switch ${buyOn ? "ON" : "OFF"}</div>
+      <h2 class="decision-title">진입 모드</h2>
+      <div class="decision-value">${escapeHtml(gateChipText(gate))}</div>
+      <div class="decision-detail">BUY 판단 ${fmtNum(liveGate.buyIntentCount)}건 · BUY 주문초안 ${fmtNum(liveGate.executableBuyPreviewCount)}건 · 제한진입 ${liveGate.limitedEntryEvidence ? "예" : "아니오"} · 매수스위치 ${buyOn ? "ON" : "OFF"}</div>
     </article>
     <article class="decision-card">
-      <h2 class="decision-title">Account Sync</h2>
+      <h2 class="decision-title">계좌 동기화</h2>
       <div class="decision-value">${escapeHtml(String(accountSyncedAt).slice(0, 16) || "-")}</div>
-      <div class="decision-detail">Executable ${fmtNum(liveGate.executablePreviewCount)} / blocked ${fmtNum(liveGate.blockedPreviewCount)} / submitted ${fmtNum(liveGate.submittedCount)} / filled ${fmtNum(liveGate.filledCount)}${liveGate.consistencyAsOfDate ? ` / basis ${escapeHtml(liveGate.consistencyAsOfDate)}` : ""}</div>
+      <div class="decision-detail">제출가능 ${fmtNum(liveGate.executablePreviewCount)}건 · 차단 ${fmtNum(liveGate.blockedPreviewCount)}건 · 제출 ${fmtNum(liveGate.submittedCount)}건 · 체결 ${fmtNum(liveGate.filledCount)}건${liveGate.consistencyAsOfDate ? ` · 기준 ${escapeHtml(liveGate.consistencyAsOfDate)}` : ""}</div>
     </article>
   `;
 }
@@ -1176,17 +1422,20 @@ async function main() {
   const state = document.getElementById("pageState");
   state.textContent = "실자동매매 데이터를 불러오는 중입니다.";
   try {
-    const [summary, intents, preview, execution, runtime, holdings, watchSimulation, consistency, tradeReview, tradeReviewSummary] = await Promise.all([
+    const [summary, intents, preview, execution, runtime, holdings, consistency, tradeReview, tradeReviewSummary, liveKpiDaily, qualityGuardReview, closedTradeReport, qualityGuardOutputCheck] = await Promise.all([
       fetchJsonMaybe("/api/live-account/summary"),
       fetchJsonMaybe("/api/trade-intents"),
       fetchJsonMaybe("/api/order-requests-preview"),
       fetchJsonMaybe("/api/order-requests-execution"),
       fetchJsonMaybe("/api/auto-trading/runtime-status"),
       fetchJsonMaybe("/api/live-account/holdings"),
-      fetchJsonMaybe("/api/watch-auto-buy-simulation"),
       fetchJsonMaybe("/api/live-trade-consistency"),
       fetchJsonMaybe("/api/live-trade-review-report"),
       fetchJsonMaybe("/api/live-trade-review-summary"),
+      fetchJsonMaybe("/api/live-kpi-daily-report"),
+      fetchJsonMaybe("/api/quality-risk-guard-live-review"),
+      fetchJsonMaybe("/api/live-closed-trade-report"),
+      fetchJsonMaybe("/api/live-quality-guard-output-check"),
     ]);
 
     renderHero(summary, intents, preview, holdings, execution);
@@ -1194,11 +1443,13 @@ async function main() {
     renderStatusV2(summary, intents, preview, execution, runtime);
     renderConsistency(consistency);
     renderTradeReview(tradeReview, tradeReviewSummary);
+    renderLiveKpiDaily(liveKpiDaily);
+    renderQualityGuardReview(qualityGuardReview, qualityGuardOutputCheck);
+    renderClosedTradeReport(closedTradeReport);
     renderAccountDetailsV3(summary, runtime);
     renderRunSummary(intents, preview, holdings, runtime);
     renderFocus(intents, preview, holdings);
     renderOperationalExplain(intents, preview, runtime, holdings);
-    renderWatchSimulation(watchSimulation);
     renderIntents(intents);
     renderPreview(preview, runtime);
     renderExecutionV2(execution, preview, runtime);
@@ -1211,10 +1462,13 @@ async function main() {
       execution ? "execution" : null,
       runtime ? "runtime" : null,
       holdings ? "holdings" : null,
-      watchSimulation ? "watchSimulation" : null,
       consistency ? "consistency" : null,
       tradeReview ? "tradeReview" : null,
       tradeReviewSummary ? "tradeReviewSummary" : null,
+      liveKpiDaily ? "liveKpiDaily" : null,
+      qualityGuardReview ? "qualityGuardReview" : null,
+      closedTradeReport ? "closedTradeReport" : null,
+      qualityGuardOutputCheck ? "qualityGuardOutputCheck" : null,
     ].filter(Boolean);
     state.textContent = loaded.length
       ? `불러온 데이터: ${loaded.join(", ")}`

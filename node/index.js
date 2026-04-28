@@ -5664,6 +5664,66 @@ app.get("/api/live-trade-review-summary", async (req, res) => {
   }
 });
 
+app.get("/api/live-kpi-daily-report", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("live_kpi_daily_report", [
+      path.join(OUTPUTS_DIR, "live_kpi_daily_report.json"),
+    ]);
+    if (!payload || !Object.keys(payload).length) {
+      return res.status(404).json({ error: "live KPI daily report not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/live-kpi-daily-report error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/quality-risk-guard-live-review", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("quality_risk_guard_live_review", [
+      path.join(OUTPUTS_DIR, "quality_risk_guard_live_review.json"),
+    ]);
+    if (!payload || !Object.keys(payload).length) {
+      return res.status(404).json({ error: "quality risk guard live review not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/quality-risk-guard-live-review error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/live-closed-trade-report", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("live_closed_trade_report", [
+      path.join(OUTPUTS_DIR, "live_closed_trade_report.json"),
+    ]);
+    if (!payload || !Object.keys(payload).length) {
+      return res.status(404).json({ error: "live closed trade report not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/live-closed-trade-report error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/live-quality-guard-output-check", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("live_quality_guard_output_check", [
+      path.join(OUTPUTS_DIR, "live_quality_guard_output_check.json"),
+    ]);
+    if (!payload || !Object.keys(payload).length) {
+      return res.status(404).json({ error: "live quality guard output check not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/live-quality-guard-output-check error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 app.get("/api/watch-auto-buy-simulation", async (req, res) => {
   try {
     const payload = await readJsonPayloadDbFirst("watch_auto_buy_simulation", [path.join(OUTPUTS_DIR, "watch_auto_buy_simulation.json")]);
