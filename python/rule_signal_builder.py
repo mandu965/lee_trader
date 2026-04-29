@@ -275,10 +275,12 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
     out["stability_component"] = stability_component.clip(0, 1)
     out["regime_component"] = pd.Series(regime_component, index=out.index).clip(0, 1)
     out["rule_score_v2"] = (
-        out["trend_component"]
-        * out["liquidity_component"]
-        * out["stability_component"]
-        * out["regime_component"]
+        (
+            0.35 * out["trend_component"]
+            + 0.30 * out["liquidity_component"]
+            + 0.20 * out["stability_component"]
+            + 0.15 * out["regime_component"]
+        )
         * 100.0
     ).clip(0, 100)
 
@@ -303,7 +305,7 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
     entry_rule_score_min = get_float_env("RULE_ENTRY_RULE_SCORE_MIN", 70.0)
     entry_rule_score_v2_min = get_float_env("RULE_ENTRY_RULE_SCORE_V2_MIN", 65.0)
     strong_rule_score_min = get_float_env("RULE_STRONG_RULE_SCORE_MIN", 70.0)
-    strong_rule_score_v2_min = get_float_env("RULE_STRONG_RULE_SCORE_V2_MIN", 50.0)
+    strong_rule_score_v2_min = get_float_env("RULE_STRONG_RULE_SCORE_V2_MIN", 60.0)
     out["entry_rule_score_min"] = entry_rule_score_min
     out["entry_rule_score_v2_min"] = entry_rule_score_v2_min
     out["strong_rule_score_min"] = strong_rule_score_min

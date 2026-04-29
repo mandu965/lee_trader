@@ -64,6 +64,14 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("auto_ops_auto_buy_scheduler_status", OUTPUT_DIR / "auto_ops_auto_buy_scheduler_status.json", None),
     ("auto_ops_live_account_sync_scheduler_status", OUTPUT_DIR / "auto_ops_live_account_sync_scheduler_status.json", None),
     ("auto_trading_policy", OUTPUT_DIR / "auto_trading_policy.json", None),
+    ("rule_dashboard_summary", OUTPUT_DIR / "rule_dashboard_summary.json", "as_of_date"),
+    ("rule_signals_latest", OUTPUT_DIR / "rule_signals_latest.json", "as_of_date"),
+    ("rule_portfolio_plan", OUTPUT_DIR / "rule_portfolio_plan.json", "as_of_date"),
+    ("rule_order_preview", OUTPUT_DIR / "rule_order_preview.json", "as_of_date"),
+    ("rule_account_paper_state", OUTPUT_DIR / "rule_account_paper_state.json", "as_of_date"),
+    ("rule_account_live_state", OUTPUT_DIR / "rule_account_live_state.json", "as_of_date"),
+    ("rule_strategy_backtest_report", OUTPUT_DIR / "rule_strategy_backtest_report.json", "latest_signal_date"),
+    ("rule_execution_results", OUTPUT_DIR / "rule_execution_results.json", "as_of_date"),
 ]
 
 def parse_args() -> argparse.Namespace:
@@ -201,6 +209,7 @@ def sync_core_tables() -> None:
 
 
 def sync_payloads() -> None:
+    run_script("build_rule_web_payloads.py")
     for payload_key, path, asof_field in JSON_PAYLOADS:
         sync_json_payload(payload_key, path, asof_field=asof_field)
     live_summary_path = OUTPUT_DIR / "live_account_balance_summary.json"

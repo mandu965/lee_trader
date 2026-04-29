@@ -2719,11 +2719,68 @@ function buildRuleDashboardSummary() {
   };
 }
 
+const RULE_DASHBOARD_SUMMARY_PATH = path.join(OUTPUTS_DIR, "rule_dashboard_summary.json");
+const RULE_SIGNALS_LATEST_PATH = path.join(OUTPUTS_DIR, "rule_signals_latest.json");
+const RULE_PORTFOLIO_PLAN_PATH = path.join(OUTPUTS_DIR, "rule_portfolio_plan.json");
+const RULE_ORDER_PREVIEW_PATH = path.join(OUTPUTS_DIR, "rule_order_preview.json");
+const RULE_PAPER_STATE_PATH = path.join(OUTPUTS_DIR, "rule_account_paper_state.json");
+const RULE_LIVE_STATE_PATH = path.join(OUTPUTS_DIR, "rule_account_live_state.json");
+const RULE_BACKTEST_PATH = path.join(OUTPUTS_DIR, "rule_strategy_backtest_report.json");
+const RULE_EXECUTION_RESULTS_PATH = path.join(OUTPUTS_DIR, "rule_execution_results.json");
+
+async function readRuleSummaryPayload() {
+  return await readJsonPayloadDbFirst("rule_dashboard_summary", [RULE_DASHBOARD_SUMMARY_PATH]);
+}
+
+async function readRuleSignalsPayload(strength = "all", limit = 100) {
+  const payload = await readJsonPayloadDbFirst("rule_signals_latest", [RULE_SIGNALS_LATEST_PATH]);
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const normalizedStrength = String(strength || "all").trim().toLowerCase() || "all";
+  const filtered = items.filter((item) => {
+    if (!normalizedStrength || normalizedStrength === "all") return true;
+    if (normalizedStrength === "strong") return !!item.strong_entry_signal;
+    if (normalizedStrength === "entry") return !!item.entry_signal;
+    if (normalizedStrength === "none") return String(item.signal_strength || "none") === "none";
+    return String(item.signal_strength || "none") === normalizedStrength;
+  });
+  return {
+    as_of_date: payload.as_of_date || null,
+    strength: normalizedStrength || "all",
+    count: filtered.length,
+    items: filtered.slice(0, limit),
+  };
+}
+
+async function readRulePortfolioPlanPayload() {
+  return await readJsonPayloadDbFirst("rule_portfolio_plan", [RULE_PORTFOLIO_PLAN_PATH]);
+}
+
+async function readRuleOrderPreviewPayload() {
+  return await readJsonPayloadDbFirst("rule_order_preview", [RULE_ORDER_PREVIEW_PATH]);
+}
+
+async function readRuleExecutionResultsPayload() {
+  return await readJsonPayloadDbFirst("rule_execution_results", [RULE_EXECUTION_RESULTS_PATH]);
+}
+
+async function readRulePaperStatePayload() {
+  const execution = await readRuleExecutionResultsPayload();
+  const paperPayload = await readJsonPayloadDbFirst("rule_account_paper_state", [RULE_PAPER_STATE_PATH]);
+  const livePayload = await readJsonPayloadDbFirst("rule_account_live_state", [RULE_LIVE_STATE_PATH]);
+  return String(execution.run_mode || "").toLowerCase() === "paper"
+    ? paperPayload
+    : ((livePayload && (livePayload.generated_at || Array.isArray(livePayload.positions))) ? livePayload : paperPayload);
+}
+
+async function readRuleBacktestPayload() {
+  return await readJsonPayloadDbFirst("rule_strategy_backtest_report", [RULE_BACKTEST_PATH]);
+}
+
 function registerRuleApiRoutes(target) {
   target.get("/api/rule/summary", async (req, res) => {
     try {
-      const payload = buildRuleDashboardSummary();
-      if (!payload.as_of_date && !payload.counts.total_candidates) {
+      const payload = await readRuleSummaryPayload();
+      if (!payload.as_of_date && !payload.counts?.total_candidates) {
         return res.status(404).json({ error: "rule artifacts not found" });
       }
       res.json(payload);
@@ -2737,23 +2794,11 @@ function registerRuleApiRoutes(target) {
     try {
       const limit = Math.max(1, Math.min(300, Number(req.query.limit) || 100));
       const strength = String(req.query.strength || "").trim().toLowerCase();
-      const { latestDate, items } = loadLatestRuleSignals();
-      if (!latestDate || !items.length) {
+      const payload = await readRuleSignalsPayload(strength, limit);
+      if (!payload.as_of_date || !payload.items.length) {
         return res.status(404).json({ error: "rule signals not found" });
       }
-      const filtered = items.filter((item) => {
-        if (!strength || strength === "all") return true;
-        if (strength === "strong") return item.strong_entry_signal;
-        if (strength === "entry") return item.entry_signal;
-        if (strength === "none") return item.signal_strength === "none";
-        return item.signal_strength === strength;
-      });
-      res.json({
-        as_of_date: latestDate,
-        strength: strength || "all",
-        count: filtered.length,
-        items: filtered.slice(0, limit),
-      });
+      res.json(payload);
     } catch (e) {
       console.error("GET /api/rule/signals/latest error", e);
       res.status(500).json({ error: "internal error" });
@@ -2762,7 +2807,7 @@ function registerRuleApiRoutes(target) {
 
   target.get("/api/rule/portfolio-plan", async (req, res) => {
     try {
-      const payload = readJson(path.join(OUTPUTS_DIR, "rule_portfolio_plan.json")) || {};
+      const payload = await readRulePortfolioPlanPayload();
       if (!payload.as_of_date && !Array.isArray(payload.items)) {
         return res.status(404).json({ error: "rule portfolio plan not found" });
       }
@@ -2775,7 +2820,7 @@ function registerRuleApiRoutes(target) {
 
   target.get("/api/rule/order-preview", async (req, res) => {
     try {
-      const payload = readJson(path.join(OUTPUTS_DIR, "rule_order_preview.json")) || {};
+      const payload = await readRuleOrderPreviewPayload();
       if (!payload.as_of_date && !Array.isArray(payload.items)) {
         return res.status(404).json({ error: "rule order preview not found" });
       }
@@ -2788,10 +2833,7 @@ function registerRuleApiRoutes(target) {
 
   target.get("/api/rule/paper-state", async (req, res) => {
     try {
-      const execution = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
-      const paperPayload = readJson(path.join(OUTPUTS_DIR, "rule_account_paper_state.json")) || {};
-      const livePayload = readJson(path.join(OUTPUTS_DIR, "rule_account_live_state.json")) || {};
-      const payload = String(execution.run_mode || "").toLowerCase() === "paper" ? paperPayload : (livePayload.generated_at ? livePayload : paperPayload);
+      const payload = await readRulePaperStatePayload();
       if (!payload.as_of_date && !Array.isArray(payload.positions)) {
         return res.status(404).json({ error: "rule paper state not found" });
       }
@@ -2804,7 +2846,7 @@ function registerRuleApiRoutes(target) {
 
   target.get("/api/rule/backtest-summary", async (req, res) => {
     try {
-      const payload = readJson(path.join(OUTPUTS_DIR, "rule_strategy_backtest_report.json")) || {};
+      const payload = await readRuleBacktestPayload();
       if (!payload.latest_signal_date && !payload.generated_at) {
         return res.status(404).json({ error: "rule backtest summary not found" });
       }
@@ -2817,7 +2859,7 @@ function registerRuleApiRoutes(target) {
 
   target.get("/api/rule/execution-results", async (req, res) => {
     try {
-      const payload = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
+      const payload = await readRuleExecutionResultsPayload();
       if (!payload.generated_at && !Array.isArray(payload.items)) {
         return res.status(404).json({ error: "rule execution results not found" });
       }
@@ -5867,8 +5909,8 @@ app.get("/api/paper-trading/positions", async (req, res) => {
 
 app.get("/api/rule/summary", async (req, res) => {
   try {
-    const payload = buildRuleDashboardSummary();
-    if (!payload.as_of_date && !payload.counts.total_candidates) {
+    const payload = await readRuleSummaryPayload();
+    if (!payload.as_of_date && !payload.counts?.total_candidates) {
       return res.status(404).json({ error: "rule artifacts not found" });
     }
     res.json(payload);
@@ -5882,23 +5924,11 @@ app.get("/api/rule/signals/latest", async (req, res) => {
   try {
     const limit = Math.max(1, Math.min(300, Number(req.query.limit) || 100));
     const strength = String(req.query.strength || "").trim().toLowerCase();
-    const { latestDate, items } = loadLatestRuleSignals();
-    if (!latestDate || !items.length) {
+    const payload = await readRuleSignalsPayload(strength, limit);
+    if (!payload.as_of_date || !payload.items.length) {
       return res.status(404).json({ error: "rule signals not found" });
     }
-    const filtered = items.filter((item) => {
-      if (!strength || strength === "all") return true;
-      if (strength === "strong") return item.strong_entry_signal;
-      if (strength === "entry") return item.entry_signal;
-      if (strength === "none") return item.signal_strength === "none";
-      return item.signal_strength === strength;
-    });
-    res.json({
-      as_of_date: latestDate,
-      strength: strength || "all",
-      count: filtered.length,
-      items: filtered.slice(0, limit),
-    });
+    res.json(payload);
   } catch (e) {
     console.error("GET /api/rule/signals/latest error", e);
     res.status(500).json({ error: "internal error" });
@@ -5907,7 +5937,7 @@ app.get("/api/rule/signals/latest", async (req, res) => {
 
 app.get("/api/rule/portfolio-plan", async (req, res) => {
   try {
-    const payload = readJson(path.join(OUTPUTS_DIR, "rule_portfolio_plan.json")) || {};
+    const payload = await readRulePortfolioPlanPayload();
     if (!payload.as_of_date && !Array.isArray(payload.items)) {
       return res.status(404).json({ error: "rule portfolio plan not found" });
     }
@@ -5920,7 +5950,7 @@ app.get("/api/rule/portfolio-plan", async (req, res) => {
 
 app.get("/api/rule/order-preview", async (req, res) => {
   try {
-    const payload = readJson(path.join(OUTPUTS_DIR, "rule_order_preview.json")) || {};
+    const payload = await readRuleOrderPreviewPayload();
     if (!payload.as_of_date && !Array.isArray(payload.items)) {
       return res.status(404).json({ error: "rule order preview not found" });
     }
@@ -5933,10 +5963,7 @@ app.get("/api/rule/order-preview", async (req, res) => {
 
 app.get("/api/rule/paper-state", async (req, res) => {
   try {
-    const execution = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
-    const paperPayload = readJson(path.join(OUTPUTS_DIR, "rule_account_paper_state.json")) || {};
-    const livePayload = readJson(path.join(OUTPUTS_DIR, "rule_account_live_state.json")) || {};
-    const payload = String(execution.run_mode || "").toLowerCase() === "paper" ? paperPayload : (livePayload.generated_at ? livePayload : paperPayload);
+    const payload = await readRulePaperStatePayload();
     if (!payload.as_of_date && !Array.isArray(payload.positions)) {
       return res.status(404).json({ error: "rule paper state not found" });
     }
@@ -5949,7 +5976,7 @@ app.get("/api/rule/paper-state", async (req, res) => {
 
 app.get("/api/rule/backtest-summary", async (req, res) => {
   try {
-    const payload = readJson(path.join(OUTPUTS_DIR, "rule_strategy_backtest_report.json")) || {};
+    const payload = await readRuleBacktestPayload();
     if (!payload.latest_signal_date && !payload.generated_at) {
       return res.status(404).json({ error: "rule backtest summary not found" });
     }
@@ -5962,7 +5989,7 @@ app.get("/api/rule/backtest-summary", async (req, res) => {
 
 app.get("/api/rule/execution-results", async (req, res) => {
   try {
-    const payload = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
+    const payload = await readRuleExecutionResultsPayload();
     if (!payload.generated_at && !Array.isArray(payload.items)) {
       return res.status(404).json({ error: "rule execution results not found" });
     }
