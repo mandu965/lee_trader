@@ -9,6 +9,7 @@
     { key: "holdings", label: "보유종목", href: "/holdings.html" },
     { key: "paper-trading", label: "모의투자", href: "/paper-trading.html" },
     { key: "trade-history", label: "매매기록", href: "/trade-history.html" },
+    { key: "rule-auto-trading", label: "RULE 자동매매", href: "/rule-auto-trading.html" },
     { key: "live-auto-trading", label: "실자동매매", href: "/live-auto-trading.html" },
   ];
 
@@ -84,11 +85,16 @@
       primaryNav.insertAdjacentHTML(
         "beforeend",
         `<button id="scoreCheckBtn" class="nav-tab" aria-label="점수 검증 화면으로 이동">점수검증</button>
+         <button id="ruleAutoTradingBtn" class="nav-tab" aria-label="RULE 자동매매 화면으로 이동">RULE 자동매매</button>
          <button id="liveAutoTradingBtn" class="nav-tab" aria-label="실자동매매 화면으로 이동">실자동매매</button>`
       );
       document.getElementById("scoreCheckBtn")?.addEventListener("click", (e) => {
         e.preventDefault();
         window.location.href = "/score-check";
+      });
+      document.getElementById("ruleAutoTradingBtn")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        window.location.href = "./rule-auto-trading.html";
       });
       document.getElementById("liveAutoTradingBtn")?.addEventListener("click", (e) => {
         e.preventDefault();

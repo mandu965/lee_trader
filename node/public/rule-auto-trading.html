@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>RULE 자동매매 운영</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .rule-page { max-width: 1480px; margin: 0 auto; padding: 24px 20px 48px; }
+      .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+      .page-title { margin: 0; font-size: 28px; }
+      .page-subtitle { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; max-width: 860px; }
+      .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .page-actions button.is-active { border-color: rgba(34,197,94,0.44); background: rgba(34,197,94,0.12); color: #86efac; }
+      .panel-block { margin-bottom: 16px; padding: 16px; }
+      .hero-grid, .status-grid, .board-grid { display: grid; gap: 12px; }
+      .hero-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .board-grid { grid-template-columns: 1.2fr 1fr; }
+      .hero-card, .panel-card {
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        background: rgba(255,255,255,0.03);
+        padding: 14px;
+      }
+      .card-label { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+      .card-value { margin-top: 6px; font-size: 24px; font-weight: 800; }
+      .card-value.pos { color: #86efac; }
+      .card-value.neg { color: #fca5a5; }
+      .card-detail { margin-top: 8px; font-size: 12px; line-height: 1.55; color: var(--color-text-secondary); }
+      .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+      .section-title { margin: 0; font-size: 17px; }
+      .section-note { color: var(--color-text-secondary); font-size: 12px; }
+      .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 24px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+        border: 1px solid rgba(255,255,255,0.12);
+        background: rgba(255,255,255,0.04);
+        white-space: nowrap;
+      }
+      .chip.good { color: #86efac; border-color: rgba(34,197,94,0.28); background: rgba(34,197,94,0.10); }
+      .chip.watch { color: #93c5fd; border-color: rgba(96,165,250,0.26); background: rgba(96,165,250,0.10); }
+      .chip.warn { color: #fde68a; border-color: rgba(250,204,21,0.26); background: rgba(250,204,21,0.10); }
+      .chip.bad { color: #fca5a5; border-color: rgba(248,113,113,0.28); background: rgba(248,113,113,0.10); }
+      .kv { display: grid; gap: 8px; }
+      .kv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+      .kv-row strong { text-align: right; }
+      .table-wrap { overflow-x: auto; }
+      .table-wrap table { min-width: 980px; }
+      .mono { font-family: Consolas, "SFMono-Regular", monospace; }
+      .right { text-align: right; }
+      .center { text-align: center; }
+      .pos { color: #86efac; }
+      .neg { color: #fca5a5; }
+      .empty-state { padding: 18px; border: 1px dashed var(--border); border-radius: var(--radius-lg); color: var(--color-text-secondary); text-align: center; }
+      .state-line { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); }
+      @media (max-width: 1100px) {
+        .page-header { flex-direction: column; }
+        .hero-grid, .status-grid, .board-grid { grid-template-columns: 1fr; }
+      }
+      @media (max-width: 640px) {
+        .rule-page { padding: 18px 12px 36px; }
+        .page-title { font-size: 24px; }
+        .page-actions { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; -webkit-overflow-scrolling: touch; }
+        .panel-block { padding: 12px; }
+        .card-value { font-size: 22px; }
+        .kv-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+        .kv-row strong { text-align: left; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="rule-page">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">RULE 자동매매 운영</h1>
+          <p class="page-subtitle">
+            데이터 기반 RULE 계좌의 after-close 산출물을 한 화면에서 확인합니다. 이 화면은
+            신호, 포트폴리오 판단, order preview, paper 계좌 상태, 백테스트 요약을
+            검토하기 위한 운영 보드입니다. 실주문은 연결하지 않습니다.
+          </p>
+        </div>
+      </header>
+
+      <section class="panel panel-block">
+        <div class="page-actions">
+          <button type="button" onclick="location.href='/app'">메인</button>
+          <button type="button" onclick="location.href='/ranking.html'">랭킹</button>
+          <button type="button" onclick="location.href='/paper-trading.html'">기존 Paper</button>
+          <button type="button" onclick="location.href='/live-auto-trading.html'">실거래 운영</button>
+          <button type="button" class="is-active" onclick="location.href='/rule-auto-trading.html'">RULE 운영</button>
+          <button id="refreshBtn" type="button">새로고침</button>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="hero-grid" id="heroGrid"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="status-grid" id="statusGrid"></div>
+      </section>
+
+      <section class="board-grid">
+        <section class="panel panel-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">차단 사유</h2>
+              <div class="section-note">후보가 왜 진입하지 않았는지 먼저 확인합니다.</div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="kv" id="blockReasonKv"></div>
+          </div>
+        </section>
+        <section class="panel panel-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">백테스트 요약</h2>
+              <div class="section-note">현재 threshold 기준의 성과 요약입니다.</div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="kv" id="backtestKv"></div>
+            <div class="chip-row" id="backtestChips"></div>
+          </div>
+        </section>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Strong 후보</h2>
+            <div class="section-note">pilot/live 이전에 paper에서 우선 관찰할 대상입니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>섹터</th>
+                <th class="right">rule_score</th>
+                <th class="right">rule_score_v2</th>
+                <th class="right">예상 진입가</th>
+                <th class="right">예상 갭</th>
+                <th>포트폴리오 판단</th>
+              </tr>
+            </thead>
+            <tbody id="strongSignalsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Entry 후보</h2>
+            <div class="section-note">연구용 후보까지 포함한 상위 진입 후보입니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>강도</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>섹터</th>
+                <th class="right">rule_score</th>
+                <th class="right">rule_score_v2</th>
+                <th class="right">거래대금 MA20</th>
+                <th>차단 포인트</th>
+              </tr>
+            </thead>
+            <tbody id="entrySignalsTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">포트폴리오 계획</h2>
+            <div class="section-note">buy / hold / reduce / exit / skip 판단 결과입니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>액션</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>섹터</th>
+                <th class="right">목표 비중</th>
+                <th class="right">현재 비중</th>
+                <th class="right">목표 금액</th>
+                <th>사유</th>
+              </tr>
+            </thead>
+            <tbody id="portfolioTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Order Preview</h2>
+            <div class="section-note">paper 전용 preview입니다. 실주문은 발생하지 않습니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>상태</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>액션</th>
+                <th>주문 방향</th>
+                <th class="right">예상 체결가</th>
+                <th class="right">수량</th>
+                <th class="right">금액</th>
+                <th>차단 사유</th>
+              </tr>
+            </thead>
+            <tbody id="previewTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Before Open Execution</h2>
+            <div class="section-note">전일 preview를 기반으로 시가 검증 후 simulated execution 결과를 기록합니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>상태</th>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>주문 방향</th>
+                <th class="right">체결 수량</th>
+                <th class="right">평균 체결가</th>
+                <th class="right">실제 갭</th>
+                <th>차단 사유</th>
+              </tr>
+            </thead>
+            <tbody id="executionTbody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
+            <h2 class="section-title">Paper 계좌 상태</h2>
+            <div class="section-note">현재 simulated 보유 종목과 최근 거래입니다.</div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>코드</th>
+                <th>종목명</th>
+                <th>섹터</th>
+                <th class="right">수량</th>
+                <th class="right">진입가</th>
+                <th class="right">현재가</th>
+                <th class="right">평가금액</th>
+                <th class="right">비중</th>
+              </tr>
+            </thead>
+            <tbody id="positionsTbody"></tbody>
+          </table>
+        </div>
+        <div class="chip-row" id="recentTrades"></div>
+      </section>
+
+      <div class="state-line" id="pageState"></div>
+    </div>
+
+    <script src="./rule-auto-trading.js"></script>
+  </body>
+</html>

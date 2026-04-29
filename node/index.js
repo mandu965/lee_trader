@@ -504,10 +504,11 @@ function renderOpsUnifiedNavSnippet(fileName) {
     "paper-trading.html",
     "trade-history.html",
     "live-auto-trading.html",
+    "rule-auto-trading.html",
     "detail.html",
   ]);
   if (!targets.has(fileName)) return "";
-  return '<script src="/ops-unified-nav.js"></script>';
+  return '<script src="/ops-unified-nav.js?v=20260429-rule-nav-v1"></script>';
 }
 
 function renderArticlePage(item, section) {
@@ -2505,6 +2506,208 @@ function normalizePaperRun(row) {
   };
 }
 
+function parseBooleanLike(value) {
+  if (typeof value === "boolean") return value;
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return false;
+  return ["true", "1", "yes", "y", "on"].includes(text);
+}
+
+function normalizeRuleSignalRow(row) {
+  return {
+    date: toIsoDate(row.date) || String(row.date || "").trim() || null,
+    code: String(row.code || "").trim().padStart(6, "0"),
+    name: row.name || null,
+    sector: row.sector || null,
+    market: row.market || null,
+    close: toNum(row.close),
+    open: toNum(row.open),
+    expected_gap: toNum(row.expected_gap),
+    expected_entry_price: toNum(row.expected_entry_price),
+    actual_open_gap: toNum(row.actual_open_gap),
+    trading_value: toNum(row.trading_value),
+    trading_value_ma_20: toNum(row.trading_value_ma_20),
+    trading_value_pass: parseBooleanLike(row.trading_value_pass),
+    trading_value_block_reason: row.trading_value_block_reason || null,
+    gap_risk_blocked: parseBooleanLike(row.gap_risk_blocked),
+    gap_risk_reason: row.gap_risk_reason || null,
+    market_defensive_mode: parseBooleanLike(row.market_defensive_mode),
+    market_entry_allowed: parseBooleanLike(row.market_entry_allowed),
+    rule_score: toNum(row.rule_score),
+    rule_score_v2: toNum(row.rule_score_v2),
+    liquidity_score: toNum(row.liquidity_score),
+    vol_20: toNum(row.vol_20),
+    entry_signal: parseBooleanLike(row.entry_signal),
+    strong_entry_signal: parseBooleanLike(row.strong_entry_signal),
+    signal_strength: row.signal_strength || "none",
+    strategy_id: row.strategy_id || null,
+    engine_type: row.engine_type || null,
+    run_mode: row.run_mode || null,
+  };
+}
+
+function loadLatestRuleSignals() {
+  const portfolio = readJson(path.join(OUTPUTS_DIR, "rule_portfolio_plan.json")) || {};
+  const preview = readJson(path.join(OUTPUTS_DIR, "rule_order_preview.json")) || {};
+  const portfolioItems = Array.isArray(portfolio.items) ? portfolio.items : [];
+  const previewItems = Array.isArray(preview.items) ? preview.items : [];
+  if (portfolio.as_of_date && portfolioItems.length) {
+    const previewByCode = new Map(
+      previewItems.map((item) => [String(item.code || item.symbol || "").trim().padStart(6, "0"), item])
+    );
+    const items = portfolioItems.map((item) => {
+      const code = String(item.code || "").trim().padStart(6, "0");
+      const previewItem = previewByCode.get(code) || {};
+      return {
+        date: portfolio.as_of_date,
+        code,
+        name: item.name || previewItem.name || null,
+        sector: item.sector || null,
+        market: null,
+        close: null,
+        open: null,
+        expected_gap: null,
+        expected_entry_price: toNum(item.expected_entry_price) ?? toNum(previewItem.expected_execution_price),
+        actual_open_gap: null,
+        trading_value: null,
+        trading_value_ma_20: null,
+        trading_value_pass: String(item.trading_value_block_reason || "none") === "none",
+        trading_value_block_reason: item.trading_value_block_reason || "none",
+        gap_risk_blocked: String(item.gap_risk_reason || "none") !== "none",
+        gap_risk_reason: item.gap_risk_reason || "none",
+        market_defensive_mode: !!item.market_defensive_mode,
+        market_entry_allowed: !item.market_defensive_mode,
+        rule_score: toNum(item.rule_score),
+        rule_score_v2: toNum(item.rule_score_v2),
+        liquidity_score: toNum(item.liquidity_score),
+        vol_20: toNum(item.vol_20),
+        entry_signal: !!item.entry_signal,
+        strong_entry_signal: !!item.strong_entry_signal,
+        signal_strength: item.signal_strength || previewItem.signal_strength || "none",
+        strategy_id: portfolio.strategy_id || preview.strategy_id || null,
+        engine_type: portfolio.engine_type || preview.engine_type || null,
+        run_mode: portfolio.run_mode || preview.run_mode || null,
+      };
+    }).sort((a, b) => {
+      const strengthRank = { strong_entry: 2, entry: 1, none: 0 };
+      const strengthDiff = (strengthRank[b.signal_strength] || 0) - (strengthRank[a.signal_strength] || 0);
+      if (strengthDiff) return strengthDiff;
+      const v2Diff = (b.rule_score_v2 || 0) - (a.rule_score_v2 || 0);
+      if (v2Diff) return v2Diff;
+      return (b.rule_score || 0) - (a.rule_score || 0);
+    });
+    return { latestDate: portfolio.as_of_date, items };
+  }
+
+  const rows = readCsv(path.join(DATA_DIR, "rule_signals.csv")) || [];
+  if (!rows.length) {
+    return { latestDate: null, items: [] };
+  }
+  const latestDate = rows
+    .map((row) => toIsoDate(row.date) || String(row.date || "").trim())
+    .filter(Boolean)
+    .sort()
+    .pop();
+  const strengthRank = { strong_entry: 2, entry: 1, none: 0 };
+  const items = rows
+    .filter((row) => (toIsoDate(row.date) || String(row.date || "").trim()) === latestDate)
+    .map(normalizeRuleSignalRow)
+    .sort((a, b) => {
+      const strengthDiff = (strengthRank[b.signal_strength] || 0) - (strengthRank[a.signal_strength] || 0);
+      if (strengthDiff) return strengthDiff;
+      const v2Diff = (b.rule_score_v2 || 0) - (a.rule_score_v2 || 0);
+      if (v2Diff) return v2Diff;
+      return (b.rule_score || 0) - (a.rule_score || 0);
+    });
+  return { latestDate, items };
+}
+
+function summarizeCountsBy(items, key, fallback = "none") {
+  const counts = {};
+  items.forEach((item) => {
+    const raw = item?.[key];
+    const value = String(raw == null || raw === "" ? fallback : raw).trim() || fallback;
+    counts[value] = (counts[value] || 0) + 1;
+  });
+  return Object.entries(counts)
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+}
+
+function buildRuleDashboardSummary() {
+  const { latestDate, items: signalItems } = loadLatestRuleSignals();
+  const portfolio = readJson(path.join(OUTPUTS_DIR, "rule_portfolio_plan.json")) || {};
+  const preview = readJson(path.join(OUTPUTS_DIR, "rule_order_preview.json")) || {};
+  const paperState = readJson(path.join(OUTPUTS_DIR, "rule_account_paper_state.json")) || {};
+  const backtest = readJson(path.join(OUTPUTS_DIR, "rule_strategy_backtest_report.json")) || {};
+  const execution = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
+
+  const portfolioItems = Array.isArray(portfolio.items) ? portfolio.items : [];
+  const previewItems = Array.isArray(preview.items) ? preview.items : [];
+  const positions = Array.isArray(paperState.positions) ? paperState.positions : [];
+
+  return {
+    generated_at: preview.generated_at || portfolio.generated_at || backtest.generated_at || null,
+    as_of_date: preview.as_of_date || portfolio.as_of_date || latestDate || null,
+    strategy_id: preview.strategy_id || portfolio.strategy_id || signalItems[0]?.strategy_id || null,
+    engine_type: preview.engine_type || portfolio.engine_type || signalItems[0]?.engine_type || null,
+    run_mode: preview.run_mode || portfolio.run_mode || signalItems[0]?.run_mode || null,
+    counts: {
+      total_candidates: signalItems.length,
+      entry_signal_count: signalItems.filter((item) => item.entry_signal).length,
+      strong_entry_count: signalItems.filter((item) => item.strong_entry_signal).length,
+      gap_risk_blocked_count: signalItems.filter((item) => item.gap_risk_blocked).length,
+      trading_value_failed_count: signalItems.filter((item) => !item.trading_value_pass).length,
+      defensive_mode_count: signalItems.filter((item) => item.market_defensive_mode).length,
+      hold_count: toNum(portfolio.summary?.hold_count) || 0,
+      buy_count: toNum(portfolio.summary?.buy_count) || 0,
+      reduce_count: toNum(portfolio.summary?.reduce_count) || 0,
+      exit_count: toNum(portfolio.summary?.exit_count) || 0,
+      skip_count: toNum(portfolio.summary?.skip_count) || 0,
+      preview_request_count: toNum(preview.summary?.request_count) || 0,
+      preview_buy_count: toNum(preview.summary?.buy_preview_count) || 0,
+      preview_sell_count: toNum(preview.summary?.sell_preview_count) || 0,
+      preview_allowed_count: toNum(preview.summary?.order_allowed_count) || 0,
+      execution_simulated_filled_count: toNum(execution.summary?.simulated_filled_count) || 0,
+      execution_simulated_unfilled_count: toNum(execution.summary?.simulated_unfilled_count) || 0,
+      paper_position_count: positions.length,
+    },
+    distributions: {
+      signal_strength: summarizeCountsBy(signalItems, "signal_strength", "none"),
+      portfolio_action_reason: summarizeCountsBy(portfolioItems, "portfolio_action_reason", "none").slice(0, 10),
+      order_block_reason: summarizeCountsBy(previewItems, "order_block_reason", "none").slice(0, 10),
+      trading_value_block_reason: summarizeCountsBy(
+        signalItems.filter((item) => !item.trading_value_pass),
+        "trading_value_block_reason",
+        "none"
+      ),
+      gap_risk_reason: summarizeCountsBy(
+        signalItems.filter((item) => item.gap_risk_blocked),
+        "gap_risk_reason",
+        "none"
+      ),
+    },
+    top_candidates: {
+      strong: signalItems.filter((item) => item.strong_entry_signal).slice(0, 10),
+      entry_only: signalItems.filter((item) => item.entry_signal && !item.strong_entry_signal).slice(0, 10),
+    },
+    paper_state: {
+      total_equity: toNum(paperState.total_equity),
+      cash: toNum(paperState.cash),
+      recent_trade_count: Array.isArray(paperState.recent_trades) ? paperState.recent_trades.length : 0,
+      cooldown_count: Array.isArray(paperState.cooldown_codes) ? paperState.cooldown_codes.length : 0,
+      positions,
+    },
+    execution: execution || {},
+    backtest: {
+      summary: backtest.summary || {},
+      portfolio_equity_curve: backtest.portfolio_equity_curve || {},
+      score_distribution: backtest.score_distribution || {},
+      trading_value_distribution: backtest.trading_value_distribution || {},
+    },
+  };
+}
+
 async function getLatestDate(table) {
   const rows = await queryRows(`SELECT MAX(date) AS d FROM ${table}`);
   return rows[0]?.d || null;
@@ -3725,6 +3928,7 @@ app.get("/detail.html", (req, res) => sendPublicPage(res, "detail.html"));
 app.get("/ranking.html", (req, res) => sendPublicPage(res, "ranking.html"));
 app.get("/meaningfulness.html", (req, res) => sendPublicPage(res, "meaningfulness.html"));
 app.get("/paper-trading.html", (req, res) => sendPublicPage(res, "paper-trading.html"));
+app.get("/rule-auto-trading.html", (req, res) => sendPublicPage(res, "rule-auto-trading.html"));
 app.get("/trade-history.html", (req, res) => sendPublicPage(res, "trade-history.html"));
 app.get("/score-check", operatorAccess.pageGuard, (req, res) => sendPublicPage(res, "score-check.html"));
 
@@ -5510,6 +5714,136 @@ app.get("/api/paper-trading/positions", async (req, res) => {
     });
   } catch (e) {
     console.error("GET /api/paper-trading/positions error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/rule/summary", async (req, res) => {
+  try {
+    const payload = buildRuleDashboardSummary();
+    if (!payload.as_of_date && !payload.counts.total_candidates) {
+      return res.status(404).json({ error: "rule artifacts not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/rule/summary error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/rule/signals/latest", async (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(300, Number(req.query.limit) || 100));
+    const strength = String(req.query.strength || "").trim().toLowerCase();
+    const { latestDate, items } = loadLatestRuleSignals();
+    if (!latestDate || !items.length) {
+      return res.status(404).json({ error: "rule signals not found" });
+    }
+    const filtered = items.filter((item) => {
+      if (!strength || strength === "all") return true;
+      if (strength === "strong") return item.strong_entry_signal;
+      if (strength === "entry") return item.entry_signal;
+      if (strength === "none") return item.signal_strength === "none";
+      return item.signal_strength === strength;
+    });
+    res.json({
+      as_of_date: latestDate,
+      strength: strength || "all",
+      count: filtered.length,
+      items: filtered.slice(0, limit),
+    });
+  } catch (e) {
+    console.error("GET /api/rule/signals/latest error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/rule/portfolio-plan", async (req, res) => {
+  try {
+    const payload = readJson(path.join(OUTPUTS_DIR, "rule_portfolio_plan.json")) || {};
+    if (!payload.as_of_date && !Array.isArray(payload.items)) {
+      return res.status(404).json({ error: "rule portfolio plan not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/rule/portfolio-plan error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/rule/order-preview", async (req, res) => {
+  try {
+    const payload = readJson(path.join(OUTPUTS_DIR, "rule_order_preview.json")) || {};
+    if (!payload.as_of_date && !Array.isArray(payload.items)) {
+      return res.status(404).json({ error: "rule order preview not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/rule/order-preview error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/rule/paper-state", async (req, res) => {
+  try {
+    const payload = readJson(path.join(OUTPUTS_DIR, "rule_account_paper_state.json")) || {};
+    if (!payload.as_of_date && !Array.isArray(payload.positions)) {
+      return res.status(404).json({ error: "rule paper state not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/rule/paper-state error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/rule/backtest-summary", async (req, res) => {
+  try {
+    const payload = readJson(path.join(OUTPUTS_DIR, "rule_strategy_backtest_report.json")) || {};
+    if (!payload.latest_signal_date && !payload.generated_at) {
+      return res.status(404).json({ error: "rule backtest summary not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/rule/backtest-summary error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/rule/execution-results", async (req, res) => {
+  try {
+    const payload = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
+    if (!payload.generated_at && !Array.isArray(payload.items)) {
+      return res.status(404).json({ error: "rule execution results not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/rule/execution-results error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/rule/execution-history", async (req, res) => {
+  try {
+    const historyPath = path.join(OUTPUTS_DIR, "rule_execution_history.jsonl");
+    if (!fs.existsSync(historyPath)) {
+      return res.status(404).json({ error: "rule execution history not found" });
+    }
+    const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
+    const lines = fs.readFileSync(historyPath, "utf-8")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const items = lines.slice(-limit).map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+    res.json({ count: items.length, items });
+  } catch (e) {
+    console.error("GET /api/rule/execution-history error", e);
     res.status(500).json({ error: "internal error" });
   }
 });
