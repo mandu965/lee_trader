@@ -8,6 +8,6 @@ if ([string]::IsNullOrWhiteSpace($runMode)) { $runMode = "paper" }
 if ($runMode.ToLower() -eq "paper") {
   python python/rule_execution_simulator.py
 } else {
-  python python/rule_order_submitter.py
+  python python/rule_order_fill_sync.py
 }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -2639,12 +2639,16 @@ function buildRuleDashboardSummary() {
   const portfolio = readJson(path.join(OUTPUTS_DIR, "rule_portfolio_plan.json")) || {};
   const preview = readJson(path.join(OUTPUTS_DIR, "rule_order_preview.json")) || {};
   const paperState = readJson(path.join(OUTPUTS_DIR, "rule_account_paper_state.json")) || {};
+  const liveState = readJson(path.join(OUTPUTS_DIR, "rule_account_live_state.json")) || {};
   const backtest = readJson(path.join(OUTPUTS_DIR, "rule_strategy_backtest_report.json")) || {};
   const execution = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
+  const accountState = (String(execution.run_mode || preview.run_mode || "").toLowerCase() === "paper" || (!liveState.generated_at && !Array.isArray(liveState.positions)))
+    ? paperState
+    : liveState;
 
   const portfolioItems = Array.isArray(portfolio.items) ? portfolio.items : [];
   const previewItems = Array.isArray(preview.items) ? preview.items : [];
-  const positions = Array.isArray(paperState.positions) ? paperState.positions : [];
+  const positions = Array.isArray(accountState.positions) ? accountState.positions : [];
 
   return {
     generated_at: preview.generated_at || portfolio.generated_at || backtest.generated_at || null,
@@ -2668,6 +2672,13 @@ function buildRuleDashboardSummary() {
       preview_buy_count: toNum(preview.summary?.buy_preview_count) || 0,
       preview_sell_count: toNum(preview.summary?.sell_preview_count) || 0,
       preview_allowed_count: toNum(preview.summary?.order_allowed_count) || 0,
+      execution_submitted_count: toNum(execution.summary?.submitted_count) || 0,
+      execution_failed_count: toNum(execution.summary?.failed_count) || 0,
+      execution_skipped_count: toNum(execution.summary?.skipped_count) || 0,
+      execution_filled_count: toNum(execution.summary?.filled_count) || 0,
+      execution_partial_filled_count: toNum(execution.summary?.partial_filled_count) || 0,
+      execution_unfilled_count: toNum(execution.summary?.unfilled_count) || 0,
+      execution_canceled_count: toNum(execution.summary?.canceled_count) || 0,
       execution_simulated_filled_count: toNum(execution.summary?.simulated_filled_count) || 0,
       execution_simulated_unfilled_count: toNum(execution.summary?.simulated_unfilled_count) || 0,
       paper_position_count: positions.length,
@@ -2692,10 +2703,10 @@ function buildRuleDashboardSummary() {
       entry_only: signalItems.filter((item) => item.entry_signal && !item.strong_entry_signal).slice(0, 10),
     },
     paper_state: {
-      total_equity: toNum(paperState.total_equity),
-      cash: toNum(paperState.cash),
-      recent_trade_count: Array.isArray(paperState.recent_trades) ? paperState.recent_trades.length : 0,
-      cooldown_count: Array.isArray(paperState.cooldown_codes) ? paperState.cooldown_codes.length : 0,
+      total_equity: toNum(accountState.total_equity),
+      cash: toNum(accountState.cash),
+      recent_trade_count: Array.isArray(accountState.recent_trades) ? accountState.recent_trades.length : 0,
+      cooldown_count: Array.isArray(accountState.cooldown_codes) ? accountState.cooldown_codes.length : 0,
       positions,
     },
     execution: execution || {},
@@ -2706,6 +2717,141 @@ function buildRuleDashboardSummary() {
       trading_value_distribution: backtest.trading_value_distribution || {},
     },
   };
+}
+
+function registerRuleApiRoutes(target) {
+  target.get("/api/rule/summary", async (req, res) => {
+    try {
+      const payload = buildRuleDashboardSummary();
+      if (!payload.as_of_date && !payload.counts.total_candidates) {
+        return res.status(404).json({ error: "rule artifacts not found" });
+      }
+      res.json(payload);
+    } catch (e) {
+      console.error("GET /api/rule/summary error", e);
+      res.status(500).json({ error: "internal error" });
+    }
+  });
+
+  target.get("/api/rule/signals/latest", async (req, res) => {
+    try {
+      const limit = Math.max(1, Math.min(300, Number(req.query.limit) || 100));
+      const strength = String(req.query.strength || "").trim().toLowerCase();
+      const { latestDate, items } = loadLatestRuleSignals();
+      if (!latestDate || !items.length) {
+        return res.status(404).json({ error: "rule signals not found" });
+      }
+      const filtered = items.filter((item) => {
+        if (!strength || strength === "all") return true;
+        if (strength === "strong") return item.strong_entry_signal;
+        if (strength === "entry") return item.entry_signal;
+        if (strength === "none") return item.signal_strength === "none";
+        return item.signal_strength === strength;
+      });
+      res.json({
+        as_of_date: latestDate,
+        strength: strength || "all",
+        count: filtered.length,
+        items: filtered.slice(0, limit),
+      });
+    } catch (e) {
+      console.error("GET /api/rule/signals/latest error", e);
+      res.status(500).json({ error: "internal error" });
+    }
+  });
+
+  target.get("/api/rule/portfolio-plan", async (req, res) => {
+    try {
+      const payload = readJson(path.join(OUTPUTS_DIR, "rule_portfolio_plan.json")) || {};
+      if (!payload.as_of_date && !Array.isArray(payload.items)) {
+        return res.status(404).json({ error: "rule portfolio plan not found" });
+      }
+      res.json(payload);
+    } catch (e) {
+      console.error("GET /api/rule/portfolio-plan error", e);
+      res.status(500).json({ error: "internal error" });
+    }
+  });
+
+  target.get("/api/rule/order-preview", async (req, res) => {
+    try {
+      const payload = readJson(path.join(OUTPUTS_DIR, "rule_order_preview.json")) || {};
+      if (!payload.as_of_date && !Array.isArray(payload.items)) {
+        return res.status(404).json({ error: "rule order preview not found" });
+      }
+      res.json(payload);
+    } catch (e) {
+      console.error("GET /api/rule/order-preview error", e);
+      res.status(500).json({ error: "internal error" });
+    }
+  });
+
+  target.get("/api/rule/paper-state", async (req, res) => {
+    try {
+      const execution = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
+      const paperPayload = readJson(path.join(OUTPUTS_DIR, "rule_account_paper_state.json")) || {};
+      const livePayload = readJson(path.join(OUTPUTS_DIR, "rule_account_live_state.json")) || {};
+      const payload = String(execution.run_mode || "").toLowerCase() === "paper" ? paperPayload : (livePayload.generated_at ? livePayload : paperPayload);
+      if (!payload.as_of_date && !Array.isArray(payload.positions)) {
+        return res.status(404).json({ error: "rule paper state not found" });
+      }
+      res.json(payload);
+    } catch (e) {
+      console.error("GET /api/rule/paper-state error", e);
+      res.status(500).json({ error: "internal error" });
+    }
+  });
+
+  target.get("/api/rule/backtest-summary", async (req, res) => {
+    try {
+      const payload = readJson(path.join(OUTPUTS_DIR, "rule_strategy_backtest_report.json")) || {};
+      if (!payload.latest_signal_date && !payload.generated_at) {
+        return res.status(404).json({ error: "rule backtest summary not found" });
+      }
+      res.json(payload);
+    } catch (e) {
+      console.error("GET /api/rule/backtest-summary error", e);
+      res.status(500).json({ error: "internal error" });
+    }
+  });
+
+  target.get("/api/rule/execution-results", async (req, res) => {
+    try {
+      const payload = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
+      if (!payload.generated_at && !Array.isArray(payload.items)) {
+        return res.status(404).json({ error: "rule execution results not found" });
+      }
+      res.json(payload);
+    } catch (e) {
+      console.error("GET /api/rule/execution-results error", e);
+      res.status(500).json({ error: "internal error" });
+    }
+  });
+
+  target.get("/api/rule/execution-history", async (req, res) => {
+    try {
+      const historyPath = path.join(OUTPUTS_DIR, "rule_execution_history.jsonl");
+      if (!fs.existsSync(historyPath)) {
+        return res.status(404).json({ error: "rule execution history not found" });
+      }
+      const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 20));
+      const lines = fs.readFileSync(historyPath, "utf-8")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const items = lines.slice(-limit).map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      }).filter(Boolean);
+      res.json({ count: items.length, items });
+    } catch (e) {
+      console.error("GET /api/rule/execution-history error", e);
+      res.status(500).json({ error: "internal error" });
+    }
+  });
 }
 
 async function getLatestDate(table) {
@@ -3985,6 +4131,7 @@ app.get("/blog/:slug", (req, res) => {
   if (!item) return res.status(404).sendFile(path.join(PUBLIC_DIR, "content-detail.html"));
   return res.type("html").send(renderArticlePage(item, "blog"));
 });
+registerRuleApiRoutes(app);
 app.use(express.static(PUBLIC_DIR, {
   etag: true,
   lastModified: true,
@@ -5786,7 +5933,10 @@ app.get("/api/rule/order-preview", async (req, res) => {
 
 app.get("/api/rule/paper-state", async (req, res) => {
   try {
-    const payload = readJson(path.join(OUTPUTS_DIR, "rule_account_paper_state.json")) || {};
+    const execution = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
+    const paperPayload = readJson(path.join(OUTPUTS_DIR, "rule_account_paper_state.json")) || {};
+    const livePayload = readJson(path.join(OUTPUTS_DIR, "rule_account_live_state.json")) || {};
+    const payload = String(execution.run_mode || "").toLowerCase() === "paper" ? paperPayload : (livePayload.generated_at ? livePayload : paperPayload);
     if (!payload.as_of_date && !Array.isArray(payload.positions)) {
       return res.status(404).json({ error: "rule paper state not found" });
     }

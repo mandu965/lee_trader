@@ -9,6 +9,7 @@ from typing import Any
 
 import pandas as pd
 
+from rule_market_open_snapshot import check_market_data_available
 from rule_paper_state_manager import default_state
 from rule_signal_builder import ROOT, resolve
 
@@ -24,6 +25,7 @@ DEFAULT_RECON_MD = OUTPUT_DIR / "rule_execution_reconciliation_report.md"
 DEFAULT_CALENDAR = ROOT / "config" / "trading_calendar_kr.json"
 DEFAULT_EXECUTION_HISTORY = OUTPUT_DIR / "rule_execution_history.jsonl"
 DEFAULT_STATE_HISTORY = OUTPUT_DIR / "rule_paper_state_history.jsonl"
+DEFAULT_MARKET_SNAPSHOT = OUTPUT_DIR / "rule_market_open_snapshot.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -37,6 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--calendar-json", type=Path, default=DEFAULT_CALENDAR)
     parser.add_argument("--out-execution-history-jsonl", type=Path, default=DEFAULT_EXECUTION_HISTORY)
     parser.add_argument("--out-state-history-jsonl", type=Path, default=DEFAULT_STATE_HISTORY)
+    parser.add_argument("--out-market-snapshot-json", type=Path, default=DEFAULT_MARKET_SNAPSHOT)
     return parser.parse_args()
 
 
@@ -62,7 +65,7 @@ def load_signals(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path, dtype={"code": str}, low_memory=False)
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["code"] = df["code"].astype(str).str.zfill(6)
-    for col in ["next_open", "actual_open_gap", "close", "expected_entry_price"]:
+    for col in ["next_open", "actual_open_gap", "expected_gap", "open_gap", "close", "expected_entry_price"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     return df.dropna(subset=["date", "code"]).sort_values(["date", "code"]).reset_index(drop=True)
@@ -215,24 +218,48 @@ def build_signal_map(signals: pd.DataFrame, as_of_date: str) -> dict[str, dict[s
     return {str(row["code"]).zfill(6): row.to_dict() for _, row in day.iterrows()}
 
 
-def execution_price(signal_row: dict[str, Any], preview_item: dict[str, Any]) -> tuple[float | None, float | None, bool]:
+def execution_price(
+    signal_row: dict[str, Any],
+    preview_item: dict[str, Any],
+    market_snapshot: dict[str, Any] | None,
+) -> tuple[float | None, float | None, bool, str]:
+    if market_snapshot:
+        open_price = _float(market_snapshot.get("open_price"))
+        actual_gap = _float(market_snapshot.get("actual_open_gap"))
+        if open_price and open_price > 0:
+            return open_price, actual_gap, bool(market_snapshot.get("market_data_available")), "kis_open_snapshot"
     next_open = _float(signal_row.get("next_open"))
-    actual_gap = _float(signal_row.get("actual_open_gap"))
+    actual_gap = (
+        _float(signal_row.get("actual_open_gap"))
+        or _float(signal_row.get("expected_gap"))
+        or _float(signal_row.get("open_gap"))
+    )
     if next_open and next_open > 0:
-        return next_open, actual_gap, True
-    return _float(preview_item.get("expected_execution_price")), None, False
+        return next_open, actual_gap, True, "signal_next_open"
+    expected_execution_price = _float(preview_item.get("expected_execution_price"))
+    if expected_execution_price and expected_execution_price > 0:
+        return expected_execution_price, actual_gap, actual_gap is not None, "signal_expected_entry_price"
+    return expected_execution_price, actual_gap, False, "unavailable"
 
 
-def evaluate_preview_item(item: dict[str, Any], signal_row: dict[str, Any]) -> dict[str, Any]:
+def evaluate_preview_item(item: dict[str, Any], signal_row: dict[str, Any], market_snapshot: dict[str, Any] | None) -> dict[str, Any]:
     row = dict(item)
     side = str(row.get("side") or "NONE").upper()
     qty = int(float(row.get("order_qty") or 0))
-    exec_price, actual_gap, market_data_available = execution_price(signal_row, row)
+    exec_price, actual_gap, market_data_available, market_data_source = execution_price(signal_row, row, market_snapshot)
     row["expected_execution_price"] = exec_price
     row["actual_open_gap"] = actual_gap
     row["market_data_available"] = market_data_available
-    row["api_health_status"] = "not_called_paper_execution"
-    row["api_failure_reason"] = None
+    row["market_data_source"] = market_data_source
+    if market_snapshot:
+        row["api_health_status"] = "ok"
+        row["api_failure_reason"] = None
+    elif market_data_available:
+        row["api_health_status"] = "signal_fallback"
+        row["api_failure_reason"] = None
+    else:
+        row["api_health_status"] = "csv_fallback"
+        row["api_failure_reason"] = "rule_market_open_snapshot_unavailable"
     row["execution_checked_at"] = datetime.now().isoformat(timespec="seconds")
     row["filled_qty"] = 0
     row["unfilled_qty"] = max(qty, 0)
@@ -247,6 +274,13 @@ def evaluate_preview_item(item: dict[str, Any], signal_row: dict[str, Any]) -> d
         return row
 
     block_reasons: list[str] = []
+    existing_block_reason = str(row.get("order_block_reason") or "none").strip()
+    existing_reasons = [
+        reason
+        for reason in existing_block_reason.split(";")
+        if reason and reason not in {"none", "paper_mode_no_order_submission"}
+    ]
+    block_reasons.extend(existing_reasons)
     if side == "BUY":
         if not market_data_available:
             block_reasons.append("actual_open_gap_unavailable")
@@ -257,7 +291,8 @@ def evaluate_preview_item(item: dict[str, Any], signal_row: dict[str, Any]) -> d
 
     if block_reasons:
         existing = str(row.get("order_block_reason") or "").strip()
-        combined = [part for part in [existing] if part and part != "none"] + block_reasons
+        existing_parts = [part for part in existing.split(";") if part and part != "none"]
+        combined = existing_parts + block_reasons
         row["order_block_reason"] = ";".join(dict.fromkeys(combined)) if combined else "none"
         row["order_status"] = "simulated_unfilled"
         row["reconciliation_status"] = "blocked_before_open"
@@ -411,7 +446,7 @@ def build_results(preview: dict[str, Any], executed_items: list[dict[str, Any]],
         "trading_day_valid": None,
         "trading_day_reason": "not_checked_in_paper_execution",
         "market_data_available": market_data_available,
-        "api_health_status": "not_called_paper_execution",
+        "api_health_status": "ok" if market_data_available else "market_data_unavailable",
         "api_failure_reason": None,
         "order_run_aborted": False,
         "order_run_abort_reason": None,
@@ -523,6 +558,8 @@ def render_reconciliation(results: dict[str, Any], state: dict[str, Any]) -> str
         f"- trading_day_valid: `{results.get('trading_day_valid')}`",
         f"- trading_day_reason: `{results.get('trading_day_reason')}`",
         f"- market_data_available: `{results.get('market_data_available')}`",
+        f"- api_health_status: `{results.get('api_health_status')}`",
+        f"- api_failure_reason: `{results.get('api_failure_reason')}`",
         f"- order_run_aborted: `{results.get('order_run_aborted')}`",
         f"- order_run_abort_reason: `{results.get('order_run_abort_reason')}`",
         f"- previous_reconciliation_status: `{results.get('previous_reconciliation_status')}`",
@@ -531,6 +568,13 @@ def render_reconciliation(results: dict[str, Any], state: dict[str, Any]) -> str
         "## Summary",
         "",
         f"- requested_count: `{summary.get('requested_count', 0)}`",
+        f"- submitted_count: `{summary.get('submitted_count', 0)}`",
+        f"- failed_count: `{summary.get('failed_count', 0)}`",
+        f"- skipped_count: `{summary.get('skipped_count', 0)}`",
+        f"- filled_count: `{summary.get('filled_count', 0)}`",
+        f"- partial_filled_count: `{summary.get('partial_filled_count', 0)}`",
+        f"- unfilled_count: `{summary.get('unfilled_count', 0)}`",
+        f"- canceled_count: `{summary.get('canceled_count', 0)}`",
         f"- simulated_filled_count: `{summary.get('simulated_filled_count', 0)}`",
         f"- simulated_unfilled_count: `{summary.get('simulated_unfilled_count', 0)}`",
         f"- buy_filled_amount: `{float(summary.get('buy_filled_amount') or 0.0):,.0f}`",
@@ -600,6 +644,7 @@ def main() -> None:
     out_state = resolve(args.out_state_json)
     out_execution_history = resolve(args.out_execution_history_jsonl)
     out_state_history = resolve(args.out_state_history_jsonl)
+    out_market_snapshot = resolve(args.out_market_snapshot_json)
     calendar = load_calendar(args.calendar_json)
     session_status = validate_trading_session(datetime.now(), str(preview.get("as_of_date") or ""), calendar)
     reconciliation_status = validate_previous_execution_completed(out_results, out_recon, str(preview.get("as_of_date") or ""))
@@ -625,6 +670,15 @@ def main() -> None:
             reconciliation_status,
         )
         updated_state = state
+    elif str(preview.get("run_mode") or "paper").lower() != "paper":
+        results = build_aborted_results(
+            preview,
+            state,
+            "execution_simulator_supports_paper_only",
+            session_status,
+            reconciliation_status,
+        )
+        updated_state = state
     elif reconciliation_status.get("new_orders_blocked_by_reconciliation"):
         results = build_aborted_results(
             preview,
@@ -637,7 +691,29 @@ def main() -> None:
     else:
         signals = load_signals(args.signals_csv)
         signal_map = build_signal_map(signals, str(preview.get("as_of_date") or ""))
-        executed_items = [evaluate_preview_item(item, signal_map.get(str(item.get("code") or "").zfill(6), {})) for item in preview.get("items") or []]
+        symbols = [str(item.get("code") or item.get("symbol") or "").zfill(6) for item in preview.get("items") or [] if str(item.get("side") or "").upper() == "BUY"]
+        market_snapshot_payload = {
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "symbols": symbols,
+            "market_data_available": False,
+            "api_health_status": "not_called_paper_execution",
+            "api_failure_reason": None,
+            "snapshots": {},
+            "failures": [],
+        }
+        if symbols:
+            market_snapshot_payload.update(check_market_data_available(symbols))
+        out_market_snapshot.parent.mkdir(parents=True, exist_ok=True)
+        out_market_snapshot.write_text(json.dumps(market_snapshot_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        snapshot_map = market_snapshot_payload.get("snapshots") or {}
+        executed_items = [
+            evaluate_preview_item(
+                item,
+                signal_map.get(str(item.get("code") or "").zfill(6), {}),
+                snapshot_map.get(str(item.get("code") or "").zfill(6)),
+            )
+            for item in preview.get("items") or []
+        ]
         updated_state = apply_filled_orders_to_state(state, executed_items, signal_map, str(preview.get("as_of_date") or ""))
         results = build_results(preview, executed_items, updated_state)
         results["trading_day_valid"] = session_status.get("trading_day_valid")
@@ -646,6 +722,18 @@ def main() -> None:
         results["previous_reconciliation_status"] = reconciliation_status.get("previous_reconciliation_status")
         results["new_orders_blocked_by_reconciliation"] = reconciliation_status.get("new_orders_blocked_by_reconciliation")
         results["reconciliation_block_reason"] = reconciliation_status.get("reconciliation_block_reason")
+        buy_rows = [row for row in executed_items if str(row.get("side") or "").upper() == "BUY"]
+        fallback_ready = bool(buy_rows) and all(bool(row.get("market_data_available")) for row in buy_rows)
+        results["market_data_available"] = market_snapshot_payload.get("market_data_available") or fallback_ready
+        if market_snapshot_payload.get("market_data_available"):
+            results["api_health_status"] = market_snapshot_payload.get("api_health_status")
+            results["api_failure_reason"] = market_snapshot_payload.get("api_failure_reason")
+        elif fallback_ready:
+            results["api_health_status"] = "signal_fallback"
+            results["api_failure_reason"] = None
+        else:
+            results["api_health_status"] = market_snapshot_payload.get("api_health_status")
+            results["api_failure_reason"] = market_snapshot_payload.get("api_failure_reason")
 
     out_results.parent.mkdir(parents=True, exist_ok=True)
     out_recon.parent.mkdir(parents=True, exist_ok=True)

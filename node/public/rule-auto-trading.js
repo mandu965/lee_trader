@@ -45,6 +45,13 @@ const actionChip = (value) => {
 const orderChip = (row) => {
   if (row.order_status === "simulated_filled") return `<span class="chip good">filled</span>`;
   if (row.order_status === "simulated_unfilled") return `<span class="chip warn">unfilled</span>`;
+  if (row.order_status === "submitted") return `<span class="chip good">submitted</span>`;
+  if (row.order_status === "filled") return `<span class="chip good">filled</span>`;
+  if (row.order_status === "partial_filled") return `<span class="chip watch">partial</span>`;
+  if (row.order_status === "unfilled") return `<span class="chip warn">unfilled</span>`;
+  if (row.order_status === "canceled") return `<span class="chip warn">canceled</span>`;
+  if (row.order_status === "failed") return `<span class="chip bad">failed</span>`;
+  if (row.order_status === "blocked") return `<span class="chip bad">blocked</span>`;
   if (row.order_allowed) return `<span class="chip good">allowed</span>`;
   if (row.side === "BUY" || row.side === "SELL") return `<span class="chip watch">preview</span>`;
   return `<span class="chip bad">blocked</span>`;
@@ -88,6 +95,11 @@ function renderStatus(summary) {
   const counts = summary.counts || {};
   const scoreDist = summary.backtest?.score_distribution || {};
   const tradingDist = summary.backtest?.trading_value_distribution || {};
+  const executionDone =
+    (counts.execution_filled_count || 0) +
+    (counts.execution_partial_filled_count || 0) +
+    (counts.execution_unfilled_count || 0) +
+    (counts.execution_failed_count || 0);
   document.getElementById("statusGrid").innerHTML = `
     <article class="hero-card">
       <div class="card-label">포트폴리오 판단</div>
@@ -96,8 +108,8 @@ function renderStatus(summary) {
     </article>
     <article class="hero-card">
       <div class="card-label">Order / Execution</div>
-      <div class="card-value">${fmtNum(counts.preview_request_count)} / ${fmtNum(counts.execution_simulated_filled_count)}</div>
-      <div class="card-detail">preview / simulated filled / unfilled ${fmtNum(counts.execution_simulated_unfilled_count)}</div>
+      <div class="card-value">${fmtNum(counts.preview_request_count)} / ${fmtNum(executionDone || counts.execution_simulated_filled_count)}</div>
+      <div class="card-detail">preview / filled ${fmtNum(counts.execution_filled_count)} / partial ${fmtNum(counts.execution_partial_filled_count)} / unfilled ${fmtNum(counts.execution_unfilled_count)} / failed ${fmtNum(counts.execution_failed_count)}</div>
     </article>
     <article class="hero-card">
       <div class="card-label">점수 분포</div>
@@ -235,7 +247,7 @@ function renderExecution(results) {
   }
   tbody.innerHTML = items.slice(0, 50).map((item) => `
     <tr>
-      <td>${item.order_status === "simulated_filled" ? '<span class="chip good">filled</span>' : `<span class="chip warn">${escapeHtml(item.order_status || "planned")}</span>`}</td>
+      <td>${orderChip(item)}</td>
       <td class="mono">${escapeHtml(item.code)}</td>
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(item.side || "-")}</td>
@@ -282,7 +294,7 @@ async function loadRuleDashboard() {
       fetchJson("/api/rule/signals/latest?strength=all&limit=30"),
       fetchJson("/api/rule/portfolio-plan"),
       fetchJson("/api/rule/order-preview"),
-      fetchJson("/api/rule/paper-state"),
+      fetchJson("/api/rule/paper-state").catch(() => ({ positions: [], recent_trades: [] })),
     ]);
 
     renderHero(summary);
@@ -306,7 +318,7 @@ async function loadRuleDashboard() {
     const abortedText = executionResults.order_run_aborted
       ? ` | aborted: ${executionResults.order_run_abort_reason || "-"}`
       : "";
-    pageState.textContent = `기준일 ${summary.as_of_date || "-"} | 후보 ${fmtNum(summary.counts?.total_candidates)} | strong ${fmtNum(summary.counts?.strong_entry_count)} | simulated filled ${fmtNum(summary.counts?.execution_simulated_filled_count)}${abortedText}`;
+    pageState.textContent = `기준일 ${summary.as_of_date || "-"} | 후보 ${fmtNum(summary.counts?.total_candidates)} | strong ${fmtNum(summary.counts?.strong_entry_count)} | filled ${fmtNum(summary.counts?.execution_filled_count)} | partial ${fmtNum(summary.counts?.execution_partial_filled_count)} | submitted ${fmtNum(summary.counts?.execution_submitted_count)}${abortedText}`;
   } catch (error) {
     console.error(error);
     pageState.textContent = `RULE 대시보드 로드 실패: ${error.message}`;

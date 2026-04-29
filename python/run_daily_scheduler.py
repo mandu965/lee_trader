@@ -103,6 +103,18 @@ def _live_quality_guard_output_check_command() -> list[str]:
     return [sys.executable, str(ROOT / "python" / "check_live_quality_guard_outputs.py")]
 
 
+def _rule_after_close_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "run_rule_after_close_cycle.py")]
+
+
+def _rule_before_open_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "run_rule_before_open_cycle.py")]
+
+
+def _rule_after_open_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "run_rule_after_open_cycle.py")]
+
+
 def _resolve_run_steps() -> list[tuple[str, list[str]]]:
     command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
     if command_set == "intraday":
@@ -126,6 +138,12 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
             ("build_quality_risk_guard_live_review", _quality_risk_guard_live_review_command()),
             ("check_live_quality_guard_outputs", _live_quality_guard_output_check_command()),
         ]
+    if command_set == "rule_after_close":
+        return [("run_rule_after_close_cycle", _rule_after_close_command())]
+    if command_set == "rule_before_open":
+        return [("run_rule_before_open_cycle", _rule_before_open_command())]
+    if command_set == "rule_after_open":
+        return [("run_rule_after_open_cycle", _rule_after_open_command())]
     return [("run_manual_close_batch", _close_batch_command())]
 
 
@@ -162,6 +180,8 @@ def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
         )
         return steps
     if command_set == "close":
+        return []
+    if command_set in {"rule_after_close", "rule_before_open", "rule_after_open"}:
         return []
     if not _should_sync_web_display():
         return []

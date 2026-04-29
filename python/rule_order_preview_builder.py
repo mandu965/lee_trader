@@ -8,8 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
+from rule_account_guard import assert_order_allowed, resolve_trading_account, validate_account_profile
 from rule_signal_builder import ENGINE_TYPE, STRATEGY_ID, ROOT, resolve
 
 
@@ -55,6 +54,8 @@ def validate_order_size(order_qty: int, order_amount: float, min_order_amount: f
 def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> dict[str, Any]:
     min_order_amount = cfg_float("RULE_MIN_ORDER_AMOUNT", 100_000.0)
     market_order_enabled = str(os.getenv("MARKET_ORDER_ENABLED", "0")).strip().lower() in {"1", "true", "yes", "on"}
+    account_profile = resolve_trading_account(ENGINE_TYPE, run_mode)
+    account_profile_ok, account_profile_reasons = validate_account_profile(account_profile)
     account_state = plan.get("account_state") or {}
     total_equity = float(account_state.get("total_equity") or 0.0)
     cash = float(account_state.get("cash") or 0.0)
@@ -86,33 +87,6 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
         order_qty = calculate_order_quantity(order_amount, expected_price)
         size_ok, size_reason = validate_order_size(order_qty, order_amount, min_order_amount)
 
-        block_reasons: list[str] = []
-        if run_mode != "paper":
-            block_reasons.append("first_implementation_is_paper_only")
-        if side == "BUY" and item.get("signal_strength") != "strong_entry":
-            block_reasons.append("buy_requires_strong_entry")
-        if side == "BUY" and item.get("market_defensive_mode"):
-            block_reasons.append("market_defensive_mode")
-        if side == "BUY" and item.get("gap_risk_reason") not in {None, "", "none"}:
-            block_reasons.append(str(item.get("gap_risk_reason")))
-        if side == "BUY" and not item.get("sector_limit_pass", True):
-            block_reasons.append("sector_limit_failed")
-        if side == "BUY" and not item.get("cooldown_pass", True):
-            block_reasons.append("cooldown_failed")
-        if side == "BUY" and not item.get("cash_limit_pass", True):
-            block_reasons.append("cash_limit_failed")
-        if side == "BUY" and item.get("trading_value_block_reason") not in {None, "", "none"}:
-            block_reasons.append(str(item.get("trading_value_block_reason")))
-        if not size_ok and side in {"BUY", "SELL"}:
-            block_reasons.append(size_reason)
-        if side == "NONE":
-            block_reasons.append("no_order_action")
-
-        order_allowed = False  # 1차 구현은 paper preview only
-        if run_mode == "paper" and side in {"BUY", "SELL"} and size_ok:
-            order_allowed = False
-            block_reasons.append("paper_mode_no_order_submission")
-
         order_type = "limit"
         limit_price = None
         if expected_price:
@@ -121,11 +95,39 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
             elif side == "SELL":
                 limit_price = int(expected_price * 0.99)
 
+        gap_risk_reason = item.get("gap_risk_reason")
+        trading_value_block_reason = item.get("trading_value_block_reason")
+        order_context = {
+            "account_id": account_profile.account_id,
+            "strategy_id": STRATEGY_ID,
+            "engine_type": ENGINE_TYPE,
+            "run_mode": run_mode,
+            "side": side,
+            "order_qty": order_qty,
+            "order_amount": order_amount,
+            "signal_strength": item.get("signal_strength"),
+            "market_defensive_mode": bool(item.get("market_defensive_mode")),
+            "gap_risk_blocked": gap_risk_reason not in {None, "", "none"},
+            "gap_risk_reason": gap_risk_reason,
+            "trading_value_pass": trading_value_block_reason in {None, "", "none"},
+            "trading_value_block_reason": trading_value_block_reason,
+            "sector_limit_pass": bool(item.get("sector_limit_pass", True)),
+            "cooldown_pass": bool(item.get("cooldown_pass", True)),
+            "cash_limit_pass": bool(item.get("cash_limit_pass", True)),
+        }
+        if not size_ok and side in {"BUY", "SELL"}:
+            # Keep the original sizing reason when it is more specific than the guard default.
+            order_context["order_qty"] = order_qty
+            order_context["order_amount"] = order_amount
+        order_allowed, block_reasons = assert_order_allowed(order_context)
+        if not size_ok and side in {"BUY", "SELL"} and size_reason not in block_reasons:
+            block_reasons.append(size_reason)
+
         items.append(
             {
                 "order_id": f"RULE-PREVIEW-{plan.get('as_of_date')}-{idx:03d}",
                 "parent_order_id": None,
-                "account_id": plan.get("account_id", "RULE_ACCOUNT_01"),
+                "account_id": account_profile.account_id,
                 "strategy_id": STRATEGY_ID,
                 "engine_type": ENGINE_TYPE,
                 "run_mode": run_mode,
@@ -144,8 +146,8 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
                 "order_allowed": order_allowed,
                 "order_block_reason": ";".join(dict.fromkeys(block_reasons)) if block_reasons else "none",
                 "signal_strength": item.get("signal_strength"),
-                "gap_risk_reason": item.get("gap_risk_reason"),
-                "trading_value_block_reason": item.get("trading_value_block_reason"),
+                "gap_risk_reason": gap_risk_reason,
+                "trading_value_block_reason": trading_value_block_reason,
                 "sector_limit_pass": bool(item.get("sector_limit_pass", True)),
                 "cooldown_pass": bool(item.get("cooldown_pass", True)),
                 "cash_limit_pass": bool(item.get("cash_limit_pass", True)),
@@ -170,11 +172,14 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
     return {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "as_of_date": plan.get("as_of_date"),
-        "account_id": plan.get("account_id", "RULE_ACCOUNT_01"),
+        "account_id": account_profile.account_id,
         "strategy_id": STRATEGY_ID,
         "engine_type": ENGINE_TYPE,
         "run_mode": run_mode,
-        "paper_only": True,
+        "paper_only": run_mode == "paper",
+        "account_profile": account_profile.to_dict(),
+        "account_profile_valid": account_profile_ok,
+        "account_profile_block_reasons": account_profile_reasons,
         "trading_day_valid": None,
         "trading_day_reason": "not_checked_in_after_close_preview",
         "market_data_available": None,

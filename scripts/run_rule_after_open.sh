@@ -7,5 +7,5 @@ cd "$ROOT_DIR"
 if [[ "${RULE_TRADING_RUN_MODE:-paper}" == "paper" ]]; then
   python python/rule_execution_simulator.py
 else
-  python python/rule_order_submitter.py
+  python python/rule_order_fill_sync.py
 fi

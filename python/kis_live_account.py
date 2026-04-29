@@ -19,6 +19,8 @@ BALANCE_API_URL = "/uapi/domestic-stock/v1/trading/inquire-balance"
 PSBL_ORDER_API_URL = "/uapi/domestic-stock/v1/trading/inquire-psbl-order"
 ORDER_CASH_API_URL = "/uapi/domestic-stock/v1/trading/order-cash"
 DAILY_CCLD_API_URL = "/uapi/domestic-stock/v1/trading/inquire-daily-ccld"
+PSBL_RVSECNCL_API_URL = "/uapi/domestic-stock/v1/trading/inquire-psbl-rvsecncl"
+ORDER_RVSECNCL_API_URL = "/uapi/domestic-stock/v1/trading/order-rvsecncl"
 
 
 @dataclass(frozen=True)
@@ -208,6 +210,67 @@ def inquire_daily_ccld(
         },
     )
     return _to_frame(payload, "output1"), _to_frame(payload, "output2")
+
+
+def inquire_psbl_rvsecncl(
+    client: KISClient,
+    account: KISAccountEnv,
+    *,
+    inqr_dvsn_1: str = "1",
+    inqr_dvsn_2: str = "0",
+    ctx_area_fk100: str = "",
+    ctx_area_nk100: str = "",
+) -> pd.DataFrame:
+    # Official KIS sample uses TTTC0084R for this endpoint.
+    payload = client.get(
+        PSBL_RVSECNCL_API_URL,
+        tr_id="TTTC0084R",
+        params={
+            "CANO": account.cano,
+            "ACNT_PRDT_CD": account.acnt_prdt_cd,
+            "INQR_DVSN_1": inqr_dvsn_1,
+            "INQR_DVSN_2": inqr_dvsn_2,
+            "CTX_AREA_FK100": ctx_area_fk100,
+            "CTX_AREA_NK100": ctx_area_nk100,
+        },
+    )
+    return _to_frame(payload, "output")
+
+
+def order_rvsecncl(
+    client: KISClient,
+    account: KISAccountEnv,
+    *,
+    krx_fwdg_ord_orgno: str,
+    orgn_odno: str,
+    ord_dvsn: str,
+    rvse_cncl_dvsn_cd: str,
+    ord_qty: str,
+    ord_unpr: str,
+    qty_all_ord_yn: str = "Y",
+    excg_id_dvsn_cd: str = "KRX",
+    cndt_pric: str = "",
+) -> pd.DataFrame:
+    tr_id = "VTTC0013U" if account.env_dv == "demo" else "TTTC0013U"
+    payload = client.post(
+        ORDER_RVSECNCL_API_URL,
+        tr_id=tr_id,
+        payload={
+            "CANO": account.cano,
+            "ACNT_PRDT_CD": account.acnt_prdt_cd,
+            "KRX_FWDG_ORD_ORGNO": str(krx_fwdg_ord_orgno or "").strip(),
+            "ORGN_ODNO": str(orgn_odno or "").strip(),
+            "ORD_DVSN": str(ord_dvsn or "").strip(),
+            "RVSE_CNCL_DVSN_CD": str(rvse_cncl_dvsn_cd or "").strip(),
+            "ORD_QTY": str(ord_qty),
+            "ORD_UNPR": str(ord_unpr),
+            "QTY_ALL_ORD_YN": str(qty_all_ord_yn or "Y").strip(),
+            "EXCG_ID_DVSN_CD": str(excg_id_dvsn_cd or "KRX").strip(),
+            "CNDT_PRIC": str(cndt_pric or "").strip(),
+        },
+        require_hashkey=False,
+    )
+    return _to_frame(payload, "output")
 
 
 def summarize_cash(balance_summary: pd.DataFrame) -> dict[str, float | None]:
