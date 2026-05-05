@@ -1,21 +1,37 @@
 # Lee_trader_score File Index
 
-## 핵심 파일 목록
-| 파일 | 역할 | 수정 가능 여부 | 수정 시 주의사항 |
+## 목적
+
+종목별 최종 점수, 파생 점수, 정렬 순위, 설명 컬럼을 만드는 핵심 파일 인덱스입니다.
+점수 모듈은 수식 변경 하나가 ranking, top 후보, 주문 preview까지 연쇄 영향을 주므로 변경 범위를 먼저 확인해야 합니다.
+
+## 핵심 파일
+
+| 파일 | 역할 | 수정 위험도 | 함께 확인할 파일 |
 | --- | --- | --- | --- |
-| `python/ranking_builder.py` | 운영 점수 계산 총괄, `ranking_final.csv` 및 `daily_ranking` 저장 | 핵심 파일, 매우 신중 | 점수 컬럼과 rank 컬럼이 API/DB/UI에 직접 연결된다 |
-| `python/scoring/final_score.py` | shared component score, regime, risk penalty, baseline final score 계산 | 핵심 파일, 매우 신중 | `final_score` 산식의 기준선이다 |
-| `python/score_explainer.py` | 점수 설명용 summary/driver 컬럼 생성 | 수정 가능 | UI 설명 문구와 downstream payload 해석이 변한다 |
-| `python/build_confidence_score_v2.py` | confidence score 및 live confidence 등급 산출 | 수정 가능 | 점수 자체는 아니지만 운영 해석 기준이 바뀐다 |
-| `python/run_pipeline.py` | 점수 생성 전후 배치 순서 제어 | 수정 가능 | `ranking_builder.py` 호출 순서 변경 시 전체 산출물이 달라질 수 있다 |
-| `python/sync_web_display_data.py` | 점수 결과를 payload / DB에 적재 | 수정 가능 | `research.app_payload_store`, `public.daily_ranking` 계약 유지 필요 |
-| `node/index.js` | ranking 관련 API 제공 | 수정 가능 | `final_score`, `rank_final`, explain 컬럼 응답과 직접 연결된다 |
+| `python/ranking_builder.py` | 운영용 최종 점수와 순위 산출의 중심 엔진 | 매우 높음 | `scoring/final_score.py`, `score_explainer.py`, `build_confidence_score_v2.py` |
+| `python/scoring/final_score.py` | `final_score` 기본 계산식과 penalty/overlay 조합 | 매우 높음 | `ranking_builder.py`, `production_config.py` |
+| `python/score_explainer.py` | 점수 설명 문구와 driver 컬럼 생성 | 높음 | `ranking_builder.py`, `node/index.js` |
+| `python/build_confidence_score_v2.py` | confidence score와 confidence band 산출 | 높음 | `ranking_builder.py`, `build_operational_buy_gate.py` |
+| `python/production_config.py` | 운영 점수 관련 runtime 설정 로드 | 높음 | `ranking_builder.py`, `config/production_v1.yaml` |
+| `python/run_pipeline.py` | 점수 산출까지 포함한 일일 파이프라인 진입점 | 중간 | `ranking_builder.py`, `model_predict.py` |
+| `python/sync_web_display_data.py` | 점수 결과를 DB와 payload로 동기화 | 높음 | `ranking_builder.py`, `node/index.js` |
+| `node/index.js` | ranking API와 점수 설명 응답 | 높음 | `node/public/ranking.js`, `node/public/score-check.js` |
+| `node/public/ranking.js` | 랭킹 화면 점수 표시 | 중간 | `node/index.js` |
+| `node/public/score-check.js` | 점수 검증 화면 렌더링 | 중간 | `node/index.js`, `score_explainer.py` |
 
-## 수정 기준
-- `final_score` 기준선 변경은 사실상 운영 정책 변경이다.
-- `final_score_v2`, `final_score_v3` 변경은 theme 반영 정책 변경으로 보고 top20 변화를 같이 검증해야 한다.
-- `rank_final`, `live_rank` 계산 기준을 바꾸면 주문 후보와 UI 정렬이 동시에 바뀐다.
+## 보조 파일
 
-## 확인 필요
-- `ranking_builder.py` 안에는 baseline 점수 외에도 theme overlay, shadow overlay, experiment 출력이 많이 섞여 있다.
-- 운영 기준선을 바꾸는 수정과 실험용 비교축 수정을 분리해서 다루는 것이 안전하다.
+| 파일 | 역할 | 비고 |
+| --- | --- | --- |
+| `python/check_score_explain.py` | 설명 컬럼 검증 | score explain 회귀 확인용 |
+| `python/check_final_score_dominance.py` | 특정 점수 축 지배 여부 점검 | 점수 편향 점검용 |
+| `python/check_confidence_score.py` | confidence 분포 확인 | 운영 진입 품질 점검용 |
+| `python/build_confidence_calibration_report.py` | confidence calibration 리포트 | 해석용 문서 생성 |
+| `config/production_v1.yaml` | theme overlay, ranking runtime 설정 | 현재 운영 정렬 기준 확인용 |
+
+## 수정 원칙
+
+- `final_score`, `live_rank`, `rank_final` 기준이 바뀌면 [RUNTIME_SORTING.md](</d:/ai/lee_trader/doc/modules/Lee_trader_score/RUNTIME_SORTING.md>)를 같이 갱신합니다.
+- 점수 수식 실험과 운영 기준 변경은 같은 커밋에 섞지 않는 편이 안전합니다.
+- 점수 설명 컬럼 변경은 API 응답과 화면 문구까지 함께 확인합니다.

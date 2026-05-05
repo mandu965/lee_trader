@@ -1,25 +1,47 @@
 # Lee_trader_ai File Index
 
-## 소스 파일 목록
-| 파일 | 역할 | 수정 가능 여부 | 수정 시 주의사항 |
+## 목적
+
+AI 추천, 주문 preview, 실자동매매, 웹 동기화까지 포함한 핵심 파일 인덱스입니다.
+AI 쪽은 배치, DB, 웹이 강하게 연결되어 있으므로 단일 파일만 보고 수정하지 않는 것을 원칙으로 합니다.
+
+## 핵심 파일
+
+| 파일 | 역할 | 수정 위험도 | 함께 확인할 파일 |
 | --- | --- | --- | --- |
-| `python/run_pipeline.py` | 일일 AI 파이프라인 실행 순서 정의 및 후속 리포트/동기화 제어 | 신중 수정 | `STEPS` 순서 변경 시 전체 산출물 의존성이 깨질 수 있음 |
-| `python/model_train.py` | LightGBM 학습, `model.pkl` 저장 | 신중 수정 | feature/label 컬럼 계약과 호환되어야 함 |
-| `python/model_predict.py` | 최신 feature snapshot 기반 예측 및 `public.predictions` 저장 | 신중 수정 | 출력 컬럼은 `PREDICTIONS_DB_COLUMNS`와 맞아야 함 |
-| `python/ranking_builder.py` | 운영 점수 계산, `data/ranking_final.csv` 및 `public.daily_ranking` 저장 | 핵심 파일, 매우 신중 | 웹/API/DB가 다수 컬럼에 의존 |
-| `python/strategy_core.py` | 실행 정책 조합 및 전략 평가 래퍼 | 신중 수정 | `apply_execution_policy.py` 반환 스키마에 의존 |
-| `python/submit_live_orders.py` | 주문 프리뷰/실제 제출, KIS 호출, 실행 결과 저장 | 제한적 수정 권장 | 실주문 리스크가 있음 |
-| `python/run_live_auto_trade_cycle.py` | 실거래 자동 사이클 오케스트레이션 | 신중 수정 | 제출, 체결, 리뷰, 웹 sync가 연쇄 실행됨 |
-| `python/sync_web_display_data.py` | core table / JSON payload를 웹 DB로 동기화 | 신중 수정 | `research.app_payload_store` payload key 계약 유지 필요 |
-| `python/db.py` | DB 연결, bulk replace, `research.dim_model_run` 생성 | 신중 수정 | 전 모듈 공통 DB 진입점 |
-| `node/index.js` | AI 결과 조회 API 제공 | 신중 수정 | `/api/ranking`, `/api/top20`, `/api/trade-intents`, `/api/order-requests-preview`, `/api/live-account/*` 경로와 프런트 연동 |
-| `node/public/ranking.js` | 랭킹 화면 클라이언트 | 수정 가능 | API 응답 필드명 변경 시 함께 수정 필요 |
-| `node/public/live-auto-trading.js` | 라이브 자동매매 UI | 수정 가능 | payload key 및 API path 의존 |
-| `node/public/manual-trading.js` | 수동매매/오더 요청 UI | 수정 가능 | 주문 preview/execution JSON 구조 의존 |
+| `python/run_pipeline.py` | 일일 AI 파이프라인 실행 순서 제어 | 높음 | `feature_builder.py`, `model_predict.py`, `ranking_builder.py`, `sync_web_display_data.py` |
+| `python/feature_builder.py` | 학습/예측 공통 feature 생성 | 높음 | `label_builder.py`, `quality_builder.py`, `model_train.py` |
+| `python/model_train.py` | 모델 학습과 `model.pkl` 저장 | 높음 | `feature_builder.py`, `label_builder.py`, `production_config.py` |
+| `python/model_predict.py` | 최신 feature 기준 예측 생성과 DB 적재 | 높음 | `model_train.py`, `ranking_builder.py`, `db.py` |
+| `python/ranking_builder.py` | 최종 점수, 정렬 순위, 운영용 ranking 산출 | 매우 높음 | `scoring/final_score.py`, `score_explainer.py`, `sync_web_display_data.py` |
+| `python/build_trade_intents.py` | AI 후보에서 실제 매매 의도 JSON 생성 | 높음 | `build_live_order_preview.py`, `build_operational_buy_gate.py`, `submit_live_orders.py` |
+| `python/build_live_order_preview.py` | 주문 preview와 허용/차단 사유 생성 | 높음 | `build_trade_intents.py`, `submit_live_orders.py`, `common_live_risk_guard.py` |
+| `python/submit_live_orders.py` | AI 실주문 제출과 실행 결과 저장 | 매우 높음 | `kis_client.py`, `sync_live_order_fills.py`, `run_live_auto_trade_cycle.py` |
+| `python/run_live_auto_trade_cycle.py` | 실자동매매 전체 사이클 실행 | 매우 높음 | `build_trade_intents.py`, `submit_live_orders.py`, `sync_live_order_fills.py`, `sync_live_account_holdings.py` |
+| `python/sync_live_account_holdings.py` | 일반 실계좌 보유/잔고 동기화 | 높음 | `kis_live_account.py`, `sync_web_display_data.py` |
+| `python/sync_live_order_fills.py` | 실주문 체결 내역 동기화 | 높음 | `submit_live_orders.py`, `sync_live_trade_ledger.py` |
+| `python/sync_live_trade_ledger.py` | 체결과 주문 결과를 거래 ledger로 정리 | 높음 | `sync_live_order_fills.py`, `build_live_trade_review.py` |
+| `python/sync_web_display_data.py` | JSON 산출물과 DB payload 동기화 | 매우 높음 | `db.py`, `node/index.js`, `export_serving_payloads.py` |
+| `python/db.py` | 공통 DB 연결과 bulk upsert 유틸리티 | 높음 | 대부분의 Python 배치 |
+| `node/index.js` | 랭킹, 자동매매, 계좌 상태 API 제공 | 매우 높음 | `node/public/ranking.js`, `node/public/live-auto-trading.js`, `sync_web_display_data.py` |
+| `node/public/ranking.js` | 메인 랭킹 화면 렌더링 | 중간 | `node/index.js`, `outputs/*ranking*` |
+| `node/public/live-auto-trading.js` | AI 자동매매 운영 화면 렌더링 | 높음 | `node/index.js`, `outputs/order_requests_preview.json` |
+| `node/public/manual-trading.js` | 수동 주문 요청/검토 UI | 중간 | `node/index.js`, `submit_live_orders.py` |
 
-## 수정 기준
-- 기본적으로 문서 외 AI 실운영 로직은 변경 영향이 크므로 수정 전 배치, 웹 API, DB 스키마를 같이 확인해야 한다.
-- `ranking_builder.py`, `submit_live_orders.py`, `sync_web_display_data.py`는 “수정 가능”보다 “변경 영향 범위가 큰 핵심 파일”로 보는 것이 맞다.
+## 보조 파일
 
-## 확인 필요
-- AI 모듈에 `python/run_operational_refresh.py`, `python/build_trade_intents.py`를 포함할지 여부는 코드 관계상 포함이 타당하지만, 저장소 내 명시적 모듈 정의는 없다.
+| 파일 | 역할 | 비고 |
+| --- | --- | --- |
+| `python/build_operational_buy_gate.py` | 운영용 BUY gate 생성 | preview 차단 사유 해석에 중요 |
+| `python/common_live_risk_guard.py` | 공통 live risk guard | BUY 제한 로직 추적용 |
+| `python/build_live_trade_review.py` | 거래 리뷰 리포트 생성 | 운영 검토용 |
+| `python/build_live_trade_review_summary.py` | 리뷰 요약 산출 | 웹/문서 반영용 |
+| `python/export_serving_payloads.py` | 외부 노출용 serving payload 생성 | 배포 payload 확인용 |
+| `node/public/ops-unified-nav.js` | 운영자 네비게이션 제어 | 화면 권한 정책 변경 시 확인 |
+
+## 수정 원칙
+
+- `ranking_builder.py` 변경은 점수, 정렬, UI 노출, 주문 후보에 동시에 영향을 줍니다.
+- `submit_live_orders.py`와 `run_live_auto_trade_cycle.py`는 실주문 경로이므로 로그와 guard 중심으로만 변경합니다.
+- 웹 payload 관련 수정은 `sync_web_display_data.py`, `node/index.js`, 프론트 JS를 같이 확인합니다.
+- AI 일반 경로와 RULE 경로는 계좌, 앱키, 대시보드 payload를 분리해서 다룹니다.

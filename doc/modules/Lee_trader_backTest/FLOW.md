@@ -1,66 +1,89 @@
 # Lee_trader_backTest Flow
 
-## 실행 흐름
-1. split 정의
-   - `walkforward_splits.py` 또는 `walkforward_backtest.py` 내부 window 생성
-2. run 메타 생성
-   - `db.create_research_model_run()`
-3. 모델 학습
-   - `model_train.py`
-4. 예측/점수 적재
-   - `build_backtest_predictions.py`
-   - 대상: `research.prediction_history`
-5. 랭킹 적재
-   - `build_backtest_ranking.py`
-   - 대상: `research.ranking_history`
-6. 실제 성과 적재
-   - `build_backtest_outcome.py`
-   - 대상: `research.backtest_outcome`
-7. 요약/검증
-   - `check_walkforward_runs.py`
-   - `build_walk_forward_score_validation_from_runs.py`
+## Execution Flow
 
-## 주요 함수 호출 순서
-- `walkforward_backtest.py`
-  - `load_feature_dates()`
-  - `build_quarterly_windows()`
-  - `run_walkforward_window()`
-- `run_walkforward_backtest.py`
-  - `load_splits()`
-  - `create_run_for_split()`
-  - `run_command()` for
-    - `build_backtest_predictions.py`
-    - `build_backtest_ranking.py`
-    - `build_backtest_outcome.py`
-- `build_backtest_predictions.py`
-  - `load_model()`
-  - `load_features()`
-  - `parse_dates()`
-  - `predict_for_date()`
-  - `compute_scores()`
-- `build_backtest_outcome.py`
-  - `load_predictions()`
-  - `build_outcome_rows()`
-  - `build_run_summary()`
+### 1. Walkforward Split
 
-## 데이터 흐름
-- `features.csv` + `labels.csv` -> `model_train.py` -> model artifact
-- model artifact + feature date slice -> `research.prediction_history`
-- `research.prediction_history` -> `research.ranking_history`
-- 실제 가격 이력 + `research.prediction_history` key -> `research.backtest_outcome`
-- run summary / validation -> `outputs/` 및 `data/history/walkforward_runs/`
+주요 파일:
 
-## 외부 의존성
-- Python
-  - `pandas`
-  - `numpy`
-  - `sqlalchemy`
-  - `lightgbm`
-- DB
-  - Postgres `research.dim_model_run`
-  - `research.prediction_history`
-  - `research.ranking_history`
-  - `research.backtest_outcome`
+- `python/walkforward_splits.py`
+- `python/walkforward_backtest.py`
 
-## 확인 필요
-- 운영 wrapper인 `run_operational_walkforward.py`가 생성하는 README 일부 문자열은 인코딩이 깨져 보이며, 원문 의도 해석은 추가 확인이 필요하다.
+역할:
+
+- 기간 분할
+- expanding-window / quarterly split 생성
+
+### 2. Run Creation
+
+주요 파일:
+
+- `python/run_walkforward_backtest.py`
+- `python/run_operational_walkforward.py`
+
+역할:
+
+- split별 run 생성
+- `research.dim_model_run` 메타데이터 적재
+- run artifact 정리
+
+### 3. Prediction / Ranking / Outcome
+
+주요 파일:
+
+- `python/build_backtest_predictions.py`
+- `python/build_backtest_ranking.py`
+- `python/build_backtest_outcome.py`
+
+역할:
+
+1. point-in-time prediction history 생성
+2. ranking history 생성
+3. 실제 가격 기반 outcome / maturity 계산
+
+### 4. Validation / Summary
+
+주요 파일:
+
+- `python/check_walkforward_runs.py`
+- `python/build_walk_forward_score_validation_from_runs.py`
+- `python/rule_portfolio_backtest.py`
+
+역할:
+
+- run sufficiency 확인
+- score validation 생성
+- RULE 포트폴리오 백테스트 요약 생성
+
+## Data Flow
+
+### Input
+
+- `data/features.csv`
+- `data/labels.csv`
+- 모델 artifact
+- 실제 가격 이력
+- Postgres history tables
+
+### Output
+
+- `research.prediction_history`
+- `research.ranking_history`
+- `research.backtest_outcome`
+- `outputs/walkforward_run_summary.csv`
+- `outputs/walk_forward_score_validation.csv`
+- `outputs/rule_portfolio_backtest_report.json`
+- `outputs/rule_portfolio_backtest_trades.csv`
+- `outputs/rule_portfolio_backtest_equity.csv`
+
+## Main Checks
+
+- 기간 분할이 point-in-time 조건을 지키는지
+- prediction / ranking / outcome key가 일치하는지
+- run metadata가 추적 가능한지
+- CAGR, MDD, Sharpe, 거래 수가 기대 범위인지
+
+## Notes
+
+- RULE 포트폴리오 백테스트는 AI walk-forward와 별도 산출물이지만, 운영 해석상 같이 읽히는 경우가 많습니다.
+- 비교 문서는 [docs/rule_backtest_comparison.md](</d:/ai/lee_trader/docs/rule_backtest_comparison.md>)를 참고합니다.

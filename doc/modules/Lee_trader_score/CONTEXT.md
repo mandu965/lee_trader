@@ -1,56 +1,44 @@
 # Lee_trader_score Context
 
-## 상세 설명
-- 점수 모듈의 기준점은 `python/ranking_builder.py`다.
-- 이 파일은 예측값, quality/technical/market 정보를 합쳐서 종목별 운영 점수를 계산한다.
-- 실제 component 계산의 상당 부분은 shared utility인 `python/scoring/final_score.py`로 이동되어 있다.
-- 따라서 점수 해석은 `ranking_builder.py` 단독이 아니라 다음 조합으로 봐야 한다.
-  - 입력 merge: `ranking_builder.py`
-  - component score 계산: `scoring/final_score.py`
-  - explain 컬럼 부착: `score_explainer.py`
-  - confidence 해석 보강: `build_confidence_score_v2.py`
+## 개요
 
-## 로직 개요
+- 이 모듈은 종목별 최종 점수와 운영 정렬 기준을 정의합니다.
+- 핵심은 `ranking_builder.py`와 `scoring/final_score.py`이며, 설명 컬럼과 confidence 계열 보조 계산이 이어집니다.
+- 점수 수식 변경은 ranking, top 후보, preview, 화면 정렬에 모두 영향을 줍니다.
+
+## 핵심 흐름
+
 - 입력 결합
-  - `predictions.csv`에서 `pred_return_60d`, `pred_return_90d`, `prob_top20_60d`, `pred_mdd_60d`, `pred_mdd_90d`
-  - `scores_final.csv`에서 legacy tech source 후보 `composite`, `score_score`
-  - `features.csv`에서 quality, volatility, liquidity, RSI, MA, valuation 관련 컬럼
-  - `universe.csv`에서 `name`, `sector`, `market`
-  - `market_status.csv`에서 regime 판별용 market context
-- component score
-  - `tech_score`
-  - `ret_score`
-  - `prob_score`
-  - `qual_score`
-  - diagnostic only:
-    - `safety_score`
-    - `liquidity_score`
-    - `valuation_score`
-- regime / risk
-  - market regime를 `bull`, `neutral`, `defensive` 중 하나로 정리
-  - regime마다 가중치 프로필을 다르게 적용
-  - `pred_mdd_60d`, `pred_mdd_90d` 기반 `risk_penalty` 차감
-- theme overlay
-  - baseline `final_score`는 운영 기준점
-  - `final_score_v2`는 theme 점수 직접 혼합 비교축
-  - `final_score_v3`는 theme confidence 반영 비교축
-  - `live_rank`는 runtime flag에 따라 `final_score` 또는 `final_score_v3`를 사용
+  - 예측값, quality/technical feature, universe 정보, market status를 결합합니다.
+- component score 계산
+  - `ret_score`, `prob_score`, `qual_score`, `tech_score`와 보조 진단 점수를 계산합니다.
+- risk/regime 반영
+  - market regime과 `pred_mdd_*` 기반 penalty를 반영합니다.
+- final score 계산
+  - `final_score`, `final_score_v2`, `final_score_v3`를 계산합니다.
+- 운영 정렬
+  - runtime flag와 production config에 따라 `live_rank`, `rank_final` 기준이 결정됩니다.
+- 설명/검증
+  - `score_explainer.py`와 confidence 관련 스크립트가 해석 정보를 보강합니다.
 
-## 운영상 주의사항
-- `final_score`는 운영 기준선이라 downstream 의존성이 가장 크다.
-- `final_score_v2`, `final_score_v3`는 theme 영향 비교와 live 정렬 실험까지 포함하므로, 변경 시 top20 구성이 달라질 수 있다.
-- `public.daily_ranking` 저장 컬럼이 매우 많아서 점수 컬럼명 변경은 API/DB/UI에 직접 영향을 준다.
-- `prob_score`는 운영 정책상 `prob_top20_60d`만 사용한다. `prob_top20_90d`는 연구용 보조 축이다.
-- `pred_score`는 legacy/research comparison 용이고, baseline 운영 점수의 직접 축은 `ret_score`다.
+## 운영상 주의점
 
-## 다른 모듈과의 관계
+- 현재 운영 정렬 기준은 수식 자체보다 runtime 설정에도 영향을 받습니다.
+- `final_score`, `live_rank`, `rank_final` 기준이 바뀌면 `RUNTIME_SORTING.md`를 같이 갱신해야 합니다.
+- 점수 컬럼명 변경은 API, DB, UI, 검증 리포트까지 연쇄 영향이 있습니다.
+- 실험용 점수 변경과 운영 기준 변경은 한 번에 섞지 않는 편이 안전합니다.
+
+## 연관 모듈
+
 - `Lee_trader_ai`
-  - 전체 파이프라인 문맥을 공유한다.
+  - 점수 산출과 운영 랭킹을 직접 사용합니다.
 - `Lee_trader_backTest`
-  - 비슷한 점수 개념을 백테스트 이력 계산에 재사용한다.
+  - 백테스트에서 동일하거나 유사한 점수 개념을 사용합니다.
 - `Lee_trader_rule`
-  - rule engine 자체 점수는 별도지만, 운영 UI/DB payload에서는 AI 점수 컬럼과 함께 해석될 수 있다.
+  - 직접 같은 점수를 쓰는 것은 아니지만, UI/DB payload 해석과 운영 문서 관점에서 연결됩니다.
 
-## 확인 필요
-- 실제 live 정렬 기준은 runtime theme overlay flag에 따라 `final_score` 또는 `final_score_v3`로 달라진다.
-- 따라서 운영 기준을 문서화할 때는 "현재 설정의 runtime flag"까지 같이 기록해야 한다.
+## 확인 포인트
+
+- 현재 runtime flag 기준 정렬이 문서 설명과 일치하는지
+- 점수 수식 변경 후 ranking 결과와 상위 후보 구성이 의도대로 달라졌는지
+- score explain, confidence, overlay 해석이 화면과 일치하는지

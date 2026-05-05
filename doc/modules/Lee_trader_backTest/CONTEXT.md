@@ -1,36 +1,41 @@
 # Lee_trader_backTest Context
 
-## 상세 설명
-- 백테스트 모듈은 운영용 AI 점수 체계를 과거 시점 기준으로 재현하고, run 단위로 예측/랭킹/성과를 저장한다.
-- run 메타데이터는 `db.create_research_model_run()`을 통해 `research.dim_model_run`에 기록된다.
-- 단순 일회성 백테스트보다 walk-forward를 중요하게 다루며, split 단위 run을 여러 개 생성한다.
+## 개요
 
-## 전략/로직 개요
-- run 생성
-  - `walkforward_backtest.py`는 expanding-window quarterly window를 만든 뒤, 각 window마다 train/predict 구간을 분리한다.
-  - `run_walkforward_backtest.py`는 사전 생성된 split schedule CSV를 기반으로 split별, horizon별 run을 생성한다.
-- 예측/점수
-  - `build_backtest_predictions.py`는 model pack으로 특정 `as_of_date` 범위의 예측을 만들고, feature/market_status를 결합해 `final_score`까지 계산한 뒤 `research.prediction_history`에 append한다.
-- 랭킹
-  - `build_backtest_ranking.py`는 `final_score` 내림차순으로 rank를 만들고 `in_top_n` 플래그를 계산한다.
-- 성과
-  - `build_backtest_outcome.py`는 실제 가격 이력을 이용해 `realized_return`, `realized_mdd`, `is_matured`, `maturity_status`를 계산한다.
+- 이 모듈은 walk-forward 검증, prediction history 적재, ranking history 생성, outcome 계산, RULE 포트폴리오 백테스트를 다룹니다.
+- 목적은 현재 운영 로직을 과거 시점 기준으로 재현하고, 전략 성과와 안정성을 비교 가능한 형태로 남기는 것입니다.
 
-## 운영상 주의사항
-- `build_backtest_outcome.py`는 현재 `horizon_days in {60, 90}`에 대해 검증됐다고 경고를 남긴다.
-- `run_walkforward_backtest.py`는 split당 horizon별로 별도 run을 만든다. 90일 horizon에서 빈 결과가 나오면 warning을 남기도록 구현돼 있다.
-- `build_backtest_predictions.py`는 legacy 점수 계산 함수와 shared score 함수 경로를 둘 다 포함한다. 어떤 경로가 실제 운영 비교 기준인지 해석할 때 주의가 필요하다.
-- 백테스트 결과는 운영 `public.daily_ranking`이 아니라 `research.*` 히스토리 테이블에 적재된다.
+## 핵심 흐름
 
-## 다른 모듈과의 관계
+- split 생성
+  - `walkforward_splits.py`가 expanding-window 기준 split을 만듭니다.
+- run 실행
+  - `walkforward_backtest.py`, `run_walkforward_backtest.py`가 split별 run을 수행합니다.
+  - run metadata는 `research.dim_model_run`에 기록됩니다.
+- prediction/ranking history
+  - `build_backtest_predictions.py`가 point-in-time prediction을 적재합니다.
+  - `build_backtest_ranking.py`가 ranking history를 생성합니다.
+- outcome 계산
+  - `build_backtest_outcome.py`가 실제 가격을 바탕으로 `realized_return`, `realized_mdd`, `maturity_status` 등을 계산합니다.
+- RULE 포트폴리오 검증
+  - `rule_portfolio_backtest.py`가 RULE 전략의 거래와 자산곡선을 생성합니다.
+
+## 운영상 주의점
+
+- split 기준이나 horizon 기준을 바꾸면 과거 결과와 직접 비교가 깨집니다.
+- `build_backtest_predictions.py`와 `build_backtest_outcome.py`는 재현성 핵심 파일입니다.
+- 백테스트 결과는 운영 `public.daily_ranking`이 아니라 `research.*` 이력 테이블과 `outputs/` 산출물에 남습니다.
+- RULE 백테스트 규칙이 바뀌면 성과 해석 문서도 같이 갱신해야 합니다.
+
+## 연관 모듈
+
 - `Lee_trader_ai`
-  - 동일한 model pack, feature CSV, market status, scoring 로직 일부를 공유한다.
+  - 모델, feature, scoring 개념을 공유합니다.
 - `Lee_trader_rule`
-  - `rule_backtest.py`는 규칙 전략 전용 백테스트로 별도 경로이며, 본 모듈의 `research.prediction_history` 흐름과는 다르다.
-- 분석/리포트
-  - `build_walk_forward_score_validation_from_runs.py`
-  - `check_walkforward_runs.py`
-  - 관련 결과는 `outputs/`와 `data/history/walkforward_runs/`에 저장된다.
+  - RULE 전략 백테스트와 운영 전략 비교에 연결됩니다.
 
-## 확인 필요
-- 실제 price history를 `outcome_maturity.load_price_history()`가 어느 우선순위 파일/테이블에서 읽는지는 이번 문서 작성 범위에서 직접 끝까지 추적하지 못했다.
+## 확인 포인트
+
+- run metadata, split 기준, horizon 기준이 문서와 일치하는지
+- prediction history와 outcome 테이블이 같은 기준일을 보고 있는지
+- 백테스트 수치 변경 시 비교 문서까지 같이 갱신됐는지
