@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from rule_account_guard import assert_order_allowed, resolve_trading_account, validate_account_profile
+from rule_account_guard import evaluate_rule_order_guard, resolve_trading_account, validate_account_profile
 from rule_signal_builder import ENGINE_TYPE, STRATEGY_ID, ROOT, resolve
 
 
@@ -28,6 +28,28 @@ def parse_args() -> argparse.Namespace:
 
 def cfg_float(name: str, default: float) -> float:
     return float(os.getenv(name, str(default)))
+
+
+def optional_cfg_float(name: str) -> float | None:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def optional_cfg_int(name: str) -> int | None:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return None
+    try:
+        value = int(float(raw))
+    except ValueError:
+        return None
+    return value if value > 0 else None
 
 
 def load_plan(path: Path) -> dict[str, Any]:
@@ -61,6 +83,8 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
     cash = float(account_state.get("cash") or 0.0)
     min_cash_weight = float((plan.get("config") or {}).get("min_cash_weight", 0.20))
     available_buying_power = max(0.0, cash - total_equity * min_cash_weight)
+    pilot_max_order_amount = optional_cfg_float("RULE_PILOT_MAX_ORDER_AMOUNT") if run_mode == "pilot" else None
+    pilot_max_order_qty = optional_cfg_int("RULE_PILOT_MAX_ORDER_QTY") if run_mode == "pilot" else None
 
     items: list[dict[str, Any]] = []
     for idx, item in enumerate(plan.get("items") or [], 1):
@@ -84,7 +108,15 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
                 order_amount = max(current_amount - target_amount, 0.0)
             else:
                 order_amount = current_amount
-        order_qty = calculate_order_quantity(order_amount, expected_price)
+        raw_order_amount = order_amount
+        if pilot_max_order_amount is not None and side in {"BUY", "SELL"}:
+            order_amount = min(order_amount, pilot_max_order_amount)
+        raw_order_qty = calculate_order_quantity(order_amount, expected_price)
+        order_qty = raw_order_qty
+        if pilot_max_order_qty is not None and side in {"BUY", "SELL"}:
+            order_qty = min(order_qty, pilot_max_order_qty)
+            if expected_price and expected_price > 0:
+                order_amount = min(order_amount, float(order_qty) * expected_price)
         size_ok, size_reason = validate_order_size(order_qty, order_amount, min_order_amount)
 
         order_type = "limit"
@@ -102,9 +134,13 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
             "strategy_id": STRATEGY_ID,
             "engine_type": ENGINE_TYPE,
             "run_mode": run_mode,
+            "as_of_date": plan.get("as_of_date"),
+            "execution_date": datetime.now().strftime("%Y-%m-%d"),
             "side": side,
+            "code": item.get("code"),
             "order_qty": order_qty,
             "order_amount": order_amount,
+            "reference_price": expected_price,
             "signal_strength": item.get("signal_strength"),
             "market_defensive_mode": bool(item.get("market_defensive_mode")),
             "gap_risk_blocked": gap_risk_reason not in {None, "", "none"},
@@ -114,12 +150,13 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
             "sector_limit_pass": bool(item.get("sector_limit_pass", True)),
             "cooldown_pass": bool(item.get("cooldown_pass", True)),
             "cash_limit_pass": bool(item.get("cash_limit_pass", True)),
+            "daily_order_amount_used": 0.0,
         }
         if not size_ok and side in {"BUY", "SELL"}:
             # Keep the original sizing reason when it is more specific than the guard default.
             order_context["order_qty"] = order_qty
             order_context["order_amount"] = order_amount
-        order_allowed, block_reasons = assert_order_allowed(order_context)
+        order_allowed, block_reasons, guard_details = evaluate_rule_order_guard(order_context)
         if not size_ok and side in {"BUY", "SELL"} and size_reason not in block_reasons:
             block_reasons.append(size_reason)
 
@@ -143,8 +180,16 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
                 "order_amount": order_amount,
                 "portfolio_action": action,
                 "portfolio_action_reason": item.get("portfolio_action_reason"),
+                "portfolio_action_detail_reasons": list(item.get("portfolio_action_detail_reasons") or []),
+                "holding_days": item.get("holding_days"),
+                "current_return_pct": item.get("current_return_pct"),
+                "highest_return_since_entry": item.get("highest_return_since_entry"),
+                "drawdown_from_high_pct": item.get("drawdown_from_high_pct"),
                 "order_allowed": order_allowed,
                 "order_block_reason": ";".join(dict.fromkeys(block_reasons)) if block_reasons else "none",
+                "common_risk_allowed": bool(guard_details.get("common_risk_allowed", True)),
+                "common_risk_block_reasons": list(guard_details.get("common_risk_block_reasons") or []),
+                "common_risk_snapshot": dict(guard_details.get("common_risk_snapshot") or {}),
                 "signal_strength": item.get("signal_strength"),
                 "gap_risk_reason": gap_risk_reason,
                 "trading_value_block_reason": trading_value_block_reason,
@@ -160,6 +205,12 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
                 "fallback_limit_price": None,
                 "fallback_order_allowed": False,
                 "fallback_block_reason": None,
+                "pilot_order_amount_cap_applied": bool(
+                    pilot_max_order_amount is not None and side in {"BUY", "SELL"} and raw_order_amount > order_amount
+                ),
+                "pilot_order_qty_cap_applied": bool(
+                    pilot_max_order_qty is not None and side in {"BUY", "SELL"} and raw_order_qty > order_qty
+                ),
                 "filled_qty": 0,
                 "unfilled_qty": order_qty,
                 "filled_amount": 0.0,

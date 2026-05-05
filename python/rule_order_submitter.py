@@ -8,7 +8,7 @@ from typing import Any
 
 from kis_client import KISClient
 from kis_live_account import order_cash
-from rule_account_guard import assert_order_allowed
+from rule_account_guard import evaluate_rule_order_guard
 from rule_execution_simulator import (
     append_jsonl,
     build_aborted_results,
@@ -79,6 +79,10 @@ def _ord_unpr(item: dict[str, Any], ord_dvsn: str) -> str:
     return str(int(numeric))
 
 
+def _log(message: str) -> None:
+    print(f"[RULE_ORDER_SUBMITTER] {message}")
+
+
 def _build_market_snapshot(symbols: list[str], out_path: Path) -> dict[str, Any]:
     payload = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -107,9 +111,13 @@ def _live_order_context(item: dict[str, Any], market_row: dict[str, Any] | None,
         "strategy_id": preview.get("strategy_id"),
         "engine_type": preview.get("engine_type"),
         "run_mode": preview.get("run_mode"),
+        "as_of_date": preview.get("as_of_date"),
+        "execution_date": datetime.now().strftime("%Y-%m-%d"),
         "side": item.get("side"),
+        "code": item.get("code") or item.get("symbol"),
         "order_qty": item.get("order_qty"),
         "order_amount": item.get("order_amount"),
+        "reference_price": (market_row or {}).get("open_price") or item.get("limit_price") or item.get("expected_execution_price"),
         "signal_strength": item.get("signal_strength"),
         "market_defensive_mode": item.get("market_defensive_mode"),
         "gap_risk_blocked": gap_reason not in {None, "", "none"},
@@ -119,12 +127,15 @@ def _live_order_context(item: dict[str, Any], market_row: dict[str, Any] | None,
         "sector_limit_pass": item.get("sector_limit_pass", True),
         "cooldown_pass": item.get("cooldown_pass", True),
         "cash_limit_pass": item.get("cash_limit_pass", True),
+        "daily_order_amount_used": item.get("daily_order_amount_used", 0.0),
     }
 
 
 def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    if str(market_snapshot.get("api_health_status") or "").strip().lower() == "auth_failed":
+        raise RuntimeError(str(market_snapshot.get("api_failure_reason") or "market_snapshot_auth_failed"))
     account = resolve_rule_account_env()
-    client = KISClient.from_env()
+    client = KISClient.from_rule_env()
     client.issue_access_token()
 
     snapshot_map = market_snapshot.get("snapshots") or {}
@@ -146,9 +157,14 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
         row["filled_amount"] = 0.0
         row["avg_fill_price"] = None
         row["unfilled_qty"] = int(float(row.get("order_qty") or 0))
+        row["estimated_amount"] = float(row.get("order_amount") or 0.0)
+        row["daily_order_amount_used"] = submitted_buy_amount + submitted_sell_amount
 
         side = str(row.get("side") or "NONE").upper()
         if side == "NONE":
+            _log(
+                f"skip no-order-action code={row.get('code')} name={row.get('name')} run_mode={preview.get('run_mode')}"
+            )
             row["order_status"] = "planned"
             row["reconciliation_status"] = "skipped_no_order_action"
             results.append(row)
@@ -162,12 +178,40 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
         if market_row and market_row.get("open_price") is not None:
             row["expected_execution_price"] = market_row.get("open_price")
 
-        order_allowed, guard_reasons = assert_order_allowed(_live_order_context(row, market_row, preview))
+        preview_common_allowed = bool(row.get("common_risk_allowed", True))
+        preview_common_reasons = list(row.get("common_risk_block_reasons") or [])
+        if side == "BUY" and not preview_common_allowed:
+            row["order_allowed"] = False
+            row["order_block_reason"] = _append_reason(row.get("order_block_reason"), *preview_common_reasons)
+            row["common_risk_allowed"] = False
+            row["common_risk_block_reasons"] = preview_common_reasons
+            row["common_risk_snapshot"] = row.get("common_risk_snapshot") or {"bypass_reason": "preview_common_risk_blocked"}
+            row["order_status"] = "blocked"
+            row["reconciliation_status"] = "blocked_before_submit"
+            _log(
+                f"blocked preview-common-risk code={row.get('code')} name={row.get('name')} side={side} qty={row.get('order_qty')} "
+                f"estimated_amount={row.get('estimated_amount')} run_mode={preview.get('run_mode')} "
+                f"reasons={row.get('order_block_reason')}"
+            )
+            skipped_count += 1
+            results.append(row)
+            continue
+
+        order_allowed, guard_reasons, guard_details = evaluate_rule_order_guard(_live_order_context(row, market_row, preview))
+        row["common_risk_allowed"] = bool(guard_details.get("common_risk_allowed", True))
+        row["common_risk_block_reasons"] = list(guard_details.get("common_risk_block_reasons") or [])
+        row["common_risk_snapshot"] = dict(guard_details.get("common_risk_snapshot") or {})
         if not order_allowed:
             row["order_allowed"] = False
             row["order_block_reason"] = _append_reason(row.get("order_block_reason"), *guard_reasons)
+            row["final_guard_details"] = guard_details
             row["order_status"] = "blocked"
             row["reconciliation_status"] = "blocked_before_submit"
+            _log(
+                f"blocked final-guard code={row.get('code')} name={row.get('name')} side={side} qty={row.get('order_qty')} "
+                f"estimated_amount={row.get('estimated_amount')} run_mode={preview.get('run_mode')} "
+                f"reasons={row.get('order_block_reason')}"
+            )
             skipped_count += 1
             results.append(row)
             continue
@@ -175,6 +219,13 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
         try:
             ord_dvsn = _ord_dvsn(row)
             ord_unpr = _ord_unpr(row, ord_dvsn)
+            row["final_guard_details"] = guard_details
+            _log(
+                f"approve submit code={row.get('code')} name={row.get('name')} side={side} qty={row.get('order_qty')} "
+                f"estimated_amount={row.get('estimated_amount')} run_mode={preview.get('run_mode')} "
+                f"order_type={row.get('order_type')} ord_dvsn={ord_dvsn} ord_unpr={ord_unpr} "
+                f"daily_used={row.get('daily_order_amount_used')}"
+            )
             response_df = order_cash(
                 client,
                 account,
@@ -197,11 +248,19 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
                 submitted_buy_amount += order_amount
             elif side == "SELL":
                 submitted_sell_amount += order_amount
+            _log(
+                f"submitted code={row.get('code')} name={row.get('name')} side={side} qty={row.get('order_qty')} "
+                f"estimated_amount={row.get('estimated_amount')} broker_order_id={row.get('broker_order_id')}"
+            )
         except Exception as exc:
             row["submitted_at"] = datetime.now().isoformat(timespec="seconds")
             row["order_block_reason"] = _append_reason(row.get("order_block_reason"), "order_submit_failed", str(exc))
             row["order_status"] = "failed"
             row["reconciliation_status"] = "submit_failed"
+            _log(
+                f"submit failed code={row.get('code')} name={row.get('name')} side={side} qty={row.get('order_qty')} "
+                f"estimated_amount={row.get('estimated_amount')} run_mode={preview.get('run_mode')} error={exc}"
+            )
             failed_count += 1
         results.append(row)
 
@@ -268,35 +327,53 @@ def main() -> None:
             reconciliation_status,
         )
     else:
-        buy_symbols = [
-            str(item.get("code") or item.get("symbol") or "").zfill(6)
-            for item in preview.get("items") or []
-            if str(item.get("side") or "").upper() == "BUY"
-        ]
-        market_snapshot = _build_market_snapshot(buy_symbols, out_market_snapshot)
-        items, summary = _submit_items(preview, market_snapshot)
-        results = {
-            "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "as_of_date": preview.get("as_of_date"),
-            "account_id": preview.get("account_id"),
-            "strategy_id": preview.get("strategy_id"),
-            "engine_type": preview.get("engine_type"),
-            "run_mode": preview.get("run_mode"),
-            "paper_only": False,
-            "trading_day_valid": session_status.get("trading_day_valid"),
-            "trading_day_reason": session_status.get("trading_day_reason"),
-            "market_data_available": market_snapshot.get("market_data_available"),
-            "api_health_status": market_snapshot.get("api_health_status"),
-            "api_failure_reason": market_snapshot.get("api_failure_reason"),
-            "order_run_aborted": False,
-            "order_run_abort_reason": None,
-            "previous_reconciliation_found": reconciliation_status.get("previous_reconciliation_found"),
-            "previous_reconciliation_status": reconciliation_status.get("previous_reconciliation_status"),
-            "new_orders_blocked_by_reconciliation": reconciliation_status.get("new_orders_blocked_by_reconciliation"),
-            "reconciliation_block_reason": reconciliation_status.get("reconciliation_block_reason"),
-            "items": items,
-            "summary": summary,
-        }
+        try:
+            buy_symbols = [
+                str(item.get("code") or item.get("symbol") or "").zfill(6)
+                for item in preview.get("items") or []
+                if str(item.get("side") or "").upper() == "BUY"
+            ]
+            _log(
+                f"start submit run_mode={preview.get('run_mode')} as_of_date={preview.get('as_of_date')} "
+                f"buy_symbol_count={len(buy_symbols)}"
+            )
+            market_snapshot = _build_market_snapshot(buy_symbols, out_market_snapshot)
+            if str(market_snapshot.get("api_health_status") or "").strip().lower() == "auth_failed":
+                raise RuntimeError(str(market_snapshot.get("api_failure_reason") or "kis_auth_failed"))
+            items, summary = _submit_items(preview, market_snapshot)
+            results = {
+                "generated_at": datetime.now().isoformat(timespec="seconds"),
+                "as_of_date": preview.get("as_of_date"),
+                "account_id": preview.get("account_id"),
+                "strategy_id": preview.get("strategy_id"),
+                "engine_type": preview.get("engine_type"),
+                "run_mode": preview.get("run_mode"),
+                "paper_only": False,
+                "trading_day_valid": session_status.get("trading_day_valid"),
+                "trading_day_reason": session_status.get("trading_day_reason"),
+                "market_data_available": market_snapshot.get("market_data_available"),
+                "api_health_status": market_snapshot.get("api_health_status"),
+                "api_failure_reason": market_snapshot.get("api_failure_reason"),
+                "order_run_aborted": False,
+                "order_run_abort_reason": None,
+                "previous_reconciliation_found": reconciliation_status.get("previous_reconciliation_found"),
+                "previous_reconciliation_status": reconciliation_status.get("previous_reconciliation_status"),
+                "new_orders_blocked_by_reconciliation": reconciliation_status.get("new_orders_blocked_by_reconciliation"),
+                "reconciliation_block_reason": reconciliation_status.get("reconciliation_block_reason"),
+                "items": items,
+                "summary": summary,
+            }
+        except Exception as exc:
+            _log(
+                f"abort submit run_mode={preview.get('run_mode')} as_of_date={preview.get('as_of_date')} reason={exc}"
+            )
+            results = build_aborted_results(
+                preview,
+                state,
+                str(exc),
+                session_status,
+                reconciliation_status,
+            )
 
     out_results.parent.mkdir(parents=True, exist_ok=True)
     out_recon.parent.mkdir(parents=True, exist_ok=True)

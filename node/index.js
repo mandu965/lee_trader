@@ -508,7 +508,7 @@ function renderOpsUnifiedNavSnippet(fileName) {
     "detail.html",
   ]);
   if (!targets.has(fileName)) return "";
-  return '<script src="/ops-unified-nav.js?v=20260429-rule-nav-v1"></script>';
+  return '<script src="/ops-unified-nav.js?v=20260505-operator-nav-v2"></script>';
 }
 
 function renderArticlePage(item, section) {
@@ -1670,6 +1670,7 @@ function buildMarketRegimeInterpretation(regimeInput) {
 
 async function buildOpsReadinessSummary() {
   const opsNotesPath = path.join(OUTPUTS_DIR, "ops_operator_notes.json");
+  const opsRuntime = await readAutoTradingOpsStatusPayload();
   const schedulerStatus = await readJsonPayloadDbFirst("auto_ops_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_scheduler_status.json")]);
   const schedulerRecoveryStatus = await readJsonPayloadDbFirst("auto_ops_recovery_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_recovery_scheduler_status.json")]);
   const gate = await readJsonPayloadDbFirst("operational_buy_gate", [path.join(OUTPUTS_DIR, "operational_buy_gate.json")]);
@@ -2129,6 +2130,7 @@ async function buildOpsReadinessSummary() {
       caution_candidates: manual.caution_candidates || [],
       checklist: manual.checklist || [],
     },
+    operations: opsRuntime || {},
     shadow: {
       quality_risk_guard_candidates: shadowCandidates,
       repeatability: {
@@ -2634,6 +2636,40 @@ function summarizeCountsBy(items, key, fallback = "none") {
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 }
 
+function parseIsoDatetime(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const normalized = text.replace(/Z$/, "+00:00");
+  const ts = Date.parse(normalized);
+  return Number.isFinite(ts) ? ts : null;
+}
+
+function hasRuleAccountState(payload) {
+  return !!(payload && (payload.generated_at || payload.as_of_date || (Array.isArray(payload.positions) && payload.positions.length)));
+}
+
+function chooseRuleAccountState({ runMode, paperState, liveState }) {
+  const paperReady = hasRuleAccountState(paperState);
+  const liveReady = hasRuleAccountState(liveState);
+  if ((runMode === "pilot" || runMode === "live") && liveReady) {
+    return { accountMode: "live", accountState: liveState };
+  }
+  if (liveReady && !paperReady) {
+    return { accountMode: "live", accountState: liveState };
+  }
+  if (paperReady && !liveReady) {
+    return { accountMode: "paper", accountState: paperState };
+  }
+  if (liveReady && paperReady) {
+    const liveTs = parseIsoDatetime(liveState.generated_at);
+    const paperTs = parseIsoDatetime(paperState.generated_at);
+    if (liveTs !== null && (paperTs === null || liveTs >= paperTs)) {
+      return { accountMode: "live", accountState: liveState };
+    }
+  }
+  return { accountMode: "paper", accountState: paperState };
+}
+
 function buildRuleDashboardSummary() {
   const { latestDate, items: signalItems } = loadLatestRuleSignals();
   const portfolio = readJson(path.join(OUTPUTS_DIR, "rule_portfolio_plan.json")) || {};
@@ -2642,9 +2678,8 @@ function buildRuleDashboardSummary() {
   const liveState = readJson(path.join(OUTPUTS_DIR, "rule_account_live_state.json")) || {};
   const backtest = readJson(path.join(OUTPUTS_DIR, "rule_strategy_backtest_report.json")) || {};
   const execution = readJson(path.join(OUTPUTS_DIR, "rule_execution_results.json")) || {};
-  const accountState = (String(execution.run_mode || preview.run_mode || "").toLowerCase() === "paper" || (!liveState.generated_at && !Array.isArray(liveState.positions)))
-    ? paperState
-    : liveState;
+  const runMode = String(execution.run_mode || preview.run_mode || "").toLowerCase();
+  const { accountMode, accountState } = chooseRuleAccountState({ runMode, paperState, liveState });
 
   const portfolioItems = Array.isArray(portfolio.items) ? portfolio.items : [];
   const previewItems = Array.isArray(preview.items) ? preview.items : [];
@@ -2682,6 +2717,7 @@ function buildRuleDashboardSummary() {
       execution_simulated_filled_count: toNum(execution.summary?.simulated_filled_count) || 0,
       execution_simulated_unfilled_count: toNum(execution.summary?.simulated_unfilled_count) || 0,
       paper_position_count: positions.length,
+      account_position_count: positions.length,
     },
     distributions: {
       signal_strength: summarizeCountsBy(signalItems, "signal_strength", "none"),
@@ -2702,7 +2738,17 @@ function buildRuleDashboardSummary() {
       strong: signalItems.filter((item) => item.strong_entry_signal).slice(0, 10),
       entry_only: signalItems.filter((item) => item.entry_signal && !item.strong_entry_signal).slice(0, 10),
     },
+    account_mode: accountMode,
+    account_as_of_date: accountState.as_of_date || null,
+    account_generated_at: accountState.generated_at || null,
     paper_state: {
+      total_equity: toNum(accountState.total_equity),
+      cash: toNum(accountState.cash),
+      recent_trade_count: Array.isArray(accountState.recent_trades) ? accountState.recent_trades.length : 0,
+      cooldown_count: Array.isArray(accountState.cooldown_codes) ? accountState.cooldown_codes.length : 0,
+      positions,
+    },
+    account_state: {
       total_equity: toNum(accountState.total_equity),
       cash: toNum(accountState.cash),
       recent_trade_count: Array.isArray(accountState.recent_trades) ? accountState.recent_trades.length : 0,
@@ -2767,23 +2813,33 @@ async function readRulePaperStatePayload() {
   const execution = await readRuleExecutionResultsPayload();
   const paperPayload = await readJsonPayloadDbFirst("rule_account_paper_state", [RULE_PAPER_STATE_PATH]);
   const livePayload = await readJsonPayloadDbFirst("rule_account_live_state", [RULE_LIVE_STATE_PATH]);
-  return String(execution.run_mode || "").toLowerCase() === "paper"
-    ? paperPayload
-    : ((livePayload && (livePayload.generated_at || Array.isArray(livePayload.positions))) ? livePayload : paperPayload);
+  return chooseRuleAccountState({
+    runMode: String(execution.run_mode || "").toLowerCase(),
+    paperState: paperPayload || {},
+    liveState: livePayload || {},
+  }).accountState;
 }
 
 async function readRuleBacktestPayload() {
   return await readJsonPayloadDbFirst("rule_strategy_backtest_report", [RULE_BACKTEST_PATH]);
 }
 
+async function readAutoTradingOpsStatusPayload() {
+  return await readJsonPayloadDbFirst("auto_trading_ops_status", [path.join(OUTPUTS_DIR, "auto_trading_ops_status.json")]);
+}
+
 function registerRuleApiRoutes(target) {
   target.get("/api/rule/summary", async (req, res) => {
     try {
       const payload = await readRuleSummaryPayload();
+      const opsStatus = await readAutoTradingOpsStatusPayload();
       if (!payload.as_of_date && !payload.counts?.total_candidates) {
         return res.status(404).json({ error: "rule artifacts not found" });
       }
-      res.json(payload);
+      res.json({
+        ...payload,
+        operations: opsStatus || {},
+      });
     } catch (e) {
       console.error("GET /api/rule/summary error", e);
       res.status(500).json({ error: "internal error" });
@@ -5910,10 +5966,14 @@ app.get("/api/paper-trading/positions", async (req, res) => {
 app.get("/api/rule/summary", async (req, res) => {
   try {
     const payload = await readRuleSummaryPayload();
+    const opsStatus = await readAutoTradingOpsStatusPayload();
     if (!payload.as_of_date && !payload.counts?.total_candidates) {
       return res.status(404).json({ error: "rule artifacts not found" });
     }
-    res.json(payload);
+    res.json({
+      ...payload,
+      operations: opsStatus || {},
+    });
   } catch (e) {
     console.error("GET /api/rule/summary error", e);
     res.status(500).json({ error: "internal error" });
@@ -6117,6 +6177,32 @@ app.get("/api/order-requests-preview", async (req, res) => {
   }
 });
 
+app.get("/api/ai-selection-review-summary", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("ai_selection_review_summary", [path.join(OUTPUTS_DIR, "ai_selection_review_summary.json")]);
+    if (!payload) {
+      return res.status(404).json({ error: "ai selection review summary not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/ai-selection-review-summary error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/ai-filtered-top-candidates", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("ai_filtered_top_candidates", [path.join(OUTPUTS_DIR, "ai_filtered_top_candidates.json")]);
+    if (!payload) {
+      return res.status(404).json({ error: "ai filtered top candidates not found" });
+    }
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/ai-filtered-top-candidates error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 app.get("/api/order-requests-execution", async (req, res) => {
   try {
     const payload = await readJsonPayloadDbFirst("order_requests_execution", [path.join(OUTPUTS_DIR, "order_requests_execution.json")]);
@@ -6251,6 +6337,7 @@ app.get("/api/watch-auto-buy-simulation", async (req, res) => {
 app.get("/api/auto-trading/runtime-status", async (req, res) => {
   try {
     const policyPayload = await readJsonPayloadDbFirst("auto_trading_policy", [path.join(OUTPUTS_DIR, "auto_trading_policy.json")]);
+    const opsStatus = await readAutoTradingOpsStatusPayload();
     const envPolicy = {
       auto_trade_execute: ["1", "true", "yes", "on"].includes(String(process.env.AUTO_TRADE_EXECUTE || "").toLowerCase()),
       auto_trade_allow_buy: ["1", "true", "yes", "on"].includes(String(process.env.AUTO_TRADE_ALLOW_BUY || "").toLowerCase()),
@@ -6263,6 +6350,7 @@ app.get("/api/auto-trading/runtime-status", async (req, res) => {
       intraday_scheduler: await readJsonPayloadDbFirst("auto_ops_recovery_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_recovery_scheduler_status.json")]),
       auto_buy_scheduler: await readJsonPayloadDbFirst("auto_ops_auto_buy_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_auto_buy_scheduler_status.json")]),
       live_account_sync_scheduler: await readJsonPayloadDbFirst("auto_ops_live_account_sync_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_live_account_sync_scheduler_status.json")]),
+      operations: opsStatus || {},
       policy: (policyPayload && Object.keys(policyPayload).length ? {
         auto_trade_execute: !!policyPayload.auto_trade_execute,
         auto_trade_allow_buy: !!policyPayload.auto_trade_allow_buy,
@@ -6272,7 +6360,7 @@ app.get("/api/auto-trading/runtime-status", async (req, res) => {
         generated_at: policyPayload.generated_at || null,
       } : envPolicy),
     };
-    if (!payload.close_scheduler && !payload.intraday_scheduler && !payload.auto_buy_scheduler && !payload.live_account_sync_scheduler) {
+    if (!payload.close_scheduler && !payload.intraday_scheduler && !payload.auto_buy_scheduler && !payload.live_account_sync_scheduler && !Object.keys(payload.operations || {}).length) {
       return res.status(404).json({ error: "auto trading runtime status not found" });
     }
     res.json(payload);

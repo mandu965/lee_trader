@@ -6,7 +6,9 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import text
 
+from db import get_engine
 from outcome_maturity import attach_forward_outcomes, load_price_history
 from production_config import get_production_config_value
 
@@ -19,10 +21,12 @@ CURRENT_RANKING_CSV = DATA_DIR / "ranking_final.csv"
 PRICES_CSV = DATA_DIR / "prices_daily_adjusted.csv"
 OUT_CSV = DATA_DIR / "confidence_calibration_operational.csv"
 OUT_MD = OUTPUT_DIR / "confidence_calibration_operational_report.md"
+OUT_LIVE_GRADE_JSON = OUTPUT_DIR / "confidence_live_grade_map.json"
 PROVISIONAL_MAP_CSV = DATA_DIR / "confidence_calibration_map.csv"
 
 HORIZONS = [5, 20, 60, 90]
 MIN_BUCKET_ROWS = 20
+RECENT_TRADE_COUNT = 10
 BUCKETS = [
     (0, 20, "0-20"),
     (20, 40, "20-40"),
@@ -44,6 +48,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--provisional-map-csv", type=Path, default=PROVISIONAL_MAP_CSV)
     p.add_argument("--out-csv", type=Path, default=OUT_CSV)
     p.add_argument("--out-md", type=Path, default=OUT_MD)
+    p.add_argument("--out-live-grade-json", type=Path, default=OUT_LIVE_GRADE_JSON)
+    p.add_argument("--recent-trade-count", type=int, default=RECENT_TRADE_COUNT)
+    p.add_argument("--self-test", action="store_true")
     return p.parse_args()
 
 
@@ -149,6 +156,206 @@ def bucketize(score: pd.Series) -> pd.Series:
             mask = (values > lo) & (values <= hi)
         out = out.mask(mask, label)
     return out
+
+
+def _safe_float(value: object) -> float | None:
+    numeric = pd.to_numeric(value, errors="coerce")
+    if pd.isna(numeric):
+        return None
+    return float(numeric)
+
+
+def load_live_trade_review() -> tuple[pd.DataFrame, dict[str, object]]:
+    query = text(
+        """
+        SELECT
+            review_date,
+            confidence_score,
+            strategy_return,
+            excess_return,
+            review_status
+        FROM research.live_trade_review
+        """
+    )
+    try:
+        with get_engine().connect() as conn:
+            df = pd.read_sql(query, conn)
+    except Exception as exc:
+        return pd.DataFrame(), {"available": False, "reason": str(exc)}
+
+    if df.empty:
+        return pd.DataFrame(), {"available": True, "row_count": 0, "performance_row_count": 0}
+
+    work = df.copy()
+    work["review_date"] = pd.to_datetime(work.get("review_date"), errors="coerce").dt.normalize()
+    work["confidence_score"] = pd.to_numeric(work.get("confidence_score"), errors="coerce")
+    work["strategy_return"] = pd.to_numeric(work.get("strategy_return"), errors="coerce")
+    work["excess_return"] = pd.to_numeric(work.get("excess_return"), errors="coerce")
+    work["review_status"] = work.get("review_status", "").fillna("").astype(str)
+    work = work.dropna(subset=["confidence_score"]).copy()
+    work["confidence_bucket"] = bucketize(work["confidence_score"])
+    work = work.dropna(subset=["confidence_bucket"]).copy()
+    meta = {
+        "available": True,
+        "row_count": int(len(work)),
+        "performance_row_count": int(work["strategy_return"].notna().sum()),
+        "excess_row_count": int(work["excess_return"].notna().sum()),
+        "latest_review_date": work["review_date"].max().strftime("%Y-%m-%d") if work["review_date"].notna().any() else None,
+    }
+    return work.reset_index(drop=True), meta
+
+
+def classify_live_grade(
+    *,
+    sample_count: int,
+    performance_count: int,
+    excess_count: int,
+    avg_return: float | None,
+    avg_excess_return: float | None,
+    recent_avg_return: float | None,
+    hit_rate: float | None,
+    min_bucket_rows: int,
+) -> tuple[str, str]:
+    if avg_excess_return is not None and avg_excess_return < -0.01:
+        return "D", "excess_return_below_minus_1pct"
+    if recent_avg_return is not None and recent_avg_return < -0.02:
+        return "D", "recent_10_trade_return_below_minus_2pct"
+    if performance_count <= 0 or avg_return is None or hit_rate is None:
+        return "C", "performance_data_missing"
+    if sample_count < min_bucket_rows:
+        return "C", "sample_below_20"
+    if excess_count <= 0 or avg_excess_return is None:
+        return "C", "excess_return_missing"
+    if hit_rate >= 0.60 and avg_return >= 0.01 and avg_excess_return >= 0.005 and (recent_avg_return is None or recent_avg_return >= 0):
+        return "A", "sample_sufficient_and_live_performance_strong"
+    if hit_rate >= 0.52 and avg_return >= 0 and avg_excess_return >= 0 and (recent_avg_return is None or recent_avg_return >= -0.005):
+        return "B", "sample_sufficient_and_live_performance_acceptable"
+    return "C", "live_performance_unclear"
+
+
+def grade_policy_for(grade: str) -> dict[str, object]:
+    normalized = (grade or "C").upper()
+    if normalized == "A":
+        return {"entry_allowed": True, "weight_scale": 1.0, "mode": "standard"}
+    if normalized == "B":
+        return {"entry_allowed": True, "weight_scale": 0.5, "mode": "scaled"}
+    if normalized == "D":
+        return {"entry_allowed": False, "weight_scale": 0.0, "mode": "blocked"}
+    return {"entry_allowed": False, "weight_scale": 0.2, "mode": "watch_only"}
+
+
+def build_live_grade_map(review_df: pd.DataFrame, *, min_bucket_rows: int, recent_trade_count: int) -> dict[str, object]:
+    bucket_rows: list[dict[str, object]] = []
+    for lo, hi, label in BUCKETS:
+        bucket = review_df.loc[review_df.get("confidence_bucket", pd.Series(index=review_df.index)).eq(label)].copy()
+        perf = bucket.loc[pd.to_numeric(bucket.get("strategy_return"), errors="coerce").notna()].copy()
+        recent_perf = perf.sort_values(["review_date"], ascending=False).head(recent_trade_count)
+        sample_count = int(len(bucket))
+        performance_count = int(len(perf))
+        excess_count = int(bucket["excess_return"].notna().sum()) if "excess_return" in bucket.columns else 0
+        avg_return = _safe_float(perf["strategy_return"].mean()) if not perf.empty else None
+        avg_excess_return = _safe_float(bucket["excess_return"].mean()) if excess_count > 0 else None
+        recent_avg_return = _safe_float(recent_perf["strategy_return"].mean()) if not recent_perf.empty else None
+        hit_rate = _safe_float((perf["strategy_return"] > 0).mean()) if not perf.empty else None
+        calibrated_confidence = float(hit_rate * 100.0) if hit_rate is not None else None
+        grade, reason = classify_live_grade(
+            sample_count=sample_count,
+            performance_count=performance_count,
+            excess_count=excess_count,
+            avg_return=avg_return,
+            avg_excess_return=avg_excess_return,
+            recent_avg_return=recent_avg_return,
+            hit_rate=hit_rate,
+            min_bucket_rows=min_bucket_rows,
+        )
+        bucket_rows.append(
+            {
+                "bucket_label": label,
+                "bucket_low": lo,
+                "bucket_high": hi,
+                "sample_count": sample_count,
+                "performance_count": performance_count,
+                "excess_count": excess_count,
+                "avg_return": avg_return,
+                "avg_excess_return": avg_excess_return,
+                "recent_avg_return": recent_avg_return,
+                "hit_rate": hit_rate,
+                "calibrated_confidence": calibrated_confidence,
+                "live_confidence_grade": grade,
+                "grade_reason": reason,
+                "execution_policy": grade_policy_for(grade),
+            }
+        )
+
+    grade_counts = pd.Series([row["live_confidence_grade"] for row in bucket_rows]).value_counts().to_dict()
+    return {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "version": CONFIDENCE_CALIBRATION_VERSION,
+        "source_table": "research.live_trade_review",
+        "recent_trade_count": int(recent_trade_count),
+        "min_bucket_rows": int(min_bucket_rows),
+        "rules": {
+            "sample_lt_20_max_grade": "C",
+            "excess_return_lt_minus_1pct": "D",
+            "recent_10_trade_return_lt_minus_2pct": "D",
+            "missing_performance_info": "C",
+            "grade_A_policy": grade_policy_for("A"),
+            "grade_B_policy": grade_policy_for("B"),
+            "grade_C_policy": grade_policy_for("C"),
+            "grade_D_policy": grade_policy_for("D"),
+        },
+        "default_bucket": {
+            "live_confidence_grade": "C",
+            "grade_reason": "no_bucket_data",
+            "execution_policy": grade_policy_for("C"),
+        },
+        "summary": {
+            "bucket_count": len(bucket_rows),
+            "grade_counts": grade_counts,
+            "review_rows_with_confidence": int(len(review_df)),
+            "review_rows_with_strategy_return": int(review_df["strategy_return"].notna().sum()) if "strategy_return" in review_df.columns else 0,
+            "review_rows_with_excess_return": int(review_df["excess_return"].notna().sum()) if "excess_return" in review_df.columns else 0,
+        },
+        "buckets": bucket_rows,
+    }
+
+
+def run_self_test() -> dict[str, object]:
+    cases = [
+        {
+            "name": "zero_sample_defaults_to_c",
+            "kwargs": dict(sample_count=0, performance_count=0, excess_count=0, avg_return=None, avg_excess_return=None, recent_avg_return=None, hit_rate=None, min_bucket_rows=20),
+            "expected": ("C", "performance_data_missing"),
+        },
+        {
+            "name": "thin_sample_caps_at_c",
+            "kwargs": dict(sample_count=19, performance_count=19, excess_count=19, avg_return=0.02, avg_excess_return=0.01, recent_avg_return=0.01, hit_rate=0.7, min_bucket_rows=20),
+            "expected": ("C", "sample_below_20"),
+        },
+        {
+            "name": "excess_return_below_threshold_is_d",
+            "kwargs": dict(sample_count=25, performance_count=25, excess_count=25, avg_return=0.01, avg_excess_return=-0.011, recent_avg_return=0.005, hit_rate=0.6, min_bucket_rows=20),
+            "expected": ("D", "excess_return_below_minus_1pct"),
+        },
+        {
+            "name": "recent_10_trade_return_below_threshold_is_d",
+            "kwargs": dict(sample_count=25, performance_count=25, excess_count=25, avg_return=0.01, avg_excess_return=0.0, recent_avg_return=-0.021, hit_rate=0.6, min_bucket_rows=20),
+            "expected": ("D", "recent_10_trade_return_below_minus_2pct"),
+        },
+        {
+            "name": "strong_live_performance_is_a",
+            "kwargs": dict(sample_count=30, performance_count=30, excess_count=30, avg_return=0.015, avg_excess_return=0.007, recent_avg_return=0.004, hit_rate=0.65, min_bucket_rows=20),
+            "expected": ("A", "sample_sufficient_and_live_performance_strong"),
+        },
+    ]
+    results: list[dict[str, object]] = []
+    passed = True
+    for case in cases:
+        actual = classify_live_grade(**case["kwargs"])
+        ok = actual == case["expected"]
+        passed = passed and ok
+        results.append({"name": case["name"], "expected": list(case["expected"]), "actual": list(actual), "passed": ok})
+    return {"passed": passed, "scenario_count": len(results), "results": results}
 
 
 def load_provisional_map(path: Path) -> tuple[pd.DataFrame, dict[str, object]]:
@@ -396,10 +603,17 @@ def build_report(
 
 def main() -> int:
     args = parse_args()
+    if args.self_test:
+        result = run_self_test()
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["passed"] else 1
     history, meta = load_operational_history(args.ranking_history_dir, args.ranking_current_csv)
     history = attach_realized_returns(history, args.prices_csv)
     provisional_map, provisional_meta = load_provisional_map(args.provisional_map_csv)
     calibration_df, summaries = build_calibration_table(history, args.min_bucket_rows, provisional_map)
+    review_df, review_meta = load_live_trade_review()
+    live_grade_map = build_live_grade_map(review_df, min_bucket_rows=args.min_bucket_rows, recent_trade_count=args.recent_trade_count)
+    live_grade_map["review_meta"] = review_meta
 
     args.out_csv.parent.mkdir(parents=True, exist_ok=True)
     calibration_df.to_csv(args.out_csv, index=False, encoding="utf-8-sig")
@@ -407,11 +621,14 @@ def main() -> int:
     report = build_report(calibration_df, summaries, meta, provisional_meta, args.min_bucket_rows)
     args.out_md.parent.mkdir(parents=True, exist_ok=True)
     args.out_md.write_text(report, encoding="utf-8")
+    args.out_live_grade_json.parent.mkdir(parents=True, exist_ok=True)
+    args.out_live_grade_json.write_text(json.dumps(live_grade_map, ensure_ascii=False, indent=2), encoding="utf-8")
 
     print(f"history_rows: {len(history)}")
     print(f"calibration_rows: {len(calibration_df)}")
     print(f"report_path: {args.out_md}")
     print(f"csv_path: {args.out_csv}")
+    print(f"live_grade_map_path: {args.out_live_grade_json}")
     print(json.dumps({"summaries": summaries}, ensure_ascii=False))
     return 0
 

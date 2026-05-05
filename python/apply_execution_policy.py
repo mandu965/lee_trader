@@ -21,6 +21,8 @@ DEFAULT_CANDIDATES_CSV = DATA_DIR / "ranking_final.csv"
 DEFAULT_GATE_JSON = OUTPUT_DIR / "operational_buy_gate.json"
 DEFAULT_SNAPSHOT_ARCHIVE_CSV = DATA_DIR / "ranking_snapshot_archive.csv"
 DEFAULT_REPORT_MD = OUTPUT_DIR / "execution_policy_simulation_report.md"
+DEFAULT_CONFIDENCE_V2_CSV = DATA_DIR / "confidence_score_v2.csv"
+DEFAULT_LIVE_GRADE_MAP_JSON = OUTPUT_DIR / "confidence_live_grade_map.json"
 
 AUTO_HOLDINGS_PATHS = [
     DATA_DIR / "current_holdings.csv",
@@ -71,6 +73,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidates-csv", type=Path, default=DEFAULT_CANDIDATES_CSV)
     parser.add_argument("--gate-json", type=Path, default=DEFAULT_GATE_JSON)
     parser.add_argument("--snapshot-archive-csv", type=Path, default=DEFAULT_SNAPSHOT_ARCHIVE_CSV)
+    parser.add_argument("--confidence-v2-csv", type=Path, default=DEFAULT_CONFIDENCE_V2_CSV)
+    parser.add_argument("--live-grade-map-json", type=Path, default=DEFAULT_LIVE_GRADE_MAP_JSON)
     parser.add_argument("--holdings-csv", type=Path, default=None)
     parser.add_argument("--out-md", type=Path, default=DEFAULT_REPORT_MD)
     parser.add_argument("--candidate-universe-top-n", type=int, default=int(get_production_config_value(["execution_policy", "candidate_universe_top_n"], 20)))
@@ -157,6 +161,52 @@ def _safe_read_json(path: Path) -> dict[str, object]:
     return json.loads(resolved.read_text(encoding="utf-8-sig"))
 
 
+def _load_optional_csv(path: Path | None) -> pd.DataFrame:
+    resolved = _resolve(path)
+    if resolved is None or not resolved.exists():
+        return pd.DataFrame()
+    return pd.read_csv(resolved, dtype={"code": str}, low_memory=False)
+
+
+def _bucketize_confidence_value(value: object) -> str:
+    numeric = pd.to_numeric(value, errors="coerce")
+    if pd.isna(numeric):
+        return "unknown"
+    number = float(numeric)
+    if 0 <= number <= 20:
+        return "0-20"
+    if 20 < number <= 40:
+        return "20-40"
+    if 40 < number <= 60:
+        return "40-60"
+    if 60 < number <= 80:
+        return "60-80"
+    if 80 < number <= 100:
+        return "80-100"
+    return "unknown"
+
+
+def load_live_grade_map(path: Path) -> dict[str, object]:
+    payload = _safe_read_json(path)
+    if not payload:
+        return {
+            "available": False,
+            "default_bucket": {
+                "live_confidence_grade": "C",
+                "grade_reason": "live_grade_map_missing",
+                "execution_policy": {"entry_allowed": False, "weight_scale": 0.2, "mode": "watch_only"},
+            },
+            "bucket_map": {},
+        }
+    bucket_map: dict[str, dict[str, object]] = {}
+    for item in payload.get("buckets", []):
+        if isinstance(item, dict) and item.get("bucket_label"):
+            bucket_map[str(item["bucket_label"])] = item
+    payload["available"] = True
+    payload["bucket_map"] = bucket_map
+    return payload
+
+
 def _normalize_theme(series: pd.Series) -> pd.Series:
     return series.fillna("(none)").astype(str).replace({"": "(none)", "nan": "(none)"})
 
@@ -168,7 +218,7 @@ def markdown_summary_list(items: Iterable[str]) -> str:
     return "\n".join(f"- {item}" for item in values)
 
 
-def load_candidates(path: Path) -> pd.DataFrame:
+def load_candidates(path: Path, confidence_v2_csv: Path, live_grade_map: dict[str, object]) -> pd.DataFrame:
     resolved = _resolve(path)
     if resolved is None or not resolved.exists():
         raise FileNotFoundError(f"candidate file not found: {path}")
@@ -195,11 +245,22 @@ def load_candidates(path: Path) -> pd.DataFrame:
         "ret_10d",
         "mom_20",
         "rsi_14",
+        "ai_top10_rank",
+        "ai_filtered_rank",
+        "ai_adjusted_score",
+        "ai_adjusted_rank",
+        "entry_quality_score",
+        "original_final_rank",
+        "original_final_score",
     ]:
         work[col] = pd.to_numeric(work.get(col), errors="coerce")
     if "trading_value" not in work.columns or work["trading_value"].isna().all():
         work["trading_value"] = pd.to_numeric(work.get("close"), errors="coerce") * pd.to_numeric(work.get("volume"), errors="coerce")
     work["recent_surge_soft_flag"] = work.get("recent_surge_soft_flag", pd.Series(False, index=work.index)).astype(str).str.lower().isin(["true", "1"])
+    for col in ["filter_passed", "selected_for_ai_top5", "fallback_selected"]:
+        work[col] = work.get(col, pd.Series(False, index=work.index)).astype(str).str.lower().isin(["true", "1", "yes", "on"])
+    for col in ["entry_quality_grade", "entry_quality_status", "entry_quality_reasons", "score_adjustment_reasons", "selection_note"]:
+        work[col] = work.get(col, pd.Series("", index=work.index)).fillna("").astype(str)
     work["selection_stage"] = work.get("selection_stage", pd.Series("", index=work.index)).fillna("").astype(str)
     if "buy_rank" not in work.columns or work["buy_rank"].isna().all():
         work["buy_rank"] = pd.to_numeric(work.get("rank_final"), errors="coerce")
@@ -219,6 +280,56 @@ def load_candidates(path: Path) -> pd.DataFrame:
         work["asof_date"] = parsed_date.dt.strftime("%Y-%m-%d").fillna("")
     else:
         work["asof_date"] = ""
+
+    confidence_v2 = _load_optional_csv(confidence_v2_csv)
+    if not confidence_v2.empty and "code" in confidence_v2.columns:
+        confidence_v2["code"] = confidence_v2["code"].astype(str).str.zfill(6)
+        for col in ["calibrated_confidence", "live_confidence_weight_scale", "raw_confidence_v2"]:
+            confidence_v2[col] = pd.to_numeric(confidence_v2.get(col), errors="coerce")
+        for col in ["live_confidence_grade", "live_confidence_grade_reason", "live_confidence_mode"]:
+            confidence_v2[col] = confidence_v2.get(col, pd.Series("", index=confidence_v2.index)).fillna("").astype(str)
+        keep = [
+            "code",
+            "calibrated_confidence",
+            "live_confidence_grade",
+            "live_confidence_grade_reason",
+            "live_confidence_mode",
+            "live_confidence_weight_scale",
+            "raw_confidence_v2",
+        ]
+        work = work.merge(confidence_v2[keep].drop_duplicates("code"), on="code", how="left")
+    else:
+        work["calibrated_confidence"] = pd.NA
+        work["live_confidence_grade"] = ""
+        work["live_confidence_grade_reason"] = ""
+        work["live_confidence_mode"] = ""
+        work["live_confidence_weight_scale"] = pd.NA
+        work["raw_confidence_v2"] = pd.NA
+
+    bucket_map = live_grade_map.get("bucket_map", {}) if isinstance(live_grade_map.get("bucket_map"), dict) else {}
+    default_bucket = live_grade_map.get("default_bucket", {}) if isinstance(live_grade_map.get("default_bucket"), dict) else {}
+    if "live_confidence_grade" not in work.columns:
+        work["live_confidence_grade"] = ""
+    if "calibrated_confidence" not in work.columns:
+        work["calibrated_confidence"] = pd.NA
+    if "live_confidence_grade_reason" not in work.columns:
+        work["live_confidence_grade_reason"] = ""
+    if "live_confidence_mode" not in work.columns:
+        work["live_confidence_mode"] = ""
+    if "live_confidence_weight_scale" not in work.columns:
+        work["live_confidence_weight_scale"] = pd.NA
+    work["confidence_bucket"] = work["confidence_score"].map(_bucketize_confidence_value)
+    for idx, row in work.iterrows():
+        if str(row.get("live_confidence_grade") or "").strip():
+            continue
+        bucket_payload = bucket_map.get(str(row.get("confidence_bucket") or "unknown"), default_bucket)
+        policy = bucket_payload.get("execution_policy", {}) if isinstance(bucket_payload.get("execution_policy"), dict) else {}
+        work.at[idx, "live_confidence_grade"] = bucket_payload.get("live_confidence_grade") or default_bucket.get("live_confidence_grade") or "C"
+        work.at[idx, "live_confidence_grade_reason"] = bucket_payload.get("grade_reason") or default_bucket.get("grade_reason") or "live_grade_map_missing"
+        work.at[idx, "live_confidence_mode"] = policy.get("mode") or ""
+        work.at[idx, "live_confidence_weight_scale"] = pd.to_numeric(policy.get("weight_scale"), errors="coerce")
+        if pd.isna(pd.to_numeric(row.get("calibrated_confidence"), errors="coerce")):
+            work.at[idx, "calibrated_confidence"] = pd.to_numeric(bucket_payload.get("calibrated_confidence"), errors="coerce")
     return work.sort_values(["buy_rank", "rank_source", "code"]).reset_index(drop=True)
 
 
@@ -492,67 +603,110 @@ def gate_decision_runtime(gate_payload: dict[str, object]) -> dict[str, object]:
     }
 
 
-def resolve_confidence_policy(confidence_value: object, args: argparse.Namespace) -> ConfidencePolicy:
+def resolve_confidence_policy(confidence_value: object, args: argparse.Namespace, live_grade: object = None) -> ConfidencePolicy:
     confidence = pd.to_numeric(confidence_value, errors="coerce")
     if pd.isna(confidence):
-        return ConfidencePolicy(
+        base_policy = ConfidencePolicy(
             band="UNKNOWN",
-            label="미확인",
+            label="UNKNOWN",
             entry_allowed=False,
             hold_allowed=False,
             weight_scale=0.0,
             position_cap_scale=0.0,
-            guidance="신뢰도 정보가 없어 신규 진입 금지",
+            guidance="confidence unavailable: block new BUY",
         )
+    else:
+        value = float(confidence)
+        if value < args.confidence_block_below:
+            base_policy = ConfidencePolicy(
+                band="BLOCKED",
+                label="BLOCKED",
+                entry_allowed=False,
+                hold_allowed=False,
+                weight_scale=0.0,
+                position_cap_scale=0.0,
+                guidance=f"confidence < {_fmt_num(args.confidence_block_below)}: block new BUY",
+            )
+        elif value < args.confidence_reduced_below:
+            base_policy = ConfidencePolicy(
+                band="REDUCED",
+                label="REDUCED",
+                entry_allowed=True,
+                hold_allowed=True,
+                weight_scale=args.confidence_reduced_weight_scale,
+                position_cap_scale=args.confidence_reduced_position_cap_scale,
+                guidance=f"{_fmt_num(args.confidence_block_below)}~{_fmt_num(args.confidence_reduced_below)}: reduced BUY size",
+            )
+        elif value < args.confidence_standard_below:
+            base_policy = ConfidencePolicy(
+                band="STANDARD",
+                label="STANDARD",
+                entry_allowed=True,
+                hold_allowed=True,
+                weight_scale=args.confidence_standard_weight_scale,
+                position_cap_scale=args.confidence_standard_position_cap_scale,
+                guidance=f"{_fmt_num(args.confidence_reduced_below)}~{_fmt_num(args.confidence_standard_below)}: standard BUY size",
+            )
+        else:
+            base_policy = ConfidencePolicy(
+                band="EXPANDED",
+                label="EXPANDED",
+                entry_allowed=True,
+                hold_allowed=True,
+                weight_scale=args.confidence_expanded_weight_scale,
+                position_cap_scale=args.confidence_expanded_position_cap_scale,
+                guidance=f"{_fmt_num(args.confidence_standard_below)}+: expanded BUY size",
+            )
 
-    value = float(confidence)
-    if value < args.confidence_block_below:
+    grade = str(live_grade or "").strip().upper()
+    if grade == "A":
         return ConfidencePolicy(
-            band="BLOCKED",
-            label="진입 금지",
+            band=f"{base_policy.band}|LIVE_A",
+            label="LIVE_A",
+            entry_allowed=base_policy.entry_allowed,
+            hold_allowed=base_policy.hold_allowed,
+            weight_scale=base_policy.weight_scale,
+            position_cap_scale=base_policy.position_cap_scale,
+            guidance=f"{base_policy.guidance}; live grade A",
+        )
+    if grade == "B":
+        return ConfidencePolicy(
+            band=f"{base_policy.band}|LIVE_B",
+            label="LIVE_B",
+            entry_allowed=base_policy.entry_allowed,
+            hold_allowed=base_policy.hold_allowed,
+            weight_scale=min(base_policy.weight_scale, 0.5),
+            position_cap_scale=min(base_policy.position_cap_scale, 0.5),
+            guidance=f"{base_policy.guidance}; live grade B scales BUY weight to 0.5",
+        )
+    if grade == "C":
+        return ConfidencePolicy(
+            band=f"{base_policy.band}|LIVE_C",
+            label="LIVE_C",
             entry_allowed=False,
-            hold_allowed=False,
+            hold_allowed=base_policy.hold_allowed,
+            weight_scale=min(base_policy.weight_scale, 0.2),
+            position_cap_scale=min(base_policy.position_cap_scale, 0.2),
+            guidance="live grade C: watch-only due to insufficient or unclear live evidence",
+        )
+    if grade == "D":
+        return ConfidencePolicy(
+            band=f"{base_policy.band}|LIVE_D",
+            label="LIVE_D",
+            entry_allowed=False,
+            hold_allowed=base_policy.hold_allowed,
             weight_scale=0.0,
             position_cap_scale=0.0,
-            guidance=f"confidence < {_fmt_num(args.confidence_block_below)}: 신규 진입 금지, 기존 보유도 축소/청산 우선",
+            guidance="live grade D: block new BUY",
         )
-    if value < args.confidence_reduced_below:
-        return ConfidencePolicy(
-            band="REDUCED",
-            label="소액",
-            entry_allowed=True,
-            hold_allowed=True,
-            weight_scale=args.confidence_reduced_weight_scale,
-            position_cap_scale=args.confidence_reduced_position_cap_scale,
-            guidance=f"{_fmt_num(args.confidence_block_below)}~{_fmt_num(args.confidence_reduced_below)}: 소액 진입만 허용",
-        )
-    if value < args.confidence_standard_below:
-        return ConfidencePolicy(
-            band="STANDARD",
-            label="표준",
-            entry_allowed=True,
-            hold_allowed=True,
-            weight_scale=args.confidence_standard_weight_scale,
-            position_cap_scale=args.confidence_standard_position_cap_scale,
-            guidance=f"{_fmt_num(args.confidence_reduced_below)}~{_fmt_num(args.confidence_standard_below)}: 표준 비중 허용",
-        )
-    return ConfidencePolicy(
-        band="EXPANDED",
-        label="확대 가능",
-        entry_allowed=True,
-        hold_allowed=True,
-        weight_scale=args.confidence_expanded_weight_scale,
-        position_cap_scale=args.confidence_expanded_position_cap_scale,
-        guidance=f"{_fmt_num(args.confidence_standard_below)}+: 확대 비중 검토 가능",
-    )
-
+    return base_policy
 
 def score_for_weight(row: pd.Series, args: argparse.Namespace) -> float:
     final_score = float(pd.to_numeric(row.get("final_score"), errors="coerce") or 0.0)
     confidence = float(pd.to_numeric(row.get("confidence_score"), errors="coerce") or 0.0)
     liquidity = float(pd.to_numeric(row.get("liquidity_score"), errors="coerce") or 0.0)
     trading_value = float(pd.to_numeric(row.get("trading_value"), errors="coerce") or 0.0)
-    confidence_policy = resolve_confidence_policy(confidence, args)
+    confidence_policy = resolve_confidence_policy(confidence, args, row.get("live_confidence_grade"))
     base = (final_score / 100.0) ** 1.10 * (confidence / 100.0) ** 1.20
     liquidity_mult = 1.0
     if liquidity < 10.0 or (trading_value > 0 and trading_value < 4_000_000_000.0):
@@ -571,10 +725,11 @@ def compute_target_weights(selected: pd.DataFrame, args: argparse.Namespace) -> 
         return result
 
     work = selected.copy().reset_index(drop=True)
-    work["confidence_band"] = work["confidence_score"].map(lambda value: resolve_confidence_policy(value, args).band)
-    work["confidence_guidance"] = work["confidence_score"].map(lambda value: resolve_confidence_policy(value, args).guidance)
-    work["confidence_position_cap"] = work["confidence_score"].map(
-        lambda value: min(args.max_position_weight * resolve_confidence_policy(value, args).position_cap_scale, 1.0)
+    work["confidence_band"] = work.apply(lambda row: resolve_confidence_policy(row.get("confidence_score"), args, row.get("live_confidence_grade")).band, axis=1)
+    work["confidence_guidance"] = work.apply(lambda row: resolve_confidence_policy(row.get("confidence_score"), args, row.get("live_confidence_grade")).guidance, axis=1)
+    work["confidence_position_cap"] = work.apply(
+        lambda row: min(args.max_position_weight * resolve_confidence_policy(row.get("confidence_score"), args, row.get("live_confidence_grade")).position_cap_scale, 1.0),
+        axis=1,
     )
     work["policy_score"] = work.apply(lambda row: score_for_weight(row, args), axis=1)
     work["target_weight"] = 0.0
@@ -629,7 +784,7 @@ def candidate_eligibility_notes(row: pd.Series, cooldown_map: dict[str, dict[str
     confidence = pd.to_numeric(row.get("confidence_score"), errors="coerce")
     liquidity = pd.to_numeric(row.get("liquidity_score"), errors="coerce")
     trading_value = pd.to_numeric(row.get("trading_value"), errors="coerce")
-    confidence_policy = resolve_confidence_policy(confidence, args)
+    confidence_policy = resolve_confidence_policy(confidence, args, row.get("live_confidence_grade"))
     if pd.isna(rank_value) or float(rank_value) > args.entry_review_extended_top_n:
         eligible = False
         notes.append(f"outside entry review range top{args.entry_review_extended_top_n}")
@@ -653,6 +808,9 @@ def candidate_eligibility_notes(row: pd.Series, cooldown_map: dict[str, dict[str
         notes.append(confidence_policy.guidance)
     else:
         notes.append(f"confidence band {confidence_policy.band}: {confidence_policy.label}")
+    live_grade = str(row.get("live_confidence_grade") or "").strip().upper()
+    if live_grade:
+        notes.append(f"live grade {live_grade}: {row.get('live_confidence_grade_reason') or confidence_policy.guidance}")
     if pd.isna(liquidity) or float(liquidity) < args.min_liquidity_score:
         eligible = False
         notes.append(f"liquidity {_fmt_num(liquidity)} < floor {_fmt_num(args.min_liquidity_score)}")
@@ -713,22 +871,24 @@ def classify_holdings(
         candidate_score = pd.NA
         latest_rank = pd.NA
         confidence = pd.to_numeric(row.get("confidence_score"), errors="coerce")
+        live_grade = str(row.get("live_confidence_grade") or "").strip().upper()
         reasons: list[str] = []
         action = "HOLD"
-        confidence_policy = resolve_confidence_policy(confidence, args)
+        confidence_policy = resolve_confidence_policy(confidence, args, live_grade)
         policy_cap_weight = min(args.max_position_weight * confidence_policy.position_cap_scale, 1.0)
 
         if code in candidate_lookup.index:
             candidate_rank = candidate_lookup.at[code, "buy_rank"]
             candidate_score = candidate_lookup.at[code, "final_score"]
             confidence = pd.to_numeric(candidate_lookup.at[code, "confidence_score"], errors="coerce")
-            confidence_policy = resolve_confidence_policy(confidence, args)
+            live_grade = str(candidate_lookup.at[code, "live_confidence_grade"] or "").strip().upper()
+            confidence_policy = resolve_confidence_policy(confidence, args, live_grade)
             policy_cap_weight = min(args.max_position_weight * confidence_policy.position_cap_scale, 1.0)
         if not latest_lookup.empty and code in latest_lookup.index:
             latest_rank = latest_lookup.at[code, "rank"]
             if pd.isna(confidence):
                 confidence = pd.to_numeric(latest_lookup.at[code, "confidence_score"], errors="coerce")
-                confidence_policy = resolve_confidence_policy(confidence, args)
+                confidence_policy = resolve_confidence_policy(confidence, args, live_grade)
                 policy_cap_weight = min(args.max_position_weight * confidence_policy.position_cap_scale, 1.0)
 
         if pd.notna(confidence) and float(confidence) < args.force_exit_confidence:
@@ -777,6 +937,8 @@ def classify_holdings(
             reasons.append("gate BLOCK prefers risk reduction over full hold")
         if not reasons:
             reasons.append("meets hold criteria")
+        if live_grade:
+            reasons.append(f"live grade {live_grade}")
 
         rows.append(
             {
@@ -786,6 +948,7 @@ def classify_holdings(
                 "candidate_rank": candidate_rank,
                 "latest_snapshot_rank": latest_rank,
                 "confidence_score": confidence,
+                "live_confidence_grade": live_grade,
                 "confidence_band": confidence_policy.band,
                 "candidate_final_score": candidate_score,
                 "policy_cap_weight": policy_cap_weight,
@@ -808,7 +971,7 @@ def select_buy_ready_queue(
     for _, row in review_universe.iterrows():
         code = str(row["code"]).zfill(6)
         eligible, notes = candidate_eligibility_notes(row, cooldown_map, args)
-        confidence_policy = resolve_confidence_policy(row.get("confidence_score"), args)
+        confidence_policy = resolve_confidence_policy(row.get("confidence_score"), args, row.get("live_confidence_grade"))
         rows.append(
             {
                 "code": code,
@@ -820,6 +983,8 @@ def select_buy_ready_queue(
                 "confidence_score": row["confidence_score"],
                 "liquidity_score": row["liquidity_score"],
                 "trading_value": row["trading_value"],
+                "live_confidence_grade": row.get("live_confidence_grade"),
+                "calibrated_confidence": row.get("calibrated_confidence"),
                 "confidence_band": confidence_policy.band,
                 "position_guidance": confidence_policy.label,
                 "latest_snapshot_rank": row.get("latest_snapshot_rank"),
@@ -1162,7 +1327,8 @@ def top5_members(snapshot: pd.DataFrame) -> set[str]:
 
 def main() -> None:
     args = parse_args()
-    candidates = load_candidates(args.candidates_csv)
+    live_grade_map = load_live_grade_map(args.live_grade_map_json)
+    candidates = load_candidates(args.candidates_csv, args.confidence_v2_csv, live_grade_map)
     candidates = candidates.loc[pd.to_numeric(candidates["buy_rank"], errors="coerce").le(args.candidate_universe_top_n)].copy()
     candidates = candidates.sort_values(["buy_rank", "rank_source", "code"]).reset_index(drop=True)
     snapshot_archive = load_snapshot_archive(args.snapshot_archive_csv)
@@ -1208,6 +1374,8 @@ def main() -> None:
         operator_notes.append("no holdings file found, report is an empty-account simulation rather than a live rebalance instruction.")
     if all(str(value) == "(none)" for value in candidates["dominant_theme"].tolist()):
         operator_notes.append("all current top5 candidates have dominant_theme=(none); theme cap is not binding and sector cap is the active concentration control.")
+    if not bool(live_grade_map.get("available")):
+        operator_notes.append("live confidence grade map missing, fallback C/watch-only policy was applied.")
 
     queue_display = buy_ready_queue.copy()
     if not queue_display.empty:
@@ -1220,6 +1388,7 @@ def main() -> None:
         queue_display["score_drift_vs_latest_snapshot"] = queue_display["score_drift_vs_latest_snapshot"].map(_fmt_num)
         queue_display["target_weight"] = queue_display["target_weight"].map(_fmt_pct)
         queue_display["confidence_position_cap"] = queue_display["confidence_position_cap"].map(_fmt_pct)
+        queue_display["calibrated_confidence"] = queue_display["calibrated_confidence"].map(_fmt_num)
 
     holdings_display = holdings_review.copy()
     if not holdings_display.empty:
@@ -1242,6 +1411,7 @@ def main() -> None:
         f"- gate_version: {GATE_VERSION}",
         f"- portfolio_version: {PORTFOLIO_VERSION}",
         f"- holdings_source: {holdings_context.source}",
+        f"- live_grade_map_available: {'Y' if live_grade_map.get('available') else 'N'}",
         "",
         "## Gate Context",
         "",
@@ -1270,12 +1440,13 @@ def main() -> None:
         f"- confidence bands: <{_fmt_num(args.confidence_block_below)} block / {_fmt_num(args.confidence_block_below)}~{_fmt_num(args.confidence_reduced_below)} reduced / {_fmt_num(args.confidence_reduced_below)}~{_fmt_num(args.confidence_standard_below)} standard / {_fmt_num(args.confidence_standard_below)}+ expanded",
         f"- reduced weight scale: {_fmt_num(args.confidence_reduced_weight_scale)} / expanded weight scale: {_fmt_num(args.confidence_expanded_weight_scale)}",
         f"- reduced cap scale: {_fmt_num(args.confidence_reduced_position_cap_scale)} / expanded cap scale: {_fmt_num(args.confidence_expanded_position_cap_scale)}",
+        "- live grade execution policy: A=standard / B=0.5 scale / C=watch-only / D=block BUY",
         f"- max_hold_rank: top{args.max_hold_rank}",
         f"- reentry_cooldown_days: {args.reentry_cooldown_days}",
         "",
         "## Current Holdings Review",
         "",
-        _markdown_table(holdings_display, ["code", "name", "current_weight", "policy_cap_weight", "candidate_rank", "latest_snapshot_rank", "confidence_score", "confidence_band", "candidate_final_score", "action", "reason"]),
+        _markdown_table(holdings_display, ["code", "name", "current_weight", "policy_cap_weight", "candidate_rank", "latest_snapshot_rank", "confidence_score", "live_confidence_grade", "confidence_band", "candidate_final_score", "action", "reason"]),
         "",
         "## Recommended Actions",
         "",
@@ -1283,7 +1454,7 @@ def main() -> None:
         "",
         "## Buy-Ready Queue",
         "",
-        _markdown_table(queue_display, ["code", "name", "buy_rank", "held_now", "entry_eligible", "confidence_band", "position_guidance", "confidence_position_cap", "target_weight", "final_score", "confidence_score", "latest_snapshot_rank", "score_drift_vs_latest_snapshot", "entry_note"]),
+        _markdown_table(queue_display, ["code", "name", "buy_rank", "held_now", "entry_eligible", "live_confidence_grade", "calibrated_confidence", "confidence_band", "position_guidance", "confidence_position_cap", "target_weight", "final_score", "confidence_score", "latest_snapshot_rank", "score_drift_vs_latest_snapshot", "entry_note"]),
         "",
         "## Operator Notes",
         "",

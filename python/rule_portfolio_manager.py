@@ -68,12 +68,79 @@ def load_state(path: Path) -> dict[str, Any]:
 def position_frame(state: dict[str, Any]) -> pd.DataFrame:
     df = pd.DataFrame(state.get("positions") or [])
     if df.empty:
-        return pd.DataFrame(columns=["code", "name", "sector", "qty", "amount", "weight", "entry_price"])
+        return pd.DataFrame(columns=["code", "name", "sector", "qty", "amount", "weight", "entry_price", "last_price", "entry_date", "highest_price", "highest_return_since_entry"])
     df["code"] = df["code"].astype(str).str.zfill(6)
-    for col in ["qty", "amount", "weight", "entry_price"]:
+    for col in ["qty", "amount", "weight", "entry_price", "last_price", "highest_price", "highest_return_since_entry"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+    if "entry_date" in df.columns:
+        df["entry_date"] = pd.to_datetime(df["entry_date"], errors="coerce")
     return df
+
+
+def evaluate_position_risk(
+    row: pd.Series,
+    current_weight: float,
+    latest_date: pd.Timestamp,
+) -> tuple[str | None, str | None, float | None, int | None, float | None, float | None, list[str]]:
+    max_holding_days = cfg_int("RULE_MAX_HOLDING_DAYS", 10)
+    max_holding_profit_buffer = cfg_float("RULE_MAX_HOLDING_DAYS_PROFIT_BUFFER", 0.02)
+    stop_loss_pct = cfg_float("RULE_STOP_LOSS_PCT", 0.05)
+    trailing_stop_pct = cfg_float("RULE_TRAILING_STOP_PCT", 0.04)
+    trailing_stop_min_profit_pct = cfg_float("RULE_TRAILING_STOP_MIN_PROFIT_PCT", 0.03)
+
+    reasons: list[str] = []
+    entry_price = _float(row.get("entry_price"))
+    last_price = _float(row.get("last_price")) or _float(row.get("close"))
+    highest_price = _float(row.get("highest_price"))
+    highest_return_since_entry = _float(row.get("highest_return_since_entry"))
+    entry_date = pd.to_datetime(row.get("entry_date"), errors="coerce")
+
+    current_return_pct = None
+    holding_days = None
+    drawdown_from_high_pct = None
+
+    if entry_price is None or entry_price <= 0:
+        reasons.append("entry_price_missing")
+    if last_price is None or last_price <= 0:
+        reasons.append("last_price_missing")
+    if pd.isna(entry_date):
+        reasons.append("entry_date_missing")
+    if highest_price is None or highest_price <= 0:
+        reasons.append("highest_price_missing")
+
+    if entry_price and entry_price > 0 and last_price and last_price > 0:
+        current_return_pct = (last_price / entry_price) - 1.0
+    if pd.notna(entry_date):
+        holding_days = max((latest_date.normalize() - pd.Timestamp(entry_date).normalize()).days, 0)
+    if highest_return_since_entry is None and entry_price and entry_price > 0 and highest_price and highest_price > 0:
+        highest_return_since_entry = (highest_price / entry_price) - 1.0
+    if current_return_pct is not None and highest_return_since_entry is not None:
+        drawdown_from_high_pct = current_return_pct - highest_return_since_entry
+    elif highest_price and highest_price > 0 and last_price and last_price > 0:
+        drawdown_from_high_pct = (last_price / highest_price) - 1.0
+
+    if current_return_pct is not None and current_return_pct <= -abs(stop_loss_pct):
+        return "exit", "stop_loss_exit", current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
+
+    if (
+        highest_return_since_entry is not None
+        and drawdown_from_high_pct is not None
+        and highest_return_since_entry >= trailing_stop_min_profit_pct
+        and drawdown_from_high_pct <= -abs(trailing_stop_pct)
+    ):
+        if current_return_pct is not None and current_return_pct <= 0:
+            return "exit", "trailing_stop_exit", current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
+        return "reduce", "trailing_stop_reduce", current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
+
+    if holding_days is not None and holding_days > max_holding_days:
+        if current_return_pct is None:
+            reasons.append("holding_days_exit_data_incomplete")
+        elif current_return_pct < max_holding_profit_buffer:
+            action = "reduce" if current_return_pct > 0 else "exit"
+            return action, "max_holding_days_exit", current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
+
+    return None, None, current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
 
 
 def recent_trade_codes(state: dict[str, Any], latest_date: pd.Timestamp, cooldown_days: int) -> set[str]:
@@ -117,12 +184,14 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
         current_weight = 0.0
         current_qty = 0
         current_amount = 0.0
+        position_meta: dict[str, Any] = {}
         if held and not positions.empty:
             pos = positions.loc[positions["code"] == code]
             if not pos.empty:
                 current_weight = float(pd.to_numeric(pos["weight"], errors="coerce").fillna(0).max())
                 current_qty = int(pd.to_numeric(pos["qty"], errors="coerce").fillna(0).max())
                 current_amount = float(pd.to_numeric(pos["amount"], errors="coerce").fillna(0).max())
+                position_meta = pos.iloc[0].to_dict()
 
         sector_after = sector_exposure.get(sector, 0.0) + (new_entry_weight if not held else 0.0)
         sector_limit_pass = sector_after <= max_sector_weight or held
@@ -132,9 +201,27 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
 
         action = "skip"
         reason = "no_action"
+        detail_reasons: list[str] = []
         target_weight = 0.0
+        current_return_pct = None
+        holding_days = None
+        highest_return_since_entry = None
+        drawdown_from_high_pct = None
         if held:
-            if bool(row.get("market_defensive_mode")) and (float(row.get("rule_score_v2") or 0.0) < 45.0):
+            risk_row = row.copy()
+            for key, value in position_meta.items():
+                risk_row[key] = value
+            risk_action, risk_reason, current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, missing_reasons = evaluate_position_risk(
+                risk_row,
+                current_weight,
+                latest_date,
+            )
+            detail_reasons.extend(missing_reasons)
+            if risk_action and risk_reason:
+                action = risk_action
+                reason = risk_reason
+                target_weight = 0.0 if action == "exit" else max(current_weight * 0.5, 0.0)
+            elif bool(row.get("market_defensive_mode")) and (float(row.get("rule_score_v2") or 0.0) < 45.0):
                 action = "reduce"
                 reason = "defensive_rule_score_v2_drop"
                 target_weight = max(current_weight * 0.5, 0.0)
@@ -175,11 +262,20 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
                 "sector": sector,
                 "portfolio_action": action,
                 "portfolio_action_reason": reason,
+                "portfolio_action_detail_reasons": detail_reasons,
                 "target_weight": target_weight,
                 "current_weight": current_weight,
                 "current_qty": current_qty,
                 "current_amount": current_amount,
                 "target_amount": target_amount,
+                "entry_price": _float(position_meta.get("entry_price")) if position_meta else None,
+                "last_price": _float(position_meta.get("last_price")) if position_meta else _float(row.get("close")),
+                "entry_date": pd.to_datetime(position_meta.get("entry_date"), errors="coerce").date().isoformat() if position_meta and pd.notna(pd.to_datetime(position_meta.get("entry_date"), errors="coerce")) else None,
+                "holding_days": holding_days,
+                "current_return_pct": current_return_pct,
+                "highest_price": _float(position_meta.get("highest_price")) if position_meta else None,
+                "highest_return_since_entry": highest_return_since_entry,
+                "drawdown_from_high_pct": drawdown_from_high_pct,
                 "max_position_allowed": bool(max_position_allowed),
                 "sector_limit_pass": bool(sector_limit_pass),
                 "cooldown_pass": bool(cooldown_pass),
@@ -261,6 +357,7 @@ def build_trade_intents(plan: dict[str, Any]) -> dict[str, Any]:
                 "target_weight": item.get("target_weight"),
                 "target_amount": item.get("target_amount"),
                 "reason": item.get("portfolio_action_reason"),
+                "detail_reasons": list(item.get("portfolio_action_detail_reasons") or []),
                 "signal_strength": item.get("signal_strength"),
                 "executable": False,
                 "paper_only": True,

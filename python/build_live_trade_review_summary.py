@@ -122,7 +122,15 @@ def load_review_rows(reviewer: str) -> pd.DataFrame:
                     r.ranking_rank,
                     r.confidence_score,
                     r.risk_penalty,
-                    r.final_score
+                    r.final_score,
+                    v.engine_type,
+                    v.strategy_id,
+                    v.run_mode,
+                    v.entry_gate_status,
+                    v.entry_gate_reason,
+                    v.review_status,
+                    v.strategy_return,
+                    v.holding_days
                 FROM research.live_trade_review v
                 LEFT JOIN research.live_order_request r
                   ON r.request_id = v.request_id
@@ -145,6 +153,9 @@ def load_review_rows(reviewer: str) -> pd.DataFrame:
     df["confidence_for_bucket"] = df["confidence_score"].where(df["confidence_score"].notna(), df["parsed_confidence"])
     df["rank_bucket"] = df["rank_for_bucket"].map(_rank_bucket)
     df["confidence_bucket"] = df["confidence_for_bucket"].map(_confidence_bucket)
+    df["engine_type"] = df["engine_type"].fillna("")
+    df["entry_gate_status"] = df["entry_gate_status"].fillna("")
+    df["review_status"] = df["review_status"].fillna("")
     df["side"] = df["side"].fillna("")
     df["intent_type"] = df["intent_type"].fillna("")
     return df
@@ -247,6 +258,9 @@ def build_report(reviewer: str) -> dict[str, Any]:
         "by_outcome": _aggregate(df, ["outcome_label"]) if not df.empty else [],
         "by_rank_bucket": _aggregate(df, ["rank_bucket"]) if not df.empty else [],
         "by_confidence_bucket": _aggregate(df, ["confidence_bucket"]) if not df.empty else [],
+        "by_engine_type": _aggregate(df, ["engine_type"]) if not df.empty else [],
+        "by_entry_gate_status": _aggregate(df, ["entry_gate_status"]) if not df.empty else [],
+        "by_review_status": _aggregate(df, ["review_status"]) if not df.empty else [],
     }
     report["recommendations"] = _recommendations(report)
     return _clean_json(report)
@@ -302,6 +316,9 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.extend(_render_group("By Outcome", report["by_outcome"], ["outcome_label"]))
     lines.extend(_render_group("By Rank Bucket", report["by_rank_bucket"], ["rank_bucket"]))
     lines.extend(_render_group("By Confidence Bucket", report["by_confidence_bucket"], ["confidence_bucket"]))
+    lines.extend(_render_group("By Engine Type", report["by_engine_type"], ["engine_type"]))
+    lines.extend(_render_group("By Entry Gate Status", report["by_entry_gate_status"], ["entry_gate_status"]))
+    lines.extend(_render_group("By Review Status", report["by_review_status"], ["review_status"]))
     return "\n".join(lines) + "\n"
 
 

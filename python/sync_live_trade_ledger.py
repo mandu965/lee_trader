@@ -118,6 +118,66 @@ def _int(value: Any) -> Any:
         return None
 
 
+def _text_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text_value = _none_if_blank(value)
+    if text_value is None:
+        return []
+    return [str(text_value)]
+
+
+def _join_reasons(value: Any) -> Any:
+    parts = _text_list(value)
+    return ";".join(parts) if parts else None
+
+
+def _infer_engine_type(payload: dict[str, Any], item: dict[str, Any]) -> str | None:
+    explicit = _none_if_blank(item.get("engine_type") or payload.get("engine_type"))
+    if explicit is not None:
+        return str(explicit)
+    request_id = str(item.get("request_id") or item.get("order_id") or item.get("intent_id") or "").upper()
+    if request_id.startswith("RULE-"):
+        return "rule_based"
+    return "ai_model"
+
+
+def _infer_strategy_id(payload: dict[str, Any], item: dict[str, Any]) -> str | None:
+    explicit = _none_if_blank(item.get("strategy_id") or payload.get("strategy_id"))
+    if explicit is not None:
+        return str(explicit)
+    engine_type = _infer_engine_type(payload, item)
+    if engine_type == "rule_based":
+        return "RULE_TREND_LIQUIDITY_V1"
+    return "AI_AUTO_TRADE"
+
+
+def _infer_run_mode(payload: dict[str, Any], item: dict[str, Any]) -> str | None:
+    explicit = _none_if_blank(item.get("run_mode") or payload.get("run_mode"))
+    if explicit is not None:
+        return str(explicit)
+    env_dv = str(payload.get("env_dv") or "").strip().lower()
+    if env_dv in {"paper", "mock"}:
+        return "paper"
+    return None
+
+
+def _quality_score(item: dict[str, Any]) -> Any:
+    return _num(item.get("quality_score") if item.get("quality_score") is not None else item.get("qual_score"))
+
+
+def _buy_reason(item: dict[str, Any], side: str | None) -> Any:
+    if str(side or "").upper() != "BUY":
+        return None
+    return _none_if_blank(item.get("buy_reason") or item.get("reason"))
+
+
+def _sell_reason(item: dict[str, Any], side: str | None) -> Any:
+    if str(side or "").upper() not in {"SELL", "EXIT", "TRIM"}:
+        return None
+    return _none_if_blank(item.get("sell_reason") or item.get("reason"))
+
+
 def ensure_tables() -> None:
     engine = get_engine()
     with engine.begin() as conn:
@@ -142,17 +202,25 @@ def ensure_tables() -> None:
                     gate_version text,
                     portfolio_version text,
                     holdings_source text,
+                    engine_type text,
+                    strategy_id text,
+                    run_mode text,
+                    source_score_date date,
                     ranking_run_id bigint,
                     ranking_rank integer,
                     final_score numeric,
                     confidence_score numeric,
+                    calibrated_confidence numeric,
+                    live_confidence_grade text,
                     risk_penalty numeric,
                     ret_score numeric,
                     prob_score numeric,
                     qual_score numeric,
+                    quality_score numeric,
                     tech_score numeric,
                     liquidity_score numeric,
                     safety_score numeric,
+                    market_regime text,
                     dominant_theme text,
                     score_driver_1 text,
                     score_driver_2 text,
@@ -160,6 +228,9 @@ def ensure_tables() -> None:
                     risk_factor_1 text,
                     risk_factor_2 text,
                     action_note text,
+                    buy_reason text,
+                    sell_reason text,
+                    portfolio_action_reason text,
                     payload_json jsonb NOT NULL,
                     created_at timestamptz DEFAULT now() NOT NULL,
                     updated_at timestamptz DEFAULT now() NOT NULL
@@ -183,26 +254,42 @@ def ensure_tables() -> None:
                     intent_type text,
                     ord_dvsn text,
                     reference_price numeric,
+                    previous_close numeric,
+                    live_price numeric,
+                    entry_price_gap_pct numeric,
+                    entry_gate_status text,
+                    entry_gate_reason text,
                     planned_qty numeric,
                     allowed_qty numeric,
                     final_request_qty numeric,
                     target_weight numeric,
                     priority integer,
                     reason text,
+                    buy_reason text,
+                    sell_reason text,
+                    portfolio_action_reason text,
                     blocked_reason text,
                     expected_hold_reason text,
                     executable_now boolean DEFAULT false NOT NULL,
+                    engine_type text,
+                    strategy_id text,
+                    run_mode text,
+                    source_score_date date,
                     ranking_run_id bigint,
                     ranking_rank integer,
                     final_score numeric,
                     confidence_score numeric,
+                    calibrated_confidence numeric,
+                    live_confidence_grade text,
                     risk_penalty numeric,
                     ret_score numeric,
                     prob_score numeric,
                     qual_score numeric,
+                    quality_score numeric,
                     tech_score numeric,
                     liquidity_score numeric,
                     safety_score numeric,
+                    market_regime text,
                     dominant_theme text,
                     score_driver_1 text,
                     score_driver_2 text,
@@ -235,7 +322,29 @@ def ensure_tables() -> None:
                     intent_type text,
                     ord_dvsn text,
                     reference_price numeric,
+                    previous_close numeric,
+                    live_price numeric,
+                    entry_price_gap_pct numeric,
+                    entry_gate_status text,
+                    entry_gate_reason text,
                     final_request_qty numeric,
+                    engine_type text,
+                    strategy_id text,
+                    run_mode text,
+                    source_score_date date,
+                    final_score numeric,
+                    confidence_score numeric,
+                    calibrated_confidence numeric,
+                    live_confidence_grade text,
+                    prob_score numeric,
+                    ret_score numeric,
+                    tech_score numeric,
+                    quality_score numeric,
+                    liquidity_score numeric,
+                    market_regime text,
+                    buy_reason text,
+                    sell_reason text,
+                    portfolio_action_reason text,
                     submission_status text NOT NULL,
                     skip_reason text,
                     broker_order_id text,
@@ -319,6 +428,35 @@ def ensure_tables() -> None:
                     outcome_label text,
                     review_note text,
                     next_action_note text,
+                    engine_type text,
+                    strategy_id text,
+                    run_mode text,
+                    source_score_date date,
+                    final_score numeric,
+                    prob_score numeric,
+                    ret_score numeric,
+                    tech_score numeric,
+                    quality_score numeric,
+                    confidence_score numeric,
+                    calibrated_confidence numeric,
+                    live_confidence_grade text,
+                    liquidity_score numeric,
+                    market_regime text,
+                    previous_close numeric,
+                    live_price numeric,
+                    entry_price_gap_pct numeric,
+                    entry_gate_status text,
+                    entry_gate_reason text,
+                    buy_reason text,
+                    sell_reason text,
+                    portfolio_action_reason text,
+                    benchmark_name text,
+                    benchmark_return_until_exit numeric,
+                    strategy_return numeric,
+                    excess_return numeric,
+                    holding_days integer,
+                    exit_reason text,
+                    review_status text,
                     reviewer text,
                     created_at timestamptz DEFAULT now() NOT NULL,
                     updated_at timestamptz DEFAULT now() NOT NULL
@@ -331,6 +469,20 @@ def ensure_tables() -> None:
         conn.execute(text("ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS ranking_rank integer"))
         conn.execute(text("ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS final_score numeric"))
         conn.execute(text("ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS confidence_score numeric"))
+        for column_def in [
+            "engine_type text",
+            "strategy_id text",
+            "run_mode text",
+            "source_score_date date",
+            "calibrated_confidence numeric",
+            "live_confidence_grade text",
+            "quality_score numeric",
+            "market_regime text",
+            "buy_reason text",
+            "sell_reason text",
+            "portfolio_action_reason text",
+        ]:
+            conn.execute(text(f"ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS {column_def}"))
         for column_def in [
             "risk_penalty numeric",
             "ret_score numeric",
@@ -353,6 +505,25 @@ def ensure_tables() -> None:
         conn.execute(text("ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS final_score numeric"))
         conn.execute(text("ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS confidence_score numeric"))
         for column_def in [
+            "previous_close numeric",
+            "live_price numeric",
+            "entry_price_gap_pct numeric",
+            "entry_gate_status text",
+            "entry_gate_reason text",
+            "buy_reason text",
+            "sell_reason text",
+            "portfolio_action_reason text",
+            "engine_type text",
+            "strategy_id text",
+            "run_mode text",
+            "source_score_date date",
+            "calibrated_confidence numeric",
+            "live_confidence_grade text",
+            "quality_score numeric",
+            "market_regime text",
+        ]:
+            conn.execute(text(f"ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS {column_def}"))
+        for column_def in [
             "risk_penalty numeric",
             "ret_score numeric",
             "prob_score numeric",
@@ -369,6 +540,63 @@ def ensure_tables() -> None:
             "action_note text",
         ]:
             conn.execute(text(f"ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS {column_def}"))
+        for column_def in [
+            "previous_close numeric",
+            "live_price numeric",
+            "entry_price_gap_pct numeric",
+            "entry_gate_status text",
+            "entry_gate_reason text",
+            "engine_type text",
+            "strategy_id text",
+            "run_mode text",
+            "source_score_date date",
+            "final_score numeric",
+            "confidence_score numeric",
+            "calibrated_confidence numeric",
+            "live_confidence_grade text",
+            "prob_score numeric",
+            "ret_score numeric",
+            "tech_score numeric",
+            "quality_score numeric",
+            "liquidity_score numeric",
+            "market_regime text",
+            "buy_reason text",
+            "sell_reason text",
+            "portfolio_action_reason text",
+        ]:
+            conn.execute(text(f"ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS {column_def}"))
+        for column_def in [
+            "engine_type text",
+            "strategy_id text",
+            "run_mode text",
+            "source_score_date date",
+            "final_score numeric",
+            "prob_score numeric",
+            "ret_score numeric",
+            "tech_score numeric",
+            "quality_score numeric",
+            "confidence_score numeric",
+            "calibrated_confidence numeric",
+            "live_confidence_grade text",
+            "liquidity_score numeric",
+            "market_regime text",
+            "previous_close numeric",
+            "live_price numeric",
+            "entry_price_gap_pct numeric",
+            "entry_gate_status text",
+            "entry_gate_reason text",
+            "buy_reason text",
+            "sell_reason text",
+            "portfolio_action_reason text",
+            "benchmark_name text",
+            "benchmark_return_until_exit numeric",
+            "strategy_return numeric",
+            "excess_return numeric",
+            "holding_days integer",
+            "exit_reason text",
+            "review_status text",
+        ]:
+            conn.execute(text(f"ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS {column_def}"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_live_order_request_asof_code ON research.live_order_request(as_of_date DESC, code)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_live_order_request_intent ON research.live_order_request(intent_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS idx_live_order_execution_asof_code ON research.live_order_execution(as_of_date DESC, code)"))
@@ -484,21 +712,25 @@ def sync_trade_decisions(payload: dict[str, Any]) -> int:
                         intent_id, as_of_date, code, name, source_action, intent_type,
                         target_weight, gate_status, reason, priority, executable,
                         policy_version, score_formula_version, gate_version, portfolio_version,
-                        holdings_source, ranking_run_id, ranking_rank, final_score,
-                        confidence_score, risk_penalty, ret_score, prob_score, qual_score,
-                        tech_score, liquidity_score, safety_score, dominant_theme,
+                        holdings_source, engine_type, strategy_id, run_mode, source_score_date,
+                        ranking_run_id, ranking_rank, final_score, confidence_score,
+                        calibrated_confidence, live_confidence_grade, risk_penalty, ret_score,
+                        prob_score, qual_score, quality_score, tech_score, liquidity_score, safety_score, market_regime, dominant_theme,
                         score_driver_1, score_driver_2, score_driver_3,
-                        risk_factor_1, risk_factor_2, action_note, payload_json, updated_at
+                        risk_factor_1, risk_factor_2, action_note, buy_reason, sell_reason, portfolio_action_reason,
+                        payload_json, updated_at
                     )
                     VALUES (
                         :intent_id, :as_of_date, :code, :name, :source_action, :intent_type,
                         :target_weight, :gate_status, :reason, :priority, :executable,
                         :policy_version, :score_formula_version, :gate_version, :portfolio_version,
-                        :holdings_source, :ranking_run_id, :ranking_rank, :final_score,
-                        :confidence_score, :risk_penalty, :ret_score, :prob_score, :qual_score,
-                        :tech_score, :liquidity_score, :safety_score, :dominant_theme,
+                        :holdings_source, :engine_type, :strategy_id, :run_mode, :source_score_date,
+                        :ranking_run_id, :ranking_rank, :final_score, :confidence_score,
+                        :calibrated_confidence, :live_confidence_grade, :risk_penalty, :ret_score,
+                        :prob_score, :qual_score, :quality_score, :tech_score, :liquidity_score, :safety_score, :market_regime, :dominant_theme,
                         :score_driver_1, :score_driver_2, :score_driver_3,
-                        :risk_factor_1, :risk_factor_2, :action_note, CAST(:payload_json AS jsonb), now()
+                        :risk_factor_1, :risk_factor_2, :action_note, :buy_reason, :sell_reason, :portfolio_action_reason,
+                        CAST(:payload_json AS jsonb), now()
                     )
                     ON CONFLICT (intent_id) DO UPDATE SET
                         as_of_date = EXCLUDED.as_of_date,
@@ -516,17 +748,25 @@ def sync_trade_decisions(payload: dict[str, Any]) -> int:
                         gate_version = EXCLUDED.gate_version,
                         portfolio_version = EXCLUDED.portfolio_version,
                         holdings_source = EXCLUDED.holdings_source,
+                        engine_type = EXCLUDED.engine_type,
+                        strategy_id = EXCLUDED.strategy_id,
+                        run_mode = EXCLUDED.run_mode,
+                        source_score_date = EXCLUDED.source_score_date,
                         ranking_run_id = EXCLUDED.ranking_run_id,
                         ranking_rank = EXCLUDED.ranking_rank,
                         final_score = EXCLUDED.final_score,
                         confidence_score = EXCLUDED.confidence_score,
+                        calibrated_confidence = EXCLUDED.calibrated_confidence,
+                        live_confidence_grade = EXCLUDED.live_confidence_grade,
                         risk_penalty = EXCLUDED.risk_penalty,
                         ret_score = EXCLUDED.ret_score,
                         prob_score = EXCLUDED.prob_score,
                         qual_score = EXCLUDED.qual_score,
+                        quality_score = EXCLUDED.quality_score,
                         tech_score = EXCLUDED.tech_score,
                         liquidity_score = EXCLUDED.liquidity_score,
                         safety_score = EXCLUDED.safety_score,
+                        market_regime = EXCLUDED.market_regime,
                         dominant_theme = EXCLUDED.dominant_theme,
                         score_driver_1 = EXCLUDED.score_driver_1,
                         score_driver_2 = EXCLUDED.score_driver_2,
@@ -534,6 +774,9 @@ def sync_trade_decisions(payload: dict[str, Any]) -> int:
                         risk_factor_1 = EXCLUDED.risk_factor_1,
                         risk_factor_2 = EXCLUDED.risk_factor_2,
                         action_note = EXCLUDED.action_note,
+                        buy_reason = EXCLUDED.buy_reason,
+                        sell_reason = EXCLUDED.sell_reason,
+                        portfolio_action_reason = EXCLUDED.portfolio_action_reason,
                         payload_json = EXCLUDED.payload_json,
                         updated_at = now()
                     """
@@ -555,17 +798,25 @@ def sync_trade_decisions(payload: dict[str, Any]) -> int:
                     "gate_version": _none_if_blank(payload.get("gate_version")),
                     "portfolio_version": _none_if_blank(payload.get("portfolio_version")),
                     "holdings_source": _none_if_blank(payload.get("holdings_source")),
+                    "engine_type": _infer_engine_type(payload, item),
+                    "strategy_id": _infer_strategy_id(payload, item),
+                    "run_mode": _infer_run_mode(payload, item),
+                    "source_score_date": _date(item.get("source_score_date") or item.get("asof_date") or payload.get("asof_date")),
                     "ranking_run_id": _int(item.get("ranking_run_id") or item.get("run_id")),
                     "ranking_rank": _int(item.get("ranking_rank") or item.get("rank") or item.get("buy_rank") or item.get("rank_final")),
                     "final_score": _num(item.get("final_score")),
                     "confidence_score": _num(item.get("confidence_score")),
+                    "calibrated_confidence": _num(item.get("calibrated_confidence")),
+                    "live_confidence_grade": _none_if_blank(item.get("live_confidence_grade")),
                     "risk_penalty": _num(item.get("risk_penalty")),
                     "ret_score": _num(item.get("ret_score")),
                     "prob_score": _num(item.get("prob_score")),
                     "qual_score": _num(item.get("qual_score")),
+                    "quality_score": _quality_score(item),
                     "tech_score": _num(item.get("tech_score")),
                     "liquidity_score": _num(item.get("liquidity_score")),
                     "safety_score": _num(item.get("safety_score")),
+                    "market_regime": _none_if_blank(item.get("market_regime")),
                     "dominant_theme": _none_if_blank(item.get("dominant_theme")),
                     "score_driver_1": _none_if_blank(item.get("score_driver_1")),
                     "score_driver_2": _none_if_blank(item.get("score_driver_2")),
@@ -573,6 +824,9 @@ def sync_trade_decisions(payload: dict[str, Any]) -> int:
                     "risk_factor_1": _none_if_blank(item.get("risk_factor_1")),
                     "risk_factor_2": _none_if_blank(item.get("risk_factor_2")),
                     "action_note": _none_if_blank(item.get("action_note")),
+                    "buy_reason": _buy_reason(item, intent_type),
+                    "sell_reason": _sell_reason(item, intent_type),
+                    "portfolio_action_reason": _none_if_blank(item.get("portfolio_action_reason")),
                     "payload_json": _json_dumps(item),
                 },
             )
@@ -601,22 +855,24 @@ def sync_order_requests(payload: dict[str, Any]) -> int:
                     INSERT INTO research.live_order_request (
                         request_id, intent_id, as_of_date, generated_at, gate_status, env_dv,
                         code, name, side, intent_type, ord_dvsn, reference_price,
+                        previous_close, live_price, entry_price_gap_pct, entry_gate_status, entry_gate_reason,
                         planned_qty, allowed_qty, final_request_qty, target_weight,
-                        priority, reason, blocked_reason, expected_hold_reason,
-                        executable_now, ranking_run_id, ranking_rank, final_score,
-                        confidence_score, risk_penalty, ret_score, prob_score, qual_score,
-                        tech_score, liquidity_score, safety_score, dominant_theme,
+                        priority, reason, buy_reason, sell_reason, portfolio_action_reason, blocked_reason, expected_hold_reason,
+                        executable_now, engine_type, strategy_id, run_mode, source_score_date, ranking_run_id, ranking_rank, final_score,
+                        confidence_score, calibrated_confidence, live_confidence_grade, risk_penalty, ret_score, prob_score, qual_score, quality_score,
+                        tech_score, liquidity_score, safety_score, market_regime, dominant_theme,
                         score_driver_1, score_driver_2, score_driver_3,
                         risk_factor_1, risk_factor_2, action_note, payload_json, updated_at
                     )
                     VALUES (
                         :request_id, :intent_id, :as_of_date, :generated_at, :gate_status, :env_dv,
                         :code, :name, :side, :intent_type, :ord_dvsn, :reference_price,
+                        :previous_close, :live_price, :entry_price_gap_pct, :entry_gate_status, :entry_gate_reason,
                         :planned_qty, :allowed_qty, :final_request_qty, :target_weight,
-                        :priority, :reason, :blocked_reason, :expected_hold_reason,
-                        :executable_now, :ranking_run_id, :ranking_rank, :final_score,
-                        :confidence_score, :risk_penalty, :ret_score, :prob_score, :qual_score,
-                        :tech_score, :liquidity_score, :safety_score, :dominant_theme,
+                        :priority, :reason, :buy_reason, :sell_reason, :portfolio_action_reason, :blocked_reason, :expected_hold_reason,
+                        :executable_now, :engine_type, :strategy_id, :run_mode, :source_score_date, :ranking_run_id, :ranking_rank, :final_score,
+                        :confidence_score, :calibrated_confidence, :live_confidence_grade, :risk_penalty, :ret_score, :prob_score, :qual_score, :quality_score,
+                        :tech_score, :liquidity_score, :safety_score, :market_regime, :dominant_theme,
                         :score_driver_1, :score_driver_2, :score_driver_3,
                         :risk_factor_1, :risk_factor_2, :action_note, CAST(:payload_json AS jsonb), now()
                     )
@@ -632,26 +888,42 @@ def sync_order_requests(payload: dict[str, Any]) -> int:
                         intent_type = EXCLUDED.intent_type,
                         ord_dvsn = EXCLUDED.ord_dvsn,
                         reference_price = EXCLUDED.reference_price,
+                        previous_close = EXCLUDED.previous_close,
+                        live_price = EXCLUDED.live_price,
+                        entry_price_gap_pct = EXCLUDED.entry_price_gap_pct,
+                        entry_gate_status = EXCLUDED.entry_gate_status,
+                        entry_gate_reason = EXCLUDED.entry_gate_reason,
                         planned_qty = EXCLUDED.planned_qty,
                         allowed_qty = EXCLUDED.allowed_qty,
                         final_request_qty = EXCLUDED.final_request_qty,
                         target_weight = EXCLUDED.target_weight,
                         priority = EXCLUDED.priority,
                         reason = EXCLUDED.reason,
+                        buy_reason = EXCLUDED.buy_reason,
+                        sell_reason = EXCLUDED.sell_reason,
+                        portfolio_action_reason = EXCLUDED.portfolio_action_reason,
                         blocked_reason = EXCLUDED.blocked_reason,
                         expected_hold_reason = EXCLUDED.expected_hold_reason,
                         executable_now = EXCLUDED.executable_now,
+                        engine_type = EXCLUDED.engine_type,
+                        strategy_id = EXCLUDED.strategy_id,
+                        run_mode = EXCLUDED.run_mode,
+                        source_score_date = EXCLUDED.source_score_date,
                         ranking_run_id = EXCLUDED.ranking_run_id,
                         ranking_rank = EXCLUDED.ranking_rank,
                         final_score = EXCLUDED.final_score,
                         confidence_score = EXCLUDED.confidence_score,
+                        calibrated_confidence = EXCLUDED.calibrated_confidence,
+                        live_confidence_grade = EXCLUDED.live_confidence_grade,
                         risk_penalty = EXCLUDED.risk_penalty,
                         ret_score = EXCLUDED.ret_score,
                         prob_score = EXCLUDED.prob_score,
                         qual_score = EXCLUDED.qual_score,
+                        quality_score = EXCLUDED.quality_score,
                         tech_score = EXCLUDED.tech_score,
                         liquidity_score = EXCLUDED.liquidity_score,
                         safety_score = EXCLUDED.safety_score,
+                        market_regime = EXCLUDED.market_regime,
                         dominant_theme = EXCLUDED.dominant_theme,
                         score_driver_1 = EXCLUDED.score_driver_1,
                         score_driver_2 = EXCLUDED.score_driver_2,
@@ -676,26 +948,42 @@ def sync_order_requests(payload: dict[str, Any]) -> int:
                     "intent_type": _none_if_blank(item.get("intent_type")),
                     "ord_dvsn": _none_if_blank(item.get("ord_dvsn")),
                     "reference_price": _num(item.get("reference_price")),
+                    "previous_close": _num(item.get("previous_close")),
+                    "live_price": _num(item.get("live_price")),
+                    "entry_price_gap_pct": _num(item.get("entry_price_gap_pct")),
+                    "entry_gate_status": _none_if_blank(item.get("entry_gate_status") or item.get("entry_price_gate_status")),
+                    "entry_gate_reason": _none_if_blank(item.get("entry_gate_reason") or item.get("entry_price_gate_reason")),
                     "planned_qty": _num(item.get("planned_qty")),
                     "allowed_qty": _num(item.get("allowed_qty")),
                     "final_request_qty": _num(item.get("final_request_qty")),
                     "target_weight": _num(item.get("target_weight")),
                     "priority": _int(item.get("priority")),
                     "reason": _none_if_blank(item.get("reason")),
+                    "buy_reason": _buy_reason(item, side),
+                    "sell_reason": _sell_reason(item, side),
+                    "portfolio_action_reason": _none_if_blank(item.get("portfolio_action_reason")),
                     "blocked_reason": _none_if_blank(item.get("blocked_reason")),
                     "expected_hold_reason": _none_if_blank(item.get("expected_hold_reason")),
                     "executable_now": bool(item.get("executable_now", False)),
+                    "engine_type": _infer_engine_type(payload, item),
+                    "strategy_id": _infer_strategy_id(payload, item),
+                    "run_mode": _infer_run_mode(payload, item),
+                    "source_score_date": _date(item.get("source_score_date") or item.get("asof_date") or payload.get("asof_date")),
                     "ranking_run_id": _int(item.get("ranking_run_id") or item.get("run_id")),
                     "ranking_rank": _int(item.get("ranking_rank") or item.get("rank") or item.get("buy_rank") or item.get("rank_final")),
                     "final_score": _num(item.get("final_score")),
                     "confidence_score": _num(item.get("confidence_score")),
+                    "calibrated_confidence": _num(item.get("calibrated_confidence")),
+                    "live_confidence_grade": _none_if_blank(item.get("live_confidence_grade")),
                     "risk_penalty": _num(item.get("risk_penalty")),
                     "ret_score": _num(item.get("ret_score")),
                     "prob_score": _num(item.get("prob_score")),
                     "qual_score": _num(item.get("qual_score")),
+                    "quality_score": _quality_score(item),
                     "tech_score": _num(item.get("tech_score")),
                     "liquidity_score": _num(item.get("liquidity_score")),
                     "safety_score": _num(item.get("safety_score")),
+                    "market_regime": _none_if_blank(item.get("market_regime")),
                     "dominant_theme": _none_if_blank(item.get("dominant_theme")),
                     "score_driver_1": _none_if_blank(item.get("score_driver_1")),
                     "score_driver_2": _none_if_blank(item.get("score_driver_2")),
@@ -731,14 +1019,22 @@ def sync_order_executions(payload: dict[str, Any]) -> int:
                     INSERT INTO research.live_order_execution (
                         request_id, intent_id, as_of_date, executed_at, submitted_at,
                         gate_status, env_dv, code, name, side, intent_type, ord_dvsn,
-                        reference_price, final_request_qty, submission_status, skip_reason,
+                        reference_price, previous_close, live_price, entry_price_gap_pct, entry_gate_status, entry_gate_reason,
+                        final_request_qty, engine_type, strategy_id, run_mode, source_score_date,
+                        final_score, confidence_score, calibrated_confidence, live_confidence_grade, prob_score, ret_score,
+                        tech_score, quality_score, liquidity_score, market_regime, buy_reason, sell_reason, portfolio_action_reason,
+                        submission_status, skip_reason,
                         broker_order_id, broker_org_order_id, raw_response_json, payload_json,
                         updated_at
                     )
                     VALUES (
                         :request_id, :intent_id, :as_of_date, :executed_at, :submitted_at,
                         :gate_status, :env_dv, :code, :name, :side, :intent_type, :ord_dvsn,
-                        :reference_price, :final_request_qty, :submission_status, :skip_reason,
+                        :reference_price, :previous_close, :live_price, :entry_price_gap_pct, :entry_gate_status, :entry_gate_reason,
+                        :final_request_qty, :engine_type, :strategy_id, :run_mode, :source_score_date,
+                        :final_score, :confidence_score, :calibrated_confidence, :live_confidence_grade, :prob_score, :ret_score,
+                        :tech_score, :quality_score, :liquidity_score, :market_regime, :buy_reason, :sell_reason, :portfolio_action_reason,
+                        :submission_status, :skip_reason,
                         :broker_order_id, :broker_org_order_id, CAST(:raw_response_json AS jsonb),
                         CAST(:payload_json AS jsonb), now()
                     )
@@ -754,7 +1050,29 @@ def sync_order_executions(payload: dict[str, Any]) -> int:
                         intent_type = EXCLUDED.intent_type,
                         ord_dvsn = EXCLUDED.ord_dvsn,
                         reference_price = EXCLUDED.reference_price,
+                        previous_close = EXCLUDED.previous_close,
+                        live_price = EXCLUDED.live_price,
+                        entry_price_gap_pct = EXCLUDED.entry_price_gap_pct,
+                        entry_gate_status = EXCLUDED.entry_gate_status,
+                        entry_gate_reason = EXCLUDED.entry_gate_reason,
                         final_request_qty = EXCLUDED.final_request_qty,
+                        engine_type = EXCLUDED.engine_type,
+                        strategy_id = EXCLUDED.strategy_id,
+                        run_mode = EXCLUDED.run_mode,
+                        source_score_date = EXCLUDED.source_score_date,
+                        final_score = EXCLUDED.final_score,
+                        confidence_score = EXCLUDED.confidence_score,
+                        calibrated_confidence = EXCLUDED.calibrated_confidence,
+                        live_confidence_grade = EXCLUDED.live_confidence_grade,
+                        prob_score = EXCLUDED.prob_score,
+                        ret_score = EXCLUDED.ret_score,
+                        tech_score = EXCLUDED.tech_score,
+                        quality_score = EXCLUDED.quality_score,
+                        liquidity_score = EXCLUDED.liquidity_score,
+                        market_regime = EXCLUDED.market_regime,
+                        buy_reason = EXCLUDED.buy_reason,
+                        sell_reason = EXCLUDED.sell_reason,
+                        portfolio_action_reason = EXCLUDED.portfolio_action_reason,
                         submission_status = EXCLUDED.submission_status,
                         skip_reason = EXCLUDED.skip_reason,
                         broker_order_id = EXCLUDED.broker_order_id,
@@ -778,7 +1096,29 @@ def sync_order_executions(payload: dict[str, Any]) -> int:
                     "intent_type": _none_if_blank(item.get("intent_type")),
                     "ord_dvsn": _none_if_blank(item.get("ord_dvsn")),
                     "reference_price": _num(item.get("reference_price")),
+                    "previous_close": _num(item.get("previous_close")),
+                    "live_price": _num(item.get("live_price")),
+                    "entry_price_gap_pct": _num(item.get("entry_price_gap_pct")),
+                    "entry_gate_status": _none_if_blank(item.get("entry_gate_status") or item.get("entry_price_gate_status")),
+                    "entry_gate_reason": _none_if_blank(item.get("entry_gate_reason") or item.get("entry_price_gate_reason")),
                     "final_request_qty": _num(item.get("final_request_qty")),
+                    "engine_type": _infer_engine_type(payload, item),
+                    "strategy_id": _infer_strategy_id(payload, item),
+                    "run_mode": _infer_run_mode(payload, item),
+                    "source_score_date": _date(item.get("source_score_date") or item.get("asof_date") or payload.get("asof_date")),
+                    "final_score": _num(item.get("final_score")),
+                    "confidence_score": _num(item.get("confidence_score")),
+                    "calibrated_confidence": _num(item.get("calibrated_confidence")),
+                    "live_confidence_grade": _none_if_blank(item.get("live_confidence_grade")),
+                    "prob_score": _num(item.get("prob_score")),
+                    "ret_score": _num(item.get("ret_score")),
+                    "tech_score": _num(item.get("tech_score")),
+                    "quality_score": _quality_score(item),
+                    "liquidity_score": _num(item.get("liquidity_score")),
+                    "market_regime": _none_if_blank(item.get("market_regime")),
+                    "buy_reason": _buy_reason(item, side),
+                    "sell_reason": _sell_reason(item, side),
+                    "portfolio_action_reason": _none_if_blank(item.get("portfolio_action_reason")),
                     "submission_status": status,
                     "skip_reason": _none_if_blank(item.get("skip_reason")),
                     "broker_order_id": _none_if_blank(item.get("broker_order_id")),

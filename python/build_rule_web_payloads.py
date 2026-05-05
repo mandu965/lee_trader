@@ -73,6 +73,45 @@ def to_iso_date(value: Any) -> str | None:
     return text
 
 
+def parse_iso_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    normalized = text.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def has_account_state(payload: dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    return bool(payload.get("generated_at") or payload.get("as_of_date") or payload.get("positions"))
+
+
+def choose_rule_account_state(
+    *,
+    run_mode: str,
+    paper_state: dict[str, Any],
+    live_state: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    paper_ready = has_account_state(paper_state)
+    live_ready = has_account_state(live_state)
+    if run_mode in {"pilot", "live"} and live_ready:
+        return "live", live_state
+    if live_ready and not paper_ready:
+        return "live", live_state
+    if paper_ready and not live_ready:
+        return "paper", paper_state
+    if live_ready and paper_ready:
+        live_dt = parse_iso_datetime(live_state.get("generated_at"))
+        paper_dt = parse_iso_datetime(paper_state.get("generated_at"))
+        if live_dt and (paper_dt is None or live_dt >= paper_dt):
+            return "live", live_state
+    return "paper", paper_state
+
+
 def normalize_rule_signal_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "date": to_iso_date(row.get("date")),
@@ -191,10 +230,12 @@ def build_rule_dashboard_summary() -> dict[str, Any]:
     live_state = read_json(LIVE_STATE_PATH)
     backtest = read_json(BACKTEST_PATH)
     execution = read_json(EXECUTION_PATH)
-    account_state = paper_state
     run_mode = str(execution.get("run_mode") or preview.get("run_mode") or "").lower()
-    if run_mode != "paper" and (live_state.get("generated_at") or live_state.get("positions")):
-        account_state = live_state
+    account_mode, account_state = choose_rule_account_state(
+        run_mode=run_mode,
+        paper_state=paper_state,
+        live_state=live_state,
+    )
 
     portfolio_items = portfolio.get("items") or []
     preview_items = preview.get("items") or []
@@ -232,6 +273,7 @@ def build_rule_dashboard_summary() -> dict[str, Any]:
             "execution_simulated_filled_count": int(to_num((execution.get("summary") or {}).get("simulated_filled_count")) or 0),
             "execution_simulated_unfilled_count": int(to_num((execution.get("summary") or {}).get("simulated_unfilled_count")) or 0),
             "paper_position_count": len(positions),
+            "account_position_count": len(positions),
         },
         "distributions": {
             "signal_strength": summarize_counts_by(signal_items, "signal_strength", "none"),
@@ -244,7 +286,17 @@ def build_rule_dashboard_summary() -> dict[str, Any]:
             "strong": [item for item in signal_items if item.get("strong_entry_signal")][:10],
             "entry_only": [item for item in signal_items if item.get("entry_signal") and not item.get("strong_entry_signal")][:10],
         },
+        "account_mode": account_mode,
+        "account_as_of_date": account_state.get("as_of_date"),
+        "account_generated_at": account_state.get("generated_at"),
         "paper_state": {
+            "total_equity": to_num(account_state.get("total_equity")),
+            "cash": to_num(account_state.get("cash")),
+            "recent_trade_count": len(account_state.get("recent_trades") or []),
+            "cooldown_count": len(account_state.get("cooldown_codes") or []),
+            "positions": positions,
+        },
+        "account_state": {
             "total_equity": to_num(account_state.get("total_equity")),
             "cash": to_num(account_state.get("cash")),
             "recent_trade_count": len(account_state.get("recent_trades") or []),

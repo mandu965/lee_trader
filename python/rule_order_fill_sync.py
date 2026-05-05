@@ -286,7 +286,7 @@ def main() -> None:
         print(f"saved {out_fill_sync}")
         return
 
-    client = KISClient.from_env()
+    client = KISClient.from_rule_env()
     client.issue_access_token()
     account = resolve_rule_account_env()
     frame, _ = inquire_daily_ccld(client, account, start_date=start_date, end_date=end_date)

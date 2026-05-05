@@ -17,17 +17,25 @@ CREATE TABLE IF NOT EXISTS research.live_trade_decision (
     gate_version text,
     portfolio_version text,
     holdings_source text,
+    engine_type text,
+    strategy_id text,
+    run_mode text,
+    source_score_date date,
     ranking_run_id bigint,
     ranking_rank integer,
     final_score numeric,
     confidence_score numeric,
+    calibrated_confidence numeric,
+    live_confidence_grade text,
     risk_penalty numeric,
     ret_score numeric,
     prob_score numeric,
     qual_score numeric,
+    quality_score numeric,
     tech_score numeric,
     liquidity_score numeric,
     safety_score numeric,
+    market_regime text,
     dominant_theme text,
     score_driver_1 text,
     score_driver_2 text,
@@ -35,6 +43,9 @@ CREATE TABLE IF NOT EXISTS research.live_trade_decision (
     risk_factor_1 text,
     risk_factor_2 text,
     action_note text,
+    buy_reason text,
+    sell_reason text,
+    portfolio_action_reason text,
     payload_json jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
@@ -53,26 +64,42 @@ CREATE TABLE IF NOT EXISTS research.live_order_request (
     intent_type text,
     ord_dvsn text,
     reference_price numeric,
+    previous_close numeric,
+    live_price numeric,
+    entry_price_gap_pct numeric,
+    entry_gate_status text,
+    entry_gate_reason text,
     planned_qty numeric,
     allowed_qty numeric,
     final_request_qty numeric,
     target_weight numeric,
     priority integer,
     reason text,
+    buy_reason text,
+    sell_reason text,
+    portfolio_action_reason text,
     blocked_reason text,
     expected_hold_reason text,
     executable_now boolean DEFAULT false NOT NULL,
+    engine_type text,
+    strategy_id text,
+    run_mode text,
+    source_score_date date,
     ranking_run_id bigint,
     ranking_rank integer,
     final_score numeric,
     confidence_score numeric,
+    calibrated_confidence numeric,
+    live_confidence_grade text,
     risk_penalty numeric,
     ret_score numeric,
     prob_score numeric,
     qual_score numeric,
+    quality_score numeric,
     tech_score numeric,
     liquidity_score numeric,
     safety_score numeric,
+    market_regime text,
     dominant_theme text,
     score_driver_1 text,
     score_driver_2 text,
@@ -100,7 +127,29 @@ CREATE TABLE IF NOT EXISTS research.live_order_execution (
     intent_type text,
     ord_dvsn text,
     reference_price numeric,
+    previous_close numeric,
+    live_price numeric,
+    entry_price_gap_pct numeric,
+    entry_gate_status text,
+    entry_gate_reason text,
     final_request_qty numeric,
+    engine_type text,
+    strategy_id text,
+    run_mode text,
+    source_score_date date,
+    final_score numeric,
+    confidence_score numeric,
+    calibrated_confidence numeric,
+    live_confidence_grade text,
+    prob_score numeric,
+    ret_score numeric,
+    tech_score numeric,
+    quality_score numeric,
+    liquidity_score numeric,
+    market_regime text,
+    buy_reason text,
+    sell_reason text,
+    portfolio_action_reason text,
     submission_status text NOT NULL,
     skip_reason text,
     broker_order_id text,
@@ -169,6 +218,35 @@ CREATE TABLE IF NOT EXISTS research.live_trade_review (
     outcome_label text,
     review_note text,
     next_action_note text,
+    engine_type text,
+    strategy_id text,
+    run_mode text,
+    source_score_date date,
+    final_score numeric,
+    prob_score numeric,
+    ret_score numeric,
+    tech_score numeric,
+    quality_score numeric,
+    confidence_score numeric,
+    calibrated_confidence numeric,
+    live_confidence_grade text,
+    liquidity_score numeric,
+    market_regime text,
+    previous_close numeric,
+    live_price numeric,
+    entry_price_gap_pct numeric,
+    entry_gate_status text,
+    entry_gate_reason text,
+    buy_reason text,
+    sell_reason text,
+    portfolio_action_reason text,
+    benchmark_name text,
+    benchmark_return_until_exit numeric,
+    strategy_return numeric,
+    excess_return numeric,
+    holding_days integer,
+    exit_reason text,
+    review_status text,
     reviewer text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
@@ -178,6 +256,17 @@ ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS ranking_run_id
 ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS ranking_rank integer;
 ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS final_score numeric;
 ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS confidence_score numeric;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS engine_type text;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS strategy_id text;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS run_mode text;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS source_score_date date;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS calibrated_confidence numeric;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS live_confidence_grade text;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS quality_score numeric;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS market_regime text;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS buy_reason text;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS sell_reason text;
+ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS portfolio_action_reason text;
 ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS risk_penalty numeric;
 ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS ret_score numeric;
 ALTER TABLE research.live_trade_decision ADD COLUMN IF NOT EXISTS prob_score numeric;
@@ -197,6 +286,22 @@ ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS ranking_run_id 
 ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS ranking_rank integer;
 ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS final_score numeric;
 ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS confidence_score numeric;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS previous_close numeric;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS live_price numeric;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS entry_price_gap_pct numeric;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS entry_gate_status text;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS entry_gate_reason text;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS buy_reason text;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS sell_reason text;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS portfolio_action_reason text;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS engine_type text;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS strategy_id text;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS run_mode text;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS source_score_date date;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS calibrated_confidence numeric;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS live_confidence_grade text;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS quality_score numeric;
+ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS market_regime text;
 ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS risk_penalty numeric;
 ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS ret_score numeric;
 ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS prob_score numeric;
@@ -211,6 +316,57 @@ ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS score_driver_3 
 ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS risk_factor_1 text;
 ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS risk_factor_2 text;
 ALTER TABLE research.live_order_request ADD COLUMN IF NOT EXISTS action_note text;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS previous_close numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS live_price numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS entry_price_gap_pct numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS entry_gate_status text;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS entry_gate_reason text;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS engine_type text;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS strategy_id text;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS run_mode text;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS source_score_date date;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS final_score numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS confidence_score numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS calibrated_confidence numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS live_confidence_grade text;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS prob_score numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS ret_score numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS tech_score numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS quality_score numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS liquidity_score numeric;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS market_regime text;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS buy_reason text;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS sell_reason text;
+ALTER TABLE research.live_order_execution ADD COLUMN IF NOT EXISTS portfolio_action_reason text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS engine_type text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS strategy_id text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS run_mode text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS source_score_date date;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS final_score numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS prob_score numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS ret_score numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS tech_score numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS quality_score numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS confidence_score numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS calibrated_confidence numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS live_confidence_grade text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS liquidity_score numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS market_regime text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS previous_close numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS live_price numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS entry_price_gap_pct numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS entry_gate_status text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS entry_gate_reason text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS buy_reason text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS sell_reason text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS portfolio_action_reason text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS benchmark_name text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS benchmark_return_until_exit numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS strategy_return numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS excess_return numeric;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS holding_days integer;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS exit_reason text;
+ALTER TABLE research.live_trade_review ADD COLUMN IF NOT EXISTS review_status text;
 
 CREATE INDEX IF NOT EXISTS idx_live_trade_decision_asof_code ON research.live_trade_decision USING btree (as_of_date DESC, code);
 CREATE INDEX IF NOT EXISTS idx_live_order_request_asof_code ON research.live_order_request USING btree (as_of_date DESC, code);

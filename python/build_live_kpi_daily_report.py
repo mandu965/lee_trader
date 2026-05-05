@@ -160,6 +160,34 @@ def build_report() -> dict[str, Any]:
         ORDER BY horizon, risk_penalty_bucket
         """
     )
+    by_engine_type = _rows(
+        """
+        SELECT
+            horizon,
+            COALESCE(engine_type, 'engine_unknown') AS engine_type,
+            COUNT(*)::integer AS count,
+            COUNT(signed_return)::integer AS observed_count,
+            AVG(signed_return) AS avg_return,
+            AVG(CASE WHEN signed_return > 0 THEN 1.0 WHEN signed_return IS NOT NULL THEN 0.0 END) AS win_rate
+        FROM analytics.live_trade_return_fact
+        GROUP BY horizon, COALESCE(engine_type, 'engine_unknown')
+        ORDER BY horizon, engine_type
+        """
+    )
+    by_entry_gate_status = _rows(
+        """
+        SELECT
+            horizon,
+            COALESCE(entry_gate_status, 'entry_gate_unknown') AS entry_gate_status,
+            COUNT(*)::integer AS count,
+            COUNT(signed_return)::integer AS observed_count,
+            AVG(signed_return) AS avg_return,
+            AVG(CASE WHEN signed_return > 0 THEN 1.0 WHEN signed_return IS NOT NULL THEN 0.0 END) AS win_rate
+        FROM analytics.live_trade_return_fact
+        GROUP BY horizon, COALESCE(entry_gate_status, 'entry_gate_unknown')
+        ORDER BY horizon, entry_gate_status
+        """
+    )
 
     balance = _read_json(LIVE_BALANCE_JSON)
     consistency = _read_json(CONSISTENCY_JSON)
@@ -196,6 +224,8 @@ def build_report() -> dict[str, Any]:
         "by_score_bucket": by_score_bucket,
         "by_confidence_bucket": by_confidence_bucket,
         "by_risk_penalty_bucket": by_risk_bucket,
+        "by_engine_type": by_engine_type,
+        "by_entry_gate_status": by_entry_gate_status,
         "sample_status": _sample_status(max((int(row.get("observed_count") or 0) for row in horizon_summary), default=0)),
         "warnings": warnings,
     }
@@ -247,6 +277,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     lines.extend(_render_group("D0 By Score Bucket", report["by_score_bucket"], "final_score_bucket", horizon=0))
     lines.extend(_render_group("D0 By Confidence Bucket", report["by_confidence_bucket"], "confidence_bucket", horizon=0))
     lines.extend(_render_group("D0 By Risk Penalty Bucket", report["by_risk_penalty_bucket"], "risk_penalty_bucket", horizon=0))
+    lines.extend(_render_group("D0 By Engine Type", report["by_engine_type"], "engine_type", horizon=0))
+    lines.extend(_render_group("D0 By Entry Gate Status", report["by_entry_gate_status"], "entry_gate_status", horizon=0))
     return "\n".join(lines) + "\n"
 
 

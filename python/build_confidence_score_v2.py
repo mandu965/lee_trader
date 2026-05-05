@@ -19,6 +19,7 @@ INPUT_CONFIDENCE_OPERATIONAL = DATA_DIR / "confidence_calibration_operational.cs
 INPUT_WALKFORWARD_CSV = OUTPUT_DIR / "walk_forward_score_validation.csv"
 INPUT_WALKFORWARD_MD = OUTPUT_DIR / "walk_forward_score_validation.md"
 INPUT_REAL_DIFF = DATA_DIR / "real_vs_model_diff.csv"
+INPUT_LIVE_GRADE_MAP_JSON = OUTPUT_DIR / "confidence_live_grade_map.json"
 
 OUT_CSV = DATA_DIR / "confidence_score_v2.csv"
 OUT_JSON = DATA_DIR / "confidence_score_v2.json"
@@ -32,6 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--walkforward-csv", type=Path, default=INPUT_WALKFORWARD_CSV)
     parser.add_argument("--walkforward-md", type=Path, default=INPUT_WALKFORWARD_MD)
     parser.add_argument("--real-diff-csv", type=Path, default=INPUT_REAL_DIFF)
+    parser.add_argument("--live-grade-map-json", type=Path, default=INPUT_LIVE_GRADE_MAP_JSON)
     parser.add_argument("--out-csv", type=Path, default=OUT_CSV)
     parser.add_argument("--out-json", type=Path, default=OUT_JSON)
     parser.add_argument("--out-md", type=Path, default=OUT_MD)
@@ -61,6 +63,13 @@ def _fmt_pct(value: object, digits: int = 2) -> str:
     if pd.isna(x):
         return "NA"
     return f"{float(x) * 100:.{digits}f}%"
+
+
+def _safe_float(value: object) -> float | None:
+    x = pd.to_numeric(value, errors="coerce")
+    if pd.isna(x):
+        return None
+    return float(x)
 
 
 def _markdown_table(rows: list[list[object]], headers: list[str]) -> str:
@@ -133,6 +142,38 @@ def _effective_trading_value(row: pd.Series) -> float | None:
     if pd.notna(close) and pd.notna(volume) and float(close) > 0 and float(volume) > 0:
         return float(close) * float(volume)
     return None
+
+
+def bucketize_confidence_value(value: object) -> str:
+    numeric = pd.to_numeric(value, errors="coerce")
+    if pd.isna(numeric):
+        return "unknown"
+    number = float(numeric)
+    if 0 <= number <= 20:
+        return "0-20"
+    if 20 < number <= 40:
+        return "20-40"
+    if 40 < number <= 60:
+        return "40-60"
+    if 60 < number <= 80:
+        return "60-80"
+    if 80 < number <= 100:
+        return "80-100"
+    return "unknown"
+
+
+def load_live_grade_map(path: Path) -> dict[str, object]:
+    resolved = _resolve(path)
+    if not resolved.exists():
+        return {"available": False, "default_bucket": {"live_confidence_grade": "C", "execution_policy": {"entry_allowed": False, "weight_scale": 0.2, "mode": "watch_only"}}}
+    payload = json.loads(resolved.read_text(encoding="utf-8"))
+    payload["available"] = True
+    bucket_map: dict[str, dict[str, object]] = {}
+    for item in payload.get("buckets", []):
+        if isinstance(item, dict) and item.get("bucket_label"):
+            bucket_map[str(item["bucket_label"])] = item
+    payload["bucket_map"] = bucket_map
+    return payload
 
 
 def _overheat_penalty(row: pd.Series) -> float:
@@ -285,7 +326,40 @@ def load_execution_summary(path: Path) -> dict[str, object]:
     return {"available": True, "execution_quality_score": score, "fill_ratio": fill_ratio, "median_abs_slippage": median_abs_slippage}
 
 
-def build_confidence_frame(ranking: pd.DataFrame, calibration_summary: dict[str, object], walkforward_summary: dict[str, object], execution_summary: dict[str, object]) -> pd.DataFrame:
+def attach_live_grade(frame: pd.DataFrame, live_grade_map: dict[str, object]) -> pd.DataFrame:
+    work = frame.copy()
+    bucket_map = live_grade_map.get("bucket_map", {}) if isinstance(live_grade_map.get("bucket_map"), dict) else {}
+    default_bucket = live_grade_map.get("default_bucket", {}) if isinstance(live_grade_map.get("default_bucket"), dict) else {}
+    work["confidence_bucket"] = work["confidence_score"].map(bucketize_confidence_value)
+    grades: list[str | None] = []
+    calibrated_confidences: list[float | None] = []
+    grade_reasons: list[str | None] = []
+    grade_modes: list[str | None] = []
+    grade_weight_scales: list[float | None] = []
+    for _, row in work.iterrows():
+        bucket_label = str(row.get("confidence_bucket") or "unknown")
+        bucket_payload = bucket_map.get(bucket_label, default_bucket)
+        policy = bucket_payload.get("execution_policy", {}) if isinstance(bucket_payload.get("execution_policy"), dict) else {}
+        grades.append(bucket_payload.get("live_confidence_grade") or default_bucket.get("live_confidence_grade"))
+        calibrated_confidences.append(_safe_float(bucket_payload.get("calibrated_confidence")))
+        grade_reasons.append(bucket_payload.get("grade_reason") or default_bucket.get("grade_reason"))
+        grade_modes.append(policy.get("mode"))
+        grade_weight_scales.append(_safe_float(policy.get("weight_scale")))
+    work["calibrated_confidence"] = calibrated_confidences
+    work["live_confidence_grade"] = grades
+    work["live_confidence_grade_reason"] = grade_reasons
+    work["live_confidence_mode"] = grade_modes
+    work["live_confidence_weight_scale"] = grade_weight_scales
+    return work
+
+
+def build_confidence_frame(
+    ranking: pd.DataFrame,
+    calibration_summary: dict[str, object],
+    walkforward_summary: dict[str, object],
+    execution_summary: dict[str, object],
+    live_grade_map: dict[str, object],
+) -> pd.DataFrame:
     work = ranking.copy()
     calibration_score = float(calibration_summary.get("calibration_confidence") or 45.0)
     execution_global = float(execution_summary.get("execution_quality_score") or 55.0)
@@ -335,11 +409,12 @@ def build_confidence_frame(ranking: pd.DataFrame, calibration_summary: dict[str,
     work["raw_confidence_v2"] = (0.40 * work["alpha_confidence"] + 0.30 * work["execution_confidence"] + 0.20 * work["stability_confidence"] + 0.10 * work["calibration_confidence"]).clip(0, 100)
     work["confidence_state_v2"] = states
     work["confidence_reason_v2"] = reasons
-    return work
+    return attach_live_grade(work, live_grade_map)
 
 
-def build_payload(asof_date: str, frame: pd.DataFrame, calibration_summary: dict[str, object], walkforward_summary: dict[str, object], execution_summary: dict[str, object]) -> dict[str, object]:
+def build_payload(asof_date: str, frame: pd.DataFrame, calibration_summary: dict[str, object], walkforward_summary: dict[str, object], execution_summary: dict[str, object], live_grade_map: dict[str, object]) -> dict[str, object]:
     state_counts = frame["confidence_state_v2"].value_counts().to_dict()
+    live_grade_counts = frame["live_confidence_grade"].fillna("C").value_counts().to_dict() if "live_confidence_grade" in frame.columns else {}
     trusted_top20 = frame.head(20)["confidence_state_v2"].eq("TRUSTED").mean() if not frame.empty else 0.0
     provisional_or_better_top20 = frame.head(20)["confidence_state_v2"].isin(["TRUSTED", "PROVISIONAL"]).mean() if not frame.empty else 0.0
     items = []
@@ -358,6 +433,11 @@ def build_payload(asof_date: str, frame: pd.DataFrame, calibration_summary: dict
                 "raw_confidence_v2": pd.to_numeric(row.get("raw_confidence_v2"), errors="coerce"),
                 "confidence_state_v2": row.get("confidence_state_v2"),
                 "confidence_reason_v2": row.get("confidence_reason_v2"),
+                "calibrated_confidence": pd.to_numeric(row.get("calibrated_confidence"), errors="coerce"),
+                "live_confidence_grade": row.get("live_confidence_grade"),
+                "live_confidence_grade_reason": row.get("live_confidence_grade_reason"),
+                "live_confidence_mode": row.get("live_confidence_mode"),
+                "live_confidence_weight_scale": pd.to_numeric(row.get("live_confidence_weight_scale"), errors="coerce"),
             }
         )
     return {
@@ -369,9 +449,11 @@ def build_payload(asof_date: str, frame: pd.DataFrame, calibration_summary: dict
             "trusted_ratio_top20": float(trusted_top20),
             "provisional_or_better_ratio_top20": float(provisional_or_better_top20),
             "state_counts": state_counts,
+            "live_grade_counts": live_grade_counts,
             "calibration_summary": calibration_summary,
             "walkforward_summary": walkforward_summary,
             "execution_summary": execution_summary,
+            "live_grade_map_available": bool(live_grade_map.get("available")),
         },
         "items": items,
     }
@@ -380,10 +462,12 @@ def build_payload(asof_date: str, frame: pd.DataFrame, calibration_summary: dict
 def build_markdown(payload: dict[str, object]) -> str:
     summary = payload.get("summary", {}) if isinstance(payload.get("summary"), dict) else {}
     state_counts = summary.get("state_counts", {}) if isinstance(summary.get("state_counts"), dict) else {}
+    live_grade_counts = summary.get("live_grade_counts", {}) if isinstance(summary.get("live_grade_counts"), dict) else {}
     top_items = payload.get("items", [])[:20] if isinstance(payload.get("items"), list) else []
     count_rows = [[key, value] for key, value in state_counts.items()]
+    grade_rows = [[key, value] for key, value in live_grade_counts.items()]
     detail_rows = [
-        [item.get("code"), item.get("name"), _fmt_num(item.get("rank_final"), 0), _fmt_num(item.get("raw_confidence_v2")), item.get("confidence_state_v2"), _fmt_num(item.get("alpha_confidence")), _fmt_num(item.get("execution_confidence")), _fmt_num(item.get("stability_confidence")), item.get("confidence_reason_v2")]
+        [item.get("code"), item.get("name"), _fmt_num(item.get("rank_final"), 0), _fmt_num(item.get("raw_confidence_v2")), item.get("live_confidence_grade"), _fmt_num(item.get("calibrated_confidence")), item.get("confidence_state_v2"), _fmt_num(item.get("alpha_confidence")), _fmt_num(item.get("execution_confidence")), _fmt_num(item.get("stability_confidence")), item.get("confidence_reason_v2")]
         for item in top_items
     ]
     lines = [
@@ -394,14 +478,19 @@ def build_markdown(payload: dict[str, object]) -> str:
         f"- mean_raw_confidence_v2: {_fmt_num(summary.get('mean_raw_confidence_v2'))}",
         f"- trusted_ratio_top20: {_fmt_pct(summary.get('trusted_ratio_top20'))}",
         f"- provisional_or_better_ratio_top20: {_fmt_pct(summary.get('provisional_or_better_ratio_top20'))}",
+        f"- live_grade_map_available: {'Y' if summary.get('live_grade_map_available') else 'N'}",
         "",
         "## State Counts",
         "",
         _markdown_table(count_rows or [["(none)", 0]], ["state", "count"]),
         "",
+        "## Live Grade Counts",
+        "",
+        _markdown_table(grade_rows or [["(none)", 0]], ["grade", "count"]),
+        "",
         "## Top20 Detail",
         "",
-        _markdown_table(detail_rows or [["NA", "NA", "NA", "NA", "NA", "NA", "NA", "NA", "NA"]], ["code", "name", "rank", "raw_conf_v2", "state", "alpha", "execution", "stability", "reason"]),
+        _markdown_table(detail_rows or [["NA", "NA", "NA", "NA", "C", "NA", "NA", "NA", "NA", "NA", "NA"]], ["code", "name", "rank", "raw_conf_v2", "live_grade", "calibrated_conf", "state", "alpha", "execution", "stability", "reason"]),
     ]
     return "\n".join(lines) + "\n"
 
@@ -412,7 +501,8 @@ def main() -> int:
     calibration_summary = load_confidence_operational_summary(args.confidence_operational_csv)
     walkforward_summary = load_walkforward_summary(args.walkforward_csv, args.walkforward_md)
     execution_summary = load_execution_summary(args.real_diff_csv)
-    frame = build_confidence_frame(ranking, calibration_summary, walkforward_summary, execution_summary)
+    live_grade_map = load_live_grade_map(args.live_grade_map_json)
+    frame = build_confidence_frame(ranking, calibration_summary, walkforward_summary, execution_summary, live_grade_map)
 
     out_csv = _resolve(args.out_csv)
     out_json = _resolve(args.out_json)
@@ -421,9 +511,9 @@ def main() -> int:
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_md.parent.mkdir(parents=True, exist_ok=True)
 
-    frame[["date", "code", "name", "rank_final", "final_score", "confidence_score", "alpha_confidence", "execution_confidence", "stability_confidence", "calibration_confidence", "raw_confidence_v2", "confidence_state_v2", "confidence_reason_v2"]].to_csv(out_csv, index=False, encoding="utf-8-sig")
+    frame[["date", "code", "name", "rank_final", "final_score", "confidence_score", "alpha_confidence", "execution_confidence", "stability_confidence", "calibration_confidence", "raw_confidence_v2", "confidence_state_v2", "confidence_reason_v2", "confidence_bucket", "calibrated_confidence", "live_confidence_grade", "live_confidence_grade_reason", "live_confidence_mode", "live_confidence_weight_scale"]].to_csv(out_csv, index=False, encoding="utf-8-sig")
 
-    payload = build_payload(asof_date, frame, calibration_summary, walkforward_summary, execution_summary)
+    payload = build_payload(asof_date, frame, calibration_summary, walkforward_summary, execution_summary, live_grade_map)
     out_json.write_text(json.dumps(sanitize(payload), ensure_ascii=False, indent=2), encoding="utf-8")
     out_md.write_text(build_markdown(payload), encoding="utf-8")
 

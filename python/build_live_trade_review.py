@@ -92,16 +92,40 @@ def load_fill_rows(as_of_date: str) -> list[dict[str, Any]]:
                     e.as_of_date AS execution_as_of_date,
                     e.intent_type,
                     e.submission_status,
+                    r.engine_type,
+                    r.strategy_id,
+                    r.run_mode,
+                    r.source_score_date,
                     r.ranking_rank,
                     r.final_score,
+                    r.prob_score,
+                    r.ret_score,
+                    r.tech_score,
+                    COALESCE(r.quality_score, r.qual_score) AS quality_score,
                     r.confidence_score,
+                    r.calibrated_confidence,
+                    r.live_confidence_grade,
+                    r.liquidity_score,
+                    r.market_regime,
+                    r.previous_close,
+                    r.live_price,
+                    r.entry_price_gap_pct,
+                    r.entry_gate_status,
+                    r.entry_gate_reason,
+                    r.buy_reason,
+                    r.sell_reason,
+                    r.portfolio_action_reason,
                     r.risk_penalty,
-                    r.reason
+                    r.reason,
+                    c.realized_return AS realized_return_until_exit,
+                    c.holding_days AS closed_holding_days
                 FROM research.live_order_fill f
                 LEFT JOIN latest_execution e
                   ON e.request_id = f.request_id
                 LEFT JOIN research.live_order_request r
                   ON r.request_id = f.request_id
+                LEFT JOIN analytics.live_closed_trade c
+                  ON c.sell_fill_id = f.fill_id
                 WHERE f.request_id IS NOT NULL
                   {filter_sql}
                 ORDER BY f.filled_at, f.request_id
@@ -149,6 +173,7 @@ def build_review_items(fills: list[dict[str, Any]], prices: pd.DataFrame, review
     for row in fills:
         fill_dt = pd.to_datetime(row.get("filled_at"), errors="coerce")
         fill_date = fill_dt.strftime("%Y-%m-%d") if pd.notna(fill_dt) else ""
+        review_dt = pd.to_datetime(review_date, errors="coerce")
         code = str(row.get("code") or "").zfill(6)
         fill_price = _num(row.get("filled_price")) or 0.0
         points = _price_points(prices, code, fill_date) if fill_date and code else {}
@@ -167,6 +192,17 @@ def build_review_items(fills: list[dict[str, Any]], prices: pd.DataFrame, review
             best_signed_return = signed
 
         label = _outcome_label(best_horizon, best_signed_return)
+        holding_days = int(_num(row.get("closed_holding_days")) or 0) if row.get("closed_holding_days") is not None else None
+        if holding_days is None and pd.notna(fill_dt) and pd.notna(review_dt):
+            holding_days = max((review_dt.date() - fill_dt.date()).days, 0)
+        strategy_return = _num(row.get("realized_return_until_exit"))
+        if strategy_return is None:
+            strategy_return = best_signed_return
+        review_status = "pending_price_data" if best_horizon is None or best_signed_return is None else "auto_review_complete"
+        if str(row.get("side") or "").upper() == "SELL":
+            exit_reason = row.get("sell_reason") or row.get("portfolio_action_reason")
+        else:
+            exit_reason = None
         tags = [
             f"side:{str(row.get('side') or '').upper()}",
             f"intent:{row.get('intent_type') or 'UNKNOWN'}",
@@ -184,7 +220,8 @@ def build_review_items(fills: list[dict[str, Any]], prices: pd.DataFrame, review
         )
         note = (
             f"fill_date={fill_date}, fill_price={fill_price:.2f}, {return_text}, "
-            f"rank={row.get('ranking_rank') or '-'}, confidence={row.get('confidence_score') or '-'}"
+            f"rank={row.get('ranking_rank') or '-'}, confidence={row.get('confidence_score') or '-'}, "
+            f"engine={row.get('engine_type') or '-'}, entry_gate={row.get('entry_gate_status') or '-'}"
         )
         next_action = "Review again after more post-fill prices mature." if best_horizon is not None and best_horizon < 5 else "No immediate action from automatic review."
 
@@ -202,6 +239,35 @@ def build_review_items(fills: list[dict[str, Any]], prices: pd.DataFrame, review
                 "filled_qty": _num(row.get("filled_qty")),
                 "filled_price": fill_price,
                 "outcome_label": label,
+                "engine_type": row.get("engine_type"),
+                "strategy_id": row.get("strategy_id"),
+                "run_mode": row.get("run_mode"),
+                "source_score_date": row.get("source_score_date"),
+                "final_score": _num(row.get("final_score")),
+                "prob_score": _num(row.get("prob_score")),
+                "ret_score": _num(row.get("ret_score")),
+                "tech_score": _num(row.get("tech_score")),
+                "quality_score": _num(row.get("quality_score")),
+                "confidence_score": _num(row.get("confidence_score")),
+                "calibrated_confidence": _num(row.get("calibrated_confidence")),
+                "live_confidence_grade": row.get("live_confidence_grade"),
+                "liquidity_score": _num(row.get("liquidity_score")),
+                "market_regime": row.get("market_regime"),
+                "previous_close": _num(row.get("previous_close")),
+                "live_price": _num(row.get("live_price")),
+                "entry_price_gap_pct": _num(row.get("entry_price_gap_pct")),
+                "entry_gate_status": row.get("entry_gate_status"),
+                "entry_gate_reason": row.get("entry_gate_reason"),
+                "buy_reason": row.get("buy_reason"),
+                "sell_reason": row.get("sell_reason"),
+                "portfolio_action_reason": row.get("portfolio_action_reason"),
+                "benchmark_name": None,
+                "benchmark_return_until_exit": None,
+                "strategy_return": strategy_return,
+                "excess_return": None,
+                "holding_days": holding_days,
+                "exit_reason": exit_reason,
+                "review_status": review_status,
                 "pre_tags": tags[:3],
                 "post_tags": tags,
                 "review_note": note,
@@ -234,11 +300,29 @@ def write_review_rows(items: list[dict[str, Any]], review_date: str) -> int:
                 """
                 INSERT INTO research.live_trade_review (
                     intent_id, request_id, code, review_date, pre_tags, post_tags,
-                    outcome_label, review_note, next_action_note, reviewer, updated_at
+                    outcome_label, review_note, next_action_note,
+                    engine_type, strategy_id, run_mode, source_score_date,
+                    final_score, prob_score, ret_score, tech_score, quality_score,
+                    confidence_score, calibrated_confidence, live_confidence_grade,
+                    liquidity_score, market_regime, previous_close, live_price,
+                    entry_price_gap_pct, entry_gate_status, entry_gate_reason,
+                    buy_reason, sell_reason, portfolio_action_reason,
+                    benchmark_name, benchmark_return_until_exit, strategy_return,
+                    excess_return, holding_days, exit_reason, review_status,
+                    reviewer, updated_at
                 )
                 VALUES (
                     :intent_id, :request_id, :code, CAST(:review_date AS date), :pre_tags, :post_tags,
-                    :outcome_label, :review_note, :next_action_note, :reviewer, now()
+                    :outcome_label, :review_note, :next_action_note,
+                    :engine_type, :strategy_id, :run_mode, CAST(:source_score_date AS date),
+                    :final_score, :prob_score, :ret_score, :tech_score, :quality_score,
+                    :confidence_score, :calibrated_confidence, :live_confidence_grade,
+                    :liquidity_score, :market_regime, :previous_close, :live_price,
+                    :entry_price_gap_pct, :entry_gate_status, :entry_gate_reason,
+                    :buy_reason, :sell_reason, :portfolio_action_reason,
+                    :benchmark_name, :benchmark_return_until_exit, :strategy_return,
+                    :excess_return, :holding_days, :exit_reason, :review_status,
+                    :reviewer, now()
                 )
                 """
             ),
@@ -253,6 +337,35 @@ def write_review_rows(items: list[dict[str, Any]], review_date: str) -> int:
                     "outcome_label": item.get("outcome_label"),
                     "review_note": item.get("review_note"),
                     "next_action_note": item.get("next_action_note"),
+                    "engine_type": item.get("engine_type"),
+                    "strategy_id": item.get("strategy_id"),
+                    "run_mode": item.get("run_mode"),
+                    "source_score_date": item.get("source_score_date"),
+                    "final_score": item.get("final_score"),
+                    "prob_score": item.get("prob_score"),
+                    "ret_score": item.get("ret_score"),
+                    "tech_score": item.get("tech_score"),
+                    "quality_score": item.get("quality_score"),
+                    "confidence_score": item.get("confidence_score"),
+                    "calibrated_confidence": item.get("calibrated_confidence"),
+                    "live_confidence_grade": item.get("live_confidence_grade"),
+                    "liquidity_score": item.get("liquidity_score"),
+                    "market_regime": item.get("market_regime"),
+                    "previous_close": item.get("previous_close"),
+                    "live_price": item.get("live_price"),
+                    "entry_price_gap_pct": item.get("entry_price_gap_pct"),
+                    "entry_gate_status": item.get("entry_gate_status"),
+                    "entry_gate_reason": item.get("entry_gate_reason"),
+                    "buy_reason": item.get("buy_reason"),
+                    "sell_reason": item.get("sell_reason"),
+                    "portfolio_action_reason": item.get("portfolio_action_reason"),
+                    "benchmark_name": item.get("benchmark_name"),
+                    "benchmark_return_until_exit": item.get("benchmark_return_until_exit"),
+                    "strategy_return": item.get("strategy_return"),
+                    "excess_return": item.get("excess_return"),
+                    "holding_days": item.get("holding_days"),
+                    "exit_reason": item.get("exit_reason"),
+                    "review_status": item.get("review_status"),
                     "reviewer": REVIEWER,
                 }
                 for item in items
@@ -286,24 +399,32 @@ def render_markdown(report: dict[str, Any]) -> str:
             "",
             "## Reviewed Fills",
             "",
-            "| request_id | code | side | intent | fill_price | outcome | note |",
-            "| --- | --- | --- | --- | ---: | --- | --- |",
+            "| request_id | engine | code | side | intent | entry_gate | review_status | holding_days | strategy_return | outcome | note |",
+            "| --- | --- | --- | --- | --- | --- | --- | ---: | ---: | --- | --- |",
         ]
     )
     for item in report["items"]:
         lines.append(
-            "| {request_id} | {code} | {side} | {intent_type} | {filled_price:.2f} | {outcome_label} | {review_note} |".format(
+            "| {request_id} | {engine_type} | {code} | {side} | {intent_type} | {entry_gate_status} | {review_status} | {holding_days} | {strategy_return} | {outcome_label} | {review_note} |".format(
                 request_id=item.get("request_id") or "",
+                engine_type=item.get("engine_type") or "",
                 code=item.get("code") or "",
                 side=item.get("side") or "",
                 intent_type=item.get("intent_type") or "",
-                filled_price=float(item.get("filled_price") or 0.0),
+                entry_gate_status=item.get("entry_gate_status") or "-",
+                review_status=item.get("review_status") or "-",
+                holding_days=item.get("holding_days") if item.get("holding_days") is not None else "-",
+                strategy_return=(
+                    f"{float(item.get('strategy_return')) * 100:.2f}%"
+                    if item.get("strategy_return") is not None
+                    else "-"
+                ),
                 outcome_label=item.get("outcome_label") or "",
                 review_note=str(item.get("review_note") or "").replace("|", "/"),
             )
         )
     if not report["items"]:
-        lines.append("| - | - | - | - | 0 | - | - |")
+        lines.append("| - | - | - | - | - | - | - | 0 | - | - | - |")
     return "\n".join(lines) + "\n"
 
 

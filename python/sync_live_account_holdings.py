@@ -6,7 +6,9 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+from sqlalchemy import text
 
+from db import get_engine
 from kis_client import KISClient
 from kis_live_account import inquire_balance, resolve_account_env, summarize_cash
 from sync_live_trade_ledger import sync_live_trade_ledger
@@ -95,6 +97,65 @@ def _build_derived_metrics(holdings: pd.DataFrame, summary_row: dict[str, float 
     }
 
 
+def _weekly_loss_context(total_assets: float | None, as_of_date: datetime) -> dict[str, float | str | None]:
+    if total_assets is None or total_assets <= 0:
+        return {
+            "week_start_total_assets": None,
+            "weekly_asset_change_amount": None,
+            "weekly_loss_pct": None,
+            "weekly_loss_source": "current_total_assets_missing",
+        }
+    week_start = pd.Timestamp(as_of_date.date())
+    week_start = week_start - pd.Timedelta(days=week_start.weekday())
+    try:
+        engine = get_engine()
+        with engine.begin() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT total_assets, snapshot_at
+                    FROM research.live_position_snapshot
+                    WHERE snapshot_date >= :week_start
+                      AND snapshot_date <= :as_of_date
+                      AND total_assets IS NOT NULL
+                    ORDER BY snapshot_at ASC
+                    LIMIT 1
+                    """
+                ),
+                {
+                    "week_start": week_start.date().isoformat(),
+                    "as_of_date": as_of_date.date().isoformat(),
+                },
+            ).mappings().first()
+    except Exception:
+        row = None
+    if not row:
+        return {
+            "week_start_total_assets": None,
+            "weekly_asset_change_amount": None,
+            "weekly_loss_pct": None,
+            "weekly_loss_source": "live_position_snapshot_unavailable",
+        }
+
+    week_start_total_assets = _to_number(row.get("total_assets"))
+    if week_start_total_assets is None or week_start_total_assets <= 0:
+        return {
+            "week_start_total_assets": week_start_total_assets,
+            "weekly_asset_change_amount": None,
+            "weekly_loss_pct": None,
+            "weekly_loss_source": "week_start_total_assets_invalid",
+        }
+
+    weekly_asset_change_amount = total_assets - week_start_total_assets
+    weekly_loss_pct = weekly_asset_change_amount / week_start_total_assets
+    return {
+        "week_start_total_assets": week_start_total_assets,
+        "weekly_asset_change_amount": weekly_asset_change_amount,
+        "weekly_loss_pct": weekly_loss_pct,
+        "weekly_loss_source": "live_position_snapshot",
+    }
+
+
 def normalize_holdings(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(
@@ -143,6 +204,8 @@ def main() -> int:
     cash_summary = summarize_cash(summary_df)
     summary_row = _normalize_summary_row(summary_df)
     derived_metrics = _build_derived_metrics(holdings, summary_row)
+    weekly_context = _weekly_loss_context(derived_metrics.get("total_assets"), datetime.now())
+    derived_metrics.update(weekly_context)
     payload = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "env_dv": account.env_dv,

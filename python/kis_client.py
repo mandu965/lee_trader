@@ -182,6 +182,32 @@ class KISClient:
             retry_backoff_max_sec=retry_backoff_max_sec,
         )
 
+    @classmethod
+    def from_rule_env(cls) -> "KISClient":
+        if load_dotenv:
+            load_dotenv()
+        base_url = os.getenv("KIS_BASE_URL")
+        app_key = (os.getenv("KIS_APP_RULE_KEY") or os.getenv("KIS_APP_KEY") or "").strip()
+        app_secret = (os.getenv("KIS_APP_RULE_SECRET") or os.getenv("KIS_APP_SECRET") or "").strip()
+        if not all([base_url, app_key, app_secret]):
+            raise ValueError("KIS rule env missing or incomplete")
+        timeout_sec = max(5, int(os.getenv("KIS_TIMEOUT_SEC", str(DEFAULT_TIMEOUT_SEC))))
+        max_retries = max(0, int(os.getenv("KIS_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))))
+        retry_backoff_base_sec = max(0.5, float(os.getenv("KIS_RETRY_BACKOFF_BASE_SEC", str(DEFAULT_RETRY_BACKOFF_BASE_SEC))))
+        retry_backoff_max_sec = max(
+            retry_backoff_base_sec,
+            float(os.getenv("KIS_RETRY_BACKOFF_MAX_SEC", str(DEFAULT_RETRY_BACKOFF_MAX_SEC))),
+        )
+        return cls(
+            base_url=base_url,
+            app_key=app_key,
+            app_secret=app_secret,
+            timeout_sec=timeout_sec,
+            max_retries=max_retries,
+            retry_backoff_base_sec=retry_backoff_base_sec,
+            retry_backoff_max_sec=retry_backoff_max_sec,
+        )
+
     def issue_access_token(self, *, force_refresh: bool = False) -> str:
         if self._access_token and not force_refresh:
             return self._access_token

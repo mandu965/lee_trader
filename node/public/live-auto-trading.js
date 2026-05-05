@@ -90,6 +90,20 @@ function toneClass(kind) {
   return "warn";
 }
 
+function opsToneClass(kind) {
+  const value = String(kind || "").toLowerCase();
+  if (value === "normal") return "good";
+  if (value === "risk" || value === "stopped") return "bad";
+  if (value === "warning") return "warn";
+  return "watch";
+}
+
+function flagText(value) {
+  if (value === true) return "ON";
+  if (value === false) return "OFF";
+  return "-";
+}
+
 function orderStateChip(row) {
   if (row.executable_now) return `<span class="chip good">제출 가능</span>`;
   if (row.blocked_reason) return `<span class="chip bad">차단됨</span>`;
@@ -443,6 +457,56 @@ function renderStatusV2(summary, intents, preview, execution, runtime) {
     <article class="hero-card">
       <div class="card-label">${escapeHtml(item.label)}</div>
       <div class="card-value">${fmtNum(item.value)}</div>
+      <div class="card-detail">${escapeHtml(item.detail)}</div>
+    </article>
+  `).join("");
+}
+
+function renderStatusV3(summary, intents, preview, execution, runtime) {
+  const summaryInfo = summary?.summary || {};
+  const cash = summaryInfo?.cash_summary || {};
+  const executionFlow = summarizeExecutionFlow(preview, execution, runtime);
+  const ops = runtime?.operations || {};
+  const controls = ops.controls || {};
+  const opsAi = ops.ai || {};
+  const opsCards = ops.cards || {};
+  const statusCards = [
+    {
+      label: "Account",
+      value: summaryInfo?.tot_evlu_amt ?? summaryInfo?.total_evaluation_amount,
+      detail: `cash ${fmtNum(cash?.dnca_tot_amt ?? cash?.ord_psbl_cash)} | pnl ${fmtNum(summaryInfo?.evlu_pfls_smtl_amt ?? summaryInfo?.pnl_amount)}`,
+    },
+    {
+      label: "Intents",
+      value: (intents?.intents || []).length,
+      detail: `BUY ${fmtNum((intents?.intents || []).filter((item) => item.intent_type === "BUY").length)} | TRIM ${fmtNum((intents?.intents || []).filter((item) => item.intent_type === "TRIM").length)} | REVIEW ${fmtNum((intents?.intents || []).filter((item) => item.intent_type === "REVIEW").length)}`,
+    },
+    {
+      label: "Preview",
+      value: preview?.summary?.request_count,
+      detail: `executable ${fmtNum((preview?.items || []).filter((item) => item.executable_now).length)} | blocked ${fmtNum((preview?.items || []).filter((item) => item.blocked_reason).length)}`,
+    },
+    {
+      label: "Execution",
+      value: execution?.summary?.submitted_count ?? 0,
+      detail: `${executionFlow.title} | failed ${fmtNum(execution?.summary?.failed_count)} | skipped ${fmtNum(execution?.summary?.skipped_count)}`,
+    },
+    {
+      label: "AI Ops",
+      value: opsAi.buy_candidate_count ?? 0,
+      detail: `blocked ${fmtNum(opsAi.buy_blocked_count)} | submitted ${fmtNum(opsAi.submitted_count)} | filled ${fmtNum(opsAi.filled_count)} | close ${opsCards.close_batch?.today_success ? "OK" : "WAIT"} / sync ${opsCards.live_account_sync?.today_success ? "OK" : "WAIT"}`,
+    },
+    {
+      label: "Safety",
+      value: controls.global_kill_switch ? 1 : 0,
+      detail: `GLOBAL ${flagText(controls.global_kill_switch)} | EXECUTE ${flagText(controls.auto_trade_execute)} | ALLOW_BUY ${flagText(controls.auto_trade_allow_buy)} | ${String(ops.summary?.overall_tone || "warning").toUpperCase()}`,
+    },
+  ];
+
+  document.getElementById("statusGrid").innerHTML = statusCards.map((item) => `
+    <article class="hero-card">
+      <div class="card-label">${escapeHtml(item.label)}</div>
+      <div class="card-value ${item.label === "Safety" ? opsToneClass(ops.summary?.overall_tone) : ""}">${fmtNum(item.value)}</div>
       <div class="card-detail">${escapeHtml(item.detail)}</div>
     </article>
   `).join("");
@@ -1440,7 +1504,7 @@ async function main() {
 
     renderHero(summary, intents, preview, holdings, execution);
     renderDecisionBanner(summary, intents, preview, execution, runtime, consistency);
-    renderStatusV2(summary, intents, preview, execution, runtime);
+    renderStatusV3(summary, intents, preview, execution, runtime);
     renderConsistency(consistency);
     renderTradeReview(tradeReview, tradeReviewSummary);
     renderLiveKpiDaily(liveKpiDaily);

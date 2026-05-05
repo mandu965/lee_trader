@@ -613,6 +613,92 @@ function runtimeErrorCell(row) {
     : `${errorText} / 실패 ${failedAt}`;
 }
 
+function opsToneToChipClass(value) {
+  const tone = String(value || "").toLowerCase();
+  if (tone === "normal") return "good";
+  if (tone === "risk" || tone === "stopped") return "bad";
+  if (tone === "warning") return "watch";
+  return "info";
+}
+
+function opsFlagText(value) {
+  if (value === true) return "ON";
+  if (value === false) return "OFF";
+  return "-";
+}
+
+function renderOperationsRuntime(runtime) {
+  const operations = runtime?.operations || {};
+  const controls = operations.controls || {};
+  const cards = operations.cards || {};
+  const ai = operations.ai || {};
+  const rule = operations.rule || {};
+  const summary = operations.summary || {};
+  const hasPayload = Object.keys(operations).length > 0;
+
+  const cardList = [
+    {
+      title: "운영 안전장치",
+      tone: controls.global_kill_switch ? "stopped" : (controls.auto_trade_allow_buy ? "normal" : "warning"),
+      chips: [
+        { label: `GLOBAL_KILL_SWITCH ${opsFlagText(controls.global_kill_switch)}`, kind: controls.global_kill_switch ? "bad" : "good" },
+        { label: `RULE_KILL_SWITCH ${opsFlagText(controls.rule_kill_switch)}`, kind: controls.rule_kill_switch ? "bad" : "good" },
+        { label: `EXECUTE ${opsFlagText(controls.auto_trade_execute)}`, kind: controls.auto_trade_execute ? "good" : "watch" },
+        { label: `ALLOW_BUY ${opsFlagText(controls.auto_trade_allow_buy)}`, kind: controls.auto_trade_allow_buy ? "good" : "watch" },
+      ],
+      kv: [
+        ["마지막 성공", fmtRuntimeDateTime(summary.latest_success_at)],
+        ["마지막 실패", fmtRuntimeDateTime(summary.latest_failure_at)],
+        ["마지막 에러", summarizeRuntimeError(summary.latest_error_message)],
+      ],
+    },
+    {
+      title: "오늘 실행 상태",
+      tone: summary.today_close_batch_success && summary.today_live_account_sync_success ? "normal" : "warning",
+      chips: [
+        { label: `종가배치 ${summary.today_close_batch_success ? "OK" : "WAIT"}`, kind: summary.today_close_batch_success ? "good" : "watch" },
+        { label: `AI auto BUY ${summary.today_ai_auto_buy_success ? "OK" : "WAIT"}`, kind: summary.today_ai_auto_buy_success ? "good" : "watch" },
+        { label: `RULE pre-open ${summary.today_rule_before_open_success ? "OK" : "WAIT"}`, kind: summary.today_rule_before_open_success ? "good" : "watch" },
+        { label: `RULE after-open ${summary.today_rule_after_open_success ? "OK" : "WAIT"}`, kind: summary.today_rule_after_open_success ? "good" : "watch" },
+        { label: `live sync ${summary.today_live_account_sync_success ? "OK" : "WAIT"}`, kind: summary.today_live_account_sync_success ? "good" : "watch" },
+      ],
+      kv: [
+        ["AI BUY 후보", fmtNum(ai.buy_candidate_count)],
+        ["AI BUY 차단", fmtNum(ai.buy_blocked_count)],
+        ["RULE BUY 후보", fmtNum(rule.buy_candidate_count)],
+        ["RULE BUY 차단", fmtNum(rule.buy_blocked_count)],
+      ],
+    },
+  ];
+
+  if (!hasPayload) {
+    return `<div class="empty-state">auto_trading_ops_status payload가 아직 없습니다.</div>`;
+  }
+
+  return `
+    <div class="grid-2" style="margin-bottom:12px;">
+      ${cardList.map((card) => `
+        <article class="card compact-card">
+          <div class="eyebrow">Ops Runtime</div>
+          <h3>${escapeHtml(card.title)}</h3>
+          <div class="chip-row">
+            <span class="chip ${opsToneToChipClass(card.tone)}">${escapeHtml(String(card.tone || "warning").toUpperCase())}</span>
+            ${card.chips.map((chip) => `<span class="chip ${chip.kind}">${escapeHtml(chip.label)}</span>`).join("")}
+          </div>
+          <div class="kv">
+            ${card.kv.map(([label, value]) => `
+              <div class="kv-row">
+                <span class="muted">${escapeHtml(label)}</span>
+                <strong>${escapeHtml(String(value ?? "-"))}</strong>
+              </div>
+            `).join("")}
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderSchedulerRuntime(runtime) {
   const wrap = document.getElementById("runtimeTableWrap");
   if (!wrap) return;
@@ -625,11 +711,12 @@ function renderSchedulerRuntime(runtime) {
   ].filter(([, payload]) => payload);
 
   if (!rows.length) {
-    wrap.innerHTML = `<div class="empty-state">scheduler runtime status 산출물이 아직 없습니다.</div>`;
+    wrap.innerHTML = `${renderOperationsRuntime(runtime)}<div class="empty-state">scheduler runtime status 산출물이 아직 없습니다.</div>`;
     return;
   }
 
   wrap.innerHTML = `
+    ${renderOperationsRuntime(runtime)}
     <table class="runtime-table">
       <thead>
         <tr>

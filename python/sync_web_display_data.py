@@ -49,6 +49,9 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("performance_summary", SERVING_DIR / "performance_summary.json", "asof_date"),
     ("live_account_balance_summary", OUTPUT_DIR / "live_account_balance_summary.json", None),
     ("trade_intents", OUTPUT_DIR / "trade_intents.json", "asof_date"),
+    ("ai_entry_quality_score", OUTPUT_DIR / "ai_entry_quality_score.json", None),
+    ("ai_filtered_top_candidates", OUTPUT_DIR / "ai_filtered_top_candidates.json", None),
+    ("ai_selection_review_summary", OUTPUT_DIR / "ai_selection_review_summary.json", "asof_date"),
     ("watch_auto_buy_simulation", OUTPUT_DIR / "watch_auto_buy_simulation.json", "asof_date"),
     ("live_order_preview", OUTPUT_DIR / "live_order_preview.json", "asof_date"),
     ("order_requests_preview", OUTPUT_DIR / "order_requests_preview.json", "asof_date"),
@@ -215,7 +218,7 @@ def sync_payloads() -> None:
     live_summary_path = OUTPUT_DIR / "live_account_balance_summary.json"
     live_summary = {}
     if live_summary_path.exists():
-        live_summary = json.loads(live_summary_path.read_text(encoding="utf-8"))
+        live_summary = json.loads(live_summary_path.read_text(encoding="utf-8-sig"))
     sync_rows_payload(
         "live_account_holdings",
         DATA_DIR / "live_account_holdings.csv",

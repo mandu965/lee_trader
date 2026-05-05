@@ -9,7 +9,9 @@ import pandas as pd
 
 from apply_execution_policy import (
     DEFAULT_CANDIDATES_CSV,
+    DEFAULT_CONFIDENCE_V2_CSV,
     DEFAULT_GATE_JSON,
+    DEFAULT_LIVE_GRADE_MAP_JSON,
     DEFAULT_SNAPSHOT_ARCHIVE_CSV,
     GATE_VERSION,
     POLICY_VERSION,
@@ -20,6 +22,7 @@ from apply_execution_policy import (
     _safe_read_json,
     gate_decision_runtime,
     load_candidates,
+    load_live_grade_map,
     markdown_summary_list,
 )
 from production_config import get_production_config_value
@@ -27,7 +30,9 @@ from strategy_core import evaluate_strategy
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "outputs"
+AI_FILTERED_CANDIDATES_CSV = DATA_DIR / "ai_filtered_top_candidates.csv"
 
 OUT_JSON = OUTPUT_DIR / "trade_intents.json"
 OUT_MD = OUTPUT_DIR / "trade_intents.md"
@@ -39,6 +44,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gate-json", type=Path, default=DEFAULT_GATE_JSON)
     parser.add_argument("--snapshot-archive-csv", type=Path, default=DEFAULT_SNAPSHOT_ARCHIVE_CSV)
     parser.add_argument("--holdings-csv", type=Path, default=None)
+    parser.add_argument("--ai-filtered-csv", type=Path, default=AI_FILTERED_CANDIDATES_CSV)
+    parser.add_argument("--confidence-v2-csv", type=Path, default=DEFAULT_CONFIDENCE_V2_CSV)
+    parser.add_argument("--live-grade-map-json", type=Path, default=DEFAULT_LIVE_GRADE_MAP_JSON)
     parser.add_argument("--out-json", type=Path, default=OUT_JSON)
     parser.add_argument("--out-md", type=Path, default=OUT_MD)
     parser.add_argument("--candidate-universe-top-n", type=int, default=int(get_production_config_value(["execution_policy", "candidate_universe_top_n"], 20)))
@@ -142,6 +150,17 @@ RANKING_CONTEXT_COLUMNS = [
     "risk_factor_1",
     "risk_factor_2",
     "action_note",
+    "ai_filtered_rank",
+    "ai_adjusted_score",
+    "ai_adjusted_rank",
+    "entry_quality_score",
+    "entry_quality_status",
+    "entry_quality_reasons",
+    "original_final_rank",
+    "original_final_score",
+    "selected_for_ai_top5",
+    "filter_passed",
+    "fallback_selected",
 ]
 
 
@@ -187,15 +206,82 @@ def build_ranking_context(candidates: pd.DataFrame) -> dict[str, dict[str, objec
                 "tech_score",
                 "liquidity_score",
                 "safety_score",
+                "ai_adjusted_score",
+                "entry_quality_score",
+                "original_final_score",
             }:
                 item[col] = _num_or_none(value)
+            elif col in {
+                "ai_filtered_rank",
+                "ai_adjusted_rank",
+                "original_final_rank",
+            }:
+                item[col] = _int_or_none(value)
+            elif col in {
+                "selected_for_ai_top5",
+                "filter_passed",
+                "fallback_selected",
+            }:
+                item[col] = bool(value) if isinstance(value, bool) else str(value).strip().lower() in {"1", "true", "yes", "on"}
             else:
                 item[col] = str(value).strip() if pd.notna(value) and str(value).strip() else None
         rank = item.get("live_rank") or item.get("rank_final") or item.get("buy_rank")
         item["ranking_rank"] = rank
         item["final_score"] = item.get("final_score") if item.get("final_score") is not None else item.get("live_score")
+        if item.get("original_final_rank") is None:
+            item["original_final_rank"] = item.get("rank_final") or item.get("buy_rank") or item.get("ranking_rank")
+        if item.get("original_final_score") is None:
+            item["original_final_score"] = item.get("final_score")
         context[code] = item
     return context
+
+
+def load_ai_filtered_context(path: Path) -> tuple[dict[str, dict[str, object]], bool]:
+    resolved = _resolve(path)
+    if not resolved.exists():
+        return {}, False
+    try:
+        frame = pd.read_csv(resolved, dtype={"code": str}, low_memory=False)
+    except Exception:
+        return {}, False
+    if frame.empty or "code" not in frame.columns:
+        return {}, False
+    work = frame.copy()
+    work["code"] = work["code"].astype(str).str.zfill(6)
+    for col in ["ai_filtered_rank", "ai_adjusted_score", "ai_adjusted_rank", "entry_quality_score", "final_score", "rank_final", "buy_rank"]:
+        if col in work.columns:
+            work[col] = pd.to_numeric(work.get(col), errors="coerce")
+    for col in ["selected_for_ai_top5", "filter_passed", "fallback_selected"]:
+        if col in work.columns:
+            work[col] = work.get(col).astype(str).str.strip().str.lower().isin(["1", "true", "yes", "on"])
+        else:
+            work[col] = False
+    for col in ["entry_quality_status", "entry_quality_reasons"]:
+        if col in work.columns:
+            work[col] = work.get(col, "").fillna("").astype(str)
+        else:
+            work[col] = ""
+
+    context: dict[str, dict[str, object]] = {}
+    for _, row in work.drop_duplicates("code", keep="first").iterrows():
+        code = str(row.get("code") or "").zfill(6)
+        if not code or code == "000000":
+            continue
+        context[code] = {
+            "ai_filtered_source_used": True,
+            "ai_filtered_rank": _int_or_none(row.get("ai_filtered_rank")),
+            "ai_adjusted_score": _num_or_none(row.get("ai_adjusted_score")),
+            "ai_adjusted_rank": _int_or_none(row.get("ai_adjusted_rank")),
+            "entry_quality_score": _num_or_none(row.get("entry_quality_score")),
+            "entry_quality_status": str(row.get("entry_quality_status") or "").strip() or None,
+            "entry_quality_reasons": str(row.get("entry_quality_reasons") or "").strip() or None,
+            "selected_for_ai_top5": bool(row.get("selected_for_ai_top5")),
+            "filter_passed": bool(row.get("filter_passed")),
+            "fallback_selected": bool(row.get("fallback_selected")),
+            "original_final_rank": _int_or_none(row.get("rank_final")) or _int_or_none(row.get("buy_rank")),
+            "original_final_score": _num_or_none(row.get("final_score")),
+        }
+    return context, True
 
 
 def build_intent_rows(
@@ -204,9 +290,12 @@ def build_intent_rows(
     asof_date: pd.Timestamp,
     gate_status: str,
     ranking_context: dict[str, dict[str, object]] | None = None,
+    ai_filtered_context: dict[str, dict[str, object]] | None = None,
+    ai_filtered_source_used: bool = False,
 ) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     ranking_context = ranking_context or {}
+    ai_filtered_context = ai_filtered_context or {}
     for _, row in execution_actions.iterrows():
         action = str(row.get("action") or "")
         intent_type, executable, base_priority = map_action_to_intent(action)
@@ -216,6 +305,9 @@ def build_intent_rows(
         if intent_type == "NO_ACTION":
             executable = False
         ranking = ranking_context.get(code, {})
+        ai_filtered = ai_filtered_context.get(code, {})
+        if intent_type == "BUY" and ai_filtered_source_used and not bool(ai_filtered.get("selected_for_ai_top5")):
+            continue
         rows.append(
             {
                 "intent_id": f"{asof_date.strftime('%Y%m%d')}:{intent_type}:{code or '-'}",
@@ -250,6 +342,114 @@ def build_intent_rows(
                 "risk_factor_1": ranking.get("risk_factor_1"),
                 "risk_factor_2": ranking.get("risk_factor_2"),
                 "action_note": ranking.get("action_note"),
+                "ai_filtered_source_used": bool(ai_filtered_source_used and ai_filtered),
+                "ai_filtered_rank": ai_filtered.get("ai_filtered_rank"),
+                "ai_adjusted_score": ai_filtered.get("ai_adjusted_score"),
+                "ai_adjusted_rank": ai_filtered.get("ai_adjusted_rank"),
+                "entry_quality_score": ai_filtered.get("entry_quality_score"),
+                "entry_quality_status": ai_filtered.get("entry_quality_status"),
+                "entry_quality_reasons": ai_filtered.get("entry_quality_reasons"),
+                "original_final_rank": ai_filtered.get("original_final_rank", ranking.get("rank_final") or ranking.get("buy_rank") or ranking.get("ranking_rank")),
+                "original_final_score": ai_filtered.get("original_final_score", ranking.get("final_score")),
+                "selected_for_ai_top5": ai_filtered.get("selected_for_ai_top5"),
+                "filter_passed": ai_filtered.get("filter_passed"),
+                "fallback_selected": ai_filtered.get("fallback_selected"),
+            }
+        )
+    return rows
+
+
+def build_ai_buy_intents(
+    *,
+    args: argparse.Namespace,
+    strategy,
+    asof_date: pd.Timestamp,
+    gate_status: str,
+    ranking_context: dict[str, dict[str, object]],
+    ai_filtered_context: dict[str, dict[str, object]],
+    existing_codes: set[str],
+) -> list[dict[str, object]]:
+    if not ai_filtered_context:
+        return []
+    queue = strategy.buy_ready_queue.copy() if hasattr(strategy, "buy_ready_queue") else pd.DataFrame()
+    if queue.empty or "code" not in queue.columns:
+        return []
+    queue["code"] = queue["code"].astype(str).str.zfill(6)
+    held_codes = set(getattr(strategy, "held_codes", set()) or set())
+    existing_buy_codes = {code for code in existing_codes if code}
+    rows: list[dict[str, object]] = []
+
+    eligible_codes = [
+        code
+        for code, payload in ai_filtered_context.items()
+        if bool(payload.get("selected_for_ai_top5"))
+        and str(payload.get("entry_quality_status") or "").upper() != "BLOCK"
+    ]
+    for code in eligible_codes:
+        if code in held_codes or code in existing_buy_codes:
+            continue
+        queue_row = queue.loc[queue["code"] == code]
+        if queue_row.empty:
+            continue
+        item = queue_row.iloc[0]
+        ranking = ranking_context.get(code, {})
+        ai_filtered = ai_filtered_context.get(code, {})
+        target_weight_value = pd.to_numeric(item.get("target_weight"), errors="coerce")
+        if not pd.notna(target_weight_value) or float(target_weight_value) <= 0:
+            fallback_weight = min(float(args.max_position_weight), float(args.pilot_limited_position_cap))
+            target_weight_value = fallback_weight if fallback_weight > 0 else float(args.max_position_weight)
+        reason_parts = [
+            "ai_filtered_top5_selected",
+            f"entry_quality_status={ai_filtered.get('entry_quality_status') or 'UNKNOWN'}",
+            str(item.get("entry_note") or "").strip(),
+            f"target_weight_fallback={float(target_weight_value):.2f}" if pd.isna(pd.to_numeric(item.get('target_weight'), errors='coerce')) else "",
+        ]
+        rows.append(
+            {
+                "intent_id": f"{asof_date.strftime('%Y%m%d')}:BUY:{code}",
+                "asof_date": asof_date.strftime("%Y-%m-%d"),
+                "code": code,
+                "name": str(item.get("name") or ranking.get("name") or "").strip() or None,
+                "source_action": "AI_FILTERED_BUY",
+                "intent_type": "BUY",
+                "target_weight": float(target_weight_value),
+                "gate_status": gate_status or None,
+                "reason": "; ".join(part for part in reason_parts if part),
+                "priority": 80,
+                "executable": True,
+                "ranking_rank": ranking.get("ranking_rank"),
+                "buy_rank": ranking.get("buy_rank"),
+                "rank_final": ranking.get("rank_final"),
+                "live_rank": ranking.get("live_rank"),
+                "final_score": ranking.get("final_score"),
+                "live_score": ranking.get("live_score"),
+                "confidence_score": ranking.get("confidence_score"),
+                "risk_penalty": ranking.get("risk_penalty"),
+                "ret_score": ranking.get("ret_score"),
+                "prob_score": ranking.get("prob_score"),
+                "qual_score": ranking.get("qual_score"),
+                "tech_score": ranking.get("tech_score"),
+                "liquidity_score": ranking.get("liquidity_score"),
+                "safety_score": ranking.get("safety_score"),
+                "dominant_theme": ranking.get("dominant_theme"),
+                "score_driver_1": ranking.get("score_driver_1"),
+                "score_driver_2": ranking.get("score_driver_2"),
+                "score_driver_3": ranking.get("score_driver_3"),
+                "risk_factor_1": ranking.get("risk_factor_1"),
+                "risk_factor_2": ranking.get("risk_factor_2"),
+                "action_note": ranking.get("action_note"),
+                "ai_filtered_source_used": True,
+                "ai_filtered_rank": ai_filtered.get("ai_filtered_rank"),
+                "ai_adjusted_score": ai_filtered.get("ai_adjusted_score"),
+                "ai_adjusted_rank": ai_filtered.get("ai_adjusted_rank"),
+                "entry_quality_score": ai_filtered.get("entry_quality_score"),
+                "entry_quality_status": ai_filtered.get("entry_quality_status"),
+                "entry_quality_reasons": ai_filtered.get("entry_quality_reasons"),
+                "original_final_rank": ai_filtered.get("original_final_rank", ranking.get("rank_final") or ranking.get("buy_rank") or ranking.get("ranking_rank")),
+                "original_final_score": ai_filtered.get("original_final_score", ranking.get("final_score")),
+                "selected_for_ai_top5": ai_filtered.get("selected_for_ai_top5"),
+                "filter_passed": ai_filtered.get("filter_passed"),
+                "fallback_selected": ai_filtered.get("fallback_selected"),
             }
         )
     return rows
@@ -257,7 +457,8 @@ def build_intent_rows(
 
 def main() -> int:
     args = parse_args()
-    candidates = load_candidates(args.candidates_csv)
+    live_grade_map = load_live_grade_map(args.live_grade_map_json)
+    candidates = load_candidates(args.candidates_csv, args.confidence_v2_csv, live_grade_map)
     candidates = candidates.loc[pd.to_numeric(candidates["buy_rank"], errors="coerce").le(args.candidate_universe_top_n)].copy()
     candidates = candidates.sort_values(["buy_rank", "rank_source", "code"]).reset_index(drop=True)
     gate_payload = _safe_read_json(args.gate_json)
@@ -275,12 +476,32 @@ def main() -> int:
     latest_snapshot_date = strategy.latest_snapshot["asof_date"].iloc[0] if not strategy.latest_snapshot.empty else pd.NaT
     asof_date = pd.Timestamp(candidate_asof if pd.notna(candidate_asof) else latest_snapshot_date if pd.notna(latest_snapshot_date) else pd.Timestamp.today()).normalize()
     ranking_context = build_ranking_context(candidates)
+    ai_filtered_context, ai_filtered_source_used = load_ai_filtered_context(args.ai_filtered_csv)
     intents = build_intent_rows(
         strategy.execution_actions,
         asof_date=asof_date,
         gate_status=str(gate["status"]),
         ranking_context=ranking_context,
+        ai_filtered_context=ai_filtered_context,
+        ai_filtered_source_used=ai_filtered_source_used,
     )
+    existing_buy_codes = {
+        str(item.get("code") or "").zfill(6)
+        for item in intents
+        if str(item.get("intent_type") or "").upper() == "BUY"
+    }
+    if ai_filtered_source_used:
+        intents.extend(
+            build_ai_buy_intents(
+                args=args,
+                strategy=strategy,
+                asof_date=asof_date,
+                gate_status=str(gate["status"]),
+                ranking_context=ranking_context,
+                ai_filtered_context=ai_filtered_context,
+                existing_codes=existing_buy_codes,
+            )
+        )
     payload = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "asof_date": asof_date.strftime("%Y-%m-%d"),
@@ -291,6 +512,7 @@ def main() -> int:
         "holdings_source": strategy.holdings_context.source,
         "gate_status": gate["status"],
         "gate_guidance": gate["guidance"],
+        "ai_filtered_source_used": bool(ai_filtered_source_used),
         "intent_count": len(intents),
         "intents": intents,
     }
@@ -304,6 +526,7 @@ def main() -> int:
         f"- policy_version: {payload['policy_version']}",
         f"- gate_status: {payload['gate_status']}",
         f"- holdings_source: {payload['holdings_source']}",
+        f"- ai_filtered_source_used: {'Y' if payload['ai_filtered_source_used'] else 'N'}",
         f"- intent_count: {payload['intent_count']}",
         "",
         "## Gate Guidance",
@@ -314,7 +537,7 @@ def main() -> int:
         "",
         _markdown_table(
             intents_df if not intents_df.empty else pd.DataFrame([{"intent_id": "-", "code": "-", "name": "", "intent_type": "NO_ACTION", "target_weight": None, "gate_status": payload["gate_status"], "priority": 0, "executable": False, "reason": "no intents"}]),
-            ["intent_id", "code", "name", "intent_type", "ranking_rank", "final_score", "confidence_score", "risk_penalty", "target_weight", "gate_status", "priority", "executable", "reason"],
+            ["intent_id", "code", "name", "intent_type", "ranking_rank", "final_score", "ai_filtered_rank", "ai_adjusted_score", "entry_quality_status", "confidence_score", "risk_penalty", "target_weight", "gate_status", "priority", "executable", "reason"],
         ),
         "",
         "## Intent Notes",

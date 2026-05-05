@@ -1,4 +1,4 @@
-const fmtNum = (value, digits = 0) => {
+﻿const fmtNum = (value, digits = 0) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
   return n.toLocaleString("ko-KR", {
@@ -26,6 +26,20 @@ const signedClass = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n) || n === 0) return "";
   return n > 0 ? "pos" : "neg";
+};
+
+const opsToneClass = (value) => {
+  const tone = String(value || "").toLowerCase();
+  if (tone === "normal") return "good";
+  if (tone === "risk" || tone === "stopped") return "bad";
+  if (tone === "warning") return "warn";
+  return "watch";
+};
+
+const flagText = (value) => {
+  if (value === true) return "ON";
+  if (value === false) return "OFF";
+  return "-";
 };
 
 const signalChip = (value) => {
@@ -65,32 +79,34 @@ async function fetchJson(url) {
 
 function renderHero(summary) {
   const counts = summary.counts || {};
-  const paperState = summary.paper_state || {};
+  const accountState = summary.account_state || summary.paper_state || {};
+  const accountMode = String(summary.account_mode || "paper").toLowerCase();
+  const accountLabel = accountMode === "live" ? "RULE LIVE" : "RULE Paper";
+  const accountAsOfDate = summary.account_as_of_date ? ` / ${escapeHtml(summary.account_as_of_date)}` : "";
   const backtest = summary.backtest?.summary?.strong_entry_signal || {};
   document.getElementById("heroGrid").innerHTML = `
     <article class="hero-card">
-      <div class="card-label">기준일</div>
+      <div class="card-label">As Of</div>
       <div class="card-value">${escapeHtml(summary.as_of_date || "-")}</div>
       <div class="card-detail">${escapeHtml(summary.strategy_id || "-")} / ${escapeHtml(summary.run_mode || "-")}</div>
     </article>
     <article class="hero-card">
-      <div class="card-label">후보 수</div>
+      <div class="card-label">Candidates</div>
       <div class="card-value">${fmtNum(counts.total_candidates)}</div>
       <div class="card-detail">entry ${fmtNum(counts.entry_signal_count)} / strong ${fmtNum(counts.strong_entry_count)}</div>
     </article>
     <article class="hero-card">
-      <div class="card-label">Paper 계좌</div>
-      <div class="card-value">${fmtNum(paperState.total_equity)}</div>
-      <div class="card-detail">현금 ${fmtNum(paperState.cash)} / 보유 ${fmtNum(counts.paper_position_count)}종목</div>
+      <div class="card-label">${accountLabel}</div>
+      <div class="card-value">${fmtNum(accountState.total_equity)}</div>
+      <div class="card-detail">cash ${fmtNum(accountState.cash)} / positions ${fmtNum(counts.account_position_count || counts.paper_position_count)}${accountAsOfDate}</div>
     </article>
     <article class="hero-card">
       <div class="card-label">Strong D+20</div>
       <div class="card-value ${signedClass(backtest.avg_return_d20)}">${fmtPct(backtest.avg_return_d20)}</div>
-      <div class="card-detail">승률 ${fmtPct(backtest.win_rate_d20)} / trade ${fmtNum(backtest.trade_count)}</div>
+      <div class="card-detail">win ${fmtPct(backtest.win_rate_d20)} / trade ${fmtNum(backtest.trade_count)}</div>
     </article>
   `;
 }
-
 function renderStatus(summary) {
   const counts = summary.counts || {};
   const scoreDist = summary.backtest?.score_distribution || {};
@@ -102,7 +118,7 @@ function renderStatus(summary) {
     (counts.execution_failed_count || 0);
   document.getElementById("statusGrid").innerHTML = `
     <article class="hero-card">
-      <div class="card-label">포트폴리오 판단</div>
+      <div class="card-label">?ы듃?대━???먮떒</div>
       <div class="card-value">${fmtNum(counts.hold_count)} / ${fmtNum(counts.buy_count)}</div>
       <div class="card-detail">hold / buy / reduce ${fmtNum(counts.reduce_count)} / exit ${fmtNum(counts.exit_count)}</div>
     </article>
@@ -112,9 +128,51 @@ function renderStatus(summary) {
       <div class="card-detail">preview / filled ${fmtNum(counts.execution_filled_count)} / partial ${fmtNum(counts.execution_partial_filled_count)} / unfilled ${fmtNum(counts.execution_unfilled_count)} / failed ${fmtNum(counts.execution_failed_count)}</div>
     </article>
     <article class="hero-card">
-      <div class="card-label">점수 분포</div>
+      <div class="card-label">?먯닔 遺꾪룷</div>
       <div class="card-value">${fmtNum(scoreDist.rule_score_v2?.max, 2)}</div>
-      <div class="card-detail">v2 max / p75 ${fmtNum(scoreDist.rule_score_v2?.p75, 2)} / 거래대금 5억 통과율 ${fmtPct(tradingDist.thresholds?.[0]?.pass_rate, 0)}</div>
+      <div class="card-detail">v2 max / p75 ${fmtNum(scoreDist.rule_score_v2?.p75, 2)} / 嫄곕옒?湲?5???듦낵??${fmtPct(tradingDist.thresholds?.[0]?.pass_rate, 0)}</div>
+    </article>
+  `;
+}
+
+function renderStatusV2(summary) {
+  const counts = summary.counts || {};
+  const scoreDist = summary.backtest?.score_distribution || {};
+  const tradingDist = summary.backtest?.trading_value_distribution || {};
+  const ops = summary.operations || {};
+  const controls = ops.controls || {};
+  const ruleOps = ops.rule || {};
+  const opsCards = ops.cards || {};
+  const executionDone =
+    (counts.execution_filled_count || 0) +
+    (counts.execution_partial_filled_count || 0) +
+    (counts.execution_unfilled_count || 0) +
+    (counts.execution_failed_count || 0);
+  document.getElementById("statusGrid").innerHTML = `
+    <article class="hero-card">
+      <div class="card-label">Portfolio</div>
+      <div class="card-value">${fmtNum(counts.hold_count)} / ${fmtNum(counts.buy_count)}</div>
+      <div class="card-detail">hold / buy / reduce ${fmtNum(counts.reduce_count)} / exit ${fmtNum(counts.exit_count)}</div>
+    </article>
+    <article class="hero-card">
+      <div class="card-label">Order / Execution</div>
+      <div class="card-value">${fmtNum(counts.preview_request_count)} / ${fmtNum(executionDone || counts.execution_simulated_filled_count)}</div>
+      <div class="card-detail">preview / filled ${fmtNum(counts.execution_filled_count)} / partial ${fmtNum(counts.execution_partial_filled_count)} / unfilled ${fmtNum(counts.execution_unfilled_count)} / failed ${fmtNum(counts.execution_failed_count)}</div>
+    </article>
+    <article class="hero-card">
+      <div class="card-label">Score Dist</div>
+      <div class="card-value">${fmtNum(scoreDist.rule_score_v2?.max, 2)}</div>
+      <div class="card-detail">v2 max / p75 ${fmtNum(scoreDist.rule_score_v2?.p75, 2)} / value 5e8 pass ${fmtPct(tradingDist.thresholds?.[0]?.pass_rate, 0)}</div>
+    </article>
+    <article class="hero-card">
+      <div class="card-label">RULE Ops</div>
+      <div class="card-value ${opsToneClass(ops.summary?.overall_tone)}">${fmtNum(ruleOps.buy_candidate_count)}</div>
+      <div class="card-detail">blocked ${fmtNum(ruleOps.buy_blocked_count)} / submitted ${fmtNum(ruleOps.submitted_count)} / filled ${fmtNum(ruleOps.filled_count)} / pre-open ${opsCards.rule_before_open?.today_success ? "OK" : "WAIT"} / after-open ${opsCards.rule_after_open?.today_success ? "OK" : "WAIT"}</div>
+    </article>
+    <article class="hero-card">
+      <div class="card-label">Safety</div>
+      <div class="card-value ${opsToneClass(ops.summary?.overall_tone)}">${controls.rule_kill_switch ? "STOP" : "RUN"}</div>
+      <div class="card-detail">GLOBAL ${flagText(controls.global_kill_switch)} / RULE ${flagText(controls.rule_kill_switch)} / EXECUTE ${flagText(controls.auto_trade_execute)} / ALLOW_BUY ${flagText(controls.auto_trade_allow_buy)}</div>
     </article>
   `;
 }
@@ -134,7 +192,7 @@ function renderBlockReasons(summary) {
   gapReasons.slice(0, 3).forEach((item) => {
     rows.push(`<div class="kv-row"><span>gap risk: ${escapeHtml(item.name)}</span><strong>${fmtNum(item.count)}</strong></div>`);
   });
-  root.innerHTML = rows.length ? rows.join("") : `<div class="empty-state">차단 사유 데이터가 없습니다.</div>`;
+  root.innerHTML = rows.length ? rows.join("") : `<div class="empty-state">李⑤떒 ?ъ쑀 ?곗씠?곌? ?놁뒿?덈떎.</div>`;
 }
 
 function renderBacktest(summary) {
@@ -142,11 +200,11 @@ function renderBacktest(summary) {
   const entry = summary.backtest?.summary?.entry_signal || {};
   const curve = summary.backtest?.portfolio_equity_curve?.strong_entry_signal || {};
   document.getElementById("backtestKv").innerHTML = `
-    <div class="kv-row"><span>entry D+20 평균</span><strong class="${signedClass(entry.avg_return_d20)}">${fmtPct(entry.avg_return_d20)}</strong></div>
-    <div class="kv-row"><span>strong D+20 평균</span><strong class="${signedClass(strong.avg_return_d20)}">${fmtPct(strong.avg_return_d20)}</strong></div>
-    <div class="kv-row"><span>strong D+60 평균</span><strong class="${signedClass(strong.avg_return_d60)}">${fmtPct(strong.avg_return_d60)}</strong></div>
+    <div class="kv-row"><span>entry D+20 ?됯퇏</span><strong class="${signedClass(entry.avg_return_d20)}">${fmtPct(entry.avg_return_d20)}</strong></div>
+    <div class="kv-row"><span>strong D+20 ?됯퇏</span><strong class="${signedClass(strong.avg_return_d20)}">${fmtPct(strong.avg_return_d20)}</strong></div>
+    <div class="kv-row"><span>strong D+60 ?됯퇏</span><strong class="${signedClass(strong.avg_return_d60)}">${fmtPct(strong.avg_return_d60)}</strong></div>
     <div class="kv-row"><span>portfolio MDD</span><strong class="${signedClass(curve.mdd_d20_portfolio_equity)}">${fmtPct(curve.mdd_d20_portfolio_equity)}</strong></div>
-    <div class="kv-row"><span>portfolio 최종 수익</span><strong class="${signedClass(curve.final_return_d20_portfolio_equity)}">${fmtPct(curve.final_return_d20_portfolio_equity)}</strong></div>
+    <div class="kv-row"><span>portfolio 理쒖쥌 ?섏씡</span><strong class="${signedClass(curve.final_return_d20_portfolio_equity)}">${fmtPct(curve.final_return_d20_portfolio_equity)}</strong></div>
   `;
   document.getElementById("backtestChips").innerHTML = `
     <span class="chip watch">trade ${fmtNum(strong.trade_count)}</span>
@@ -158,7 +216,7 @@ function renderBacktest(summary) {
 function renderSignals(tbodyId, items, entryMode = false) {
   const tbody = document.getElementById(tbodyId);
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="center">데이터가 없습니다.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="center">?곗씠?곌? ?놁뒿?덈떎.</td></tr>`;
     return;
   }
   tbody.innerHTML = items.map((item) => {
@@ -197,7 +255,7 @@ function renderSignals(tbodyId, items, entryMode = false) {
 function renderPortfolio(items) {
   const tbody = document.getElementById("portfolioTbody");
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="center">포트폴리오 계획이 없습니다.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="center">?ы듃?대━??怨꾪쉷???놁뒿?덈떎.</td></tr>`;
     return;
   }
   tbody.innerHTML = items.slice(0, 40).map((item) => `
@@ -217,7 +275,7 @@ function renderPortfolio(items) {
 function renderPreview(items) {
   const tbody = document.getElementById("previewTbody");
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="9" class="center">order preview가 없습니다.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="center">order preview媛 ?놁뒿?덈떎.</td></tr>`;
     return;
   }
   tbody.innerHTML = items.slice(0, 50).map((item) => `
@@ -263,7 +321,7 @@ function renderPaperState(paperState) {
   const tbody = document.getElementById("positionsTbody");
   const positions = Array.isArray(paperState.positions) ? paperState.positions : [];
   if (!positions.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="center">paper 보유 종목이 없습니다.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="center">paper 蹂댁쑀 醫낅ぉ???놁뒿?덈떎.</td></tr>`;
   } else {
     tbody.innerHTML = positions.map((item) => `
       <tr>
@@ -280,13 +338,13 @@ function renderPaperState(paperState) {
   }
   const trades = Array.isArray(paperState.recent_trades) ? paperState.recent_trades : [];
   document.getElementById("recentTrades").innerHTML = trades.slice(-6).reverse().map((item) => `
-    <span class="chip watch">${escapeHtml(item.date)} / ${escapeHtml(item.side)} / ${escapeHtml(item.code)} / ${fmtNum(item.qty)}주</span>
+    <span class="chip watch">${escapeHtml(item.date)} / ${escapeHtml(item.side)} / ${escapeHtml(item.code)} / ${fmtNum(item.qty)}二?/span>
   `).join("");
 }
 
 async function loadRuleDashboard() {
   const pageState = document.getElementById("pageState");
-  pageState.textContent = "RULE 대시보드 데이터를 불러오는 중입니다.";
+  pageState.textContent = "RULE ??쒕낫???곗씠?곕? 遺덈윭?ㅻ뒗 以묒엯?덈떎.";
   try {
     const [executionResults, summary, signals, portfolio, preview, paperState] = await Promise.all([
       fetchJson("/api/rule/execution-results").catch(() => ({ items: [], summary: {} })),
@@ -298,7 +356,7 @@ async function loadRuleDashboard() {
     ]);
 
     renderHero(summary);
-    renderStatus(summary);
+    renderStatusV2(summary);
     renderBlockReasons(summary);
     renderBacktest(summary);
     renderSignals(
@@ -318,10 +376,10 @@ async function loadRuleDashboard() {
     const abortedText = executionResults.order_run_aborted
       ? ` | aborted: ${executionResults.order_run_abort_reason || "-"}`
       : "";
-    pageState.textContent = `기준일 ${summary.as_of_date || "-"} | 후보 ${fmtNum(summary.counts?.total_candidates)} | strong ${fmtNum(summary.counts?.strong_entry_count)} | filled ${fmtNum(summary.counts?.execution_filled_count)} | partial ${fmtNum(summary.counts?.execution_partial_filled_count)} | submitted ${fmtNum(summary.counts?.execution_submitted_count)}${abortedText}`;
+    pageState.textContent = `湲곗???${summary.as_of_date || "-"} | ?꾨낫 ${fmtNum(summary.counts?.total_candidates)} | strong ${fmtNum(summary.counts?.strong_entry_count)} | filled ${fmtNum(summary.counts?.execution_filled_count)} | partial ${fmtNum(summary.counts?.execution_partial_filled_count)} | submitted ${fmtNum(summary.counts?.execution_submitted_count)}${abortedText}`;
   } catch (error) {
     console.error(error);
-    pageState.textContent = `RULE 대시보드 로드 실패: ${error.message}`;
+    pageState.textContent = `RULE ??쒕낫??濡쒕뱶 ?ㅽ뙣: ${error.message}`;
   }
 }
 

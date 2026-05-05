@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from common_live_risk_guard import evaluate_common_buy_guard
 from rule_signal_builder import ENGINE_TYPE, ROOT, STRATEGY_ID
 
 
@@ -54,6 +55,22 @@ def _float_env(name: str, default: float) -> float:
         return float(os.getenv(name, str(default)))
     except (TypeError, ValueError):
         return default
+
+
+def _optional_positive_float_env(name: str) -> float | None:
+    try:
+        value = float(str(os.getenv(name, "")).strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _optional_positive_int_env(name: str) -> int | None:
+    try:
+        value = int(float(str(os.getenv(name, "")).strip()))
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
 
 
 def _normalize_run_mode(run_mode: str | None) -> str:
@@ -113,7 +130,38 @@ def validate_account_profile(account_profile: AccountProfile | dict[str, Any]) -
     return not reasons, reasons
 
 
-def assert_order_allowed(order_context: dict[str, Any]) -> tuple[bool, list[str]]:
+def _build_common_risk_context(order_context: dict[str, Any], run_mode: str) -> dict[str, Any]:
+    context = {
+        "now": order_context.get("now"),
+        "as_of_date": order_context.get("as_of_date"),
+        "execution_date": order_context.get("execution_date"),
+        "trade_date": order_context.get("trade_date"),
+        "side": order_context.get("side"),
+        "code": order_context.get("code") or order_context.get("symbol"),
+        "order_amount": order_context.get("order_amount"),
+        "order_qty": order_context.get("order_qty"),
+        "reference_price": order_context.get("reference_price"),
+        "market_defensive_mode": order_context.get("market_defensive_mode"),
+        "run_mode": run_mode,
+    }
+    for key in [
+        "holdings_csv",
+        "balance_json",
+        "fills_json",
+        "market_status_csv",
+        "holdings_generated_at",
+        "fills_generated_at",
+        "daily_buy_amount_used",
+        "weekly_buy_amount_used",
+        "daily_loss_pct",
+        "weekly_loss_pct",
+    ]:
+        if key in order_context:
+            context[key] = order_context.get(key)
+    return context
+
+
+def evaluate_rule_order_guard(order_context: dict[str, Any]) -> tuple[bool, list[str], dict[str, Any]]:
     run_mode = _normalize_run_mode(order_context.get("run_mode"))
     account = resolve_trading_account(str(order_context.get("engine_type") or ENGINE_TYPE), run_mode)
     account_ok, account_reasons = validate_account_profile(account)
@@ -147,14 +195,25 @@ def assert_order_allowed(order_context: dict[str, Any]) -> tuple[bool, list[str]
 
     order_amount = float(order_context.get("order_amount") or 0.0)
     order_qty = int(float(order_context.get("order_qty") or 0))
+    daily_order_amount_used = float(order_context.get("daily_order_amount_used") or 0.0)
     min_order_amount = _float_env("RULE_MIN_ORDER_AMOUNT", 100_000.0)
     max_order_amount = _float_env("RULE_MAX_ORDER_AMOUNT", 1_000_000.0)
+    max_daily_order_amount = _optional_positive_float_env("RULE_MAX_DAILY_ORDER_AMOUNT")
+    pilot_max_order_amount = _optional_positive_float_env("RULE_PILOT_MAX_ORDER_AMOUNT")
+    pilot_max_order_qty = _optional_positive_int_env("RULE_PILOT_MAX_ORDER_QTY")
     if side in {"BUY", "SELL"} and order_amount < min_order_amount:
         reasons.append("final_order_amount_below_min_order_amount")
     if side in {"BUY", "SELL"} and order_qty <= 0:
         reasons.append("order_qty_zero")
     if side in {"BUY", "SELL"} and order_amount > max_order_amount:
         reasons.append("order_amount_exceeds_limit")
+    if side in {"BUY", "SELL"} and max_daily_order_amount is not None and daily_order_amount_used + order_amount > max_daily_order_amount:
+        reasons.append("daily_order_amount_exceeds_limit")
+    if run_mode == "pilot" and side in {"BUY", "SELL"}:
+        if pilot_max_order_amount is not None and order_amount > pilot_max_order_amount:
+            reasons.append("pilot_order_amount_exceeds_limit")
+        if pilot_max_order_qty is not None and order_qty > pilot_max_order_qty:
+            reasons.append("pilot_order_qty_exceeds_limit")
 
     if side == "BUY":
         if order_context.get("signal_strength") != "strong_entry":
@@ -172,5 +231,40 @@ def assert_order_allowed(order_context: dict[str, Any]) -> tuple[bool, list[str]
         if not bool(order_context.get("cash_limit_pass", True)):
             reasons.append("cash_limit_failed")
 
-    unique_reasons = list(dict.fromkeys(reason for reason in reasons if reason and reason != "none"))
-    return not unique_reasons, unique_reasons
+    base_reasons = list(dict.fromkeys(reason for reason in reasons if reason and reason != "none"))
+
+    common_allowed = True
+    common_reasons: list[str] = []
+    common_snapshot: dict[str, Any] = {
+        "side": side,
+        "buy_allowed": True,
+        "block_reasons": [],
+        "bypass_reason": "side_not_buy",
+    }
+    if side == "BUY":
+        common_allowed, common_reasons, common_snapshot = evaluate_common_buy_guard(
+            _build_common_risk_context(order_context, run_mode)
+        )
+
+    merged_reasons = list(dict.fromkeys([*base_reasons, *common_reasons]))
+    details = {
+        "base_allowed": not base_reasons,
+        "base_block_reasons": base_reasons,
+        "common_risk_allowed": common_allowed,
+        "common_risk_block_reasons": common_reasons,
+        "common_risk_snapshot": common_snapshot,
+        "guard_limits": {
+            "min_order_amount": min_order_amount,
+            "max_order_amount": max_order_amount,
+            "max_daily_order_amount": max_daily_order_amount,
+            "daily_order_amount_used": daily_order_amount_used,
+            "pilot_max_order_amount": pilot_max_order_amount,
+            "pilot_max_order_qty": pilot_max_order_qty,
+        },
+    }
+    return not merged_reasons, merged_reasons, details
+
+
+def assert_order_allowed(order_context: dict[str, Any]) -> tuple[bool, list[str]]:
+    allowed, reasons, _ = evaluate_rule_order_guard(order_context)
+    return allowed, reasons

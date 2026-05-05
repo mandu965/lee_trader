@@ -12,6 +12,7 @@ from typing import Any
 
 import pandas as pd
 
+from common_live_risk_guard import evaluate_common_buy_guard
 from kis_client import KISClient
 from kis_live_account import (
     compute_market_order_preview_qty,
@@ -22,6 +23,11 @@ from kis_live_account import (
     summarize_cash,
 )
 from sync_live_trade_ledger import sync_live_trade_ledger
+
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +44,11 @@ OUT_MD = OUTPUT_DIR / "order_requests_preview.md"
 OUT_EXEC_JSON = OUTPUT_DIR / "order_requests_execution.json"
 OUT_EXEC_MD = OUTPUT_DIR / "order_requests_execution.md"
 BUY_APPROVAL_JSON = OUTPUT_DIR / "order_buy_approvals.json"
+
+
+def _load_env() -> None:
+    if load_dotenv:
+        load_dotenv(ROOT / ".env", override=False)
 
 
 def parse_args() -> argparse.Namespace:
@@ -180,6 +191,14 @@ def build_ranking_context(row: pd.Series, intent_row: pd.Series | None = None) -
         "risk_factor_1": str(first("risk_factor_1") or "").strip() or None,
         "risk_factor_2": str(first("risk_factor_2") or "").strip() or None,
         "action_note": str(first("action_note") or "").strip() or None,
+        "ai_filtered_source_used": bool(first("ai_filtered_source_used")) if first("ai_filtered_source_used") is not None else False,
+        "ai_filtered_rank": _int_or_none(first("ai_filtered_rank")),
+        "ai_adjusted_score": _num_or_none(first("ai_adjusted_score")),
+        "entry_quality_score": _num_or_none(first("entry_quality_score")),
+        "entry_quality_status": str(first("entry_quality_status") or "").strip() or None,
+        "entry_quality_reasons": str(first("entry_quality_reasons") or "").strip() or None,
+        "original_final_rank": _int_or_none(first("original_final_rank", "rank_final", "buy_rank")),
+        "original_final_score": _num_or_none(first("original_final_score", "final_score", "live_score")),
     }
 
 
@@ -233,10 +252,22 @@ def _preview_expected_hold_reason(*, side: str, blocked_reason: str | None, fina
         return "Live BUY context is unavailable, so the order stays on preview only."
     if blocked == "buy_qty_zero":
         return "Final BUY quantity is zero, so nothing will be submitted."
+    if blocked == "live_price_unavailable":
+        return "Live price is unavailable, so the BUY order stays on preview only."
+    if blocked == "previous_close_unavailable":
+        return "Previous close is unavailable, so the BUY order stays on preview only."
+    if blocked == "entry_gap_up_blocked":
+        return "Live price is above the soft entry gap threshold, so the BUY order stays on preview only."
+    if blocked == "entry_gap_up_hard_blocked":
+        return "Live price is above the hard entry gap threshold, so the BUY order stays on preview only."
+    if blocked == "entry_gap_down_blocked":
+        return "Live price is below the allowed entry gap threshold, so the BUY order stays on preview only."
     if blocked == "holding_qty_missing":
         return "Live holding quantity is missing, so the SELL order cannot be submitted."
     if blocked == "non_executable_intent_type":
         return "This intent type is not submit-ready."
+    if blocked and str(side or "").upper() == "BUY":
+        return f"BUY blocked by common live risk guard: {blocked}"
     qty = pd.to_numeric(final_qty, errors="coerce")
     side_upper = str(side or "").upper()
     if not pd.notna(qty) or int(qty) <= 0:
@@ -282,6 +313,7 @@ def build_order_requests(
     cash_summary: dict[str, Any] = {}
     available_cash = None
     total_assets = None
+    entry_gate_config = _entry_price_gate_config()
     if has_buy_intents:
         client = KISClient.from_env()
         client.issue_access_token()
@@ -303,6 +335,15 @@ def build_order_requests(
         side = "BUY" if intent_type == "BUY" else "SELL" if intent_type in {"TRIM", "EXIT"} else "HOLD"
         reference_price = pd.to_numeric(ranking_row.get("close"), errors="coerce")
         order_price = int(reference_price) if pd.notna(reference_price) and reference_price > 0 else 0
+        previous_close = int(reference_price) if pd.notna(reference_price) and reference_price > 0 else None
+        live_price = None
+        live_price_source = None
+        entry_price_gap_pct = None
+        entry_price_gate_status = None
+        entry_price_gate_reason = None
+        common_risk_allowed = True
+        common_risk_block_reasons: list[str] = []
+        common_risk_snapshot: dict[str, Any] = {}
         planned_qty = None
         allowed_qty = None
         final_qty = None
@@ -324,6 +365,15 @@ def build_order_requests(
                         "intent_type": intent_type,
                         "ord_dvsn": ord_dvsn,
                         "reference_price": order_price if order_price else None,
+                        "previous_close": previous_close,
+                        "live_price": live_price,
+                        "live_price_source": live_price_source,
+                        "entry_price_gap_pct": entry_price_gap_pct,
+                        "entry_price_gate_status": entry_price_gate_status,
+                        "entry_price_gate_reason": entry_price_gate_reason,
+                        "common_risk_allowed": common_risk_allowed,
+                        "common_risk_block_reasons": common_risk_block_reasons,
+                        "common_risk_snapshot": common_risk_snapshot,
                         "planned_qty": 0,
                         "allowed_qty": 0,
                         "final_request_qty": 0,
@@ -341,6 +391,21 @@ def build_order_requests(
                     }
                 )
                 continue
+            live_snapshot = _fetch_live_price_snapshot(client, code)
+            live_price = _int_or_none(live_snapshot.get("live_price"))
+            live_price_source = str(live_snapshot.get("live_price_source") or "").strip() or None
+            live_previous_close = _int_or_none(live_snapshot.get("previous_close"))
+            if live_previous_close is not None:
+                previous_close = live_previous_close
+                order_price = live_previous_close
+            gate_result = _evaluate_entry_price_gate(
+                previous_close=previous_close,
+                live_price=live_price,
+                config=entry_gate_config,
+            )
+            entry_price_gap_pct = _num_or_none(gate_result.get("entry_price_gap_pct"))
+            entry_price_gate_status = str(gate_result.get("entry_price_gate_status") or "").strip() or None
+            entry_price_gate_reason = str(gate_result.get("entry_price_gate_reason") or "").strip() or None
             psbl = inquire_psbl_order(
                 client,
                 account,
@@ -364,6 +429,22 @@ def build_order_requests(
             final_qty = min(planned_qty, allowed_qty)
             if not final_qty or final_qty <= 0:
                 blocked_reason = "buy_qty_zero"
+            elif bool(gate_result.get("blocked")):
+                blocked_reason = entry_price_gate_reason
+            else:
+                common_risk_allowed, common_risk_block_reasons, common_risk_snapshot = evaluate_common_buy_guard(
+                    {
+                        "as_of_date": intents_payload.get("asof_date"),
+                        "execution_date": datetime.now().strftime("%Y-%m-%d"),
+                        "side": side,
+                        "code": code,
+                        "order_qty": int(final_qty),
+                        "order_amount": float(final_qty) * float(order_price) if order_price else None,
+                        "reference_price": order_price if order_price else None,
+                    }
+                )
+                if not common_risk_allowed:
+                    blocked_reason = ";".join(common_risk_block_reasons) if common_risk_block_reasons else "common_risk_blocked"
         elif side == "SELL":
             current_qty = pd.to_numeric(holding_row.get("qty"), errors="coerce")
             if not pd.notna(current_qty) or float(current_qty) <= 0:
@@ -396,6 +477,15 @@ def build_order_requests(
                 "intent_type": intent_type,
                 "ord_dvsn": ord_dvsn,
                 "reference_price": order_price if order_price else None,
+                "previous_close": previous_close,
+                "live_price": live_price,
+                "live_price_source": live_price_source,
+                "entry_price_gap_pct": entry_price_gap_pct,
+                "entry_price_gate_status": entry_price_gate_status,
+                "entry_price_gate_reason": entry_price_gate_reason,
+                "common_risk_allowed": common_risk_allowed,
+                "common_risk_block_reasons": common_risk_block_reasons,
+                "common_risk_snapshot": common_risk_snapshot,
                 "planned_qty": int(planned_qty) if pd.notna(planned_qty) else None,
                 "allowed_qty": int(allowed_qty) if pd.notna(allowed_qty) else None,
                 "final_request_qty": int(final_qty) if final_qty is not None else None,
@@ -451,6 +541,101 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return value in {"1", "true", "yes", "on", "y"}
 
 
+def _env_float(name: str, default: float) -> float:
+    value = pd.to_numeric(os.environ.get(name), errors="coerce")
+    if pd.notna(value):
+        return float(value)
+    return float(default)
+
+
+def _entry_price_gate_config() -> dict[str, object]:
+    return {
+        "block_up_pct": _env_float("ENTRY_GAP_BLOCK_UP_PCT", 0.03),
+        "hard_block_up_pct": _env_float("ENTRY_GAP_HARD_BLOCK_UP_PCT", 0.05),
+        "block_down_pct": _env_float("ENTRY_GAP_BLOCK_DOWN_PCT", -0.04),
+        "block_on_live_price_missing": _env_flag("ENTRY_GAP_BLOCK_ON_LIVE_PRICE_MISSING", True),
+    }
+
+
+def _fetch_live_price_snapshot(client: KISClient, code: str) -> dict[str, object]:
+    payload = {
+        "previous_close": None,
+        "live_price": None,
+        "live_price_source": "unavailable",
+    }
+    try:
+        response = client.get(
+            "/uapi/domestic-stock/v1/quotations/inquire-price",
+            tr_id="FHKST01010100",
+            params={
+                "FID_COND_MRKT_DIV_CODE": "J",
+                "FID_INPUT_ISCD": str(code).zfill(6),
+            },
+        )
+        if isinstance(response, dict):
+            output = response.get("output") or {}
+        elif hasattr(response, "json"):
+            output = response.json().get("output") or {}
+        else:
+            output = {}
+        payload["previous_close"] = _int_or_none(output.get("stck_sdpr"))
+        payload["live_price"] = _int_or_none(output.get("stck_prpr"))
+        if payload["live_price"] is not None:
+            payload["live_price_source"] = "kis_quote"
+    except Exception:
+        logging.warning("Live price lookup failed for %s", code, exc_info=True)
+    return payload
+
+
+def _evaluate_entry_price_gate(
+    *,
+    previous_close: object,
+    live_price: object,
+    config: dict[str, object] | None = None,
+) -> dict[str, object]:
+    gate_config = config or _entry_price_gate_config()
+    prev_close = pd.to_numeric(previous_close, errors="coerce")
+    current_price = pd.to_numeric(live_price, errors="coerce")
+    if not pd.notna(current_price) or float(current_price) <= 0:
+        reason = "live_price_unavailable"
+        return {
+            "entry_price_gap_pct": None,
+            "entry_price_gate_status": "blocked" if gate_config.get("block_on_live_price_missing") else "ok",
+            "entry_price_gate_reason": reason,
+            "blocked": bool(gate_config.get("block_on_live_price_missing")),
+        }
+    if not pd.notna(prev_close) or float(prev_close) <= 0:
+        return {
+            "entry_price_gap_pct": None,
+            "entry_price_gate_status": "blocked",
+            "entry_price_gate_reason": "previous_close_unavailable",
+            "blocked": True,
+        }
+    gap_pct = (float(current_price) - float(prev_close)) / float(prev_close)
+    if gap_pct >= float(gate_config["hard_block_up_pct"]):
+        reason = "entry_gap_up_hard_blocked"
+        status = "blocked"
+        blocked = True
+    elif gap_pct > float(gate_config["block_up_pct"]):
+        reason = "entry_gap_up_blocked"
+        status = "blocked"
+        blocked = True
+    elif gap_pct <= float(gate_config["block_down_pct"]):
+        reason = "entry_gap_down_blocked"
+        status = "blocked"
+        blocked = True
+    else:
+        reason = "entry_gap_ok"
+        status = "ok"
+        blocked = False
+    return {
+        "entry_price_gap_pct": gap_pct,
+        "entry_price_gate_status": status,
+        "entry_price_gate_reason": reason,
+        "blocked": blocked,
+    }
+
+
 def _load_approved_request_ids(path: Path) -> set[str]:
     payload = _safe_read_json(path)
     approved = payload.get("approved_request_ids") or payload.get("request_ids") or []
@@ -480,6 +665,7 @@ def execute_order_requests(
     client = KISClient.from_env()
     client.issue_access_token()
     account = resolve_account_env()
+    entry_gate_config = _entry_price_gate_config()
 
     results: list[dict[str, Any]] = []
     for item in preview_payload.get("items") or []:
@@ -497,6 +683,15 @@ def execute_order_requests(
             "intent_type": item.get("intent_type"),
             "ord_dvsn": item.get("ord_dvsn") or args.ord_dvsn,
             "reference_price": item.get("reference_price"),
+            "previous_close": item.get("previous_close"),
+            "live_price": item.get("live_price"),
+            "live_price_source": item.get("live_price_source"),
+            "entry_price_gap_pct": item.get("entry_price_gap_pct"),
+            "entry_price_gate_status": item.get("entry_price_gate_status"),
+            "entry_price_gate_reason": item.get("entry_price_gate_reason"),
+            "common_risk_allowed": item.get("common_risk_allowed"),
+            "common_risk_block_reasons": item.get("common_risk_block_reasons"),
+            "common_risk_snapshot": item.get("common_risk_snapshot"),
             "final_request_qty": int(qty) if pd.notna(qty) else None,
             "submitted_at": None,
             "submission_status": "skipped",
@@ -526,6 +721,10 @@ def execute_order_requests(
             result["skip_reason"] = "buy_approval_required"
             results.append(result)
             continue
+        if side == "BUY" and not bool(item.get("common_risk_allowed", True)):
+            result["skip_reason"] = ";".join(item.get("common_risk_block_reasons") or []) or "common_risk_blocked"
+            results.append(result)
+            continue
         if side not in {"BUY", "SELL"}:
             result["skip_reason"] = "unsupported_side"
             results.append(result)
@@ -536,6 +735,44 @@ def execute_order_requests(
             continue
 
         try:
+            if side == "BUY":
+                live_snapshot = _fetch_live_price_snapshot(client, str(item.get("code") or "").zfill(6))
+                live_price = _int_or_none(live_snapshot.get("live_price"))
+                live_price_source = str(live_snapshot.get("live_price_source") or "").strip() or None
+                previous_close = _int_or_none(live_snapshot.get("previous_close")) or _int_or_none(item.get("previous_close"))
+                gate_result = _evaluate_entry_price_gate(
+                    previous_close=previous_close,
+                    live_price=live_price,
+                    config=entry_gate_config,
+                )
+                result["previous_close"] = previous_close
+                result["live_price"] = live_price
+                result["live_price_source"] = live_price_source
+                result["entry_price_gap_pct"] = _num_or_none(gate_result.get("entry_price_gap_pct"))
+                result["entry_price_gate_status"] = gate_result.get("entry_price_gate_status")
+                result["entry_price_gate_reason"] = gate_result.get("entry_price_gate_reason")
+                if bool(gate_result.get("blocked")):
+                    result["skip_reason"] = str(gate_result.get("entry_price_gate_reason") or "entry_price_blocked")
+                    results.append(result)
+                    continue
+                common_risk_allowed, common_risk_block_reasons, common_risk_snapshot = evaluate_common_buy_guard(
+                    {
+                        "as_of_date": preview_payload.get("asof_date"),
+                        "execution_date": datetime.now().strftime("%Y-%m-%d"),
+                        "side": side,
+                        "code": item.get("code"),
+                        "order_qty": int(qty),
+                        "order_amount": float(qty) * float(item.get("reference_price") or 0) if pd.notna(qty) else None,
+                        "reference_price": item.get("reference_price"),
+                    }
+                )
+                result["common_risk_allowed"] = common_risk_allowed
+                result["common_risk_block_reasons"] = common_risk_block_reasons
+                result["common_risk_snapshot"] = common_risk_snapshot
+                if not common_risk_allowed:
+                    result["skip_reason"] = ";".join(common_risk_block_reasons) if common_risk_block_reasons else "common_risk_blocked"
+                    results.append(result)
+                    continue
             order_price = _execution_price_for_submit(
                 ord_dvsn=str(item.get("ord_dvsn") or args.ord_dvsn),
                 reference_price=item.get("reference_price"),
@@ -593,12 +830,12 @@ def render_preview_markdown(payload: dict[str, Any]) -> str:
         f"- buy_count: {payload['summary']['buy_count']}",
         f"- sell_count: {payload['summary']['sell_count']}",
         "",
-        "| request_id | code | name | side | intent_type | ref_price | final_qty | executable_now | blocked_reason | expected_hold_reason | reason |",
-        "| ---------- | ---- | ---- | ---- | ----------- | --------- | --------- | -------------- | -------------- | -------------------- | ------ |",
+        "| request_id | code | name | side | intent_type | ai_src | ai_rank | ai_adj_score | entry_q_score | entry_q_status | original_rank | original_score | ref_price | prev_close | live_price | live_src | gap_pct | gate_status | gate_reason | final_qty | executable_now | blocked_reason | expected_hold_reason | reason |",
+        "| ---------- | ---- | ---- | ---- | ----------- | ------ | ------- | ------------ | ------------- | -------------- | ------------- | -------------- | --------- | ---------- | ---------- | -------- | ------- | ----------- | ----------- | --------- | -------------- | -------------- | -------------------- | ------ |",
     ]
     for item in payload["items"]:
         lines.append(
-            f"| {item.get('request_id') or ''} | {item.get('code') or ''} | {item.get('name') or ''} | {item.get('side') or ''} | {item.get('intent_type') or ''} | {_fmt_num(item.get('reference_price'), 0)} | {_fmt_num(item.get('final_request_qty'), 0)} | {'Y' if item.get('executable_now') else 'N'} | {item.get('blocked_reason') or ''} | {item.get('expected_hold_reason') or ''} | {item.get('reason') or ''} |"
+            f"| {item.get('request_id') or ''} | {item.get('code') or ''} | {item.get('name') or ''} | {item.get('side') or ''} | {item.get('intent_type') or ''} | {'Y' if item.get('ai_filtered_source_used') else 'N'} | {_fmt_num(item.get('ai_filtered_rank'), 0)} | {_fmt_num(item.get('ai_adjusted_score'), 2)} | {_fmt_num(item.get('entry_quality_score'), 2)} | {item.get('entry_quality_status') or ''} | {_fmt_num(item.get('original_final_rank'), 0)} | {_fmt_num(item.get('original_final_score'), 2)} | {_fmt_num(item.get('reference_price'), 0)} | {_fmt_num(item.get('previous_close'), 0)} | {_fmt_num(item.get('live_price'), 0)} | {item.get('live_price_source') or ''} | {_fmt_num((item.get('entry_price_gap_pct') or 0) * 100 if item.get('entry_price_gap_pct') is not None else None, 2)} | {item.get('entry_price_gate_status') or ''} | {item.get('entry_price_gate_reason') or ''} | {_fmt_num(item.get('final_request_qty'), 0)} | {'Y' if item.get('executable_now') else 'N'} | {item.get('blocked_reason') or ''} | {item.get('expected_hold_reason') or ''} | {item.get('reason') or ''} |"
         )
     lines.append("")
     return "\n".join(lines)
@@ -677,6 +914,7 @@ def sync_live_trade_ledger_best_effort(
 
 
 def main() -> int:
+    _load_env()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     args = parse_args()
 

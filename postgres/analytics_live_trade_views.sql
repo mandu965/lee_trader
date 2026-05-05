@@ -57,7 +57,29 @@ WITH latest_execution AS (
         intent_type,
         ord_dvsn,
         reference_price,
+        previous_close,
+        live_price,
+        entry_price_gap_pct,
+        entry_gate_status,
+        entry_gate_reason,
         final_request_qty,
+        engine_type,
+        strategy_id,
+        run_mode,
+        source_score_date,
+        final_score,
+        confidence_score,
+        calibrated_confidence,
+        live_confidence_grade,
+        prob_score,
+        ret_score,
+        tech_score,
+        quality_score,
+        liquidity_score,
+        market_regime,
+        buy_reason,
+        sell_reason,
+        portfolio_action_reason,
         submission_status,
         skip_reason,
         broker_order_id,
@@ -84,14 +106,14 @@ SELECT
     f.tax,
     COALESCE(r.ranking_run_id, d.ranking_run_id, q.run_id) AS ranking_run_id,
     COALESCE(r.ranking_rank, d.ranking_rank, q.production_rank) AS ranking_rank,
-    COALESCE(r.final_score, d.final_score, q.final_score) AS final_score,
-    COALESCE(r.confidence_score, d.confidence_score) AS confidence_score,
+    COALESCE(e.final_score, r.final_score, d.final_score, q.final_score) AS final_score,
+    COALESCE(e.confidence_score, r.confidence_score, d.confidence_score) AS confidence_score,
     COALESCE(r.risk_penalty, d.risk_penalty, q.risk_penalty) AS risk_penalty,
-    COALESCE(r.ret_score, d.ret_score, q.ret_score) AS ret_score,
-    COALESCE(r.prob_score, d.prob_score, q.prob_score) AS prob_score,
+    COALESCE(e.ret_score, r.ret_score, d.ret_score, q.ret_score) AS ret_score,
+    COALESCE(e.prob_score, r.prob_score, d.prob_score, q.prob_score) AS prob_score,
     COALESCE(r.qual_score, d.qual_score, q.qual_score) AS qual_score,
-    COALESCE(r.tech_score, d.tech_score, q.tech_score) AS tech_score,
-    COALESCE(r.liquidity_score, d.liquidity_score) AS liquidity_score,
+    COALESCE(e.tech_score, r.tech_score, d.tech_score, q.tech_score) AS tech_score,
+    COALESCE(e.liquidity_score, r.liquidity_score, d.liquidity_score) AS liquidity_score,
     COALESCE(r.safety_score, d.safety_score) AS safety_score,
     COALESCE(r.dominant_theme, d.dominant_theme) AS dominant_theme,
     COALESCE(r.score_driver_1, d.score_driver_1) AS score_driver_1,
@@ -167,7 +189,23 @@ SELECT
         WHEN (COALESCE(r.ranking_rank, d.ranking_rank, q.production_rank) - q.shadow_rank_quality_risk_guard) < 0 THEN 'shadow_rank_down'
         WHEN (COALESCE(r.ranking_rank, d.ranking_rank, q.production_rank) - q.shadow_rank_quality_risk_guard) = 0 THEN 'shadow_rank_same'
         ELSE 'shadow_rank_unknown'
-    END AS shadow_rank_delta_bucket
+    END AS shadow_rank_delta_bucket,
+    COALESCE(e.engine_type, r.engine_type, d.engine_type) AS engine_type,
+    COALESCE(e.strategy_id, r.strategy_id, d.strategy_id) AS strategy_id,
+    COALESCE(e.run_mode, r.run_mode, d.run_mode) AS run_mode,
+    COALESCE(e.source_score_date, r.source_score_date, d.source_score_date, COALESCE(e.as_of_date, r.as_of_date, d.as_of_date, f.as_of_date)) AS source_score_date,
+    COALESCE(e.calibrated_confidence, r.calibrated_confidence, d.calibrated_confidence) AS calibrated_confidence,
+    COALESCE(e.live_confidence_grade, r.live_confidence_grade, d.live_confidence_grade) AS live_confidence_grade,
+    COALESCE(e.quality_score, r.quality_score, d.quality_score, r.qual_score, d.qual_score, q.qual_score) AS quality_score,
+    COALESCE(e.market_regime, r.market_regime, d.market_regime) AS market_regime,
+    COALESCE(e.previous_close, r.previous_close) AS previous_close,
+    COALESCE(e.live_price, r.live_price) AS live_price,
+    COALESCE(e.entry_price_gap_pct, r.entry_price_gap_pct) AS entry_price_gap_pct,
+    COALESCE(e.entry_gate_status, r.entry_gate_status) AS entry_gate_status,
+    COALESCE(e.entry_gate_reason, r.entry_gate_reason) AS entry_gate_reason,
+    COALESCE(e.buy_reason, r.buy_reason, d.buy_reason) AS buy_reason,
+    COALESCE(e.sell_reason, r.sell_reason, d.sell_reason) AS sell_reason,
+    COALESCE(e.portfolio_action_reason, r.portfolio_action_reason, d.portfolio_action_reason) AS portfolio_action_reason
 FROM research.live_order_fill f
 LEFT JOIN latest_execution e
   ON e.request_id = f.request_id
@@ -184,7 +222,57 @@ WITH horizons(horizon) AS (
     VALUES (0), (1), (3), (5)
 )
 SELECT
-    ltf.*,
+    ltf.fill_id,
+    ltf.request_id,
+    ltf.resolved_request_id,
+    ltf.intent_id,
+    ltf.as_of_date,
+    ltf.filled_at,
+    ltf.code,
+    ltf.name,
+    ltf.side,
+    ltf.intent_type,
+    ltf.filled_qty,
+    ltf.filled_price,
+    ltf.filled_amount,
+    ltf.fee,
+    ltf.tax,
+    ltf.ranking_run_id,
+    ltf.ranking_rank,
+    ltf.final_score,
+    ltf.confidence_score,
+    ltf.risk_penalty,
+    ltf.ret_score,
+    ltf.prob_score,
+    ltf.qual_score,
+    ltf.tech_score,
+    ltf.liquidity_score,
+    ltf.safety_score,
+    ltf.dominant_theme,
+    ltf.score_driver_1,
+    ltf.score_driver_2,
+    ltf.score_driver_3,
+    ltf.risk_factor_1,
+    ltf.risk_factor_2,
+    ltf.gate_status,
+    ltf.source_action,
+    ltf.submission_status,
+    ltf.broker_order_id,
+    ltf.shadow_quality_risk_guard_applied,
+    ltf.shadow_quality_risk_guard_penalty,
+    ltf.shadow_final_score_quality_risk_guard,
+    ltf.shadow_rank_quality_risk_guard,
+    ltf.production_rank,
+    ltf.shadow_rank_delta,
+    ltf.guard_applied_bucket,
+    ltf.guard_penalty_bucket,
+    ltf.rank_bucket,
+    ltf.final_score_bucket,
+    ltf.confidence_bucket,
+    ltf.risk_penalty_bucket,
+    ltf.production_rank_bucket,
+    ltf.shadow_rank_bucket,
+    ltf.shadow_rank_delta_bucket,
     horizons.horizon,
     price_point.price_date,
     price_point.mark_price,
@@ -193,7 +281,23 @@ SELECT
         WHEN UPPER(COALESCE(ltf.side, '')) = 'BUY' THEN price_point.mark_price / ltf.filled_price - 1
         ELSE ltf.filled_price / price_point.mark_price - 1
     END AS signed_return,
-    (price_point.mark_price IS NOT NULL) AS is_observed
+    (price_point.mark_price IS NOT NULL) AS is_observed,
+    ltf.engine_type,
+    ltf.strategy_id,
+    ltf.run_mode,
+    ltf.source_score_date,
+    ltf.calibrated_confidence,
+    ltf.live_confidence_grade,
+    ltf.quality_score,
+    ltf.market_regime,
+    ltf.previous_close,
+    ltf.live_price,
+    ltf.entry_price_gap_pct,
+    ltf.entry_gate_status,
+    ltf.entry_gate_reason,
+    ltf.buy_reason,
+    ltf.sell_reason,
+    ltf.portfolio_action_reason
 FROM analytics.live_trade_fact ltf
 CROSS JOIN horizons
 LEFT JOIN LATERAL (
@@ -391,14 +495,27 @@ closed AS (
         s.guard_penalty_bucket,
         s.production_rank_bucket,
         s.shadow_rank_bucket,
-        s.shadow_rank_delta_bucket
+        s.shadow_rank_delta_bucket,
+        s.engine_type,
+        s.strategy_id,
+        s.run_mode,
+        s.source_score_date,
+        s.live_confidence_grade,
+        s.quality_score,
+        s.entry_gate_status,
+        s.entry_gate_reason,
+        s.buy_reason,
+        s.sell_reason,
+        s.portfolio_action_reason,
+        buy_basis.first_buy_filled_at
     FROM sell_fills s
     LEFT JOIN LATERAL (
         SELECT
             SUM(b.filled_qty) AS buy_qty_before_sell,
             SUM(COALESCE(b.filled_amount, b.filled_qty * b.filled_price)) AS buy_amount_before_sell,
             SUM(COALESCE(b.fee, 0)) AS buy_fee_before_sell,
-            SUM(COALESCE(b.filled_amount, b.filled_qty * b.filled_price)) / NULLIF(SUM(b.filled_qty), 0) AS avg_buy_price
+            SUM(COALESCE(b.filled_amount, b.filled_qty * b.filled_price)) / NULLIF(SUM(b.filled_qty), 0) AS avg_buy_price,
+            MIN(b.filled_at) AS first_buy_filled_at
         FROM analytics.live_trade_fact b
         WHERE UPPER(COALESCE(b.side, '')) = 'BUY'
           AND b.code = s.code
@@ -406,7 +523,36 @@ closed AS (
     ) buy_basis ON true
 )
 SELECT
-    closed.*,
+    closed.sell_fill_id,
+    closed.sell_request_id,
+    closed.intent_id,
+    closed.as_of_date,
+    closed.closed_at,
+    closed.code,
+    closed.name,
+    closed.intent_type,
+    closed.sell_qty,
+    closed.sell_price,
+    closed.sell_amount,
+    closed.sell_fee,
+    closed.sell_tax,
+    closed.buy_qty_before_sell,
+    closed.buy_amount_before_sell,
+    closed.buy_fee_before_sell,
+    closed.avg_buy_price,
+    closed.matched_qty,
+    closed.ranking_run_id,
+    closed.ranking_rank,
+    closed.final_score,
+    closed.confidence_score,
+    closed.risk_penalty,
+    closed.qual_score,
+    closed.dominant_theme,
+    closed.guard_applied_bucket,
+    closed.guard_penalty_bucket,
+    closed.production_rank_bucket,
+    closed.shadow_rank_bucket,
+    closed.shadow_rank_delta_bucket,
     CASE
         WHEN matched_qty IS NULL OR avg_buy_price IS NULL THEN NULL
         ELSE (sell_price - avg_buy_price) * matched_qty
@@ -443,5 +589,20 @@ SELECT
         WHEN buy_qty_before_sell IS NULL THEN 'BUY_BASIS_MISSING'
         WHEN sell_qty > buy_qty_before_sell THEN 'PARTIAL_BASIS'
         ELSE 'MATCHED'
-    END AS match_status
+    END AS match_status,
+    closed.engine_type,
+    closed.strategy_id,
+    closed.run_mode,
+    closed.source_score_date,
+    closed.live_confidence_grade,
+    closed.quality_score,
+    closed.entry_gate_status,
+    closed.entry_gate_reason,
+    closed.buy_reason,
+    closed.sell_reason,
+    closed.portfolio_action_reason,
+    CASE
+        WHEN first_buy_filled_at IS NULL THEN NULL
+        ELSE GREATEST((closed_at::date - first_buy_filled_at::date), 0)
+    END::integer AS holding_days
 FROM closed;

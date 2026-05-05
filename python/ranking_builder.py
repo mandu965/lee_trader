@@ -3523,6 +3523,18 @@ def _merge_inputs(
     logging.info("Base merged shape (preds + scores + features): %s", base.shape)
 
     if universe is not None and not universe.empty and "code" in universe.columns:
+        universe_codes = set(universe["code"].astype(str).str.zfill(6).tolist())
+        outside_universe = ~base["code"].astype(str).str.zfill(6).isin(universe_codes)
+        dropped_count = int(outside_universe.sum())
+        if dropped_count > 0:
+            sample_codes = base.loc[outside_universe, "code"].astype(str).head(10).tolist()
+            logging.warning(
+                "Dropping prediction rows outside current universe: dropped=%d sample_codes=%s",
+                dropped_count,
+                ",".join(sample_codes) if sample_codes else "NA",
+            )
+            base = base.loc[~outside_universe].copy()
+
         base = base.merge(
             universe,
             on="code",

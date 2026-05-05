@@ -90,7 +90,14 @@ def normalize_positions(positions: list[dict[str, Any]], signal_map: dict[str, d
                 "sector": signal.get("sector") or row.get("sector"),
                 "qty": qty,
                 "entry_price": _float(row.get("entry_price")) or last_price,
+                "entry_date": row.get("entry_date"),
                 "last_price": last_price,
+                "highest_price": max(
+                    _float(row.get("highest_price")) or 0.0,
+                    last_price,
+                    _float(row.get("entry_price")) or last_price,
+                ),
+                "highest_return_since_entry": _float(row.get("highest_return_since_entry")) or 0.0,
                 "market_value": market_value,
                 "amount": market_value,
                 "weight": 0.0,
@@ -129,7 +136,13 @@ def apply_paper_preview(
                     avg_price = ((existing["entry_price"] * existing["qty"]) + filled_amount) / total_qty
                     existing["qty"] = total_qty
                     existing["entry_price"] = avg_price
+                    existing["entry_date"] = existing.get("entry_date") or latest_date.date().isoformat()
                     existing["last_price"] = _float(signal_map.get(code, {}).get("close")) or price
+                    existing["highest_price"] = max(float(existing.get("highest_price") or 0.0), existing["last_price"], existing["entry_price"])
+                    existing["highest_return_since_entry"] = max(
+                        float(existing.get("highest_return_since_entry") or 0.0),
+                        ((existing["highest_price"] / existing["entry_price"]) - 1.0) if existing["entry_price"] else 0.0,
+                    )
                     existing["market_value"] = existing["qty"] * existing["last_price"]
                     existing["amount"] = existing["market_value"]
                 else:
@@ -141,7 +154,10 @@ def apply_paper_preview(
                         "sector": signal.get("sector"),
                         "qty": qty,
                         "entry_price": price,
+                        "entry_date": latest_date.date().isoformat(),
                         "last_price": last_price,
+                        "highest_price": max(last_price, price),
+                        "highest_return_since_entry": max(((last_price / price) - 1.0) if price else 0.0, 0.0),
                         "market_value": qty * last_price,
                         "amount": qty * last_price,
                         "weight": 0.0,
@@ -196,6 +212,12 @@ def apply_paper_preview(
         signal = signal_map.get(row["code"], {})
         last_price = _float(signal.get("close")) or row.get("last_price") or row.get("entry_price") or 0.0
         row["last_price"] = last_price
+        row["highest_price"] = max(float(row.get("highest_price") or 0.0), last_price, float(row.get("entry_price") or 0.0))
+        entry_price = float(row.get("entry_price") or 0.0)
+        row["highest_return_since_entry"] = max(
+            float(row.get("highest_return_since_entry") or 0.0),
+            ((float(row["highest_price"]) / entry_price) - 1.0) if entry_price > 0 else 0.0,
+        )
         row["market_value"] = row["qty"] * last_price
         row["amount"] = row["market_value"]
 

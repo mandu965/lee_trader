@@ -130,7 +130,7 @@ def fetch_open_snapshot_with_retry(
     max_retry: int | None = None,
     retry_interval_sec: int | None = None,
 ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], str]:
-    client = KISClient.from_env()
+    client = KISClient.from_rule_env()
     client.issue_access_token()
     max_retry = max_retry if max_retry is not None else int(os.getenv("RULE_OPEN_SNAPSHOT_MAX_RETRY", "3"))
     retry_interval_sec = retry_interval_sec if retry_interval_sec is not None else int(os.getenv("RULE_OPEN_SNAPSHOT_RETRY_INTERVAL_SEC", "10"))

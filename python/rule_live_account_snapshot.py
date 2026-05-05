@@ -63,7 +63,7 @@ def _load_recent_trades(path: Path) -> list[dict[str, Any]]:
 
 
 def build_rule_live_account_state(*, as_of_date: str, execution_results_json: Path) -> tuple[dict[str, Any], pd.DataFrame]:
-    client = KISClient.from_env()
+    client = KISClient.from_rule_env()
     client.issue_access_token()
     account = resolve_rule_account_env()
     holdings_df, summary_df = inquire_balance(client, account)

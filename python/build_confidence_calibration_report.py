@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from pathlib import Path
 import sys
 
@@ -20,6 +21,8 @@ from build_walk_forward_score_validation import (  # noqa: E402
 
 OUTPUT_MD = ROOT / "outputs" / "confidence_calibration_report.md"
 OUTPUT_CSV = ROOT / "outputs" / "confidence_bucket_stats.csv"
+LIVE_GRADE_JSON = ROOT / "outputs" / "confidence_live_grade_map.json"
+LIVE_GRADE_MD = ROOT / "outputs" / "confidence_live_grade_report.md"
 HORIZONS = [20, 60, 90]
 BUCKET_ORDER = ["0-20", "20-40", "40-60", "60-80", "80-100"]
 BUCKET_MID = {"0-20": 10.0, "20-40": 30.0, "40-60": 50.0, "60-80": 70.0, "80-100": 90.0}
@@ -384,17 +387,113 @@ def build_markdown(reports: list[dict[str, object]], excluded_dates: list[str]) 
     return "\n".join(lines) + "\n"
 
 
+def build_live_grade_markdown(path: Path) -> str:
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if not path.exists():
+        return "\n".join(
+            [
+                "# Live Confidence Grade Report",
+                "",
+                f"- generated_at: {generated_at}",
+                "- status: unavailable",
+                f"- reason: missing {path}",
+                "",
+            ]
+        )
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    summary = payload.get("summary", {}) if isinstance(payload.get("summary"), dict) else {}
+    rules = payload.get("rules", {}) if isinstance(payload.get("rules"), dict) else {}
+    buckets = payload.get("buckets", []) if isinstance(payload.get("buckets"), list) else []
+    grade_counts = summary.get("grade_counts", {}) if isinstance(summary.get("grade_counts"), dict) else {}
+    bucket_rows: list[list[object]] = []
+    for item in buckets:
+        if not isinstance(item, dict):
+            continue
+        policy = item.get("execution_policy", {}) if isinstance(item.get("execution_policy"), dict) else {}
+        bucket_rows.append(
+            [
+                item.get("bucket_label"),
+                int(pd.to_numeric(item.get("sample_count"), errors="coerce") or 0),
+                int(pd.to_numeric(item.get("performance_count"), errors="coerce") or 0),
+                _fmt_pct(item.get("avg_return")),
+                _fmt_pct(item.get("avg_excess_return")),
+                _fmt_pct(item.get("recent_avg_return")),
+                _fmt(item.get("hit_rate")),
+                item.get("live_confidence_grade"),
+                item.get("grade_reason"),
+                "Y" if bool(policy.get("entry_allowed")) else "N",
+                _fmt(policy.get("weight_scale"), 2),
+                str(policy.get("mode") or ""),
+            ]
+        )
+
+    lines = [
+        "# Live Confidence Grade Report",
+        "",
+        f"- generated_at: {payload.get('generated_at') or generated_at}",
+        f"- version: {payload.get('version')}",
+        f"- source_table: {payload.get('source_table')}",
+        f"- recent_trade_count: {payload.get('recent_trade_count')}",
+        f"- min_bucket_rows: {payload.get('min_bucket_rows')}",
+        f"- review_rows_with_confidence: {summary.get('review_rows_with_confidence')}",
+        f"- review_rows_with_strategy_return: {summary.get('review_rows_with_strategy_return')}",
+        f"- review_rows_with_excess_return: {summary.get('review_rows_with_excess_return')}",
+        "",
+        "## Rules",
+        "",
+        f"- sample_lt_20_max_grade: {rules.get('sample_lt_20_max_grade')}",
+        f"- excess_return_lt_minus_1pct: {rules.get('excess_return_lt_minus_1pct')}",
+        f"- recent_10_trade_return_lt_minus_2pct: {rules.get('recent_10_trade_return_lt_minus_2pct')}",
+        f"- missing_performance_info: {rules.get('missing_performance_info')}",
+        "",
+        "## Grade Counts",
+        "",
+        _markdown_table([[key, value] for key, value in grade_counts.items()] or [["(none)", 0]], ["grade", "count"]),
+        "",
+        "## Bucket Detail",
+        "",
+        _markdown_table(
+            bucket_rows or [["NA", 0, 0, "NA", "NA", "NA", "NA", "C", "no_bucket_data", "N", "0.20", "watch_only"]],
+            ["bucket", "samples", "perf_rows", "avg_return", "avg_excess", "recent10_return", "hit_rate", "grade", "reason", "entry_allowed", "weight_scale", "mode"],
+        ),
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def main() -> None:
-    ranked, excluded_dates = build_rank_history()
-    reports = [build_horizon_report(ranked, horizon) for horizon in HORIZONS]
-    csv_df = build_csv(reports)
-
     OUTPUT_MD.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_MD.write_text(build_markdown(reports, excluded_dates), encoding="utf-8")
-    csv_df.to_csv(OUTPUT_CSV, index=False, encoding="utf-8")
-
-    print(f"[ok] wrote {OUTPUT_MD}")
-    print(f"[ok] wrote {OUTPUT_CSV}")
+    try:
+        ranked, excluded_dates = build_rank_history()
+        reports = [build_horizon_report(ranked, horizon) for horizon in HORIZONS]
+        csv_df = build_csv(reports)
+        OUTPUT_MD.write_text(build_markdown(reports, excluded_dates), encoding="utf-8")
+        csv_df.to_csv(OUTPUT_CSV, index=False, encoding="utf-8")
+        print(f"[ok] wrote {OUTPUT_MD}")
+        print(f"[ok] wrote {OUTPUT_CSV}")
+    except Exception as exc:
+        OUTPUT_MD.write_text(
+            "\n".join(
+                [
+                    "# Confidence Calibration Report",
+                    "",
+                    f"- generated_at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                    "- status: unavailable",
+                    f"- reason: {exc}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        pd.DataFrame(
+            [{"horizon_days": horizon, "confidence_bucket": "unavailable", "status": "unavailable", "note": str(exc)} for horizon in HORIZONS]
+        ).to_csv(OUTPUT_CSV, index=False, encoding="utf-8")
+        print(f"[warn] wrote fallback {OUTPUT_MD}")
+        print(f"[warn] wrote fallback {OUTPUT_CSV}")
+    LIVE_GRADE_MD.parent.mkdir(parents=True, exist_ok=True)
+    LIVE_GRADE_MD.write_text(build_live_grade_markdown(LIVE_GRADE_JSON), encoding="utf-8")
+    print(f"[ok] wrote {LIVE_GRADE_MD}")
 
 
 if __name__ == "__main__":

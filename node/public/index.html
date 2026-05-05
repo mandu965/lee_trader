@@ -40,8 +40,8 @@
           <div class="nav-tabs nav-tabs--primary">
             <button id="opsReadinessBtn" class="nav-tab" aria-label="운영자 대시보드 화면으로 이동">운영자</button>
             <button id="manualTradingBtn" class="nav-tab" aria-label="수동매매 체크리스트 화면으로 이동">수동매매</button>
-            <button id="holdingsBtn" class="nav-tab" aria-label="보유종목 화면으로 이동">보유종목</button>
-            <button id="tradeHistoryBtn" class="nav-tab" aria-label="매매 기록 화면으로 이동">매매 기록</button>
+            <button id="holdingsBtn" class="nav-tab" data-operator-only="1" style="display:none;" aria-label="보유종목 화면으로 이동">보유종목</button>
+            <button id="tradeHistoryBtn" class="nav-tab" data-operator-only="1" style="display:none;" aria-label="매매 기록 화면으로 이동">매매 기록</button>
             <button id="paperTradingBtn" class="nav-tab" aria-label="모의투자 화면으로 이동">모의투자</button>
             <button id="operatorLoginBtn" class="nav-tab" type="button" style="display:none;" aria-label="운영자 로그인">운영자 로그인</button>
             <button id="alertToggleBtn" class="nav-tab" aria-label="시장 상태 알림 토글">알림 숨기기</button>
@@ -263,6 +263,10 @@
     function applyOperatorUi() {
       const showOperator = !operatorAuth.enabled || operatorAuth.authorized;
       ["opsReadinessBtn"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = showOperator ? "" : "none";
+      });
+      ["holdingsBtn", "tradeHistoryBtn", "scoreCheckBtn"].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.style.display = showOperator ? "" : "none";
       });

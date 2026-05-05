@@ -6,6 +6,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
@@ -21,6 +26,11 @@ BUILD_LIVE_KPI_DAILY_REPORT_SCRIPT = ROOT / "python" / "build_live_kpi_daily_rep
 BUILD_QUALITY_RISK_GUARD_LIVE_REVIEW_SCRIPT = ROOT / "python" / "build_quality_risk_guard_live_review.py"
 BUILD_LIVE_CLOSED_TRADE_REPORT_SCRIPT = ROOT / "python" / "build_live_closed_trade_report.py"
 CHECK_LIVE_QUALITY_GUARD_OUTPUTS_SCRIPT = ROOT / "python" / "check_live_quality_guard_outputs.py"
+
+
+def _load_env() -> None:
+    if load_dotenv:
+        load_dotenv(ROOT / ".env", override=False)
 
 
 def parse_args() -> argparse.Namespace:
@@ -72,6 +82,7 @@ def _submit_command(*, execute: bool, allow_buy: bool, force_resubmit: bool) -> 
 
 
 def main() -> int:
+    _load_env()
     args = parse_args()
     execute = bool(args.execute or _env_flag("AUTO_TRADE_EXECUTE", False))
     allow_buy = bool(args.allow_buy or _env_flag("AUTO_TRADE_ALLOW_BUY", False))

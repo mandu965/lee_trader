@@ -347,6 +347,136 @@ button:active,
   background: rgba(255, 255, 255, 0.02);
 }
 
+.ai-review-panel {
+  margin: 0 0 14px;
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.ai-review-panel__head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.ai-review-panel__title {
+  margin-top: 4px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.ai-review-panel__detail {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.ai-review-panel__badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ai-review-panel__badge.is-block {
+  color: #fda4af;
+  border-color: rgba(248,113,113,0.35);
+  background: rgba(248,113,113,0.10);
+}
+
+.ai-review-panel__badge.is-watch,
+.ai-review-panel__badge.is-pilot {
+  color: #fde68a;
+  border-color: rgba(250,204,21,0.35);
+  background: rgba(250,204,21,0.08);
+}
+
+.ai-review-panel__badge.is-buy_allowed,
+.ai-review-panel__badge.is-good {
+  color: #7ee787;
+  border-color: rgba(34,197,94,0.35);
+  background: rgba(34,197,94,0.10);
+}
+
+.ai-review-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ai-review-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ai-candidate-card {
+  padding: 14px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.025);
+  display: grid;
+  gap: 10px;
+}
+
+.ai-candidate-card__head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.ai-candidate-card__name {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ai-candidate-card__meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.ai-candidate-card__stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ai-candidate-card__stat {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.ai-candidate-card__stat span {
+  display: block;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.ai-candidate-card__stat strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 15px;
+}
+
+.ai-candidate-card__reason {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
 .ops-card {
   padding: 12px 14px;
   border-radius: var(--radius-lg);
@@ -1698,6 +1828,9 @@ th.score-col { text-align: center; }
     font-weight: 700;
   }
   .ops-strip { grid-template-columns: 1fr; }
+  .ai-review-grid,
+  .ai-review-list { grid-template-columns: 1fr; }
+  .ai-candidate-card__stats { grid-template-columns: 1fr; }
   .hero-panel {
     padding: 14px;
   }

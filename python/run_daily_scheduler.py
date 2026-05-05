@@ -12,6 +12,11 @@ from zoneinfo import ZoneInfo
 
 from payload_store import upsert_json_payload
 
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUTS_DIR = ROOT / "outputs"
@@ -24,6 +29,11 @@ DEFAULT_RUN_POLICY = "always"
 DEFAULT_PRIMARY_MAX_AGE_HOURS = 20
 DEFAULT_SCHEDULER_MODE = "internal_service"
 DEFAULT_INTERVAL_MINUTES = 0
+
+
+def _load_env() -> None:
+    if load_dotenv:
+        load_dotenv(ROOT / ".env", override=False)
 
 
 def _should_sync_web_display() -> bool:
@@ -130,6 +140,7 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
         return [
             ("sync_live_account_holdings", _live_account_sync_command()),
             ("sync_live_order_fills", _live_order_fills_sync_command()),
+            ("sync_rule_live_account_snapshot", [sys.executable, str(ROOT / "python" / "rule_live_account_snapshot.py")]),
             ("build_live_trade_consistency_report", _live_trade_consistency_command()),
             ("build_live_trade_review", _live_trade_review_command()),
             ("build_live_trade_review_summary", _live_trade_review_summary_command()),
@@ -603,4 +614,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    _load_env()
     raise SystemExit(main())

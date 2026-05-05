@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -8,12 +9,23 @@ import pandas as pd
 
 from payload_store import upsert_json_payload
 
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "outputs"
 HISTORY_DIR = DATA_DIR / "history"
 AUTO_TRADING_POLICY_PATH = OUTPUT_DIR / "auto_trading_policy.json"
+AUTO_TRADING_OPS_STATUS_PATH = OUTPUT_DIR / "auto_trading_ops_status.json"
+
+
+def _load_env() -> None:
+    if load_dotenv:
+        load_dotenv(ROOT / ".env", override=False)
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -147,7 +159,7 @@ def sync_inventory_payload() -> None:
 
 
 def _env_flag(name: str, default: bool) -> bool:
-    raw = str(__import__("os").environ.get(name, "1" if default else "0")).strip().lower()
+    raw = str(os.environ.get(name, "1" if default else "0")).strip().lower()
     if raw in {"1", "true", "yes", "on"}:
         return True
     if raw in {"0", "false", "no", "off"}:
@@ -162,7 +174,7 @@ def sync_auto_trading_policy_payload() -> None:
         "auto_trade_execute": _env_flag("AUTO_TRADE_EXECUTE", False),
         "auto_trade_allow_buy": _env_flag("AUTO_TRADE_ALLOW_BUY", False),
         "buy_approval_required": _env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", False),
-        "confirm_configured": str(__import__("os").environ.get("AUTO_TRADE_CONFIRM_TEXT", "")).strip() == "LIVE_ORDER",
+        "confirm_configured": str(os.environ.get("AUTO_TRADE_CONFIRM_TEXT", "")).strip() == "LIVE_ORDER",
         "source": "env_snapshot",
     }
     AUTO_TRADING_POLICY_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -175,7 +187,274 @@ def sync_auto_trading_policy_payload() -> None:
     )
 
 
+def _today_local() -> str:
+    return pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d")
+
+
+def _parse_timestamp(value: Any) -> pd.Timestamp | None:
+    if value in {None, ""}:
+        return None
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    try:
+        if parsed.tzinfo is None:
+            return parsed.tz_localize("Asia/Seoul")
+    except Exception:
+        pass
+    try:
+        return parsed.tz_convert("Asia/Seoul")
+    except Exception:
+        return parsed
+
+
+def _is_today(value: Any, today_str: str) -> bool:
+    text = str(value or "").strip()
+    if text == today_str:
+        return True
+    parsed = _parse_timestamp(value)
+    if parsed is None:
+        return False
+    return parsed.strftime("%Y-%m-%d") == today_str
+
+
+def _count_where(items: list[dict[str, Any]], predicate) -> int:
+    return sum(1 for item in items if predicate(item))
+
+
+def _first_text(*values: Any) -> str | None:
+    for value in values:
+        text = str(value or "").strip()
+        if text and text.lower() not in {"none", "null"}:
+            return text
+    return None
+
+
+def _status_tone(success_today: bool, *, missing: bool = False, failure_today: bool = False, stopped: bool = False, stale: bool = False) -> str:
+    if stopped:
+        return "stopped"
+    if missing:
+        return "warning"
+    if failure_today:
+        return "risk"
+    if success_today:
+        return "normal"
+    if stale:
+        return "warning"
+    return "warning"
+
+
+def _generic_scheduler_card(name: str, path: Path, today_str: str) -> dict[str, Any]:
+    payload = read_json(path)
+    if not payload:
+        return {
+            "name": name,
+            "source_path": str(path),
+            "available": False,
+            "today_success": False,
+            "status_tone": "warning",
+            "status_label": "주의",
+            "warning_reason": "scheduler_status_missing",
+            "last_success_at": None,
+            "last_failure_at": None,
+            "last_error_message": "scheduler_status_missing",
+        }
+    last_success_at = payload.get("last_success_at")
+    last_failure_at = payload.get("last_failure_at")
+    last_error = _first_text(payload.get("last_error"), payload.get("status_note"))
+    today_success = _is_today(payload.get("last_success_date") or last_success_at, today_str)
+    failure_today = _is_today(last_failure_at, today_str)
+    stale = not today_success and bool(last_success_at)
+    tone = _status_tone(today_success, failure_today=failure_today, stale=stale)
+    label = "정상" if tone == "normal" else "위험" if tone == "risk" else "주의"
+    return {
+        "name": name,
+        "source_path": str(path),
+        "available": True,
+        "today_success": today_success,
+        "status_tone": tone,
+        "status_label": label,
+        "scheduler_status": payload.get("status"),
+        "last_success_at": last_success_at,
+        "last_failure_at": last_failure_at,
+        "last_error_message": last_error,
+        "status_note": payload.get("status_note"),
+        "configured_daily_time": payload.get("configured_daily_time"),
+    }
+
+
+def _close_batch_card(today_str: str) -> dict[str, Any]:
+    path = OUTPUT_DIR / "operational_daily_cycle_status.json"
+    payload = read_json(path)
+    if not payload:
+        return {
+            "name": "close_batch",
+            "source_path": str(path),
+            "available": False,
+            "today_success": False,
+            "status_tone": "warning",
+            "status_label": "주의",
+            "warning_reason": "daily_cycle_status_missing",
+            "last_success_at": None,
+            "last_failure_at": None,
+            "last_error_message": "daily_cycle_status_missing",
+        }
+    steps = payload.get("steps") or []
+    critical_failures = [
+        step for step in steps
+        if bool(step.get("critical")) and str(step.get("status") or "").upper() in {"FAILED", "ERROR"}
+    ]
+    finished_at = payload.get("finished_at")
+    finished_today = _is_today(finished_at, today_str)
+    overall = str(payload.get("overall_status") or "").upper()
+    success_today = finished_today and not critical_failures and overall not in {"FAILED", "ERROR"}
+    last_error = None
+    if critical_failures:
+        failed_step = critical_failures[0]
+        last_error = _first_text(failed_step.get("error"), failed_step.get("wait_reason"), failed_step.get("name"))
+    tone = _status_tone(success_today, failure_today=finished_today and not success_today, stale=bool(finished_at) and not finished_today)
+    label = "정상" if tone == "normal" else "위험" if tone == "risk" else "주의"
+    return {
+        "name": "close_batch",
+        "source_path": str(path),
+        "available": True,
+        "today_success": success_today,
+        "status_tone": tone,
+        "status_label": label,
+        "overall_status": overall,
+        "last_success_at": finished_at if success_today else None,
+        "last_failure_at": finished_at if finished_today and not success_today else None,
+        "last_error_message": last_error,
+        "critical_failure_count": len(critical_failures),
+    }
+
+
+def _ai_metrics(today_str: str) -> dict[str, Any]:
+    preview = read_json(OUTPUT_DIR / "order_requests_preview.json")
+    execution = read_json(OUTPUT_DIR / "order_requests_execution.json")
+    fills = read_json(OUTPUT_DIR / "live_order_fills.json")
+    preview_is_today = _is_today(preview.get("asof_date") or preview.get("generated_at"), today_str)
+    execution_is_today = _is_today(execution.get("asof_date") or execution.get("executed_at") or execution.get("generated_at"), today_str)
+    preview_items = list(preview.get("items") or []) if preview_is_today else []
+    execution_items = list(execution.get("items") or []) if execution_is_today else []
+    fill_items = list(fills.get("items") or [])
+    buy_candidates = _count_where(preview_items, lambda item: str(item.get("side") or "").upper() == "BUY")
+    buy_blocked = _count_where(
+        preview_items,
+        lambda item: str(item.get("side") or "").upper() == "BUY"
+        and (
+            _first_text(item.get("blocked_reason"), item.get("entry_price_gate_reason")) is not None
+            or bool(item.get("common_risk_block_reasons"))
+            or (item.get("executable_now") is False)
+        ),
+    )
+    submitted = _count_where(
+        execution_items,
+        lambda item: str(item.get("side") or "").upper() == "BUY"
+        and str(item.get("submission_status") or "").lower() == "submitted",
+    )
+    filled = _count_where(
+        fill_items,
+        lambda item: str(item.get("side") or "").upper() == "BUY"
+        and _is_today(item.get("as_of_date") or item.get("filled_at"), today_str),
+    )
+    return {
+        "buy_candidate_count": buy_candidates,
+        "buy_blocked_count": buy_blocked,
+        "submitted_count": submitted,
+        "filled_count": filled,
+        "preview_generated_at": preview.get("generated_at"),
+        "execution_generated_at": execution.get("generated_at") or execution.get("executed_at"),
+        "fills_generated_at": fills.get("generated_at"),
+    }
+
+
+def _rule_metrics(today_str: str) -> dict[str, Any]:
+    preview = read_json(OUTPUT_DIR / "rule_order_preview.json")
+    execution = read_json(OUTPUT_DIR / "rule_execution_results.json")
+    preview_is_today = _is_today(preview.get("as_of_date") or preview.get("generated_at"), today_str)
+    execution_is_today = _is_today(execution.get("as_of_date") or execution.get("generated_at"), today_str)
+    preview_items = list(preview.get("items") or []) if preview_is_today else []
+    execution_summary = execution.get("summary") or {}
+    buy_candidates = _count_where(preview_items, lambda item: str(item.get("side") or "").upper() == "BUY")
+    buy_blocked = _count_where(
+        preview_items,
+        lambda item: str(item.get("side") or "").upper() == "BUY"
+        and (
+            not bool(item.get("order_allowed"))
+            or _first_text(item.get("order_block_reason")) not in {None, "none"}
+        ),
+    )
+    filled = int(execution_summary.get("filled_count") or 0) + int(execution_summary.get("simulated_filled_count") or 0) if execution_is_today else 0
+    submitted = int(execution_summary.get("submitted_count") or 0) if execution_is_today else 0
+    return {
+        "buy_candidate_count": buy_candidates,
+        "buy_blocked_count": buy_blocked,
+        "submitted_count": submitted,
+        "filled_count": filled,
+        "preview_generated_at": preview.get("generated_at"),
+        "execution_generated_at": execution.get("generated_at"),
+        "as_of_date": execution.get("as_of_date") or preview.get("as_of_date"),
+        "today_execution_available": execution_is_today,
+    }
+
+
+def sync_auto_trading_ops_status_payload() -> None:
+    today_str = _today_local()
+    controls = {
+        "global_kill_switch": _env_flag("GLOBAL_KILL_SWITCH", False),
+        "rule_kill_switch": _env_flag("RULE_KILL_SWITCH", False),
+        "auto_trade_execute": _env_flag("AUTO_TRADE_EXECUTE", False),
+        "auto_trade_allow_buy": _env_flag("AUTO_TRADE_ALLOW_BUY", False),
+    }
+    cards = {
+        "close_batch": _close_batch_card(today_str),
+        "ai_auto_buy": _generic_scheduler_card("ai_auto_buy", OUTPUT_DIR / "auto_ops_auto_buy_scheduler_status.json", today_str),
+        "rule_before_open": _generic_scheduler_card("rule_before_open", OUTPUT_DIR / "rule_before_open_scheduler_status.json", today_str),
+        "rule_after_open": _generic_scheduler_card("rule_after_open", OUTPUT_DIR / "rule_after_open_scheduler_status.json", today_str),
+        "live_account_sync": _generic_scheduler_card("live_account_sync", OUTPUT_DIR / "auto_ops_live_account_sync_scheduler_status.json", today_str),
+    }
+    ai = _ai_metrics(today_str)
+    rule = _rule_metrics(today_str)
+    card_list = list(cards.values())
+    success_times = [item.get("last_success_at") for item in card_list if item.get("last_success_at")]
+    failure_times = [item.get("last_failure_at") for item in card_list if item.get("last_failure_at")]
+    latest_error = next((item.get("last_error_message") for item in card_list if item.get("last_error_message")), None)
+    stopped = controls["global_kill_switch"] or controls["rule_kill_switch"]
+    overall_tone = "stopped" if stopped else "risk" if any(item.get("status_tone") == "risk" for item in card_list) else "warning" if any(item.get("status_tone") == "warning" for item in card_list) else "normal"
+    payload = {
+        "entity": "auto_trading_ops_status",
+        "generated_at": pd.Timestamp.now(tz="Asia/Seoul").isoformat(),
+        "as_of_date": today_str,
+        "controls": controls,
+        "cards": cards,
+        "ai": ai,
+        "rule": rule,
+        "summary": {
+            "overall_tone": overall_tone,
+            "today_close_batch_success": bool(cards["close_batch"].get("today_success")),
+            "today_ai_auto_buy_success": bool(cards["ai_auto_buy"].get("today_success")),
+            "today_rule_before_open_success": bool(cards["rule_before_open"].get("today_success")),
+            "today_rule_after_open_success": bool(cards["rule_after_open"].get("today_success")),
+            "today_live_account_sync_success": bool(cards["live_account_sync"].get("today_success")),
+            "latest_success_at": max(success_times) if success_times else None,
+            "latest_failure_at": max(failure_times) if failure_times else None,
+            "latest_error_message": latest_error,
+        },
+    }
+    AUTO_TRADING_OPS_STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    AUTO_TRADING_OPS_STATUS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    upsert_json_payload(
+        "auto_trading_ops_status",
+        payload,
+        asof_date=today_str,
+        generated_at=payload.get("generated_at"),
+        source_path=AUTO_TRADING_OPS_STATUS_PATH,
+    )
+
+
 def main() -> int:
+    _load_env()
     sync_json_payload("operational_daily_cycle_status", OUTPUT_DIR / "operational_daily_cycle_status.json")
     sync_json_payload(
         "shadow_quality_risk_guard_repeatability_report",
@@ -194,6 +473,7 @@ def main() -> int:
     )
     sync_inventory_payload()
     sync_auto_trading_policy_payload()
+    sync_auto_trading_ops_status_payload()
     return 0
 
 
