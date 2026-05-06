@@ -118,30 +118,14 @@ def main() -> int:
     if not args.skip_refresh:
         _run_step("run_operational_refresh", _refresh_command())
 
-    try:
-        _run_step(
-            "submit_live_orders",
-            _submit_command(execute=execute, allow_buy=allow_buy, force_resubmit=force_resubmit),
-        )
-    except subprocess.CalledProcessError as exc:
-        _notify(
-            "주문 제출 실패 (submit_live_orders)",
-            f"exit={exc.returncode}",
-            level="CRITICAL",
-        )
-        raise
+    _run_step(
+        "submit_live_orders",
+        _submit_command(execute=execute, allow_buy=allow_buy, force_resubmit=force_resubmit),
+    )
 
     _run_step("sync_live_account_holdings", [PYTHON, str(SYNC_LIVE_ACCOUNT_HOLDINGS_SCRIPT)])
 
-    try:
-        _run_step("sync_live_order_fills", [PYTHON, str(SYNC_LIVE_ORDER_FILLS_SCRIPT)])
-    except subprocess.CalledProcessError as exc:
-        _notify(
-            "체결 동기화 실패 (sync_live_order_fills)",
-            f"exit={exc.returncode}",
-            level="CRITICAL",
-        )
-        raise
+    _run_step("sync_live_order_fills", [PYTHON, str(SYNC_LIVE_ORDER_FILLS_SCRIPT)])
     _run_step("build_live_trade_consistency_report", [PYTHON, str(BUILD_LIVE_TRADE_CONSISTENCY_SCRIPT)])
     _run_step("build_live_trade_review", [PYTHON, str(BUILD_LIVE_TRADE_REVIEW_SCRIPT)])
     _run_step("build_live_trade_review_summary", [PYTHON, str(BUILD_LIVE_TRADE_REVIEW_SUMMARY_SCRIPT)])

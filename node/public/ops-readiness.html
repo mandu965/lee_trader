@@ -22,10 +22,11 @@
       .section-title { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
       .section-note { color: #94a3b8; font-size: 12px; line-height: 1.6; }
       .grid-hero { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-      .grid-hero > .card:first-child { grid-column: span 2; }
       .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
       .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
       .focus-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr); gap: 12px; }
+      .state-link { font-size: 12px; color: #60a5fa; text-decoration: none; }
+      .state-link:hover { text-decoration: underline; color: #93c5fd; }
       .card { border: 1px solid rgba(71, 85, 105, 0.55); border-radius: 18px; background: linear-gradient(180deg, rgba(15,23,42,0.92), rgba(15,23,42,0.74)); padding: 18px; box-shadow: 0 18px 40px rgba(2, 6, 23, 0.34); }
       .card h2, .card h3 { margin: 0 0 10px; }
       .eyebrow { font-size: 11px; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
@@ -79,13 +80,21 @@
       .chart-dot-a { fill: #38bdf8; }
       .chart-dot-b { fill: #f59e0b; }
       .chart-label { fill: #94a3b8; font-size: 11px; }
-      @media (max-width: 1100px) { .grid-hero, .grid-2, .grid-3, .candidate-grid, .candidate-grid--single, .focus-grid { grid-template-columns: 1fr; } .page-header { flex-direction: column; } .grid-hero > .card:first-child { grid-column: span 1; } .section-heading { flex-direction: column; align-items: flex-start; } }
+      @media (max-width: 1100px) {
+        .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .grid-hero { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .candidate-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .focus-grid { grid-template-columns: 1fr; }
+        .page-header { flex-direction: column; }
+        .section-heading { flex-direction: column; align-items: flex-start; }
+      }
       @media (max-width: 640px) {
         .ops-page { padding: 18px 12px 36px; }
         .page-title { font-size: 24px; }
         .card { padding: 14px; }
         .big-value { font-size: 24px; }
         .kv-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+        .grid-2, .grid-3, .grid-hero, .candidate-grid, .candidate-grid--single, .focus-grid { grid-template-columns: 1fr; }
         .page-actions {
           flex-wrap: nowrap;
           overflow-x: auto;
@@ -119,15 +128,16 @@
         </div>
         <div class="page-actions">
           <a class="nav-link" href="/app">메인</a>
+          <a class="nav-link is-active" href="/ops-readiness.html">운영자</a>
+          <a class="nav-link" href="/alerts.html">알림 로그</a>
+          <a class="nav-link" href="/rule-auto-trading.html">RULE 자동매매</a>
+          <a class="nav-link" href="/live-auto-trading.html">실자동매매</a>
           <a class="nav-link" href="/ranking.html">리서치랭킹</a>
           <a class="nav-link" href="/meaningfulness.html">리서치리뷰</a>
-          <a class="nav-link is-active" href="/ops-readiness.html">운영자</a>
           <a class="nav-link" href="/manual-trading.html">수동매매</a>
           <a class="nav-link" href="/holdings.html">보유종목</a>
           <a class="nav-link" href="/paper-trading.html">모의투자</a>
           <a class="nav-link" href="/trade-history.html">매매기록</a>
-          <a class="nav-link" href="/rule-auto-trading.html">RULE 자동매매</a>
-          <a class="nav-link" href="/live-auto-trading.html">실자동매매</a>
         </div>
       </header>
 
@@ -180,21 +190,26 @@
             <div class="section-kicker">Action Queue</div>
             <h2 class="section-title">바로 볼 것</h2>
           </div>
-          <div class="section-note">지금 걸리는 항목과 오늘 확인 사항을 같은 레벨로 묶었습니다.</div>
+          <div class="section-note">CRITICAL/WARNING 알림, KPI 경고 지표, 오늘 확인 사항을 한 줄로 봅니다.</div>
         </div>
-      </section>
-
-      <section class="section grid-2">
-        <article class="card section-emphasis">
-          <div class="eyebrow">알림</div>
-          <h3>지금 걸리는 항목</h3>
-          <ul id="alertMetrics" class="metric-list"></ul>
-        </article>
-        <article class="card section-emphasis">
-          <div class="eyebrow">체크리스트</div>
-          <h3>오늘 확인 사항</h3>
-          <ul id="dailyChecklist" class="check-list"></ul>
-        </article>
+        <div class="grid-3">
+          <article class="card section-emphasis">
+            <div class="eyebrow">알림 로그</div>
+            <h3>최근 CRITICAL / WARNING</h3>
+            <div id="recentAlertsLog"><div class="state-line">알림 로그 불러오는 중...</div></div>
+            <div style="margin-top:10px;"><a href="/alerts.html" class="state-link">전체 알림 로그 →</a></div>
+          </article>
+          <article class="card section-emphasis">
+            <div class="eyebrow">KPI 지표</div>
+            <h3>지금 걸리는 항목</h3>
+            <ul id="alertMetrics" class="metric-list"></ul>
+          </article>
+          <article class="card section-emphasis">
+            <div class="eyebrow">체크리스트</div>
+            <h3>오늘 확인 사항</h3>
+            <ul id="dailyChecklist" class="check-list"></ul>
+          </article>
+        </div>
       </section>
 
       <section class="section">
@@ -231,6 +246,9 @@
           <div class="kv" id="kpiKv"></div>
           <div id="kpiHelp" class="state-line"></div>
         </article>
+      </section>
+
+      <section class="section grid-2">
         <article class="card">
           <div class="eyebrow">산출물</div>
           <h3>산출물 최신 상태</h3>
@@ -242,6 +260,38 @@
           <div id="schedulerChipRow" class="chip-row"></div>
           <div class="kv" id="schedulerKv"></div>
         </article>
+      </section>
+
+      <section class="section">
+        <div class="section-heading">
+          <div>
+            <div class="section-kicker">RULE Trading</div>
+            <h2 class="section-title">RULE 자동매매 현황</h2>
+          </div>
+          <div class="section-note">오늘 주문 실행 결과 · 현재 보유 포지션 · 부분 체결 top-up 대기를 한 화면에서 확인합니다.</div>
+        </div>
+        <div class="grid-3" style="margin-bottom:12px;">
+          <article class="card">
+            <div class="eyebrow">오늘 실행</div>
+            <h3>주문 실행 결과</h3>
+            <div id="ruleExecChipRow" class="chip-row"></div>
+            <div class="kv" id="ruleExecKv"></div>
+            <ul id="ruleExecItems" class="candidate-list" style="margin-top:10px;"></ul>
+          </article>
+          <article class="card">
+            <div class="eyebrow">포지션</div>
+            <h3>현재 보유 종목</h3>
+            <div id="ruleAccountChipRow" class="chip-row"></div>
+            <ul id="rulePositionList" class="candidate-list" style="margin-top:10px;"></ul>
+          </article>
+          <article class="card">
+            <div class="eyebrow">부분 체결</div>
+            <h3>Top-up 대기</h3>
+            <div id="rulePartialFillChipRow" class="chip-row"></div>
+            <ul id="rulePartialFillList" class="candidate-list" style="margin-top:10px;"></ul>
+            <div id="rulePartialFillHelp" class="state-line"></div>
+          </article>
+        </div>
       </section>
 
       <section class="section">

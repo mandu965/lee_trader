@@ -217,6 +217,10 @@
     th, td { padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.05); text-align: left; }
     th { position: sticky; top: 0; background: #08111f; color: var(--ts); font-weight: 600; }
     .status { margin-top: 10px; color: var(--ts); font-size: 12px; }
+    .ops-details { border: none; background: none; }
+    .ops-summary { cursor: pointer; color: var(--ts); font-size: 12px; font-weight: 600; padding: 6px 2px; list-style: none; user-select: none; }
+    .ops-summary::-webkit-details-marker { display: none; }
+    .ops-details[open] .ops-summary { color: var(--t); }
     @media (max-width: 1080px) { .layout, .split, .reason-system, .score-explain-layout, .decision-grid, .decision-kpis, .quick-tech-grid, .raw-score-strip { grid-template-columns: 1fr; } }
     @media (max-width: 768px) {
       .container { padding: 0 12px 24px; }
@@ -339,8 +343,11 @@
                 <div id="marketGuideBox" class="callout warn">시장 상태와 종목 상태를 함께 해석하는 중입니다.</div>
                 <div id="riskGuideBox" class="callout bad">리스크 포인트를 정리하는 중입니다.</div>
                 <div id="buyEligibilityBox" class="callout info">절대 매수 판단 정보를 확인하는 중입니다.</div>
-                <div id="shadowGuardBox" class="callout info">shadow quality/risk guard 비교를 확인하는 중입니다.</div>
-                <div id="opsGuideBox" class="callout info">운영 기준선 상태를 확인하는 중입니다.</div>
+                <details class="ops-details">
+                  <summary class="ops-summary">운영 상세 정보 펼치기 ▾</summary>
+                  <div id="shadowGuardBox" class="callout info" style="margin-top:8px">shadow quality/risk guard 비교를 확인하는 중입니다.</div>
+                  <div id="opsGuideBox" class="callout info" style="margin-top:8px">운영 기준선 상태를 확인하는 중입니다.</div>
+                </details>
               </div>
             </div>
 
@@ -363,17 +370,10 @@
               </div>
             </div>
 
-            <div class="raw-score-strip">
-              <div class="raw-score-item">
-                <div class="sl">원본 점수 확인</div>
-                <div id="finalScore" class="raw-score-item__value">-</div>
-                <div class="raw-score-item__meta">최종 점수 원본값</div>
-              </div>
-              <div class="raw-score-item">
-                <div class="sl">원본 신뢰도 확인</div>
-                <div id="confidenceRaw" class="raw-score-item__value">-</div>
-                <div id="confidenceStatusText" class="raw-score-item__meta">모델 신뢰도 상태를 계산 중입니다.</div>
-              </div>
+            <div style="display:none">
+              <span id="finalScore"></span>
+              <span id="confidenceRaw"></span>
+              <span id="confidenceStatusText"></span>
             </div>
 
             <h2 class="pt">핵심 근거</h2>
@@ -512,41 +512,21 @@
                 <div id="volQuickMeta" class="quick-tech__meta">진입 부담과 흔들림을 봅니다.</div>
               </div>
             </div>
-            <div class="split">
-              <div>
-                <div class="chart-shell">
-                  <div class="chart-copy">차트는 현재 판단을 보조 검증하는 용도입니다. 우선은 위 숫자 요약을 먼저 읽고, 그 다음 추세 정렬을 확인하는 흐름이 적절합니다.</div>
-                  <canvas id="chart" width="900" height="300"></canvas>
-                  <div class="legend">
-                    <span><span class="dot" style="background:#e5e7eb"></span>Close</span>
-                    <span><span class="dot" style="background:#60a5fa"></span>MA5</span>
-                    <span><span class="dot" style="background:#f59e0b"></span>MA20</span>
-                    <span><span class="dot" style="background:#22c55e"></span>MA60</span>
-                  </div>
-                </div>
+            <div class="chart-shell">
+              <div class="chart-copy">차트는 현재 판단을 보조 검증하는 용도입니다. 우선은 위 숫자 요약을 먼저 읽고, 그 다음 추세 정렬을 확인하는 흐름이 적절합니다.</div>
+              <canvas id="chart" width="900" height="300"></canvas>
+              <div class="legend">
+                <span><span class="dot" style="background:#e5e7eb"></span>Close</span>
+                <span><span class="dot" style="background:#60a5fa"></span>MA5</span>
+                <span><span class="dot" style="background:#f59e0b"></span>MA20</span>
+                <span><span class="dot" style="background:#22c55e"></span>MA60</span>
               </div>
-              <div class="metric-grid">
-                <div class="metric">
-                  <div class="sl">현재가</div>
-                  <div id="closePrice" class="mv">-</div>
-                  <div id="closeMeta" class="ms">가격 기준 정보 없음</div>
-                </div>
-                <div class="metric">
-                  <div class="sl">MA5 / MA20 / MA60</div>
-                  <div id="maSummary" class="mv">-</div>
-                  <div class="ms">이동평균 정렬 상태 확인</div>
-                </div>
-                <div class="metric">
-                  <div class="sl">RSI(14)</div>
-                  <div id="rsiValue" class="mv">-</div>
-                  <div id="rsiExplain" class="ms">RSI 정보 없음</div>
-                </div>
-                <div class="metric">
-                  <div class="sl">변동성(20)</div>
-                  <div id="volValue" class="mv">-</div>
-                  <div id="volExplain" class="ms">변동성 정보 없음</div>
-                </div>
-              </div>
+            </div>
+            <div style="display:none">
+              <span id="closePrice"></span><span id="closeMeta"></span>
+              <span id="maSummary"></span>
+              <span id="rsiValue"></span><span id="rsiExplain"></span>
+              <span id="volValue"></span><span id="volExplain"></span>
             </div>
           </div>
         </article>

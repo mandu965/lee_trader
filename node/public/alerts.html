@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>알림 로그</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <style>
+      .ops-page { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; }
+      .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
+      .page-title { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+      .page-subtitle { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.65; }
+      .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .nav-link { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(71,85,105,0.7); background: rgba(30,41,59,0.9); color: #f8fafc; font-size: 14px; font-weight: 700; text-decoration: none; }
+      .nav-link:hover { background: rgba(51,65,85,0.96); }
+      .card { border: 1px solid rgba(71,85,105,0.55); border-radius: 18px; background: linear-gradient(180deg,rgba(15,23,42,0.92),rgba(15,23,42,0.74)); padding: 18px; box-shadow: 0 18px 40px rgba(2,6,23,0.34); margin-bottom: 16px; }
+      .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-bottom: 16px; }
+      .eyebrow { font-size: 11px; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
+      .big-value { margin-top: 8px; font-size: 30px; font-weight: 800; }
+      .big-value.critical { color: #f87171; }
+      .big-value.warning { color: #fbbf24; }
+      .big-value.good { color: #86efac; }
+      .filter-row { display: flex; gap: 8px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+      .filter-btn { padding: 6px 14px; border-radius: 999px; border: 1px solid rgba(71,85,105,0.6); background: rgba(30,41,59,0.8); color: #cbd5e1; font-size: 12px; font-weight: 700; cursor: pointer; }
+      .filter-btn.active { background: rgba(96,165,250,0.18); border-color: rgba(96,165,250,0.5); color: #93c5fd; }
+      .filter-btn.f-critical.active { background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.5); color: #f87171; }
+      .filter-btn.f-warning.active { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.5); color: #fbbf24; }
+      .filter-btn.f-info.active { background: rgba(96,165,250,0.15); border-color: rgba(96,165,250,0.5); color: #93c5fd; }
+      .meta-text { font-size: 12px; color: #64748b; margin-left: auto; }
+      .alert-list { display: grid; gap: 8px; }
+      .alert-item { border: 1px solid rgba(71,85,105,0.4); border-radius: 14px; padding: 14px 16px; background: rgba(15,23,42,0.55); display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; }
+      .alert-item.level-CRITICAL { border-left: 3px solid #f87171; }
+      .alert-item.level-WARNING { border-left: 3px solid #fbbf24; }
+      .alert-item.level-INFO { border-left: 3px solid #60a5fa; }
+      .alert-badge { display: inline-flex; align-items: center; min-height: 22px; padding: 2px 9px; border-radius: 999px; font-size: 10px; font-weight: 800; white-space: nowrap; margin-top: 2px; }
+      .badge-CRITICAL { background: rgba(248,113,113,0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.35); }
+      .badge-WARNING { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.35); }
+      .badge-INFO { background: rgba(96,165,250,0.15); color: #93c5fd; border: 1px solid rgba(96,165,250,0.35); }
+      .alert-title { font-size: 14px; font-weight: 700; color: #f8fafc; margin: 0 0 4px; }
+      .alert-message { font-size: 12px; color: #94a3b8; line-height: 1.6; }
+      .alert-details { margin-top: 6px; font-size: 11px; color: #64748b; line-height: 1.7; }
+      .alert-time { font-size: 11px; color: #475569; margin-top: 4px; }
+      .empty-state { padding: 32px; text-align: center; color: #475569; font-size: 14px; border: 1px dashed rgba(71,85,105,0.4); border-radius: 14px; }
+      .refresh-indicator { font-size: 11px; color: #334155; }
+      @media (max-width: 760px) {
+        .grid-3 { grid-template-columns: 1fr; }
+        .page-header { flex-direction: column; }
+        .filter-row { gap: 6px; }
+        .meta-text { margin-left: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ops-page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">알림 로그</h1>
+          <p class="page-subtitle">KPI 이상·주문 오류 자동 감지 기록 — <code>outputs/alert_log.json</code></p>
+        </div>
+        <div class="page-actions">
+          <a href="./ops-readiness.html" class="nav-link">운영자 페이지</a>
+        </div>
+      </div>
+
+      <div class="grid-3" id="summary-cards">
+        <div class="card">
+          <div class="eyebrow">전체 알림</div>
+          <div class="big-value" id="count-total">—</div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">CRITICAL</div>
+          <div class="big-value critical" id="count-critical">—</div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">WARNING</div>
+          <div class="big-value warning" id="count-warning">—</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="filter-row">
+          <button class="filter-btn active" data-level="">전체</button>
+          <button class="filter-btn f-critical" data-level="CRITICAL">CRITICAL</button>
+          <button class="filter-btn f-warning" data-level="WARNING">WARNING</button>
+          <button class="filter-btn f-info" data-level="INFO">INFO</button>
+          <span class="meta-text" id="last-updated">—</span>
+          <span class="refresh-indicator" id="refresh-status"></span>
+        </div>
+        <div class="alert-list" id="alert-list">
+          <div class="empty-state">알림 로그를 불러오는 중...</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let currentLevel = "";
+      let allEntries = [];
+
+      function formatTime(ts) {
+        if (!ts) return "—";
+        return ts.replace("T", " ");
+      }
+
+      function renderDetails(details) {
+        if (!details || !Object.keys(details).length) return "";
+        const lines = Object.entries(details)
+          .filter(([, v]) => v !== null && v !== undefined && v !== "")
+          .map(([k, v]) => `<span>${k}: <strong>${v}</strong></span>`)
+          .join(" &nbsp;·&nbsp; ");
+        return lines ? `<div class="alert-details">${lines}</div>` : "";
+      }
+
+      function renderList(entries) {
+        const el = document.getElementById("alert-list");
+        if (!entries.length) {
+          el.innerHTML = '<div class="empty-state">알림 없음</div>';
+          return;
+        }
+        el.innerHTML = entries.map((e) => `
+          <div class="alert-item level-${e.level || "INFO"}">
+            <span class="alert-badge badge-${e.level || "INFO"}">${e.level || "INFO"}</span>
+            <div>
+              <p class="alert-title">${e.title || "(제목 없음)"}</p>
+              ${e.message ? `<p class="alert-message">${e.message}</p>` : ""}
+              ${renderDetails(e.details)}
+              <p class="alert-time">${formatTime(e.timestamp)}</p>
+            </div>
+          </div>
+        `).join("");
+      }
+
+      async function fetchAlerts() {
+        try {
+          const url = currentLevel ? `/api/alerts?level=${currentLevel}&limit=200` : "/api/alerts?limit=200";
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(res.statusText);
+          const data = await res.json();
+          allEntries = data.entries || [];
+
+          const all = data.total != null ? data.total : allEntries.length;
+          const critical = allEntries.filter((e) => e.level === "CRITICAL").length;
+          const warning = allEntries.filter((e) => e.level === "WARNING").length;
+
+          if (!currentLevel) {
+            document.getElementById("count-total").textContent = all;
+            document.getElementById("count-critical").textContent = critical;
+            document.getElementById("count-warning").textContent = warning;
+          }
+
+          const updated = data.last_updated ? `마지막 갱신: ${formatTime(data.last_updated)}` : "";
+          document.getElementById("last-updated").textContent = updated;
+          renderList(allEntries);
+          document.getElementById("refresh-status").textContent = "";
+        } catch (e) {
+          document.getElementById("refresh-status").textContent = "로드 실패";
+          console.error(e);
+        }
+      }
+
+      document.querySelectorAll(".filter-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".filter-btn").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          currentLevel = btn.dataset.level || "";
+          fetchAlerts();
+        });
+      });
+
+      fetchAlerts();
+      setInterval(() => {
+        document.getElementById("refresh-status").textContent = "새로고침 중...";
+        fetchAlerts();
+      }, 30000);
+    </script>
+  </body>
+</html>

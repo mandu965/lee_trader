@@ -771,6 +771,137 @@ async function saveOperatorMemo() {
   }
 }
 
+function fmtPnl(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "-";
+  const sign = n >= 0 ? "+" : "";
+  return `${sign}${(n * 100).toFixed(1)}%`;
+}
+
+function pnlClass(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "muted";
+  return n >= 0 ? "good" : "bad";
+}
+
+function renderRuleOps(ruleOps) {
+  if (!ruleOps) return;
+
+  const exec = ruleOps.execution || {};
+  const account = ruleOps.account || {};
+  const positions = ruleOps.positions || [];
+  const partialQ = ruleOps.partial_fill_queue || [];
+  const fillSync = ruleOps.fill_sync || {};
+
+  // ── 오늘 실행 결과 ──
+  const aborted = exec.order_run_aborted;
+  const execTone = aborted ? "ALERT" : exec.filled_count > 0 ? "GOOD" : exec.submitted_count > 0 ? "WATCH" : "info";
+  renderChipRow("ruleExecChipRow", [
+    { label: exec.run_mode || "-", kind: exec.run_mode === "live" ? "GOOD" : "WATCH" },
+    { label: aborted ? "실행 중단" : exec.submitted_count > 0 ? "주문 제출됨" : "주문 없음", kind: execTone },
+    ...(exec.reconciliation_blocked ? [{ label: "조정 차단", kind: "ALERT" }] : []),
+  ]);
+  renderKv("ruleExecKv", [
+    ["기준일", exec.as_of_date || ruleOps.as_of_date || "-"],
+    ["제출", fmtNum(exec.submitted_count)],
+    ["체결", fmtNum(exec.filled_count)],
+    ["부분 체결", fmtNum(exec.partial_filled_count)],
+    ["미체결", fmtNum(exec.unfilled_count)],
+    ["실패", fmtNum(exec.failed_count)],
+    ["매수 체결액", fmtMoneyShort(exec.buy_filled_amount)],
+    ["매도 체결액", fmtMoneyShort(exec.sell_filled_amount)],
+    ...(aborted ? [["중단 사유", exec.abort_reason || "-"]] : []),
+  ]);
+  const execItemEl = document.getElementById("ruleExecItems");
+  if (execItemEl) {
+    const items = (exec.items || []).slice(0, 8);
+    if (!items.length) {
+      execItemEl.innerHTML = "<li>오늘 처리된 주문 없음</li>";
+    } else {
+      execItemEl.innerHTML = items.map((item) => {
+        const statusChip = item.order_status === "filled" ? "good" : item.order_status === "partial_filled" ? "watch" : item.order_status === "failed" ? "bad" : "info";
+        return `<li><span class="chip ${statusChip}" style="font-size:10px;padding:1px 7px;margin-right:6px;">${escapeHtml(item.side || "-")} ${escapeHtml(item.order_status || "-")}</span><span class="list-keyword">${escapeHtml(item.code)}</span>${item.filled_qty ? ` <span class="muted">${fmtNum(item.filled_qty)}주 @${fmtNum(item.avg_fill_price)}</span>` : ""}${item.order_block_reason ? ` <span class="muted">(${escapeHtml(item.order_block_reason)})</span>` : ""}</li>`;
+      }).join("");
+    }
+  }
+
+  // ── 현재 보유 포지션 ──
+  renderChipRow("ruleAccountChipRow", [
+    { label: `포지션 ${fmtNum(account.position_count)}`, kind: account.position_count > 0 ? "info" : "WATCH" },
+    { label: `현금 ${fmtMoneyShort(account.cash)}`, kind: "info" },
+    { label: `총자산 ${fmtMoneyShort(account.total_equity)}`, kind: "info" },
+  ]);
+  const posEl = document.getElementById("rulePositionList");
+  if (posEl) {
+    if (!positions.length) {
+      posEl.innerHTML = "<li>보유 포지션 없음</li>";
+    } else {
+      posEl.innerHTML = positions.map((p) => {
+        const pnlStr = fmtPnl(p.pnl_pct);
+        const pnlCls = pnlClass(p.pnl_pct);
+        const weightStr = p.weight != null ? `${(p.weight * 100).toFixed(1)}%` : "-";
+        return `<li><span class="list-keyword">${escapeHtml(p.name || p.code)}</span> <span class="muted">(${escapeHtml(p.code)})</span> · <span class="${pnlCls}">${escapeHtml(pnlStr)}</span> · ${escapeHtml(weightStr)} · ${fmtNum(p.qty)}주</li>`;
+      }).join("");
+    }
+  }
+
+  // ── 부분 체결 Top-up 대기 ──
+  renderChipRow("rulePartialFillChipRow", [
+    { label: partialQ.length > 0 ? `대기 ${partialQ.length}건` : "대기 없음", kind: partialQ.length > 0 ? "WATCH" : "GOOD" },
+    ...(fillSync.partial_filled_count > 0 ? [{ label: `fill sync ${fmtNum(fillSync.partial_filled_count)}건`, kind: "WATCH" }] : []),
+  ]);
+  const pfEl = document.getElementById("rulePartialFillList");
+  if (pfEl) {
+    if (!partialQ.length) {
+      pfEl.innerHTML = "<li>부분 체결 대기 없음</li>";
+    } else {
+      pfEl.innerHTML = partialQ.map((item) => {
+        const ratio = item.order_qty ? `${fmtNum(item.filled_qty)}/${fmtNum(item.order_qty)}주` : `체결 ${fmtNum(item.filled_qty)}주`;
+        return `<li><span class="list-keyword">${escapeHtml(item.code)}</span> · ${escapeHtml(ratio)} · 미체결 ${fmtNum(item.unfilled_qty)}주${item.avg_fill_price ? ` · @${fmtNum(item.avg_fill_price)}` : ""}</li>`;
+      }).join("");
+    }
+  }
+  const helpEl = document.getElementById("rulePartialFillHelp");
+  if (helpEl) {
+    const enabled = partialQ.length > 0;
+    helpEl.textContent = enabled
+      ? "다음 before-open 사이클에서 RULE_PARTIAL_FILL_TOPUP_ENABLED=1 이면 top-up 시도됩니다."
+      : "RULE_PARTIAL_FILL_TOPUP_ENABLED=1 로 다음 사이클 자동 top-up이 활성화되어 있습니다.";
+  }
+}
+
+async function renderRecentAlerts() {
+  const el = document.getElementById("recentAlertsLog");
+  if (!el) return;
+  try {
+    const data = await fetchJsonMaybe("/api/alerts?limit=10");
+    if (!data) {
+      el.innerHTML = '<div class="state-line">알림 로그를 불러오지 못했습니다.</div>';
+      return;
+    }
+    const entries = (data.entries || []).filter((e) => e.level === "CRITICAL" || e.level === "WARNING");
+    if (!entries.length) {
+      el.innerHTML = '<div class="state-line" style="color:#86efac;">최근 CRITICAL/WARNING 알림 없음</div>';
+      return;
+    }
+    el.innerHTML = entries.slice(0, 5).map((e) => {
+      const levelClass = e.level === "CRITICAL" ? "bad" : "watch";
+      const time = String(e.timestamp || "").replace("T", " ").slice(0, 16);
+      return `
+        <div style="display:flex;gap:8px;align-items:flex-start;padding:7px 0;border-bottom:1px solid rgba(51,65,85,0.4);">
+          <span class="chip ${levelClass}" style="flex-shrink:0;margin-top:1px;">${escapeHtml(e.level)}</span>
+          <div style="min-width:0;">
+            <div style="font-size:13px;font-weight:700;color:#f8fafc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(e.title || "(제목 없음)")}</div>
+            ${e.message ? `<div style="font-size:11px;color:#94a3b8;margin-top:2px;">${escapeHtml(e.message)}</div>` : ""}
+            <div style="font-size:11px;color:#475569;margin-top:2px;">${escapeHtml(time)}</div>
+          </div>
+        </div>`;
+    }).join("");
+  } catch {
+    el.innerHTML = '<div class="state-line">알림 조회 실패</div>';
+  }
+}
+
 async function loadOpsReadiness() {
   const state = document.getElementById("pageState");
   state.textContent = "운영 readiness 대시보드를 불러오는 중입니다.";
@@ -780,6 +911,8 @@ async function loadOpsReadiness() {
       fetchTradingPolicySafe(),
       fetchJsonMaybe("/api/auto-trading/runtime-status"),
     ]);
+    renderRecentAlerts().catch(() => {});
+    renderRuleOps(data.rule_ops || null);
     renderTradingPolicy(policy);
     renderHero(data);
     renderSchedulerRuntime(runtime);
@@ -982,6 +1115,7 @@ async function loadOpsReadiness() {
     renderIntradayOps("intradayOpsGrid", {});
     renderShadowCandidates("shadowCandidateGrid", []);
     renderShadowRepeatability({});
+    renderRuleOps(null);
     renderSchedulerRuntime(null);
     state.textContent = `조회 실패: ${error.message}`;
   }

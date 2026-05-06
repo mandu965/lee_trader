@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from kis_client import KISClient
+import pandas as pd
+
+from kis_client import KISAuthError, KISClient, KISHTTPError
 from kis_live_account import order_cash
 from rule_account_guard import evaluate_rule_order_guard
 from rule_execution_simulator import (
@@ -88,6 +92,87 @@ def _ord_unpr(item: dict[str, Any], ord_dvsn: str) -> str:
 
 def _log(message: str) -> None:
     print(f"[RULE_ORDER_SUBMITTER] {message}")
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (ValueError, TypeError):
+        return default
+
+
+def _is_retryable_order_error(exc: Exception) -> tuple[bool, float]:
+    """주문 재시도 가능 여부와 대기 시간(초)을 반환합니다.
+
+    주문은 KIS에 도달했을 가능성이 있는 오류(타임아웃, 5xx)는 재시도하지 않습니다.
+    중복 주문 방지가 최우선입니다.
+    """
+    if isinstance(exc, KISAuthError):
+        # 토큰 만료 → 재인증 후 재시도 안전
+        return True, 1.0
+    if isinstance(exc, KISHTTPError):
+        if exc.status_code == 429:
+            # 레이트 리밋 → 요청이 처리되지 않았으므로 안전
+            return True, float(exc.retry_after_sec or 5.0)
+        # 5xx: 요청이 KIS에 도달했을 수 있음 → 재시도 불가
+        # 4xx (429 제외): 유효성 오류 → 재시도해도 동일 결과
+        return False, 0.0
+    if isinstance(exc, ConnectionRefusedError):
+        # TCP 연결 자체가 거절됨 → 안전
+        return True, 1.0
+    # TimeoutError, OSError 등: 요청이 KIS에 도달했을 수 있음 → 재시도 불가
+    return False, 0.0
+
+
+def _submit_order_with_retry(
+    client: KISClient,
+    account: Any,
+    *,
+    side: str,
+    pdno: str,
+    ord_dvsn: str,
+    ord_qty: str,
+    ord_unpr: str,
+    code: str,
+) -> tuple[pd.DataFrame, int, list[str]]:
+    """order_cash 호출을 안전한 조건에서만 재시도합니다.
+
+    Returns:
+        (response_df, attempt_count, retry_reasons)
+    """
+    retry_enabled = os.environ.get("RULE_RETRY_ENABLED", "0").strip().lower() in {"1", "true", "yes", "on"}
+    max_retry = _env_int("RULE_MAX_RETRY_COUNT", 1) if retry_enabled else 0
+
+    last_exc: Exception = RuntimeError("no_attempt")
+    retry_reasons: list[str] = []
+
+    for attempt in range(max_retry + 1):
+        try:
+            if attempt > 0:
+                # 재시도 전 토큰 재발급 시도 (auth 오류 대응)
+                try:
+                    client.issue_access_token()
+                except Exception as token_exc:
+                    _log(f"token_refresh_failed attempt={attempt} code={code} error={token_exc}")
+            response_df = order_cash(
+                client, account,
+                side=side, pdno=pdno, ord_dvsn=ord_dvsn,
+                ord_qty=ord_qty, ord_unpr=ord_unpr,
+            )
+            return response_df, attempt + 1, retry_reasons
+        except Exception as exc:
+            last_exc = exc
+            retryable, wait_sec = _is_retryable_order_error(exc)
+            reason = f"attempt{attempt + 1}:{type(exc).__name__}"
+            if attempt > 0:
+                retry_reasons.append(reason)
+            if not retryable or attempt >= max_retry:
+                break
+            retry_reasons.append(reason)
+            _log(f"order_retry attempt={attempt + 1}/{max_retry} code={code} reason={exc} wait={wait_sec}s")
+            time.sleep(wait_sec)
+
+    raise last_exc
 
 
 def _build_market_snapshot(symbols: list[str], out_path: Path) -> dict[str, Any]:
@@ -320,20 +405,24 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
                 f"daily_used={row.get('daily_order_amount_used')}"
             )
             row["submit_attempted"] = True
-            response_df = order_cash(
+            code_str = str(row.get("code") or row.get("symbol") or "").zfill(6)
+            response_df, attempt_count, retry_reasons = _submit_order_with_retry(
                 client,
                 account,
                 side=side.lower(),
-                pdno=str(row.get("code") or row.get("symbol") or "").zfill(6),
+                pdno=code_str,
                 ord_dvsn=ord_dvsn,
                 ord_qty=str(int(float(row.get("order_qty") or 0))),
                 ord_unpr=ord_unpr,
+                code=code_str,
             )
             response_row = response_df.iloc[0].to_dict() if not response_df.empty else {}
             row["submitted_at"] = datetime.now().isoformat(timespec="seconds")
             row["raw_response"] = response_row
             row["broker_order_id"] = response_row.get("ODNO") or response_row.get("odno")
             row["broker_org_order_id"] = response_row.get("KRX_FWDG_ORD_ORGNO") or response_row.get("krx_fwdg_ord_orgno")
+            row["submit_attempt_count"] = attempt_count
+            row["submit_retry_reasons"] = retry_reasons
             row["order_status"] = "submitted"
             row["reconciliation_status"] = "submitted_pending_fill_check"
             submitted_count += 1
@@ -367,7 +456,14 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
             )
         except Exception as exc:
             row["submitted_at"] = datetime.now().isoformat(timespec="seconds")
-            row["order_block_reason"] = _append_reason(row.get("order_block_reason"), "order_submit_failed", str(exc))
+            retryable, _ = _is_retryable_order_error(exc)
+            failure_tag = "order_submit_failed"
+            # 타임아웃·5xx는 주문이 KIS에 도달했을 수 있으므로 별도 표시
+            if not retryable and not isinstance(exc, (KISAuthError, ConnectionRefusedError)):
+                failure_tag = "order_submit_failed_possibly_sent"
+            row["order_block_reason"] = _append_reason(row.get("order_block_reason"), failure_tag, str(exc))
+            row["submit_attempt_count"] = row.get("submit_attempt_count") or 1
+            row["submit_retry_reasons"] = row.get("submit_retry_reasons") or []
             row["order_status"] = "failed"
             row["reconciliation_status"] = "submit_failed"
             row["block_reason_details"] = build_block_reason_details(str(row.get("order_block_reason") or "").split(";"))

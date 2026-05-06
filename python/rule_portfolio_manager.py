@@ -19,6 +19,7 @@ DEFAULT_SIGNALS = DATA_DIR / "rule_signals.csv"
 DEFAULT_STATE = OUTPUT_DIR / "rule_account_paper_state.json"
 DEFAULT_PLAN = OUTPUT_DIR / "rule_portfolio_plan.json"
 DEFAULT_INTENTS = OUTPUT_DIR / "rule_trade_intents.json"
+DEFAULT_PARTIAL_FILL_QUEUE = OUTPUT_DIR / "rule_partial_fill_queue.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -166,6 +167,14 @@ def recent_trade_codes(state: dict[str, Any], latest_date: pd.Timestamp, cooldow
     return blocked
 
 
+def _load_partial_fill_queue() -> set[str]:
+    try:
+        data = json.loads(DEFAULT_PARTIAL_FILL_QUEUE.read_text(encoding="utf-8"))
+        return {str(item.get("code") or "").zfill(6) for item in data.get("items") or [] if str(item.get("side") or "").upper() == "BUY"}
+    except Exception:
+        return set()
+
+
 def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, Any], run_mode: str = "paper") -> dict[str, Any]:
     latest_date = signals["date"].max()
     latest = signals.loc[signals["date"] == latest_date].copy()
@@ -182,6 +191,7 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
     positions = position_frame(account_state)
     held_codes = set(positions["code"].astype(str)) if not positions.empty else set()
     cooldown_codes = recent_trade_codes(account_state, latest_date, cooldown_days)
+    topup_codes: set[str] = _load_partial_fill_queue() if _flag("RULE_PARTIAL_FILL_TOPUP_ENABLED", "0") else set()
     current_cash_weight = cash / total_equity if total_equity else 0.0
     market_defensive_mode = bool(latest.get("market_defensive_mode", pd.Series([False])).fillna(False).any())
 
@@ -257,6 +267,12 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
                 action = "hold"
                 reason = "held_and_hold_conditions_pass"
                 target_weight = current_weight
+                if code in topup_codes and bool(row.get("strong_entry_signal")):
+                    topup_weight = min(new_entry_weight, max_position_weight - current_weight)
+                    if topup_weight > 0.001 and (current_cash_weight - topup_weight) >= min_cash_weight:
+                        action = "buy"
+                        reason = "partial_fill_topup"
+                        target_weight = current_weight + topup_weight
         elif market_defensive_mode:
             reason = "market_defensive_mode_buy_blocked"
         elif not bool(row.get("strong_entry_signal")) and not (allow_entry_signal and bool(row.get("entry_signal"))):
@@ -321,6 +337,7 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
                 "gap_risk_reason": row.get("gap_risk_reason"),
                 "trading_value_block_reason": row.get("trading_value_block_reason"),
                 "market_defensive_mode": bool(row.get("market_defensive_mode")),
+                "partial_fill_topup": bool(action == "buy" and reason == "partial_fill_topup"),
             }
         )
 

@@ -1668,6 +1668,80 @@ function buildMarketRegimeInterpretation(regimeInput) {
   };
 }
 
+function buildRuleOpsSummary() {
+  const execResults = readJsonFile(path.join(OUTPUTS_DIR, "rule_execution_results.json"), {});
+  const liveState   = readJsonFile(path.join(OUTPUTS_DIR, "rule_account_live_state.json"), {});
+  const fillSync    = readJsonFile(path.join(OUTPUTS_DIR, "rule_execution_fill_sync.json"), {});
+  const partialQ    = readJsonFile(path.join(OUTPUTS_DIR, "rule_partial_fill_queue.json"), {});
+
+  const execSummary = execResults.summary || {};
+  const positions = (liveState.positions || []).map((p) => ({
+    code: String(p.code || "").padStart(6, "0"),
+    name: p.name || null,
+    qty: Number(p.qty) || 0,
+    market_value: Number(p.market_value || p.amount) || null,
+    weight: Number(p.weight) || null,
+    pnl_pct: p.pnl_pct != null ? Number(p.pnl_pct) : null,
+    entry_price: Number(p.entry_price) || null,
+    last_price: Number(p.last_price) || null,
+  }));
+
+  const execItems = (execResults.items || []).filter((item) =>
+    ["submitted", "filled", "partial_filled", "failed"].includes(String(item.order_status || ""))
+  );
+
+  return {
+    as_of_date: execResults.as_of_date || liveState.as_of_date || null,
+    run_mode: execResults.run_mode || null,
+    generated_at: execResults.generated_at || null,
+    execution: {
+      as_of_date: execResults.as_of_date || null,
+      run_mode: execResults.run_mode || null,
+      order_run_aborted: !!execResults.order_run_aborted,
+      abort_reason: execResults.order_run_abort_reason || null,
+      reconciliation_blocked: !!execResults.new_orders_blocked_by_reconciliation,
+      submitted_count: Number(execSummary.submitted_count) || 0,
+      filled_count: Number(execSummary.filled_count) || 0,
+      partial_filled_count: Number(execSummary.partial_filled_count) || 0,
+      unfilled_count: Number(execSummary.unfilled_count) || 0,
+      failed_count: Number(execSummary.failed_count) || 0,
+      buy_filled_amount: Number(execSummary.buy_filled_amount) || 0,
+      sell_filled_amount: Number(execSummary.sell_filled_amount) || 0,
+      items: execItems.map((item) => ({
+        code: String(item.code || "").padStart(6, "0"),
+        side: item.side || null,
+        order_status: item.order_status || null,
+        order_qty: Number(item.order_qty) || null,
+        filled_qty: Number(item.filled_qty) || null,
+        avg_fill_price: Number(item.avg_fill_price) || null,
+        order_block_reason: item.primary_block_reason || item.order_block_reason || null,
+      })),
+    },
+    account: {
+      total_equity: Number(liveState.total_equity) || null,
+      cash: Number(liveState.cash) || null,
+      position_count: positions.length,
+    },
+    positions,
+    fill_sync: {
+      as_of_date: fillSync.as_of_date || null,
+      filled_count: Number(fillSync.filled_count) || 0,
+      partial_filled_count: Number(fillSync.partial_filled_count) || 0,
+      unfilled_count: Number(fillSync.unfilled_count) || 0,
+      canceled_count: Number(fillSync.canceled_count) || 0,
+      skip_reason: fillSync.skip_reason || null,
+    },
+    partial_fill_queue: (partialQ.items || []).map((item) => ({
+      code: String(item.code || "").padStart(6, "0"),
+      filled_qty: Number(item.filled_qty) || 0,
+      unfilled_qty: Number(item.unfilled_qty) || 0,
+      order_qty: Number(item.order_qty) || null,
+      avg_fill_price: Number(item.avg_fill_price) || null,
+      queued_at: item.queued_at || null,
+    })),
+  };
+}
+
 async function buildOpsReadinessSummary() {
   const opsNotesPath = path.join(OUTPUTS_DIR, "ops_operator_notes.json");
   const opsRuntime = await readAutoTradingOpsStatusPayload();
@@ -2131,6 +2205,7 @@ async function buildOpsReadinessSummary() {
       checklist: manual.checklist || [],
     },
     operations: opsRuntime || {},
+    rule_ops: buildRuleOpsSummary(),
     shadow: {
       quality_risk_guard_candidates: shadowCandidates,
       repeatability: {
@@ -4475,6 +4550,26 @@ try {
 app.get("/api/health", (req, res) => {
   const demo = fs.existsSync(path.join(DATA_DIR, ".demo"));
   res.json({ status: "ok", message: "API running", demo });
+});
+
+app.get("/api/alerts", (req, res) => {
+  try {
+    const filePath = path.join(OUTPUTS_DIR, "alert_log.json");
+    if (!fs.existsSync(filePath)) return res.json({ entries: [], last_updated: null });
+    const data = readJsonFile(filePath, { entries: [] });
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit || "200", 10) || 200));
+    const level = (req.query.level || "").toUpperCase();
+    const filtered = level ? entries.filter((e) => e.level === level) : entries;
+    res.json({
+      entries: filtered.slice(-limit).reverse(),
+      total: filtered.length,
+      last_updated: data.last_updated || null,
+    });
+  } catch (e) {
+    console.error("GET /api/alerts error", e);
+    res.status(500).json({ error: "internal error" });
+  }
 });
 
 app.get("/api/confidence-calibration", (req, res) => {

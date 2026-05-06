@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 from urllib import error, request
 
@@ -12,6 +13,45 @@ LEVEL_INFO = "INFO"
 LEVEL_WARNING = "WARNING"
 LEVEL_CRITICAL = "CRITICAL"
 VALID_LEVELS = {LEVEL_INFO, LEVEL_WARNING, LEVEL_CRITICAL}
+
+_DEFAULT_LOG_PATH = Path(__file__).resolve().parents[1] / "outputs" / "alert_log.json"
+_DEFAULT_MAX_ENTRIES = 200
+
+
+def _alert_log_path() -> Path:
+    raw = os.environ.get("ALERT_LOG_PATH", "").strip()
+    if not raw:
+        return _DEFAULT_LOG_PATH
+    p = Path(raw)
+    return p if p.is_absolute() else Path(__file__).resolve().parents[1] / p
+
+
+def _append_to_log(level: str, title: str, message: str, details: dict[str, Any] | None) -> None:
+    try:
+        log_path = _alert_log_path()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        if log_path.exists():
+            data = json.loads(log_path.read_text(encoding="utf-8"))
+        else:
+            data = {"entries": []}
+        entries: list = data.get("entries") or []
+        entries.append({
+            "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            "level": level,
+            "title": title,
+            "message": message,
+            "details": details or {},
+        })
+        max_entries = _DEFAULT_MAX_ENTRIES
+        try:
+            max_entries = max(10, int(os.environ.get("ALERT_LOG_MAX_ENTRIES", str(_DEFAULT_MAX_ENTRIES))))
+        except (ValueError, TypeError):
+            pass
+        data["entries"] = entries[-max_entries:]
+        data["last_updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        log_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        logging.warning("notifier: alert_log.json 기록 실패", exc_info=True)
 
 
 def _normalize_level(level: str) -> str:
@@ -45,6 +85,7 @@ def _render_message(level: str, title: str, message: str, details: dict[str, Any
 def notify(level: str, title: str, message: str, details: dict[str, Any] | None = None) -> bool:
     normalized_level = _normalize_level(level)
     rendered = _render_message(normalized_level, title, message, details)
+    _append_to_log(normalized_level, title, message, details)
     webhook_url = str(os.environ.get("SLACK_WEBHOOK_URL", "")).strip()
 
     try:

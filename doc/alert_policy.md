@@ -6,8 +6,16 @@ Define abnormal-condition alerts for KPI monitoring and live auto-trading.
 
 ## Channel
 
-- Primary: Slack Incoming Webhook via `SLACK_WEBHOOK_URL`
-- Fallback: console/log output when webhook is missing or delivery fails
+환경변수가 설정된 채널에만 발송됩니다. 미설정 시 콘솔(`logging.warning`)으로 fallback.
+알림은 채널 발송 성공 여부와 무관하게 `outputs/alert_log.json` 에 항상 기록됩니다.
+웹 페이지에서 확인: `/alerts.html`
+
+| 채널 | 활성화 조건 환경변수 |
+| --- | --- |
+| 콘솔 / 파일 로그 | 항상 |
+| Slack | `SLACK_WEBHOOK_URL` |
+| Telegram | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` |
+| Email (SMTP) | `ALERT_EMAIL_SMTP_HOST` + `ALERT_EMAIL_FROM` + `ALERT_EMAIL_TO` |
 
 ## Levels
 

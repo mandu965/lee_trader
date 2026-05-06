@@ -23,6 +23,7 @@ DEFAULT_RECON_MD = OUTPUT_DIR / "rule_execution_reconciliation_report.md"
 DEFAULT_EXECUTION_HISTORY = OUTPUT_DIR / "rule_execution_history.jsonl"
 DEFAULT_FILL_SYNC = OUTPUT_DIR / "rule_execution_fill_sync.json"
 DEFAULT_LIVE_STATE = OUTPUT_DIR / "rule_account_live_state.json"
+DEFAULT_PARTIAL_FILL_QUEUE = OUTPUT_DIR / "rule_partial_fill_queue.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-execution-history-jsonl", type=Path, default=DEFAULT_EXECUTION_HISTORY)
     parser.add_argument("--out-fill-sync-json", type=Path, default=DEFAULT_FILL_SYNC)
     parser.add_argument("--out-live-state-json", type=Path, default=DEFAULT_LIVE_STATE)
+    parser.add_argument("--out-partial-fill-queue-json", type=Path, default=DEFAULT_PARTIAL_FILL_QUEUE)
     parser.add_argument("--start-date", default="", help="YYYY-MM-DD or YYYYMMDD. Defaults to submitted_at date or today.")
     parser.add_argument("--end-date", default="", help="YYYY-MM-DD or YYYYMMDD. Defaults to submitted_at date or today.")
     return parser.parse_args()
@@ -230,6 +232,7 @@ def main() -> None:
     out_history = resolve(args.out_execution_history_jsonl)
     out_fill_sync = resolve(args.out_fill_sync_json)
     out_live_state = resolve(args.out_live_state_json)
+    out_partial_fill_queue = resolve(args.out_partial_fill_queue_json)
     state = default_state()
     start_date, end_date = _resolve_query_dates(in_results, args.start_date, args.end_date)
 
@@ -366,6 +369,23 @@ def main() -> None:
             sell_filled_amount += amount
         updated_items.append(row)
 
+    partial_fill_items = [
+        {
+            "queued_at": datetime.now().isoformat(timespec="seconds"),
+            "code": item.get("code"),
+            "side": item.get("side"),
+            "filled_qty": item.get("filled_qty"),
+            "unfilled_qty": item.get("unfilled_qty"),
+            "order_qty": item.get("order_qty"),
+            "avg_fill_price": item.get("avg_fill_price"),
+            "broker_order_id": item.get("broker_order_id"),
+        }
+        for item in updated_items
+        if str(item.get("side") or "").upper() == "BUY"
+        and str(item.get("order_status") or "") == "partial_filled"
+        and str(item.get("reconciliation_status") or "") != "partial_filled_cancel_requested"
+    ]
+
     updated_results = dict(in_results)
     updated_results["generated_at"] = datetime.now().isoformat(timespec="seconds")
     updated_results["items"] = updated_items
@@ -409,10 +429,25 @@ def main() -> None:
     out_fill_sync.write_text(json.dumps(fill_sync_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     out_live_state.write_text(json.dumps(live_state, ensure_ascii=False, indent=2), encoding="utf-8")
     append_jsonl(out_history, updated_results)
+    out_partial_fill_queue.parent.mkdir(parents=True, exist_ok=True)
+    out_partial_fill_queue.write_text(
+        json.dumps(
+            {
+                "generated_at": datetime.now().isoformat(timespec="seconds"),
+                "as_of_date": updated_results.get("as_of_date"),
+                "run_mode": updated_results.get("run_mode"),
+                "items": partial_fill_items,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     print(f"saved {out_results}")
     print(f"saved {out_recon}")
     print(f"saved {out_fill_sync}")
     print(f"saved {out_live_state}")
+    print(f"saved {out_partial_fill_queue}")
     print(f"appended {out_history}")
 
 

@@ -31,12 +31,25 @@ This document summarizes environment variables used by the AI pipeline and live 
 | `AUTO_TRADE_BUY_APPROVAL_REQUIRED` | `0` | Require manual BUY approval | live auto trade | Operational safety gate |
 | `AUTO_TRADE_FORCE_RESUBMIT` | `0` | Ignore previous successful request ids | live auto trade | Use carefully |
 
-## Alerts
+## Alerts (과제 4-B)
+
+설정된 채널에만 발송. 미설정 시 콘솔로 fallback. 파일 로그는 항상 기록.
+웹 확인: `/alerts.html` (`GET /api/alerts`)
 
 | Variable | Default | Description | Scope |
 | --- | --- | --- | --- |
-| `SLACK_WEBHOOK_URL` | blank | Slack Incoming Webhook URL | KPI alerts / live auto-trade alerts |
-| `ALERT_MIN_SCORE_THRESHOLD` | `40` | Warning threshold for Top20 mean `final_score` | `score_kpi_monitor.py` |
+| `SLACK_WEBHOOK_URL` | blank | Slack Incoming Webhook URL | KPI / live auto-trade alerts |
+| `TELEGRAM_BOT_TOKEN` | blank | Telegram Bot 토큰 | KPI / live auto-trade alerts |
+| `TELEGRAM_CHAT_ID` | blank | Telegram 채팅 ID | KPI / live auto-trade alerts |
+| `ALERT_EMAIL_SMTP_HOST` | blank | SMTP 서버 호스트 | KPI / live auto-trade alerts |
+| `ALERT_EMAIL_SMTP_PORT` | `587` | SMTP 포트 | alerts |
+| `ALERT_EMAIL_SMTP_USER` | blank | SMTP 사용자 (미설정 시 FROM 주소 사용) | alerts |
+| `ALERT_EMAIL_SMTP_PASSWORD` | blank | SMTP 비밀번호 | alerts |
+| `ALERT_EMAIL_FROM` | blank | 발신 이메일 주소 | alerts |
+| `ALERT_EMAIL_TO` | blank | 수신 이메일 주소 | alerts |
+| `ALERT_MIN_SCORE_THRESHOLD` | `40` | 상위 20개 평균 final_score 경보 기준치 | `score_kpi_monitor.py` |
+| `ALERT_LOG_PATH` | `outputs/alert_log.json` | 알림 로그 파일 경로 | notifier |
+| `ALERT_LOG_MAX_ENTRIES` | `200` | 로그 파일 최대 보관 건수 | notifier |
 
 ## KIS Auth
 
