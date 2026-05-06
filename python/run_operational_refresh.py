@@ -7,8 +7,10 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
+from performance_profiling import log_profile_result, profile_begin
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
@@ -28,6 +30,7 @@ REPAIR_SHADOW_SNAPSHOTS_SCRIPT = ROOT / "python" / "repair_shadow_ranking_snapsh
 QUALITY_COVERAGE_REPORT_SCRIPT = ROOT / "python" / "build_quality_coverage_report.py"
 QUALITY_RISK_GUARD_PROMOTION_REPORT_SCRIPT = ROOT / "python" / "build_quality_risk_guard_promotion_report.py"
 SYNC_AUXILIARY_PAYLOADS_SCRIPT = ROOT / "python" / "sync_auxiliary_payloads.py"
+PERFORMANCE_REPORT_SCRIPT = ROOT / "python" / "build_pipeline_performance_reports.py"
 LIVE_SYNC_SCRIPT = ROOT / "python" / "sync_live_account_holdings.py"
 LIVE_PREVIEW_SCRIPT = ROOT / "python" / "build_live_order_preview.py"
 TRADE_INTENTS_SCRIPT = ROOT / "python" / "build_trade_intents.py"
@@ -36,6 +39,7 @@ LIVE_HOLDINGS_CSV = ROOT / "data" / "live_account_holdings.csv"
 OUTPUTS_DIR = ROOT / "outputs"
 DATA_HISTORY_DIR = ROOT / "data" / "history"
 BUY_GATE_JSON = OUTPUTS_DIR / "operational_buy_gate.json"
+STATUS_JSON = OUTPUTS_DIR / "operational_refresh_status.json"
 SCORE_KPI_JSON_CANDIDATES = [
     ROOT / "data" / "score_kpi_monitor.json",
     OUTPUTS_DIR / "score_kpi_monitor.json",
@@ -44,6 +48,23 @@ BUY_GATE_HISTORY_CSV = DATA_HISTORY_DIR / "operational_buy_gate_history.csv"
 SCORE_KPI_HISTORY_CSV = DATA_HISTORY_DIR / "score_kpi_monitor_history.csv"
 DEFAULT_REQUIRED_STEP_TIMEOUT_SEC = 20 * 60
 DEFAULT_OPTIONAL_STEP_TIMEOUT_SEC = 10 * 60
+EXPORT_SYNC_PROFILE_STEPS = {"export_serving_payloads", "sync_auxiliary_payloads"}
+
+
+def _now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def _clip_output(value: str | None, limit: int = 4000) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n...<truncated>..."
+
+
+def _write_status(payload: dict[str, object]) -> None:
+    STATUS_JSON.parent.mkdir(parents=True, exist_ok=True)
+    STATUS_JSON.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
@@ -78,12 +99,28 @@ def _step_timeout_seconds(name: str, required: bool) -> int:
         return default_value
 
 
-def run_step(name: str, command: list[str], *, timeout_sec: int) -> None:
-    print(f"[START] {name}")
+def run_step(name: str, command: list[str], *, timeout_sec: int) -> tuple[float, str, str]:
+    print(f"[START] {name}", flush=True)
     started = time.monotonic()
-    subprocess.run(command, cwd=ROOT, check=True, timeout=timeout_sec)
+    completed = subprocess.run(
+        command,
+        cwd=ROOT,
+        check=True,
+        timeout=timeout_sec,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     elapsed = time.monotonic() - started
-    print(f"[OK] {name} elapsed_sec={elapsed:.1f}")
+    stdout_text = _clip_output(completed.stdout)
+    stderr_text = _clip_output(completed.stderr)
+    print(f"[OK] {name} elapsed_sec={elapsed:.1f}", flush=True)
+    if stdout_text:
+        print(stdout_text, flush=True)
+    if stderr_text:
+        print(stderr_text, flush=True)
+    return elapsed, stdout_text, stderr_text
 
 
 def read_json(path: Path) -> dict | None:
@@ -250,35 +287,153 @@ def main() -> int:
     steps.append(("sync_auxiliary_payloads", [PYTHON, str(SYNC_AUXILIARY_PAYLOADS_SCRIPT)], False))
 
     optional_failures: list[str] = []
+    step_results: list[dict[str, object]] = []
+    status_payload: dict[str, object] = {
+        "generated_at": _now_iso(),
+        "status": "running",
+        "command": " ".join([str(PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]]),
+        "steps": step_results,
+        "optional_failures": optional_failures,
+        "failing_step": None,
+        "failure_reason": None,
+    }
+    export_sync_state: dict[str, object] | None = None
+    _write_status(status_payload)
     try:
         for name, command, required in steps:
+            if name in EXPORT_SYNC_PROFILE_STEPS and export_sync_state is None:
+                export_sync_state = {
+                    "elapsed_sec": 0.0,
+                    "sample": profile_begin(),
+                }
             timeout_sec = _step_timeout_seconds(name, required)
+            step_entry: dict[str, object] = {
+                "name": name,
+                "command": [str(part) for part in command],
+                "required": bool(required),
+                "timeout_sec": timeout_sec,
+                "started_at": _now_iso(),
+                "status": "running",
+            }
+            step_results.append(step_entry)
+            status_payload["generated_at"] = _now_iso()
+            _write_status(status_payload)
             try:
-                run_step(name, command, timeout_sec=timeout_sec)
-            except subprocess.TimeoutExpired:
+                elapsed, stdout_text, stderr_text = run_step(name, command, timeout_sec=timeout_sec)
+                step_entry.update(
+                    {
+                        "finished_at": _now_iso(),
+                        "elapsed_sec": round(elapsed, 3),
+                        "status": "ok",
+                        "stdout": stdout_text or None,
+                        "stderr": stderr_text or None,
+                    }
+                )
+                if export_sync_state is not None and name in EXPORT_SYNC_PROFILE_STEPS:
+                    export_sync_state["elapsed_sec"] = float(export_sync_state.get("elapsed_sec", 0.0)) + float(elapsed)
+                    if name == "sync_auxiliary_payloads":
+                        log_profile_result(
+                            "export_sync",
+                            float(export_sync_state["elapsed_sec"]),
+                            sample=export_sync_state.get("sample"),
+                            extra={
+                                "script": "run_operational_refresh.py",
+                                "with_live_account": bool(args.with_live_account),
+                            },
+                        )
+                status_payload["generated_at"] = _now_iso()
+                _write_status(status_payload)
+            except subprocess.TimeoutExpired as exc:
                 label = f"{name} timeout after {timeout_sec}s"
+                step_entry.update(
+                    {
+                        "finished_at": _now_iso(),
+                        "status": "timeout",
+                        "stdout": _clip_output(getattr(exc, "stdout", "")) or None,
+                        "stderr": _clip_output(getattr(exc, "stderr", "")) or None,
+                    }
+                )
                 if required:
-                    print(f"[FAIL] {label}")
+                    print(f"[FAIL] {label}", flush=True)
+                    status_payload.update(
+                        {
+                            "generated_at": _now_iso(),
+                            "status": "failed",
+                            "failing_step": name,
+                            "failure_reason": label,
+                        }
+                    )
+                    _write_status(status_payload)
                     return 124
-                print(f"[WARN] optional step failed: {label}")
+                print(f"[WARN] optional step failed: {label}", flush=True)
                 optional_failures.append(label)
+                status_payload["generated_at"] = _now_iso()
+                _write_status(status_payload)
             except subprocess.CalledProcessError as exc:
                 label = f"{name} exit={exc.returncode}"
+                step_entry.update(
+                    {
+                        "finished_at": _now_iso(),
+                        "status": "failed",
+                        "exit_code": exc.returncode,
+                        "stdout": _clip_output(getattr(exc, "stdout", "")) or None,
+                        "stderr": _clip_output(getattr(exc, "stderr", "")) or None,
+                    }
+                )
                 if required:
-                    print(f"[FAIL] {label}")
+                    print(f"[FAIL] {label}", flush=True)
+                    if step_entry.get("stdout"):
+                        print(step_entry["stdout"], flush=True)
+                    if step_entry.get("stderr"):
+                        print(step_entry["stderr"], flush=True)
+                    status_payload.update(
+                        {
+                            "generated_at": _now_iso(),
+                            "status": "failed",
+                            "failing_step": name,
+                            "failure_reason": label,
+                        }
+                    )
+                    _write_status(status_payload)
                     return exc.returncode
-                print(f"[WARN] optional step failed: {label}")
+                print(f"[WARN] optional step failed: {label}", flush=True)
                 optional_failures.append(label)
+                status_payload["generated_at"] = _now_iso()
+                _write_status(status_payload)
         append_operational_history()
     except Exception as exc:
-        print(f"[FAIL] {exc}")
+        print(f"[FAIL] {exc}", flush=True)
+        status_payload.update(
+            {
+                "generated_at": _now_iso(),
+                "status": "failed",
+                "failure_reason": str(exc),
+            }
+        )
+        _write_status(status_payload)
         return 1
 
     if optional_failures:
-        print(f"[WARN] optional_failures={len(optional_failures)}")
+        print(f"[WARN] optional_failures={len(optional_failures)}", flush=True)
         for item in optional_failures:
-            print(f"[WARN] {item}")
-    print("[DONE] operational refresh completed")
+            print(f"[WARN] {item}", flush=True)
+    try:
+        if PERFORMANCE_REPORT_SCRIPT.exists():
+            subprocess.run([PYTHON, str(PERFORMANCE_REPORT_SCRIPT)], cwd=ROOT, check=True)
+        else:
+            print("[WARN] performance report script not found", flush=True)
+    except Exception as exc:
+        print(f"[WARN] performance report generation failed: {exc}", flush=True)
+    status_payload.update(
+        {
+            "generated_at": _now_iso(),
+            "status": "ok",
+            "failing_step": None,
+            "failure_reason": None,
+        }
+    )
+    _write_status(status_payload)
+    print("[DONE] operational refresh completed", flush=True)
     return 0
 
 

@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from sqlalchemy import text
 
+from performance_profiling import log_profile_result, profile_begin
 from production_config import get_production_config_value, is_operational_runtime_mode
 
 try:
@@ -75,6 +76,28 @@ THEME_OVERLAY_ALLOWED_MODES = {
     THEME_OVERLAY_OFF,
     THEME_OVERLAY_RESEARCH,
     THEME_OVERLAY_OPERATIONAL,
+}
+PROFILE_STEP_GROUP_BY_STEP = {
+    "fetch_market_data": "data_collection",
+    "fetch_top_universe": "data_collection",
+    "merge_universe": "data_collection",
+    "download_prices_kis": "data_collection",
+    "clean_prices": "data_collection",
+    "create_adjusted_prices": "data_collection",
+    "fetch_fundamentals_dart": "data_collection",
+    "quality_builder": "quality_build",
+    "feature_builder": "feature_build",
+    "model_train": "model_train",
+    "model_predict": "prediction",
+    "ranking_builder": "ranking_build",
+}
+PROFILE_STEP_GROUP_LAST_STEP = {
+    "data_collection": "fetch_fundamentals_dart",
+    "quality_build": "quality_builder",
+    "feature_build": "feature_builder",
+    "model_train": "model_train",
+    "prediction": "model_predict",
+    "ranking_build": "ranking_builder",
 }
 
 
@@ -1163,6 +1186,7 @@ def main() -> None:
             "meta_path": None,
             "error": None,
         }
+        grouped_profile_state: dict[str, dict[str, object]] = {}
         _log_run_id_event(run_id, f"Pipeline step order: {' -> '.join(name for name, _ in STEPS)}")
         _log_run_id_event(run_id, f"Resolved pipeline MARKET_DATE={market_date.isoformat()}")
         _log_run_id_event(
@@ -1174,6 +1198,12 @@ def main() -> None:
             f"ranking_enabled={theme_cfg['ranking_enabled']}",
         )
         for name, script in STEPS:
+            profile_group = PROFILE_STEP_GROUP_BY_STEP.get(name)
+            if profile_group and profile_group not in grouped_profile_state:
+                grouped_profile_state[profile_group] = {
+                    "elapsed_sec": 0.0,
+                    "sample": profile_begin(),
+                }
             if name == "ranking_builder":
                 maybe_run_theme_overlay_steps(run_id, theme_cfg)
             if log_pipeline_history:
@@ -1188,23 +1218,35 @@ def main() -> None:
                 elapsed = 0.0
                 if log_pipeline_history:
                     log_pipeline_history(run_id, name, "success", elapsed, "skipped_fresh_today")
-                continue
-            if name == "ranking_builder":
-                disable_overlay = not bool(theme_cfg.get("ranking_enabled"))
-                with temporarily_disable_theme_overlay_file(disable_overlay, run_id=run_id):
-                    elapsed = run_step(name, script, run_id=run_id)
             else:
-                elapsed = run_step(name, script, run_id=run_id)
-            if log_pipeline_history:
-                log_pipeline_history(run_id, name, "success", elapsed, None)
-            if name == "ranking_builder":
-                archive_status = run_archive_snapshot_step(
-                    run_id=run_id,
-                    archive_as_of_date=args.archive_as_of_date,
-                    continue_on_error=bool(args.continue_on_archive_error),
-                )
-                maybe_run_snapshot_readiness_reports(run_id)
+                if name == "ranking_builder":
+                    disable_overlay = not bool(theme_cfg.get("ranking_enabled"))
+                    with temporarily_disable_theme_overlay_file(disable_overlay, run_id=run_id):
+                        elapsed = run_step(name, script, run_id=run_id)
+                else:
+                    elapsed = run_step(name, script, run_id=run_id)
+                if log_pipeline_history:
+                    log_pipeline_history(run_id, name, "success", elapsed, None)
+                if name == "ranking_builder":
+                    archive_status = run_archive_snapshot_step(
+                        run_id=run_id,
+                        archive_as_of_date=args.archive_as_of_date,
+                        continue_on_error=bool(args.continue_on_archive_error),
+                    )
+                    maybe_run_snapshot_readiness_reports(run_id)
 
+            if profile_group:
+                state = grouped_profile_state[profile_group]
+                state["elapsed_sec"] = float(state.get("elapsed_sec", 0.0)) + float(elapsed)
+                if PROFILE_STEP_GROUP_LAST_STEP.get(profile_group) == name:
+                    log_profile_result(
+                        profile_group,
+                        float(state["elapsed_sec"]),
+                        sample=state.get("sample") if isinstance(state.get("sample"), object) else None,
+                        extra={"run_id": run_id, "script": "run_pipeline.py"},
+                    )
+
+        walkforward_sample = profile_begin()
         maybe_run_flow_ingestion(run_id)
         maybe_run_theme_validation(run_id, theme_cfg)
         maybe_sync_csv_db_parity(run_id)
@@ -1216,6 +1258,16 @@ def main() -> None:
         append_backtest_outcome(run_id)
         maybe_run_top20_meaningfulness_report(run_id)
         maybe_run_operational_decision_reports(run_id)
+        log_profile_result(
+            "walkforward",
+            time.perf_counter() - walkforward_sample.wall_start,
+            sample=walkforward_sample,
+            extra={
+                "run_id": run_id,
+                "script": "run_pipeline.py",
+                "notes": "includes walkforward acceptance and related operational decision reports",
+            },
+        )
         log_table_stats()
 
         try:

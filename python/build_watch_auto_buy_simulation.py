@@ -10,6 +10,8 @@ import pandas as pd
 
 from apply_execution_policy import (
     DEFAULT_CANDIDATES_CSV,
+    DEFAULT_CONFIDENCE_V2_CSV,
+    DEFAULT_LIVE_GRADE_MAP_JSON,
     DEFAULT_SNAPSHOT_ARCHIVE_CSV,
     GATE_VERSION,
     POLICY_VERSION,
@@ -19,6 +21,7 @@ from apply_execution_policy import (
     _markdown_table,
     load_candidates,
     load_holdings,
+    load_live_grade_map,
     parse_args as parse_policy_args,
 )
 from payload_store import upsert_json_payload
@@ -35,6 +38,8 @@ OUT_MD = OUTPUT_DIR / "watch_auto_buy_simulation.md"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build WATCH-mode limited auto-buy simulation payloads.")
     parser.add_argument("--candidates-csv", type=Path, default=DEFAULT_CANDIDATES_CSV)
+    parser.add_argument("--confidence-v2-csv", type=Path, default=DEFAULT_CONFIDENCE_V2_CSV)
+    parser.add_argument("--live-grade-map-json", type=Path, default=DEFAULT_LIVE_GRADE_MAP_JSON)
     parser.add_argument("--snapshot-archive-csv", type=Path, default=DEFAULT_SNAPSHOT_ARCHIVE_CSV)
     parser.add_argument("--out-json", type=Path, default=OUT_JSON)
     parser.add_argument("--out-md", type=Path, default=OUT_MD)
@@ -120,7 +125,8 @@ def main() -> int:
         sys.argv = original_argv
 
     policy_args.snapshot_archive_csv = args.snapshot_archive_csv
-    candidates = load_candidates(args.candidates_csv)
+    live_grade_map = load_live_grade_map(args.live_grade_map_json)
+    candidates = load_candidates(args.candidates_csv, args.confidence_v2_csv, live_grade_map)
     candidates = candidates.loc[
         pd.to_numeric(candidates["buy_rank"], errors="coerce").le(policy_args.candidate_universe_top_n)
     ].copy()

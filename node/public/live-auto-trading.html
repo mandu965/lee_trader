@@ -69,12 +69,14 @@
       .decision-value { margin-top: 8px; font-size: 24px; font-weight: 800; line-height: 1.25; }
       .decision-detail { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--color-text-secondary); }
       .hero-grid,
+      .diagnostic-grid,
       .status-grid,
       .board-grid {
         display: grid;
         gap: 12px;
       }
       .hero-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .diagnostic-grid { grid-template-columns: 1.2fr 1fr; }
       .status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .board-grid { grid-template-columns: 1.2fr 1fr; }
       .panel-card {
@@ -305,6 +307,13 @@
 
       <section class="panel panel-block">
         <div class="status-grid" id="statusGrid"></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="diagnostic-grid">
+          <div class="panel-card" id="diagnosticSummaryPanel"></div>
+          <div class="explain-box warn" id="whyNoTradeBox"></div>
+        </div>
       </section>
 
       <section class="panel panel-block">

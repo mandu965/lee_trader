@@ -109,6 +109,7 @@ execution_policy:
   confidence_reduced_position_cap_scale: 0.50
   confidence_standard_position_cap_scale: 1.00
   confidence_expanded_position_cap_scale: 1.15
+  live_grade_c_entry_enabled: true
   max_hold_rank: 10
   min_replace_score_gap: 3.0
   max_replacements_per_cycle: 2

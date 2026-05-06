@@ -38,3 +38,10 @@ docker compose run --rm scheduler-live-account-sync python python/sync_web_displ
 - `outputs/order_requests_preview.json`
 - `outputs/order_requests_execution.json`
 - `outputs/live_account_balance_summary.json`
+
+## Alerts
+
+- `python/score_kpi_monitor.py` sends alerts for walkforward rejection, low top20 score, and zero `BUY_ALLOWED` recommendations.
+- `python/run_live_auto_trade_cycle.py` sends critical alerts for order submission failure and fill sync failure.
+- Policy reference: `doc/alert_policy.md`
+- If `SLACK_WEBHOOK_URL` is not configured, alerts fall back to console/log output without stopping operations.

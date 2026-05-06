@@ -483,6 +483,8 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
                 "last_success_schedule_slot": str(status.get("pending_schedule_slot") or ""),
                 "last_completed_step": run_steps[-1][0],
                 "last_error": "",
+                "status_note": "",
+                "last_failure_skip_date": "",
             }
         )
         _write_status(payload)

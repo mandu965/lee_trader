@@ -165,6 +165,7 @@ def order_cash(
             "CNDT_PRIC": cndt_pric,
         },
         require_hashkey=False,
+        no_retry=True,
     )
     return _to_frame(payload, "output")
 
@@ -269,6 +270,7 @@ def order_rvsecncl(
             "CNDT_PRIC": str(cndt_pric or "").strip(),
         },
         require_hashkey=False,
+        no_retry=True,
     )
     return _to_frame(payload, "output")
 

@@ -97,12 +97,26 @@ def _build_derived_metrics(holdings: pd.DataFrame, summary_row: dict[str, float 
     }
 
 
-def _weekly_loss_context(total_assets: float | None, as_of_date: datetime) -> dict[str, float | str | None]:
+def _weekly_loss_context(
+    total_assets: float | None,
+    holding_pnl_amount: float | None,
+    cash_amount: float | None,
+    as_of_date: datetime,
+) -> dict[str, float | str | None]:
     if total_assets is None or total_assets <= 0:
         return {
+            "timezone": "Asia/Seoul",
+            "week_start_date": None,
+            "week_start_snapshot_at": None,
+            "week_start_cash_amount": None,
+            "week_start_holding_pnl_amount": None,
             "week_start_total_assets": None,
             "weekly_asset_change_amount": None,
+            "weekly_realized_pnl": None,
+            "weekly_unrealized_pnl": None,
+            "weekly_total_pnl": None,
             "weekly_loss_pct": None,
+            "weekly_reset_mode": "snapshot_based_no_scheduler",
             "weekly_loss_source": "current_total_assets_missing",
         }
     week_start = pd.Timestamp(as_of_date.date())
@@ -113,13 +127,23 @@ def _weekly_loss_context(total_assets: float | None, as_of_date: datetime) -> di
             row = conn.execute(
                 text(
                     """
-                    SELECT total_assets, snapshot_at
+                    WITH first_snapshot AS (
+                        SELECT snapshot_at
+                        FROM research.live_position_snapshot
+                        WHERE snapshot_date >= :week_start
+                          AND snapshot_date <= :as_of_date
+                          AND total_assets IS NOT NULL
+                        ORDER BY snapshot_at ASC
+                        LIMIT 1
+                    )
+                    SELECT
+                        MAX(snapshot_at) AS snapshot_at,
+                        MAX(snapshot_date) AS snapshot_date,
+                        MAX(total_assets) AS total_assets,
+                        MAX(cash_amount) AS cash_amount,
+                        COALESCE(SUM(pnl_amount), 0) AS holding_pnl_amount
                     FROM research.live_position_snapshot
-                    WHERE snapshot_date >= :week_start
-                      AND snapshot_date <= :as_of_date
-                      AND total_assets IS NOT NULL
-                    ORDER BY snapshot_at ASC
-                    LIMIT 1
+                    WHERE snapshot_at = (SELECT snapshot_at FROM first_snapshot)
                     """
                 ),
                 {
@@ -131,27 +155,58 @@ def _weekly_loss_context(total_assets: float | None, as_of_date: datetime) -> di
         row = None
     if not row:
         return {
+            "timezone": "Asia/Seoul",
+            "week_start_date": week_start.date().isoformat(),
+            "week_start_snapshot_at": None,
+            "week_start_cash_amount": None,
+            "week_start_holding_pnl_amount": None,
             "week_start_total_assets": None,
             "weekly_asset_change_amount": None,
+            "weekly_realized_pnl": None,
+            "weekly_unrealized_pnl": None,
+            "weekly_total_pnl": None,
             "weekly_loss_pct": None,
+            "weekly_reset_mode": "snapshot_based_no_scheduler",
             "weekly_loss_source": "live_position_snapshot_unavailable",
         }
 
     week_start_total_assets = _to_number(row.get("total_assets"))
     if week_start_total_assets is None or week_start_total_assets <= 0:
         return {
+            "timezone": "Asia/Seoul",
+            "week_start_date": str(row.get("snapshot_date") or week_start.date().isoformat()),
+            "week_start_snapshot_at": str(row.get("snapshot_at") or "") or None,
+            "week_start_cash_amount": _to_number(row.get("cash_amount")),
+            "week_start_holding_pnl_amount": _to_number(row.get("holding_pnl_amount")),
             "week_start_total_assets": week_start_total_assets,
             "weekly_asset_change_amount": None,
+            "weekly_realized_pnl": None,
+            "weekly_unrealized_pnl": None,
+            "weekly_total_pnl": None,
             "weekly_loss_pct": None,
+            "weekly_reset_mode": "snapshot_based_no_scheduler",
             "weekly_loss_source": "week_start_total_assets_invalid",
         }
 
+    week_start_cash_amount = _to_number(row.get("cash_amount"))
+    week_start_holding_pnl_amount = _to_number(row.get("holding_pnl_amount")) or 0.0
     weekly_asset_change_amount = total_assets - week_start_total_assets
+    weekly_unrealized_pnl = (holding_pnl_amount or 0.0) - week_start_holding_pnl_amount
+    weekly_realized_pnl = weekly_asset_change_amount - weekly_unrealized_pnl
     weekly_loss_pct = weekly_asset_change_amount / week_start_total_assets
     return {
+        "timezone": "Asia/Seoul",
+        "week_start_date": str(row.get("snapshot_date") or week_start.date().isoformat()),
+        "week_start_snapshot_at": str(row.get("snapshot_at") or "") or None,
+        "week_start_cash_amount": week_start_cash_amount,
+        "week_start_holding_pnl_amount": week_start_holding_pnl_amount,
         "week_start_total_assets": week_start_total_assets,
         "weekly_asset_change_amount": weekly_asset_change_amount,
+        "weekly_realized_pnl": weekly_realized_pnl,
+        "weekly_unrealized_pnl": weekly_unrealized_pnl,
+        "weekly_total_pnl": weekly_asset_change_amount,
         "weekly_loss_pct": weekly_loss_pct,
+        "weekly_reset_mode": "snapshot_based_no_scheduler",
         "weekly_loss_source": "live_position_snapshot",
     }
 
@@ -204,7 +259,12 @@ def main() -> int:
     cash_summary = summarize_cash(summary_df)
     summary_row = _normalize_summary_row(summary_df)
     derived_metrics = _build_derived_metrics(holdings, summary_row)
-    weekly_context = _weekly_loss_context(derived_metrics.get("total_assets"), datetime.now())
+    weekly_context = _weekly_loss_context(
+        derived_metrics.get("total_assets"),
+        derived_metrics.get("holding_pnl_amount"),
+        derived_metrics.get("cash_amount"),
+        datetime.now(),
+    )
     derived_metrics.update(weekly_context)
     payload = {
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),

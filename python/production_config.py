@@ -66,3 +66,24 @@ def allow_experimental_runtime_features(default: bool = True) -> bool:
         return str(env_raw).strip().lower() in {"1", "true", "t", "yes", "y", "on"}
     configured = get_production_config_value(["runtime", "allow_experimental_features"], default)
     return bool(configured)
+
+
+_SCORE_FORMULA_VERSION_DEFAULT = "ranking_builder_v8_return_prob_tech_regime"
+
+
+def get_score_formula_version() -> str:
+    """Returns the active score formula version string.
+
+    Priority: SCORE_FORMULA_VERSION env var > config metadata.score_formula_version > built-in default.
+
+    The env var acts as a feature flag for switching formula versions.
+    In operational runtime mode, ranking_builder.resolve_score_formula_version() ignores the
+    env var override for safety — the switch is prepared here but left off by default.
+    To activate in operational mode, set SCORE_FORMULA_VERSION explicitly in .env AND
+    update ranking_builder.resolve_score_formula_version() to honour it.
+    """
+    env_raw = str(os.environ.get("SCORE_FORMULA_VERSION") or "").strip()
+    if env_raw:
+        return env_raw
+    configured = get_production_config_value(["metadata", "score_formula_version"], _SCORE_FORMULA_VERSION_DEFAULT)
+    return str(configured or _SCORE_FORMULA_VERSION_DEFAULT)

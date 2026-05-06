@@ -60,9 +60,11 @@
       .neg { color: #fca5a5; }
       .empty-state { padding: 18px; border: 1px dashed var(--border); border-radius: var(--radius-lg); color: var(--color-text-secondary); text-align: center; }
       .state-line { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); }
+      .diagnostic-grid { display: grid; gap: 12px; grid-template-columns: 1.2fr 1fr; }
+      .badge-list { display: flex; flex-wrap: wrap; gap: 8px; }
       @media (max-width: 1100px) {
         .page-header { flex-direction: column; }
-        .hero-grid, .status-grid, .board-grid { grid-template-columns: 1fr; }
+        .hero-grid, .status-grid, .board-grid, .diagnostic-grid { grid-template-columns: 1fr; }
       }
       @media (max-width: 640px) {
         .rule-page { padding: 18px 12px 36px; }
@@ -105,6 +107,32 @@
 
       <section class="panel panel-block">
         <div class="status-grid" id="statusGrid"></div>
+      </section>
+
+      <section class="diagnostic-grid">
+        <section class="panel panel-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">시스템 상태</h2>
+              <div class="section-note">실매매 가능 여부와 주간 손익 차단 상태를 먼저 확인합니다.</div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="kv" id="systemStatusKv"></div>
+          </div>
+        </section>
+        <section class="panel panel-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">왜 주문이 없었나요?</h2>
+              <div class="section-note">가장 큰 차단 원인을 자동으로 요약합니다.</div>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="kv" id="whyNoTradeKv"></div>
+            <div class="badge-list" id="diagnosticBadges"></div>
+          </div>
+        </section>
       </section>
 
       <section class="board-grid">
@@ -228,9 +256,11 @@
                 <th>액션</th>
                 <th>주문 방향</th>
                 <th class="right">예상 체결가</th>
+                <th class="right">기준 주문금액</th>
                 <th class="right">수량</th>
                 <th class="right">금액</th>
                 <th>차단 사유</th>
+                <th>API 요청</th>
               </tr>
             </thead>
             <tbody id="previewTbody"></tbody>
@@ -257,6 +287,7 @@
                 <th class="right">평균 체결가</th>
                 <th class="right">실제 갭</th>
                 <th>차단 사유</th>
+                <th>API 요청</th>
               </tr>
             </thead>
             <tbody id="executionTbody"></tbody>

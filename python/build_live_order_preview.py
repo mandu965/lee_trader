@@ -201,6 +201,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
         f"- asof_date: {payload.get('asof_date') or 'NA'}",
         f"- env_dv: {payload.get('env_dv') or 'NA'}",
         f"- gate_status: {payload.get('gate_status') or 'NA'}",
+        f"- gate_source_status: {payload.get('gate_source_status') or 'NA'}",
+        f"- gate_runtime_status: {payload.get('gate_runtime_status') or 'NA'}",
         f"- gate_display_status: {payload.get('gate_display_status') or payload.get('gate_status') or 'NA'}",
         f"- limited_entry_mode: {payload.get('limited_entry_mode') or 'none'}",
         f"- available_cash: {_fmt_num((payload.get('cash_summary') or {}).get('dnca_tot_amt'))}",

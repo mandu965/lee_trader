@@ -41,6 +41,8 @@ def main() -> int:
         [PYTHON, str(ROOT / "python" / "rule_order_preview_builder.py"), "--run-mode", run_mode],
     )
     _run("rule_daily_report", [PYTHON, str(ROOT / "python" / "rule_daily_report.py")])
+    if str(os.environ.get("RULE_BLOCK_REASON_REPORT_ENABLED", "1")).strip().lower() in {"1", "true", "yes", "on"}:
+        _run("rule_block_reason_report", [PYTHON, str(ROOT / "python" / "rule_block_reason_report.py")])
     print(f"[DONE] rule after-close cycle completed run_mode={run_mode}")
     return 0
 

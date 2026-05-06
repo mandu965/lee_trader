@@ -11,6 +11,8 @@ try:
 except Exception:
     load_dotenv = None
 
+from notifier import notify_critical
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = sys.executable
@@ -49,8 +51,33 @@ def _env_flag(name: str, default: bool = False) -> bool:
 
 def _run_step(name: str, command: list[str]) -> None:
     print(f"[START] {name}")
-    subprocess.run(command, cwd=ROOT, check=True)
+    try:
+        subprocess.run(command, cwd=ROOT, check=True)
+    except subprocess.CalledProcessError as exc:
+        if name in {"submit_live_orders", "sync_live_order_fills"}:
+            _notify_step_failure(name, command, exc)
+        raise
     print(f"[OK] {name}")
+
+
+def _notify_step_failure(name: str, command: list[str], exc: subprocess.CalledProcessError) -> None:
+    try:
+        message = (
+            "Live order submission step failed. Check KIS order submission path and execution artifacts."
+            if name == "submit_live_orders"
+            else "Live order fill synchronization failed. Check KIS fill inquiry and DB sync path."
+        )
+        notify_critical(
+            f"Lee Trader live auto-trade failure: {name}",
+            message,
+            {
+                "step": name,
+                "returncode": exc.returncode,
+                "command": " ".join(str(part) for part in command),
+            },
+        )
+    except Exception:
+        pass
 
 
 def _refresh_command() -> list[str]:
@@ -91,12 +118,30 @@ def main() -> int:
     if not args.skip_refresh:
         _run_step("run_operational_refresh", _refresh_command())
 
-    _run_step(
-        "submit_live_orders",
-        _submit_command(execute=execute, allow_buy=allow_buy, force_resubmit=force_resubmit),
-    )
+    try:
+        _run_step(
+            "submit_live_orders",
+            _submit_command(execute=execute, allow_buy=allow_buy, force_resubmit=force_resubmit),
+        )
+    except subprocess.CalledProcessError as exc:
+        _notify(
+            "주문 제출 실패 (submit_live_orders)",
+            f"exit={exc.returncode}",
+            level="CRITICAL",
+        )
+        raise
+
     _run_step("sync_live_account_holdings", [PYTHON, str(SYNC_LIVE_ACCOUNT_HOLDINGS_SCRIPT)])
-    _run_step("sync_live_order_fills", [PYTHON, str(SYNC_LIVE_ORDER_FILLS_SCRIPT)])
+
+    try:
+        _run_step("sync_live_order_fills", [PYTHON, str(SYNC_LIVE_ORDER_FILLS_SCRIPT)])
+    except subprocess.CalledProcessError as exc:
+        _notify(
+            "체결 동기화 실패 (sync_live_order_fills)",
+            f"exit={exc.returncode}",
+            level="CRITICAL",
+        )
+        raise
     _run_step("build_live_trade_consistency_report", [PYTHON, str(BUILD_LIVE_TRADE_CONSISTENCY_SCRIPT)])
     _run_step("build_live_trade_review", [PYTHON, str(BUILD_LIVE_TRADE_REVIEW_SCRIPT)])
     _run_step("build_live_trade_review_summary", [PYTHON, str(BUILD_LIVE_TRADE_REVIEW_SUMMARY_SCRIPT)])

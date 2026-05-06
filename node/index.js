@@ -2809,6 +2809,190 @@ async function readRuleExecutionResultsPayload() {
   return await readJsonPayloadDbFirst("rule_execution_results", [RULE_EXECUTION_RESULTS_PATH]);
 }
 
+async function readRuleBalanceSummaryPayload() {
+  return await readJsonPayloadDbFirst("live_account_balance_summary", [path.join(OUTPUTS_DIR, "live_account_balance_summary.json")]);
+}
+
+function readRuleExecutionHistoryItems(limit = 50) {
+  const historyPath = path.join(OUTPUTS_DIR, "rule_execution_history.jsonl");
+  if (!fs.existsSync(historyPath)) return [];
+  const lines = fs.readFileSync(historyPath, "utf-8")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return lines.slice(-limit).map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return null;
+    }
+  }).filter(Boolean);
+}
+
+function chooseLatestActualRuleExecution(historyItems = []) {
+  for (let idx = historyItems.length - 1; idx >= 0; idx -= 1) {
+    const item = historyItems[idx] || {};
+    const runMode = String(item.run_mode || "").toLowerCase();
+    const rows = Array.isArray(item.items) ? item.items : [];
+    if (!["pilot", "live"].includes(runMode)) continue;
+    if (item.order_run_aborted) continue;
+    if (rows.length) return item;
+  }
+  return null;
+}
+
+function collectRuleDiagnostics({ preview = {}, execution = {}, balance = {}, accountState = {}, executionHistory = [] } = {}) {
+  const actualExecution = chooseLatestActualRuleExecution(executionHistory) || execution || {};
+  const previewItems = Array.isArray(preview.items) ? preview.items : [];
+  const executionItems = Array.isArray(execution.items) ? execution.items : [];
+  const actualExecutionItems = Array.isArray(actualExecution.items) ? actualExecution.items : [];
+  const previewBuyItems = previewItems.filter((item) => String(item.side || "").toUpperCase() === "BUY");
+  const blockedPreviewItems = previewBuyItems.filter((item) => !item.order_allowed);
+  const actualBlockedBuyItems = actualExecutionItems.filter((item) =>
+    String(item.side || "").toUpperCase() === "BUY" && String(item.order_status || "").toLowerCase() === "blocked"
+  );
+  const executionBlockedItems = executionItems.filter((item) => String(item.order_status || "").toLowerCase() === "blocked");
+  const failedExecutionItems = executionItems.filter((item) => String(item.order_status || "").toLowerCase() === "failed");
+  const submittedItems = executionItems.filter((item) => String(item.order_status || "").toLowerCase() === "submitted");
+  const currentBlockedDetails = blockedPreviewItems.flatMap((item) => Array.isArray(item.block_reason_details) ? item.block_reason_details : []);
+  const actualBlockedDetails = actualBlockedBuyItems.flatMap((item) => Array.isArray(item.block_reason_details) ? item.block_reason_details : []);
+  const allBlockedDetails = actualBlockedDetails.length ? actualBlockedDetails : currentBlockedDetails;
+  const weeklySnapshot =
+    actualBlockedBuyItems.find((item) => item.common_risk_snapshot)?.common_risk_snapshot ||
+    blockedPreviewItems.find((item) => item.common_risk_snapshot)?.common_risk_snapshot ||
+    {};
+  const derived = balance.derived_metrics || {};
+  const currentPreviewDate = String(preview.generated_at || "");
+  const actualExecutionDate = String(actualExecution.generated_at || "");
+  const summary = {
+    run_id: actualExecution.run_id || preview.run_id || execution.run_id || null,
+    recommendation_count: preview.summary?.buy_preview_count ?? previewBuyItems.length,
+    order_candidate_count: preview.summary?.request_count ?? previewItems.length,
+    submit_allowed_count: preview.summary?.submit_allowed_count ?? previewItems.filter((item) => item.order_allowed).length,
+    policy_blocked_count: actualBlockedBuyItems.length || preview.summary?.policy_blocked_count || blockedPreviewItems.length,
+    api_error_count: failedExecutionItems.length,
+    broker_submitted_count: actualExecution.summary?.submitted_count ?? submittedItems.length,
+    live_trade_ready: Boolean((preview.summary?.submit_allowed_count ?? 0) > 0 && !preview.debug_trade_mode),
+    debug_trade_mode: Boolean(preview.debug_trade_mode || execution.debug_trade_mode),
+    run_mode: preview.run_mode || execution.run_mode || null,
+    current_cash: accountState.cash ?? derived.cash_amount ?? null,
+    weekly_total_pnl: weeklySnapshot.weekly_total_pnl ?? derived.weekly_total_pnl ?? derived.weekly_asset_change_amount ?? null,
+    weekly_realized_pnl: weeklySnapshot.weekly_realized_pnl ?? derived.weekly_realized_pnl ?? null,
+    weekly_unrealized_pnl: weeklySnapshot.weekly_unrealized_pnl ?? derived.weekly_unrealized_pnl ?? null,
+    weekly_loss_rate: weeklySnapshot.weekly_loss_rate ?? weeklySnapshot.weekly_loss_pct ?? derived.weekly_loss_pct ?? null,
+    weekly_limit: weeklySnapshot.weekly_limit ?? weeklySnapshot.weekly_loss_limit_pct ?? -0.03,
+    weekly_blocked: Boolean(weeklySnapshot.weekly_blocked),
+    weekly_loss_source: weeklySnapshot.weekly_loss_source ?? derived.weekly_loss_source ?? null,
+    week_start_date: weeklySnapshot.week_start_date ?? derived.week_start_date ?? null,
+    timezone: weeklySnapshot.timezone ?? derived.timezone ?? "Asia/Seoul",
+    weekly_reset_mode: weeklySnapshot.weekly_reset_mode ?? derived.weekly_reset_mode ?? "snapshot_based_no_scheduler",
+    last_preview_at: preview.generated_at || null,
+    last_execution_at: execution.generated_at || null,
+    actual_failure_at: actualExecution.generated_at || null,
+    actual_failure_as_of_date: actualExecution.as_of_date || null,
+    actual_failure_run_mode: actualExecution.run_mode || null,
+    current_preview_as_of_date: preview.as_of_date || null,
+    current_preview_generated_at: preview.generated_at || null,
+    actual_execution_submitted_count: actualExecution.summary?.submitted_count ?? 0,
+    current_execution_aborted: Boolean(execution.order_run_aborted),
+    current_execution_abort_reason: execution.order_run_abort_reason || null,
+    replay_warning: Boolean(
+      currentPreviewDate &&
+      actualExecutionDate &&
+      currentPreviewDate !== actualExecutionDate &&
+      String(preview.as_of_date || "") === String(actualExecution.as_of_date || "")
+    ),
+    main_block_reason: actualBlockedBuyItems[0]?.order_block_reason || blockedPreviewItems[0]?.order_block_reason || null,
+    main_block_detail: allBlockedDetails[0] || null,
+  };
+  const diagnostics = [];
+  if (summary.weekly_blocked) {
+    diagnostics.push({
+      type: "WEEKLY_LOSS_LIMIT",
+      severity: "BLOCKED",
+      message_ko: "주간 손실 제한에 도달해 신규 BUY 주문이 차단되었습니다.",
+      raw_reason: "weekly_loss_limit_reached",
+      details: {
+        weekly_realized_pnl: summary.weekly_realized_pnl,
+        weekly_unrealized_pnl: summary.weekly_unrealized_pnl,
+        weekly_total_pnl: summary.weekly_total_pnl,
+        weekly_loss_rate: summary.weekly_loss_rate,
+        weekly_limit: summary.weekly_limit,
+        weekly_loss_source: summary.weekly_loss_source,
+        week_start_date: summary.week_start_date,
+        timezone: summary.timezone,
+        weekly_reset_mode: summary.weekly_reset_mode,
+      },
+    });
+  }
+  if (blockedPreviewItems.some((item) => String(item.order_block_reason || "").includes("order_qty_zero"))) {
+    diagnostics.push({
+      type: "ORDER_QTY_ZERO",
+      severity: "BLOCKED",
+      message_ko: "주문 수량이 0주로 계산되어 주문이 생성되지 않았습니다.",
+      raw_reason: "order_qty_zero",
+    });
+  }
+  if (blockedPreviewItems.some((item) => String(item.order_block_reason || "").includes("final_order_amount_below_min_order_amount"))) {
+    diagnostics.push({
+      type: "MIN_ORDER_AMOUNT",
+      severity: "BLOCKED",
+      message_ko: "최종 주문 금액이 최소 주문 금액보다 작아 주문이 차단되었습니다.",
+      raw_reason: "final_order_amount_below_min_order_amount",
+    });
+  }
+  if (blockedPreviewItems.some((item) => String(item.order_block_reason || "").includes("price_too_high_for_minimum_shares"))) {
+    diagnostics.push({
+      type: "PRICE_TOO_HIGH",
+      severity: "BLOCKED",
+      message_ko: "현재가가 높아 최소 1주 주문 금액을 맞출 수 없습니다.",
+      raw_reason: "price_too_high_for_minimum_shares",
+    });
+  }
+  if (summary.replay_warning) {
+    diagnostics.push({
+      type: "REPLAY_WARNING",
+      severity: "WARNING",
+      message_ko: "현재 화면의 일부 경고는 장후 재생성 preview 기준입니다. 실제 실패 원인은 마지막 실주문 실행 기준을 우선 확인해야 합니다.",
+      raw_reason: "after_hours_preview_replay",
+    });
+  }
+  failedExecutionItems.forEach((item) => {
+    diagnostics.push({
+      type: "API_ERROR",
+      severity: "ERROR",
+      message_ko: "브로커 주문 API 호출 중 오류가 발생했습니다.",
+      raw_reason: item.order_block_reason || "order_submit_failed",
+      details: {
+        symbol: item.code || item.symbol || null,
+        order_status: item.order_status || null,
+      },
+    });
+  });
+  return {
+    summary,
+    diagnostics,
+    actual_failure_context: {
+      generated_at: actualExecution.generated_at || null,
+      as_of_date: actualExecution.as_of_date || null,
+      run_mode: actualExecution.run_mode || null,
+      submitted_count: actualExecution.summary?.submitted_count ?? 0,
+      blocked_buy_count: actualBlockedBuyItems.length,
+      order_run_aborted: Boolean(actualExecution.order_run_aborted),
+      order_run_abort_reason: actualExecution.order_run_abort_reason || null,
+    },
+    current_preview_context: {
+      generated_at: preview.generated_at || null,
+      as_of_date: preview.as_of_date || null,
+      run_mode: preview.run_mode || null,
+      debug_trade_mode: Boolean(preview.debug_trade_mode),
+      policy_blocked_count: preview.summary?.policy_blocked_count ?? blockedPreviewItems.length,
+    },
+    blocked_preview_items: blockedPreviewItems.slice(0, 20),
+    failed_execution_items: failedExecutionItems.slice(0, 20),
+  };
+}
+
 async function readRulePaperStatePayload() {
   const execution = await readRuleExecutionResultsPayload();
   const paperPayload = await readJsonPayloadDbFirst("rule_account_paper_state", [RULE_PAPER_STATE_PATH]);
@@ -2826,6 +3010,21 @@ async function readRuleBacktestPayload() {
 
 async function readAutoTradingOpsStatusPayload() {
   return await readJsonPayloadDbFirst("auto_trading_ops_status", [path.join(OUTPUTS_DIR, "auto_trading_ops_status.json")]);
+}
+
+async function readAutoTradingRuntimeStatusPayload() {
+  const opsStatus = await readAutoTradingOpsStatusPayload();
+  return {
+    close_scheduler: await readJsonPayloadDbFirst("auto_ops_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_scheduler_status.json")]),
+    intraday_scheduler: await readJsonPayloadDbFirst("auto_ops_recovery_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_recovery_scheduler_status.json")]),
+    auto_buy_scheduler: await readJsonPayloadDbFirst("auto_ops_auto_buy_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_auto_buy_scheduler_status.json")]),
+    live_account_sync_scheduler: await readJsonPayloadDbFirst("auto_ops_live_account_sync_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_live_account_sync_scheduler_status.json")]),
+    operations: opsStatus || {},
+  };
+}
+
+async function readOperationalRefreshStatusPayload() {
+  return readJsonFile(path.join(OUTPUTS_DIR, "operational_refresh_status.json"), null);
 }
 
 function registerRuleApiRoutes(target) {
@@ -2913,18 +3112,35 @@ function registerRuleApiRoutes(target) {
     }
   });
 
-  target.get("/api/rule/execution-results", async (req, res) => {
-    try {
-      const payload = await readRuleExecutionResultsPayload();
+    target.get("/api/rule/execution-results", async (req, res) => {
+      try {
+        const payload = await readRuleExecutionResultsPayload();
       if (!payload.generated_at && !Array.isArray(payload.items)) {
         return res.status(404).json({ error: "rule execution results not found" });
       }
       res.json(payload);
     } catch (e) {
       console.error("GET /api/rule/execution-results error", e);
-      res.status(500).json({ error: "internal error" });
-    }
-  });
+        res.status(500).json({ error: "internal error" });
+      }
+    });
+
+    target.get("/api/rule/trading-diagnostics", async (req, res) => {
+      try {
+        const [preview, execution, balance, accountState] = await Promise.all([
+          readRuleOrderPreviewPayload(),
+          readRuleExecutionResultsPayload(),
+          readRuleBalanceSummaryPayload(),
+          readRulePaperStatePayload().catch(() => ({})),
+        ]);
+        const executionHistory = readRuleExecutionHistoryItems(50);
+        const payload = collectRuleDiagnostics({ preview, execution, balance, accountState, executionHistory });
+        res.json(payload);
+      } catch (e) {
+        console.error("GET /api/rule/trading-diagnostics error", e);
+        res.status(500).json({ error: "internal error" });
+      }
+    });
 
   target.get("/api/rule/execution-history", async (req, res) => {
     try {
@@ -6101,6 +6317,8 @@ app.get("/api/live-account/summary", async (req, res) => {
       holding_count: visibleHoldingCount,
       order_preview_count: Array.isArray(preview?.items) ? preview.items.length : 0,
       preview_gate_status: preview?.gate_status || null,
+      preview_gate_source_status: preview?.gate_source_status || null,
+      preview_gate_runtime_status: preview?.gate_runtime_status || null,
       preview_gate_display_status: preview?.gate_display_status || preview?.gate_status || null,
       order_execution_count: Array.isArray(execution?.items) ? execution.items.length : 0,
       last_execution_at: execution?.executed_at || null,
@@ -6109,6 +6327,156 @@ app.get("/api/live-account/summary", async (req, res) => {
   } catch (e) {
     console.error("GET /api/live-account/summary error", e);
     res.status(500).json({ error: "internal error" });
+  }
+});
+
+function classifyKstMarketStatus(now = new Date()) {
+  const kst = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+  const weekday = kst.getDay();
+  const minutes = kst.getHours() * 60 + kst.getMinutes();
+  if (Number.isNaN(kst.getTime())) {
+    return { market_status: "UNKNOWN", market_status_ko: "확인불가" };
+  }
+  if (weekday === 0 || weekday === 6) {
+    return { market_status: "HOLIDAY", market_status_ko: "휴장" };
+  }
+  if (minutes < 9 * 60) {
+    return { market_status: "PREOPEN", market_status_ko: "장전" };
+  }
+  if (minutes < 15 * 60 + 30) {
+    return { market_status: "OPEN", market_status_ko: "장중" };
+  }
+  return { market_status: "AFTER_HOURS", market_status_ko: "장후" };
+}
+
+function collectLiveAutoDiagnostics({ intents, preview, execution, runtime, refreshStatus }) {
+    const intentRows = Array.isArray(intents?.intents) ? intents.intents : [];
+    const previewRows = Array.isArray(preview?.items) ? preview.items : [];
+    const executionRows = Array.isArray(execution?.items) ? execution.items : [];
+    const sellPreviewRows = previewRows.filter((row) => String(row.side || "").toUpperCase() === "SELL");
+    const recommendationCount = new Set(
+      intentRows
+        .filter((row) => row?.selected_for_ai_top5 || row?.ai_filtered_source_used)
+      .map((row) => String(row.code || "").trim())
+      .filter(Boolean)
+  ).size;
+  const buyPreviewRows = previewRows.filter((row) => String(row.side || "").toUpperCase() === "BUY");
+  const submitAllowedCount = buyPreviewRows.filter((row) =>
+    !!row.executable_now && String(row.policy_status || "").toUpperCase() !== "BLOCK"
+  ).length;
+    const policyBlockedRows = buyPreviewRows.filter((row) =>
+      String(row.policy_status || "").toUpperCase() === "BLOCK" || !!row.blocked_reason
+    );
+    const sellExecutableRows = sellPreviewRows.filter((row) => !!row.executable_now);
+    const brokerRejectedRows = executionRows.filter((row) =>
+      String(row.broker_result || "").toUpperCase() === "REJECTED" ||
+      String(row.submission_status || "").toLowerCase() === "failed"
+    );
+    const scheduler = runtime?.auto_buy_scheduler || {};
+    const schedulerFailedToday = String(scheduler.status || "").toLowerCase() === "error" &&
+      String(scheduler.last_failure_at || "").startsWith(new Date().toISOString().slice(0, 10));
+    const allDiagnostics = [];
+  for (const row of buyPreviewRows) {
+    const policyDiagnostics = Array.isArray(row.policy_diagnostics) ? row.policy_diagnostics : [];
+    for (const item of policyDiagnostics) {
+      if (item && (item.user_message_ko || item.raw_reason)) {
+        allDiagnostics.push({
+          type: item.block_type || row.block_type || "POLICY_BLOCK",
+          severity: item.severity || row.severity || "INFO",
+          message_ko: item.user_message_ko || row.user_message_ko || null,
+          raw_reason: item.raw_reason || row.raw_reason || row.reason || null,
+          recommended_action: item.recommended_action || row.recommended_action || null,
+        });
+      }
+    }
+  }
+    for (const row of brokerRejectedRows) {
+    const broker = row.broker_diagnostic || {};
+    const rawText = String(broker.raw_reason || row.skip_reason || "");
+    const codeMatch = rawText.match(/msg_cd=([A-Z0-9_-]+)/i);
+    const msgMatch = rawText.match(/msg1=(.+)$/i);
+    allDiagnostics.push({
+      type: broker.block_type || "BROKER_REJECT",
+      severity: broker.severity || "ERROR",
+      message_ko: broker.user_message_ko || row.broker_error_message || row.skip_reason || null,
+      raw_reason: broker.raw_reason || row.skip_reason || null,
+      recommended_action: Array.isArray(broker.actions) ? broker.actions.join(" / ") : broker.recommended_action || null,
+      broker_error_code: row.broker_error_code || broker.broker_error_code || (codeMatch ? codeMatch[1] : null),
+      broker_error_message: row.broker_error_message || broker.broker_error_message || (msgMatch ? msgMatch[1].trim() : null),
+      inferred_causes: broker.inferred_causes || [],
+      });
+    }
+    if (schedulerFailedToday) {
+      allDiagnostics.unshift({
+        type: "SCHEDULER_FAILURE",
+        severity: "ERROR",
+        message_ko: "오늘 AI 자동매매 스케줄이 주문 제출 전 단계에서 실패해 실제 주문 제출이 진행되지 않았습니다.",
+        raw_reason: scheduler.last_error || "run_operational_refresh_failed",
+        recommended_action: "auto buy scheduler 로그와 run_operational_refresh 실패 원인을 먼저 확인하세요.",
+        scheduler_failed_at: scheduler.last_failure_at || null,
+      });
+    }
+    if (refreshStatus && String(refreshStatus.status || "").toLowerCase() === "failed") {
+      allDiagnostics.unshift({
+        type: "REFRESH_STEP_FAILURE",
+        severity: "ERROR",
+        message_ko: "주문 제출 전 refresh 단계에서 필수 스텝이 실패했습니다.",
+        raw_reason: refreshStatus.failure_reason || null,
+        recommended_action: "operational_refresh_status에서 failing_step, stdout, stderr를 확인하세요.",
+        failing_step: refreshStatus.failing_step || null,
+      });
+    }
+    const primary = allDiagnostics[0] || null;
+    const firstBuyRow = buyPreviewRows[0] || intentRows.find((row) => String(row.intent_type || "").toUpperCase() === "BUY") || null;
+  const liveGrade = firstBuyRow?.live_confidence_grade || null;
+  const latestExecutionRow = executionRows.slice().reverse().find((row) => row?.market_context) || null;
+  const marketStatus = latestExecutionRow?.market_context?.market_status || classifyKstMarketStatus().market_status;
+  const marketStatusKo = latestExecutionRow?.market_context?.market_status_ko || classifyKstMarketStatus().market_status_ko;
+  return {
+    run_id: preview?.run_id || intents?.run_id || execution?.run_id || null,
+    summary: {
+      recommendation_count: recommendationCount,
+      order_candidate_count: buyPreviewRows.length,
+      submit_allowed_count: submitAllowedCount,
+        policy_blocked_count: policyBlockedRows.length,
+        broker_rejected_count: brokerRejectedRows.length,
+        new_buy_allowed: submitAllowedCount > 0,
+        sell_candidate_count: sellPreviewRows.length,
+        sell_submit_allowed_count: sellExecutableRows.length,
+        live_grade: liveGrade,
+        market_status: marketStatus,
+        market_status_ko: marketStatusKo,
+        main_block_reason: primary?.raw_reason || null,
+        main_user_message_ko: primary?.message_ko || null,
+        last_run_at: preview?.generated_at || intents?.generated_at || null,
+        last_execution_at: execution?.executed_at || null,
+        last_order_attempt_at: executionRows.slice().reverse().find((row) => row?.submitted_at)?.submitted_at || null,
+        scheduler_status: scheduler.status || null,
+        scheduler_last_failure_at: scheduler.last_failure_at || null,
+        scheduler_last_error: scheduler.last_error || null,
+        scheduler_last_success_at: scheduler.last_success_at || null,
+        refresh_status: refreshStatus?.status || null,
+        refresh_failing_step: refreshStatus?.failing_step || null,
+        refresh_failure_reason: refreshStatus?.failure_reason || null,
+      },
+      diagnostics: allDiagnostics,
+    };
+  }
+
+  app.get("/api/live-auto-trading-diagnostics", async (req, res) => {
+    try {
+      const intents = await readJsonPayloadDbFirst("trade_intents", [path.join(OUTPUTS_DIR, "trade_intents.json")]);
+      const preview = await readJsonPayloadDbFirst("order_requests_preview", [path.join(OUTPUTS_DIR, "order_requests_preview.json")]);
+      const execution = await readJsonPayloadDbFirst("order_requests_execution", [path.join(OUTPUTS_DIR, "order_requests_execution.json")]);
+      const runtime = await readAutoTradingRuntimeStatusPayload().catch(() => null);
+      const refreshStatus = await readOperationalRefreshStatusPayload().catch(() => null);
+      if (!intents && !preview && !execution) {
+        return res.status(404).json({ error: "live auto trading diagnostics not found" });
+      }
+      res.json(collectLiveAutoDiagnostics({ intents, preview, execution, runtime, refreshStatus }));
+    } catch (e) {
+      console.error("GET /api/live-auto-trading-diagnostics error", e);
+      res.status(500).json({ error: "internal error" });
   }
 });
 

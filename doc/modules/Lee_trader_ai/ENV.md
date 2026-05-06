@@ -2,40 +2,66 @@
 
 ## Purpose
 
-이 문서는 AI 선별/자동매매 모듈의 핵심 환경변수를 정리합니다.
+This document summarizes environment variables used by the AI pipeline and live auto-trading flow.
 
 ## Core Data / DB
 
-| 변수명 | 기본값 | 설명 | 영향 범위 |
+| Variable | Default | Description | Scope |
 | --- | --- | --- | --- |
-| `DATABASE_URL` | 없음 | 주 데이터베이스 연결 | pipeline, training, sync |
-| `WEB_DATABASE_URL` | 없음 | web payload sync 대상 DB | sync_web_display_data |
-| `USE_SQLITE_MIRROR` | `0` | SQLite mirror 사용 여부 | pipeline |
-| `USE_SQLITE_FALLBACK_WRITES` | `0` | fallback write 사용 여부 | pipeline |
+| `DATABASE_URL` | none | Primary research database connection | pipeline, training, sync |
+| `WEB_DATABASE_URL` | none | Web payload sync database connection | `sync_web_display_data.py` |
+| `USE_SQLITE_MIRROR` | `0` | Enable SQLite mirror reads | pipeline |
+| `USE_SQLITE_FALLBACK_WRITES` | `0` | Enable SQLite fallback writes | pipeline |
 
 ## Model / Ranking
 
-| 변수명 | 기본값 | 설명 | 영향 범위 |
+| Variable | Default | Description | Scope |
 | --- | --- | --- | --- |
-| `MODEL_VERSION` | 프로젝트 기준 | 현재 운영 모델 버전 | train/predict |
-| `HORIZON_DAYS` | 프로젝트 기준 | 예측 horizon | train/predict |
-| `TOP_N` | 프로젝트 기준 | 후보 추출 상한 | ranking/recommendation |
+| `MODEL_VERSION` | project default | Active model version | train / predict |
+| `HORIZON_DAYS` | project default | Prediction horizon | train / predict |
+| `TOP_N` | project default | Top-N extraction size | ranking / recommendation |
+| `SCORE_FORMULA_VERSION` | blank | Optional score formula override flag | ranking |
 
 ## Live Auto Trading
 
-| 변수명 | 기본값 | 설명 | 영향 범위 | 주의 |
+| Variable | Default | Description | Scope | Note |
 | --- | --- | --- | --- | --- |
-| `AUTO_TRADE_EXECUTE` | `0` | 실주문 실행 여부 | submit_live_orders | 기본값은 보수적으로 유지 |
-| `AUTO_TRADE_ALLOW_BUY` | `0` | 신규 매수 허용 여부 | auto trading | BUY 차단 해제용 |
-| `AUTO_TRADE_BUY_APPROVAL_REQUIRED` | `0` | 수동 승인 필요 여부 | auto trading | 운영 정책용 |
-| `AUTO_TRADE_FORCE_RESUBMIT` | `0` | 재제출 강제 여부 | auto trading | 중복 제출 주의 |
+| `AUTO_TRADE_EXECUTE` | `0` | Enable real order submission | `submit_live_orders.py` | Keep disabled by default |
+| `AUTO_TRADE_ALLOW_BUY` | `0` | Allow BUY order submission | live auto trade | SELL-only if disabled |
+| `AUTO_TRADE_BUY_APPROVAL_REQUIRED` | `0` | Require manual BUY approval | live auto trade | Operational safety gate |
+| `AUTO_TRADE_FORCE_RESUBMIT` | `0` | Ignore previous successful request ids | live auto trade | Use carefully |
+
+## Alerts
+
+| Variable | Default | Description | Scope |
+| --- | --- | --- | --- |
+| `SLACK_WEBHOOK_URL` | blank | Slack Incoming Webhook URL | KPI alerts / live auto-trade alerts |
+| `ALERT_MIN_SCORE_THRESHOLD` | `40` | Warning threshold for Top20 mean `final_score` | `score_kpi_monitor.py` |
 
 ## KIS Auth
 
-| 변수명 | 기본값 | 설명 | 영향 범위 |
+| Variable | Default | Description | Scope |
 | --- | --- | --- | --- |
-| `KIS_BASE_URL` | 없음 | KIS base URL | AI/RULE 공통 |
-| `KIS_APP_KEY` | 없음 | 공용 KIS 앱키 | AI 경로 |
-| `KIS_APP_SECRET` | 없음 | 공용 KIS 시크릿 | AI 경로 |
-| `KIS_CANO` | 없음 | 일반 실계좌 앞 8자리 | live sync / live orders |
-| `KIS_ACNT_PRDT_CD` | 없음 | 일반 실계좌 상품코드 | live sync / live orders |
+| `KIS_BASE_URL` | none | KIS base URL | AI / RULE shared |
+| `KIS_APP_KEY` | none | KIS app key | AI path |
+| `KIS_APP_SECRET` | none | KIS app secret | AI path |
+| `KIS_CANO` | none | Account number | live sync / live orders |
+| `KIS_ACNT_PRDT_CD` | none | Account product code | live sync / live orders |
+
+## KIS Retry
+
+| Variable | Default | Description | Note |
+| --- | --- | --- | --- |
+| `KIS_MAX_RETRY` | `3` | Maximum retry count | Preferred variable |
+| `KIS_RETRY_WAIT_SEC` | `1` | Initial retry wait seconds | Preferred variable |
+| `KIS_RETRY_BACKOFF_FACTOR` | `2` | Retry backoff multiplier | Example: `1s -> 2s -> 4s` |
+| `KIS_RETRY_BACKOFF_MAX_SEC` | `30` | Maximum retry wait seconds | Backoff cap |
+| `KIS_TIMEOUT_SEC` | `20` | Per-request timeout seconds | Minimum practical value is 5 |
+
+## Retry Notes
+
+- `429`: wait using `Retry-After` when present, then retry.
+- `5xx`: retry with backoff.
+- Other `4xx`: fail immediately.
+- `order_cash` and `order_rvsecncl` should remain `no_retry=True` to avoid duplicate orders.
+- If retries are exhausted, the system should log at critical level and attempt notifier delivery without stopping the main flow.

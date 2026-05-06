@@ -195,6 +195,46 @@ function renderBlockReasons(summary) {
   root.innerHTML = rows.length ? rows.join("") : `<div class="empty-state">李⑤떒 ?ъ쑀 ?곗씠?곌? ?놁뒿?덈떎.</div>`;
 }
 
+function renderSystemStatus(diagnostics) {
+  const root = document.getElementById("systemStatusKv");
+  const summary = diagnostics?.summary || {};
+  root.innerHTML = `
+    <div class="kv-row"><span>실매매 가능 여부</span><strong>${summary.live_trade_ready ? "가능" : "차단"}</strong></div>
+    <div class="kv-row"><span>현재 모드</span><strong>${escapeHtml(summary.run_mode || "-")}${summary.debug_trade_mode ? " / DEBUG" : ""}</strong></div>
+    <div class="kv-row"><span>현재 현금</span><strong>${fmtNum(summary.current_cash)}</strong></div>
+    <div class="kv-row"><span>주간 손익</span><strong class="${signedClass(summary.weekly_total_pnl)}">${fmtNum(summary.weekly_total_pnl)}</strong></div>
+    <div class="kv-row"><span>주간 제한값</span><strong>${fmtPct(summary.weekly_limit)}</strong></div>
+    <div class="kv-row"><span>주간 차단 여부</span><strong>${summary.weekly_blocked ? "차단" : "정상"}</strong></div>
+    <div class="kv-row"><span>주간 계산 기준</span><strong>${escapeHtml(summary.weekly_loss_source || "-")}</strong></div>
+    <div class="kv-row"><span>주간 시작일</span><strong>${escapeHtml(summary.week_start_date || "-")}</strong></div>
+    <div class="kv-row"><span>실패 기준 실행 시각</span><strong>${escapeHtml(summary.actual_failure_at || "-")}</strong></div>
+    <div class="kv-row"><span>현재 Preview 시각</span><strong>${escapeHtml(summary.current_preview_generated_at || "-")}</strong></div>
+    <div class="kv-row"><span>Timezone</span><strong>${escapeHtml(summary.timezone || "-")}</strong></div>
+  `;
+}
+
+function renderWhyNoTrade(diagnostics) {
+  const root = document.getElementById("whyNoTradeKv");
+  const badges = document.getElementById("diagnosticBadges");
+  const summary = diagnostics?.summary || {};
+  const items = Array.isArray(diagnostics?.diagnostics) ? diagnostics.diagnostics : [];
+  const mainDetail = summary.main_block_detail || items[0] || null;
+  root.innerHTML = `
+    <div class="kv-row"><span>주요 원인</span><strong>${escapeHtml(mainDetail?.user_message_ko || mainDetail?.message_ko || "차단 사유 없음")}</strong></div>
+    <div class="kv-row"><span>원문 사유</span><strong>${escapeHtml(mainDetail?.raw_reason || summary.main_block_reason || "-")}</strong></div>
+    <div class="kv-row"><span>실제 제출 가능 주문 수</span><strong>${fmtNum(summary.submit_allowed_count)}</strong></div>
+    <div class="kv-row"><span>정책 차단 수</span><strong>${fmtNum(summary.policy_blocked_count)}</strong></div>
+    <div class="kv-row"><span>API 실패 수</span><strong>${fmtNum(summary.api_error_count)}</strong></div>
+    <div class="kv-row"><span>실제 실패 기준</span><strong>${escapeHtml(summary.actual_failure_at || "-")} / as_of ${escapeHtml(summary.actual_failure_as_of_date || "-")}</strong></div>
+    <div class="kv-row"><span>현재 Preview 기준</span><strong>${escapeHtml(summary.current_preview_generated_at || "-")} / as_of ${escapeHtml(summary.current_preview_as_of_date || "-")}</strong></div>
+    <div class="kv-row"><span>재생성 경고</span><strong>${summary.replay_warning ? "있음" : "없음"}</strong></div>
+  `;
+  badges.innerHTML = items.map((item) => {
+    const tone = item.severity === "ERROR" ? "bad" : item.severity === "BLOCKED" ? "bad" : "watch";
+    return `<span class="chip ${tone}">${escapeHtml(item.type || "DIAGNOSTIC")}</span>`;
+  }).join("");
+}
+
 function renderBacktest(summary) {
   const strong = summary.backtest?.summary?.strong_entry_signal || {};
   const entry = summary.backtest?.summary?.entry_signal || {};
@@ -275,7 +315,7 @@ function renderPortfolio(items) {
 function renderPreview(items) {
   const tbody = document.getElementById("previewTbody");
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="9" class="center">order preview媛 ?놁뒿?덈떎.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="center">order preview媛 ?놁뒿?덈떎.</td></tr>`;
     return;
   }
   tbody.innerHTML = items.slice(0, 50).map((item) => `
@@ -286,9 +326,14 @@ function renderPreview(items) {
       <td>${escapeHtml(item.portfolio_action || "-")}</td>
       <td>${escapeHtml(item.side || "-")}</td>
       <td class="right">${fmtNum(item.expected_execution_price)}</td>
+      <td class="right">${fmtNum(item.order_sizing?.base_order_amount ?? item.order_amount)}</td>
       <td class="right">${fmtNum(item.order_qty)}</td>
       <td class="right">${fmtNum(item.order_amount)}</td>
-      <td>${escapeHtml(item.order_block_reason || "-")}</td>
+      <td>${(Array.isArray(item.block_reason_details) ? item.block_reason_details : []).map((detail) => {
+        const tone = detail.category === "API_ERROR" || detail.severity === "ERROR" ? "bad" : detail.severity === "BLOCKED" ? "bad" : "watch";
+        return `<span class="chip ${tone}">${escapeHtml(detail.block_reason || detail.raw_reason || "-")}</span>`;
+      }).join(" ") || escapeHtml(item.order_block_reason || "-")}</td>
+      <td>${item.submit_attempted ? "YES" : "NO"}</td>
     </tr>
   `).join("");
 }
@@ -300,7 +345,7 @@ function renderExecution(results) {
     const reason = results.order_run_aborted
       ? escapeHtml(results.order_run_abort_reason || "execution_aborted")
       : "execution result unavailable";
-    tbody.innerHTML = `<tr><td colspan="8" class="center">${reason}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="center">${reason}</td></tr>`;
     return;
   }
   tbody.innerHTML = items.slice(0, 50).map((item) => `
@@ -312,7 +357,11 @@ function renderExecution(results) {
       <td class="right">${fmtNum(item.filled_qty)}</td>
       <td class="right">${fmtNum(item.avg_fill_price)}</td>
       <td class="right">${fmtPct(item.actual_open_gap)}</td>
-      <td>${escapeHtml(item.order_block_reason || "-")}</td>
+      <td>${(Array.isArray(item.block_reason_details) ? item.block_reason_details : []).map((detail) => {
+        const tone = detail.category === "API_ERROR" || detail.severity === "ERROR" ? "bad" : detail.severity === "BLOCKED" ? "bad" : "watch";
+        return `<span class="chip ${tone}">${escapeHtml(detail.block_reason || detail.raw_reason || "-")}</span>`;
+      }).join(" ") || escapeHtml(item.order_block_reason || "-")}</td>
+      <td>${item.submit_attempted ? "YES" : "NO"}</td>
     </tr>
   `).join("");
 }
@@ -346,17 +395,20 @@ async function loadRuleDashboard() {
   const pageState = document.getElementById("pageState");
   pageState.textContent = "RULE ??쒕낫???곗씠?곕? 遺덈윭?ㅻ뒗 以묒엯?덈떎.";
   try {
-    const [executionResults, summary, signals, portfolio, preview, paperState] = await Promise.all([
+    const [executionResults, summary, signals, portfolio, preview, paperState, diagnostics] = await Promise.all([
       fetchJson("/api/rule/execution-results").catch(() => ({ items: [], summary: {} })),
       fetchJson("/api/rule/summary"),
       fetchJson("/api/rule/signals/latest?strength=all&limit=30"),
       fetchJson("/api/rule/portfolio-plan"),
       fetchJson("/api/rule/order-preview"),
       fetchJson("/api/rule/paper-state").catch(() => ({ positions: [], recent_trades: [] })),
+      fetchJson("/api/rule/trading-diagnostics").catch(() => ({ summary: {}, diagnostics: [] })),
     ]);
 
     renderHero(summary);
     renderStatusV2(summary);
+    renderSystemStatus(diagnostics);
+    renderWhyNoTrade(diagnostics);
     renderBlockReasons(summary);
     renderBacktest(summary);
     renderSignals(

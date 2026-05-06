@@ -55,6 +55,7 @@ from sqlalchemy import bindparam, text
 from production_config import (
     allow_experimental_runtime_features,
     get_production_config_value,
+    get_score_formula_version,
     is_operational_runtime_mode,
 )
 from scoring.final_score import (
@@ -122,12 +123,7 @@ THEME_OVERLAY_SHADOW_PREVIEW_CSV = DATA_DIR / "theme_overlay_shadow_preview.csv"
 THEME_OVERLAY_SHADOW_SUMMARY_JSON = DATA_DIR / "theme_overlay_shadow_summary.json"
 THEME_OVERLAY_SHADOW_MODE_UPDATE_MD = DATA_DIR / "theme_overlay_shadow_mode_update.md"
 DB_PATH = DATA_DIR / "lee_trader.db"
-DEFAULT_SCORE_FORMULA_VERSION = str(
-    get_production_config_value(
-        ["metadata", "score_formula_version"],
-        "ranking_builder_v8_return_prob_tech_regime",
-    )
-)
+DEFAULT_SCORE_FORMULA_VERSION = get_score_formula_version()
 QUALITY_GATE_FEATURE_CANDIDATE = True
 QUALITY_GATE_FEATURE_ENABLED = False
 QUALITY_GATE_ALLOWED_REGIMES = {"defensive"}

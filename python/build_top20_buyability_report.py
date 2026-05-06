@@ -128,6 +128,38 @@ def gate_bucket_status(gate_payload: dict[str, Any]) -> str | None:
     return None
 
 
+def walkforward_soft_watch_allowed(acceptance_payload: dict[str, Any]) -> bool:
+    status = str(acceptance_payload.get("status") or "").upper()
+    reason_codes = {
+        str(item).strip()
+        for item in (acceptance_payload.get("reason_codes") or [])
+        if str(item).strip()
+    }
+    if status != "REJECTED" or not reason_codes:
+        return False
+
+    required_positive = {
+        "top20_excess_return_positive",
+        "execution_evidence_ok_or_unavailable",
+    }
+    soft_failure_codes = {
+        "ordering_not_stable",
+        "drawdown_too_deep",
+        "confidence_monotonicity_missing",
+    }
+    hard_failure_codes = {
+        "top20_performance_not_proven",
+        "execution_evidence_too_weak",
+        "ordering_reference_missing",
+    }
+
+    if not required_positive.issubset(reason_codes):
+        return False
+    if reason_codes & hard_failure_codes:
+        return False
+    return bool(reason_codes & soft_failure_codes)
+
+
 def classify_buyability(
     row: pd.Series,
     confidence_lookup: dict[str, dict[str, Any]],
@@ -143,6 +175,7 @@ def classify_buyability(
     gate_status = str(gate_payload.get("overall_status") or "")
     top5_gate_status = str(gate_bucket_status(gate_payload) or gate_status or "")
     acceptance_status = str(acceptance_payload.get("status") or "")
+    acceptance_soft_watch = walkforward_soft_watch_allowed(acceptance_payload)
 
     supporting: list[str] = []
     blocking: list[str] = []
@@ -174,8 +207,10 @@ def classify_buyability(
         blocking.append("confidence_blocked")
     elif confidence_state == "WEAK":
         blocking.append("confidence_weak")
-    if acceptance_status == "REJECTED":
+    if acceptance_status == "REJECTED" and not acceptance_soft_watch:
         blocking.append("walkforward_rejected")
+    elif acceptance_status == "REJECTED" and acceptance_soft_watch:
+        blocking.append("walkforward_soft_rejected")
     elif acceptance_status == "CONDITIONAL":
         blocking.append("walkforward_conditional")
     if top5_gate_status in {"BLOCK", "HOLD"}:
@@ -215,6 +250,8 @@ def classify_buyability(
         promotion_readiness += 5.0
     if "walkforward_conditional" in blocking:
         promotion_readiness -= 5.0
+    if "walkforward_soft_rejected" in blocking:
+        promotion_readiness -= 7.5
     if "gate_hold" in blocking:
         promotion_readiness -= 5.0
     if any(reason in blocking for reason in ["ret_5d_overheat", "ret_10d_overheat", "rsi_overheat"]):
@@ -228,6 +265,8 @@ def classify_buyability(
         else:
             watchlist_tier = "MONITOR"
             expected_action = "monitor_only" if expected_action == "monitor_for_entry" else expected_action
+        if "walkforward_soft_rejected" in blocking:
+            expected_action = "watch_only_until_walkforward_upgrade"
 
     if (
         status == "WATCHLIST"

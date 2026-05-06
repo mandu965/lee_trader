@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from common_live_risk_guard import evaluate_common_buy_guard
+from rule_trading_diagnostics import build_block_reason_details, select_primary_block_reason
 from rule_signal_builder import ENGINE_TYPE, ROOT, STRATEGY_ID
 
 
@@ -247,12 +248,16 @@ def evaluate_rule_order_guard(order_context: dict[str, Any]) -> tuple[bool, list
         )
 
     merged_reasons = list(dict.fromkeys([*base_reasons, *common_reasons]))
+    block_reason_details = build_block_reason_details(merged_reasons)
+    primary_block_reason = select_primary_block_reason(block_reason_details)
     details = {
         "base_allowed": not base_reasons,
         "base_block_reasons": base_reasons,
         "common_risk_allowed": common_allowed,
         "common_risk_block_reasons": common_reasons,
         "common_risk_snapshot": common_snapshot,
+        "block_reason_details": block_reason_details,
+        "primary_block_reason": primary_block_reason,
         "guard_limits": {
             "min_order_amount": min_order_amount,
             "max_order_amount": max_order_amount,

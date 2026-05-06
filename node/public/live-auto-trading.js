@@ -137,6 +137,9 @@ function describeExecutionReason(reason, row, runtime) {
   if (!key) return "-";
   const side = String(row?.side || "").toUpperCase();
   const buyApprovalRequired = !!runtime?.policy?.buy_approval_required;
+  if (key.startsWith("policy_blocked:")) {
+    return row?.user_message_ko || "정책 기준으로 주문이 차단되었습니다.";
+  }
   switch (key) {
     case "buy_approval_required":
       return buyApprovalRequired
@@ -359,6 +362,8 @@ function renderHero(summary, intents, preview, holdings, execution) {
   const previewRows = Array.isArray(preview?.items) ? preview.items : [];
   const executionRows = Array.isArray(execution?.items) ? execution.items : [];
   const gate = intents?.gate_status || preview?.gate_status || summary?.preview_gate_status || "-";
+  const gateSource = intents?.gate_source_status || preview?.gate_source_status || summary?.preview_gate_source_status || gate || "-";
+  const gateRuntime = intents?.gate_runtime_status || preview?.gate_runtime_status || summary?.preview_gate_runtime_status || gate || "-";
   const executableIntentCount = intentRows.filter((item) => item.executable).length;
   const blockedPreviewCount = previewRows.filter((item) => item.blocked_reason).length;
   const submittedCount = Number(execution?.summary?.submitted_count || 0);
@@ -375,6 +380,7 @@ function renderHero(summary, intents, preview, holdings, execution) {
     <article class="hero-card">
       <div class="card-label">운영 모드</div>
       <div class="card-value">${escapeHtml(gateChipText(gate))}</div>
+      <div class="card-detail">${escapeHtml(`source ${gateSource} | runtime ${gateRuntime}`)}</div>
       <div class="card-detail">${escapeHtml(intents?.gate_guidance || "현재 신규 진입 허용 범위를 나타냅니다.")}</div>
     </article>
     <article class="hero-card">
@@ -541,6 +547,8 @@ function renderRunSummary(intents, preview, holdings, runtime) {
   const blockedOrders = (preview?.items || []).filter((item) => item.blocked_reason);
   const missingHoldingQty = blockedOrders.filter((item) => item.blocked_reason === "holding_qty_missing").length;
   const policy = runtime?.policy || {};
+  const gateSource = preview?.gate_source_status || intents?.gate_source_status || preview?.gate_status || intents?.gate_status || "-";
+  const gateRuntime = preview?.gate_runtime_status || intents?.gate_runtime_status || preview?.gate_status || intents?.gate_status || "-";
   kv.innerHTML = [
     ["정책 버전", intents?.policy_version || "-"],
     ["보유 데이터 기준", intents?.holdings_source || "-"],
@@ -1482,11 +1490,143 @@ function renderDecisionBanner(summary, intents, preview, execution, runtime, con
   `;
 }
 
+function ensurePreviewHeaderColumnV2() {
+  const headerRow = document.querySelector("#previewWrap thead tr");
+  if (!headerRow) return;
+  if (headerRow.children.length >= 13) return;
+  const policyHeaders = ["정책상태", "차단유형", "심각도"];
+  const beforeQty = headerRow.children[6] || null;
+  policyHeaders.forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headerRow.insertBefore(th, beforeQty);
+  });
+  ["요약사유", "상세사유"].forEach((label) => {
+    const th = document.createElement("th");
+    th.textContent = label;
+    headerRow.appendChild(th);
+  });
+}
+
+function ensureExecutionHeaderColumnsV2() {
+  const headerRow = document.querySelector("#executionWrap thead tr");
+  if (!headerRow) return;
+  if (headerRow.children.length >= 9) return;
+  const failureType = document.createElement("th");
+  failureType.textContent = "실패유형";
+  headerRow.insertBefore(failureType, headerRow.children[4] || null);
+  const errorCode = document.createElement("th");
+  errorCode.textContent = "에러코드";
+  headerRow.insertBefore(errorCode, headerRow.children[5] || null);
+}
+
+function renderDiagnosticSummary(diagnostics) {
+  const root = document.getElementById("diagnosticSummaryPanel");
+  if (!root) return;
+  const summary = diagnostics?.summary || {};
+  const runId = diagnostics?.run_id || "-";
+  root.innerHTML = `
+    <div class="kv">
+      <div class="kv-row"><span>run_id</span><strong class="mono">${escapeHtml(runId)}</strong></div>
+      <div class="kv-row"><span>?? AI ??</span><strong>${fmtNum(summary.recommendation_count)}</strong></div>
+      <div class="kv-row"><span>?? ??</span><strong>${fmtNum(summary.order_candidate_count)}</strong></div>
+      <div class="kv-row"><span>?? ?? ??</span><strong>${fmtNum(summary.submit_allowed_count)}</strong></div>
+      <div class="kv-row"><span>?? ??</span><strong>${fmtNum(summary.policy_blocked_count)}</strong></div>
+      <div class="kv-row"><span>??? ??</span><strong>${fmtNum(summary.broker_rejected_count)}</strong></div>
+      <div class="kv-row"><span>?? ??</span><strong>${fmtNum(summary.sell_candidate_count)}</strong></div>
+      <div class="kv-row"><span>?? ?? ??</span><strong>${fmtNum(summary.sell_submit_allowed_count)}</strong></div>
+      <div class="kv-row"><span>?? BUY ??</span><strong>${summary.new_buy_allowed ? "YES" : "NO"}</strong></div>
+      <div class="kv-row"><span>live grade</span><strong>${escapeHtml(summary.live_grade || "-")}</strong></div>
+      <div class="kv-row"><span>?? ??</span><strong>${escapeHtml(summary.market_status_ko || summary.market_status || "-")}</strong></div>
+      <div class="kv-row"><span>??? ??</span><strong>${escapeHtml(summary.last_run_at || "-")}</strong></div>
+      <div class="kv-row"><span>??? ?? ??</span><strong>${escapeHtml(summary.last_order_attempt_at || summary.last_execution_at || "-")}</strong></div>
+      <div class="kv-row"><span>Scheduler</span><strong>${escapeHtml(summary.scheduler_status || "-")}</strong></div>
+      <div class="kv-row"><span>Scheduler ?? ????</span><strong>${escapeHtml(summary.scheduler_last_failure_at || summary.scheduler_last_success_at || "-")}</strong></div>
+      <div class="kv-row"><span>Refresh</span><strong>${escapeHtml(summary.refresh_status || "-")}</strong></div>
+      <div class="kv-row"><span>Refresh step</span><strong>${escapeHtml(summary.refresh_failing_step || "-")}</strong></div>
+    </div>
+  `;
+}
+
+function renderWhyNoTrade(diagnostics) {
+  const root = document.getElementById("whyNoTradeBox");
+  if (!root) return;
+  const summary = diagnostics?.summary || {};
+  const items = Array.isArray(diagnostics?.diagnostics) ? diagnostics.diagnostics : [];
+  const primary = items[0] || null;
+  const secondary = items[1] || null;
+  root.innerHTML = `
+    <h3 class="explain-title">? ??? ? ????</h3>
+    <div class="explain-body">
+      ${escapeHtml(summary.main_user_message_ko || "?? ?? ? ?? ??? ?? ?????.")}
+      <br>
+      ??: ${escapeHtml(summary.main_block_reason || "-")}
+      ${secondary?.raw_reason ? `<br>?? ??: ${escapeHtml(secondary.raw_reason)}` : ""}
+      ${primary?.recommended_action ? `<br>??: ${escapeHtml(primary.recommended_action)}` : ""}
+      ${summary.scheduler_last_error ? `<br>Scheduler ??: ${escapeHtml(summary.scheduler_last_error)}` : ""}
+      ${summary.refresh_failing_step ? `<br>Refresh step: ${escapeHtml(summary.refresh_failing_step)}` : ""}
+      ${summary.refresh_failure_reason ? `<br>Refresh reason: ${escapeHtml(summary.refresh_failure_reason)}` : ""}
+    </div>
+  `;
+}
+
+function renderPreview(preview, runtime) {
+  const tbody = document.getElementById("previewTbody");
+  const rows = preview?.items || [];
+  ensurePreviewHeaderColumnV2();
+  if (!rows.length) {
+    document.getElementById("previewWrap").innerHTML = `<div class="empty-state">order requests preview ?곗텧臾쇱씠 ?꾩쭅 ?놁뒿?덈떎.</div>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${orderStateChip(row)}</td>
+      <td class="mono">${escapeHtml(row.request_id || "-")}</td>
+      <td class="mono">${escapeHtml(row.code || "-")}</td>
+      <td>${escapeHtml(row.name || "-")}</td>
+      <td>${escapeHtml(row.side || "-")}</td>
+      <td>${escapeHtml(row.intent_type || "-")}</td>
+      <td>${escapeHtml(row.policy_status || "-")}</td>
+      <td>${escapeHtml(row.block_type || "-")}</td>
+      <td>${escapeHtml(row.severity || "-")}</td>
+      <td class="right">${fmtNum(row.final_request_qty)}</td>
+      <td class="right">${fmtNum(row.allowed_qty)}</td>
+      <td>${escapeHtml(row.user_message_ko || describePreviewExecutionRisk(row, runtime))}</td>
+      <td><details><summary>보기</summary>${escapeHtml(row.raw_reason || row.reason || row.blocked_reason || "-")}</details></td>
+    </tr>
+  `).join("");
+}
+
+function renderExecutionV2(execution, preview, runtime) {
+  const wrap = document.getElementById("executionWrap");
+  const tbody = document.getElementById("executionTbody");
+  const rows = execution?.items || [];
+  ensureExecutionHeaderColumnsV2();
+  if (!rows.length) {
+    const summary = summarizeExecutionFlow(preview, execution, runtime);
+    wrap.innerHTML = `<div class="empty-state"><strong>${escapeHtml(summary.title)}</strong><br>${escapeHtml(summary.detail)}</div>`;
+    return;
+  }
+  tbody.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${executionStateChip(row)}</td>
+      <td class="mono">${escapeHtml(row.request_id || "-")}</td>
+      <td class="mono">${escapeHtml(row.code || "-")}</td>
+      <td>${escapeHtml(row.side || "-")}</td>
+      <td>${escapeHtml(row.broker_result || (String(row.submission_status || "").toLowerCase() === "failed" ? "BROKER_REJECT" : row.block_type || "-"))}</td>
+      <td class="mono">${escapeHtml(row.broker_error_code || ((String(row.skip_reason || "").match(/msg_cd=([A-Z0-9_-]+)/i) || [])[1]) || "-")}</td>
+      <td class="right">${fmtNum(row.final_request_qty)}</td>
+      <td class="mono">${escapeHtml(row.broker_order_id || "-")}</td>
+      <td>${escapeHtml(row.broker_error_message || ((String(row.skip_reason || "").match(/msg1=(.+)$/i) || [])[1]) || describeExecutionReason(row.skip_reason, row, runtime))}</td>
+    </tr>
+  `).join("");
+}
+
 async function main() {
   const state = document.getElementById("pageState");
   state.textContent = "실자동매매 데이터를 불러오는 중입니다.";
   try {
-    const [summary, intents, preview, execution, runtime, holdings, consistency, tradeReview, tradeReviewSummary, liveKpiDaily, qualityGuardReview, closedTradeReport, qualityGuardOutputCheck] = await Promise.all([
+    const [summary, intents, preview, execution, runtime, holdings, consistency, tradeReview, tradeReviewSummary, liveKpiDaily, qualityGuardReview, closedTradeReport, qualityGuardOutputCheck, diagnostics] = await Promise.all([
       fetchJsonMaybe("/api/live-account/summary"),
       fetchJsonMaybe("/api/trade-intents"),
       fetchJsonMaybe("/api/order-requests-preview"),
@@ -1500,11 +1640,14 @@ async function main() {
       fetchJsonMaybe("/api/quality-risk-guard-live-review"),
       fetchJsonMaybe("/api/live-closed-trade-report"),
       fetchJsonMaybe("/api/live-quality-guard-output-check"),
+      fetchJsonMaybe("/api/live-auto-trading-diagnostics"),
     ]);
 
     renderHero(summary, intents, preview, holdings, execution);
     renderDecisionBanner(summary, intents, preview, execution, runtime, consistency);
     renderStatusV3(summary, intents, preview, execution, runtime);
+    renderDiagnosticSummary(diagnostics);
+    renderWhyNoTrade(diagnostics);
     renderConsistency(consistency);
     renderTradeReview(tradeReview, tradeReviewSummary);
     renderLiveKpiDaily(liveKpiDaily);
@@ -1533,6 +1676,7 @@ async function main() {
       qualityGuardReview ? "qualityGuardReview" : null,
       closedTradeReport ? "closedTradeReport" : null,
       qualityGuardOutputCheck ? "qualityGuardOutputCheck" : null,
+      diagnostics ? "diagnostics" : null,
     ].filter(Boolean);
     state.textContent = loaded.length
       ? `불러온 데이터: ${loaded.join(", ")}`

@@ -23,6 +23,12 @@ from kis_live_account import (
     summarize_cash,
 )
 from sync_live_trade_ledger import sync_live_trade_ledger
+from trading_diagnostics import (
+    build_broker_diagnostic,
+    build_market_context,
+    build_policy_diagnostics,
+    generate_run_id,
+)
 
 try:
     from dotenv import load_dotenv
@@ -44,6 +50,7 @@ OUT_MD = OUTPUT_DIR / "order_requests_preview.md"
 OUT_EXEC_JSON = OUTPUT_DIR / "order_requests_execution.json"
 OUT_EXEC_MD = OUTPUT_DIR / "order_requests_execution.md"
 BUY_APPROVAL_JSON = OUTPUT_DIR / "order_buy_approvals.json"
+RUN_LOG_JSONL = OUTPUT_DIR / "live_auto_trade_run_log.jsonl"
 
 
 def _load_env() -> None:
@@ -252,6 +259,8 @@ def _preview_expected_hold_reason(*, side: str, blocked_reason: str | None, fina
         return "Live BUY context is unavailable, so the order stays on preview only."
     if blocked == "buy_qty_zero":
         return "Final BUY quantity is zero, so nothing will be submitted."
+    if blocked.startswith("policy_blocked"):
+        return "Policy blocked this BUY order before broker submission."
     if blocked == "live_price_unavailable":
         return "Live price is unavailable, so the BUY order stays on preview only."
     if blocked == "previous_close_unavailable":
@@ -288,10 +297,12 @@ def build_order_requests(
     ranking: pd.DataFrame,
     ord_dvsn: str,
 ) -> dict[str, Any]:
+    run_id = str(intents_payload.get("run_id") or "").strip() or generate_run_id()
     intents = pd.DataFrame(intents_payload.get("intents") or [])
     intents = intents.loc[intents.get("executable", False).fillna(False)].copy() if not intents.empty else pd.DataFrame()
     if intents.empty:
         return {
+            "run_id": run_id,
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "asof_date": intents_payload.get("asof_date"),
             "gate_status": intents_payload.get("gate_status"),
@@ -302,6 +313,8 @@ def build_order_requests(
                 "request_count": 0,
                 "buy_count": 0,
                 "sell_count": 0,
+                "policy_blocked_count": 0,
+                "submit_allowed_count": 0,
             },
         }
 
@@ -332,6 +345,12 @@ def build_order_requests(
         holding_row = holdings_lookup.loc[code] if not holdings_lookup.empty and code in holdings_lookup.index else pd.Series(dtype="object")
         ranking_context = build_ranking_context(ranking_row, row)
         intent_type = str(row.get("intent_type") or "").upper()
+        policy = build_policy_diagnostics(
+            raw_reason=row.get("reason"),
+            intent_type=intent_type,
+            entry_quality_status=ranking_context.get("entry_quality_status"),
+            live_grade=ranking_row.get("live_confidence_grade"),
+        )
         side = "BUY" if intent_type == "BUY" else "SELL" if intent_type in {"TRIM", "EXIT"} else "HOLD"
         reference_price = pd.to_numeric(ranking_row.get("close"), errors="coerce")
         order_price = int(reference_price) if pd.notna(reference_price) and reference_price > 0 else 0
@@ -380,6 +399,13 @@ def build_order_requests(
                         "target_weight": _num_or_none(row.get("target_weight")),
                         "priority": _int_or_none(row.get("priority")),
                         "reason": row.get("reason"),
+                        "raw_reason": row.get("raw_reason") or row.get("reason"),
+                        "policy_status": row.get("policy_status") or policy["policy_status"],
+                        "block_type": row.get("block_type") or policy["block_type"],
+                        "severity": row.get("severity") or policy["severity"],
+                        "user_message_ko": row.get("user_message_ko") or policy["user_message_ko"],
+                        "recommended_action": row.get("recommended_action") or policy["recommended_action"],
+                        "policy_diagnostics": row.get("policy_diagnostics") or policy["diagnostics"],
                         **ranking_context,
                         "blocked_reason": blocked_reason,
                         "expected_hold_reason": _preview_expected_hold_reason(
@@ -427,7 +453,9 @@ def build_order_requests(
             )
             allowed_qty = _coalesce_allowed_qty(nrcvb_buy_qty, max_buy_qty)
             final_qty = min(planned_qty, allowed_qty)
-            if not final_qty or final_qty <= 0:
+            if str(policy.get("policy_status") or "").upper() == "BLOCK":
+                blocked_reason = f"policy_blocked:{policy.get('block_type') or 'POLICY_BLOCK'}"
+            elif not final_qty or final_qty <= 0:
                 blocked_reason = "buy_qty_zero"
             elif bool(gate_result.get("blocked")):
                 blocked_reason = entry_price_gate_reason
@@ -492,6 +520,13 @@ def build_order_requests(
                 "target_weight": _num_or_none(row.get("target_weight")),
                 "priority": _int_or_none(row.get("priority")),
                 "reason": row.get("reason"),
+                "raw_reason": row.get("raw_reason") or row.get("reason"),
+                "policy_status": row.get("policy_status") or policy["policy_status"],
+                "block_type": row.get("block_type") or policy["block_type"],
+                "severity": row.get("severity") or policy["severity"],
+                "user_message_ko": row.get("user_message_ko") or policy["user_message_ko"],
+                "recommended_action": row.get("recommended_action") or policy["recommended_action"],
+                "policy_diagnostics": row.get("policy_diagnostics") or policy["diagnostics"],
                 **ranking_context,
                 "blocked_reason": blocked_reason,
                 "expected_hold_reason": _preview_expected_hold_reason(
@@ -504,6 +539,7 @@ def build_order_requests(
         )
 
     return {
+        "run_id": run_id,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "asof_date": intents_payload.get("asof_date"),
         "gate_status": intents_payload.get("gate_status"),
@@ -514,6 +550,8 @@ def build_order_requests(
             "request_count": len(items),
             "buy_count": sum(1 for item in items if item["side"] == "BUY"),
             "sell_count": sum(1 for item in items if item["side"] == "SELL"),
+            "policy_blocked_count": sum(1 for item in items if str(item.get("policy_status") or "").upper() == "BLOCK"),
+            "submit_allowed_count": sum(1 for item in items if item.get("executable_now")),
         },
     }
 
@@ -659,6 +697,7 @@ def execute_order_requests(
     args: argparse.Namespace,
 ) -> dict[str, Any]:
     _require_execution_confirmation(args)
+    run_id = str(preview_payload.get("run_id") or "").strip() or generate_run_id()
     previous_success_ids = set() if args.force_resubmit else _load_previous_success_ids(_resolve(args.out_exec_json))
     buy_approval_required = _env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", False)
     approved_request_ids = _load_approved_request_ids(args.approval_json) if buy_approval_required else set()
@@ -673,8 +712,10 @@ def execute_order_requests(
         side = str(item.get("side") or "").strip().upper()
         qty = pd.to_numeric(item.get("final_request_qty"), errors="coerce")
         blocked_reason = str(item.get("blocked_reason") or "").strip()
+        market_context = build_market_context()
 
         result: dict[str, Any] = {
+            "run_id": run_id,
             "request_id": request_id or None,
             "intent_id": item.get("intent_id"),
             "code": item.get("code"),
@@ -693,9 +734,24 @@ def execute_order_requests(
             "common_risk_block_reasons": item.get("common_risk_block_reasons"),
             "common_risk_snapshot": item.get("common_risk_snapshot"),
             "final_request_qty": int(qty) if pd.notna(qty) else None,
+            "raw_reason": item.get("raw_reason") or item.get("reason"),
+            "reason": item.get("reason"),
+            "policy_status": item.get("policy_status"),
+            "block_type": item.get("block_type"),
+            "severity": item.get("severity"),
+            "user_message_ko": item.get("user_message_ko"),
+            "recommended_action": item.get("recommended_action"),
+            "policy_diagnostics": item.get("policy_diagnostics"),
+            "market_status": market_context.get("market_status"),
+            "market_context": market_context,
+            "submit_attempted": False,
             "submitted_at": None,
             "submission_status": "skipped",
             "skip_reason": None,
+            "broker_result": "SKIPPED",
+            "broker_error_code": None,
+            "broker_error_message": None,
+            "broker_diagnostic": None,
             "broker_order_id": None,
             "broker_org_order_id": None,
             "raw_response": None,
@@ -703,6 +759,10 @@ def execute_order_requests(
 
         if blocked_reason:
             result["skip_reason"] = blocked_reason
+            results.append(result)
+            continue
+        if side == "BUY" and str(item.get("policy_status") or "").upper() == "BLOCK":
+            result["skip_reason"] = f"policy_blocked:{item.get('block_type') or 'POLICY_BLOCK'}"
             results.append(result)
             continue
         if not request_id:
@@ -735,6 +795,7 @@ def execute_order_requests(
             continue
 
         try:
+            result["submit_attempted"] = True
             if side == "BUY":
                 live_snapshot = _fetch_live_price_snapshot(client, str(item.get("code") or "").zfill(6))
                 live_price = _int_or_none(live_snapshot.get("live_price"))
@@ -789,6 +850,7 @@ def execute_order_requests(
             response_row = response_df.iloc[0].to_dict() if not response_df.empty else {}
             result["submitted_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             result["submission_status"] = "submitted"
+            result["broker_result"] = "SUBMITTED"
             result["broker_order_id"] = response_row.get("ODNO") or response_row.get("odno")
             result["broker_org_order_id"] = response_row.get("KRX_FWDG_ORD_ORGNO") or response_row.get("krx_fwdg_ord_orgno")
             result["raw_response"] = response_row
@@ -796,9 +858,19 @@ def execute_order_requests(
             result["submitted_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             result["submission_status"] = "failed"
             result["skip_reason"] = str(exc)
+            result["broker_result"] = "REJECTED"
+            broker_diagnostic = build_broker_diagnostic(
+                error_text=exc,
+                env_dv=account.env_dv,
+                market_context=market_context,
+            )
+            result["broker_error_code"] = broker_diagnostic.get("broker_error_code")
+            result["broker_error_message"] = broker_diagnostic.get("broker_error_message")
+            result["broker_diagnostic"] = broker_diagnostic
         results.append(result)
 
     return {
+        "run_id": run_id,
         "generated_at": preview_payload.get("generated_at"),
         "executed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "asof_date": preview_payload.get("asof_date"),
@@ -814,6 +886,8 @@ def execute_order_requests(
             "submitted_count": sum(1 for item in results if item["submission_status"] == "submitted"),
             "failed_count": sum(1 for item in results if item["submission_status"] == "failed"),
             "skipped_count": sum(1 for item in results if item["submission_status"] == "skipped"),
+            "broker_rejected_count": sum(1 for item in results if item.get("broker_result") == "REJECTED"),
+            "policy_blocked_count": sum(1 for item in results if str(item.get("policy_status") or "").upper() == "BLOCK"),
         },
     }
 
@@ -880,6 +954,52 @@ def write_text(path: Path, text: str) -> None:
     resolved.write_text(text, encoding="utf-8-sig")
 
 
+def append_run_log(
+    *,
+    intents_payload: dict[str, Any],
+    preview_payload: dict[str, Any],
+    execution_payload: dict[str, Any] | None,
+) -> None:
+    run_id = str(preview_payload.get("run_id") or intents_payload.get("run_id") or generate_run_id()).strip()
+    market_context = build_market_context()
+    resolved = _resolve(RUN_LOG_JSONL)
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    execution_by_request = {
+        str(item.get("request_id") or "").strip(): item
+        for item in (execution_payload or {}).get("items") or []
+        if str(item.get("request_id") or "").strip()
+    }
+    lines: list[str] = []
+    for item in preview_payload.get("items") or []:
+        request_id = str(item.get("request_id") or "").strip()
+        execution_item = execution_by_request.get(request_id, {})
+        log_row = {
+            "run_id": run_id,
+            "request_id": request_id or None,
+            "symbol": item.get("code"),
+            "side": item.get("side"),
+            "intent": item.get("intent_type"),
+            "requested_qty": item.get("planned_qty"),
+            "allowed_qty": item.get("allowed_qty"),
+            "policy_status": item.get("policy_status"),
+            "block_type": item.get("block_type"),
+            "live_grade": item.get("live_confidence_grade"),
+            "confidence": item.get("confidence_score"),
+            "entry_quality_status": item.get("entry_quality_status"),
+            "market_status": execution_item.get("market_status") or market_context.get("market_status"),
+            "submit_attempted": execution_item.get("submit_attempted", False),
+            "broker_result": execution_item.get("broker_result"),
+            "broker_error_code": execution_item.get("broker_error_code"),
+            "broker_error_message": execution_item.get("broker_error_message"),
+            "raw_reason": item.get("raw_reason") or item.get("reason"),
+            "logged_at": market_context.get("kst_timestamp"),
+        }
+        lines.append(json.dumps(_json_sanitize(log_row), ensure_ascii=False, default=_json_default))
+    if lines:
+        with resolved.open("a", encoding="utf-8-sig") as fh:
+            fh.write("\n".join(lines) + "\n")
+
+
 def sync_web_display_if_configured() -> None:
     if not str(os.environ.get("WEB_DATABASE_URL", "")).strip():
         return
@@ -940,6 +1060,11 @@ def main() -> int:
         intents_payload=intents_payload,
         preview_payload=preview_payload,
     )
+    append_run_log(
+        intents_payload=intents_payload,
+        preview_payload=preview_payload,
+        execution_payload=None,
+    )
     print(f"order_requests_preview_json: {_resolve(args.out_json)}")
     print(f"order_requests_preview_md: {_resolve(args.out_md)}")
 
@@ -956,6 +1081,11 @@ def main() -> int:
     write_payload(args.out_exec_json, execution_payload)
     write_text(args.out_exec_md, render_execution_markdown(execution_payload))
     sync_live_trade_ledger_best_effort(
+        intents_payload=intents_payload,
+        preview_payload=preview_payload,
+        execution_payload=execution_payload,
+    )
+    append_run_log(
         intents_payload=intents_payload,
         preview_payload=preview_payload,
         execution_payload=execution_payload,

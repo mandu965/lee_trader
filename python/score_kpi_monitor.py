@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -9,21 +10,25 @@ from pathlib import Path
 
 import pandas as pd
 
-from payload_store import upsert_json_payload
 from build_walk_forward_score_validation_from_runs import (
     aggregate_selection_summary,
     cohort_selection_metrics,
     load_joined_rows,
     load_matured_run_ids,
 )
+from notifier import notify_warning
+from payload_store import upsert_json_payload
 
 
 INPUT_CSV = Path("data/ranking_final.csv")
 CONFIDENCE_CALIBRATION_JSON = Path("data/confidence_calibration_map.json")
+WALKFORWARD_ACCEPTANCE_JSON = Path("outputs/walkforward_acceptance.json")
+DAILY_RECOMMENDATIONS_JSON = Path("serving/daily_recommendations.json")
 OUTPUT_MD = Path("outputs/score_kpi_monitor.md")
 OUTPUT_JSON = Path("data/score_kpi_monitor.json")
 TOP_N = 20
 WALKFORWARD_HORIZON = 60
+DEFAULT_ALERT_MIN_SCORE_THRESHOLD = 40.0
 
 
 @dataclass(frozen=True)
@@ -335,14 +340,14 @@ def build_markdown(df: pd.DataFrame, latest: pd.DataFrame, latest_date: str) -> 
         "# Score KPI Monitor",
         "",
         "## KPI Guide",
-        "- GOOD: 현재 운영 신호가 기준 범위 안에 있습니다.",
-        "- WATCH: 추가 점검이 필요한 경계 구간입니다.",
-        "- ALERT: 즉시 원인 점검이 필요한 상태입니다.",
-        "- `overlap/corr` 계열은 최신 ranking slice 기준입니다.",
-        f"- `walkforward_top20_avg_return_60d`는 matured walk-forward run 기준 {WALKFORWARD_HORIZON}일 top20 평균 수익률입니다.",
-        "- `confidence_high_bucket_hit_rate_60d`는 현재 calibration에서 가장 높은 usable bucket의 hit rate입니다.",
-        "- `confidence_calibration_usable_bucket_count`는 현재 calibration에서 실제로 해석 가능한 bucket 수입니다.",
-        "- `confidence_calibration_source_mode`는 현재 confidence 해석 소스입니다.",
+        "- GOOD: ?꾩옱 ?댁쁺 ?좏샇媛 湲곗? 踰붿쐞 ?덉뿉 ?덉뒿?덈떎.",
+        "- WATCH: 異붽? ?먭????꾩슂??寃쎄퀎 援ш컙?낅땲??",
+        "- ALERT: 利됱떆 ?먯씤 ?먭????꾩슂???곹깭?낅땲??",
+        "- `overlap/corr` 怨꾩뿴? 理쒖떊 ranking slice 湲곗??낅땲??",
+        f"- `walkforward_top20_avg_return_60d`??matured walk-forward run 湲곗? {WALKFORWARD_HORIZON}??top20 ?됯퇏 ?섏씡瑜좎엯?덈떎.",
+        "- `confidence_high_bucket_hit_rate_60d`???꾩옱 calibration?먯꽌 媛???믪? usable bucket??hit rate?낅땲??",
+        "- `confidence_calibration_usable_bucket_count`???꾩옱 calibration?먯꽌 ?ㅼ젣濡??댁꽍 媛?ν븳 bucket ?섏엯?덈떎.",
+        "- `confidence_calibration_source_mode`???꾩옱 confidence ?댁꽍 ?뚯뒪?낅땲??",
         "",
         "## Metadata",
         *[f"- {key}: {value}" for key, value in meta.items()],
@@ -362,11 +367,11 @@ def build_markdown(df: pd.DataFrame, latest: pd.DataFrame, latest_date: str) -> 
         dataframe_to_markdown(driver_df),
         "",
         "## Operator Notes",
-        "- `corr_final_safety_abs`와 driver frequency는 방어 편향 조기 탐지용입니다.",
-        "- `overlap_final_tech_top20`와 `corr_final_tech_score`는 tech 약화 탐지용입니다.",
-        "- `top20_mean_confidence_score`, `confidence_high_bucket_hit_rate_60d`, `confidence_calibration_usable_bucket_count`는 confidence 무력화 탐지용입니다.",
-        "- confidence source가 `walkforward_provisional`이면 정식 운영 calibration이 아니라 보조 해석 단계로 읽어야 합니다.",
-        "- daily pipeline 이후 `python python/score_kpi_monitor.py`만 실행하면 현재 상태를 다시 점검할 수 있습니다.",
+        "- `corr_final_safety_abs`? driver frequency??諛⑹뼱 ?명뼢 議곌린 ?먯??⑹엯?덈떎.",
+        "- `overlap_final_tech_top20`? `corr_final_tech_score`??tech ?쏀솕 ?먯??⑹엯?덈떎.",
+        "- `top20_mean_confidence_score`, `confidence_high_bucket_hit_rate_60d`, `confidence_calibration_usable_bucket_count`??confidence 臾대젰???먯??⑹엯?덈떎.",
+        "- confidence source媛 `walkforward_provisional`?대㈃ ?뺤떇 ?댁쁺 calibration???꾨땲??蹂댁“ ?댁꽍 ?④퀎濡??쎌뼱???⑸땲??",
+        "- daily pipeline ?댄썑 `python python/score_kpi_monitor.py`留??ㅽ뻾?섎㈃ ?꾩옱 ?곹깭瑜??ㅼ떆 ?먭??????덉뒿?덈떎.",
     ]
     return "\n".join(lines) + "\n"
 
@@ -395,12 +400,14 @@ def build_json_payload(df: pd.DataFrame, latest: pd.DataFrame, latest_date: str)
     status = overall_status(kpi_df)
     kpi_records = dataframe_records(kpi_df)
     metric_map = {str(item["metric"]): item for item in kpi_records}
+    top20_mean_final_score = float(pd.to_numeric(latest.head(TOP_N).get("final_score"), errors="coerce").mean())
     return {
         "summary": {
             "overall_status": status,
             "latest_date": latest_date,
             "top_n": TOP_N,
             "walkforward_horizon": WALKFORWARD_HORIZON,
+            "top20_mean_final_score": clean_scalar(top20_mean_final_score),
         },
         "metadata": meta,
         "thresholds": dataframe_records(threshold_df),
@@ -408,6 +415,85 @@ def build_json_payload(df: pd.DataFrame, latest: pd.DataFrame, latest_date: str)
         "metric_map": metric_map,
         "dominant_driver_frequency": dataframe_records(driver_df),
     }
+
+
+def _safe_read_json(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        logging.warning("Failed to read JSON for alerts: %s", path, exc_info=True)
+        return {}
+
+
+def _alert_min_score_threshold() -> float:
+    raw = str(os.environ.get("ALERT_MIN_SCORE_THRESHOLD", DEFAULT_ALERT_MIN_SCORE_THRESHOLD)).strip()
+    try:
+        return float(raw)
+    except Exception:
+        return DEFAULT_ALERT_MIN_SCORE_THRESHOLD
+
+
+def _buy_allowed_count(recommendations_payload: dict[str, object]) -> int:
+    items = recommendations_payload.get("items") if isinstance(recommendations_payload.get("items"), list) else []
+    count = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        buy_eligibility = item.get("buy_eligibility") if isinstance(item.get("buy_eligibility"), dict) else {}
+        if str(buy_eligibility.get("status") or "").upper() == "BUY_ALLOWED":
+            count += 1
+    return count
+
+
+def maybe_send_alerts(payload: dict[str, object]) -> None:
+    try:
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        latest_date = str(summary.get("latest_date") or "NA")
+        top20_mean_final_score = pd.to_numeric(summary.get("top20_mean_final_score"), errors="coerce")
+        threshold = _alert_min_score_threshold()
+
+        walkforward_payload = _safe_read_json(WALKFORWARD_ACCEPTANCE_JSON)
+        walkforward_status = str(walkforward_payload.get("status") or "").upper()
+        reason_codes = walkforward_payload.get("reason_codes") if isinstance(walkforward_payload.get("reason_codes"), list) else []
+        if walkforward_status == "REJECTED":
+            notify_warning(
+                "Lee Trader KPI alert: walkforward rejected",
+                "walkforward acceptance status is REJECTED.",
+                {
+                    "asof_date": latest_date,
+                    "walkforward_status": walkforward_status,
+                    "reason_codes": ", ".join(str(code) for code in reason_codes) or "NA",
+                },
+            )
+
+        if pd.notna(top20_mean_final_score) and float(top20_mean_final_score) <= threshold:
+            notify_warning(
+                "Lee Trader KPI alert: low top20 score",
+                "Top20 mean final_score is below the configured threshold.",
+                {
+                    "asof_date": latest_date,
+                    "top20_mean_final_score": f"{float(top20_mean_final_score):.2f}",
+                    "threshold": f"{float(threshold):.2f}",
+                },
+            )
+
+        recommendations_payload = _safe_read_json(DAILY_RECOMMENDATIONS_JSON)
+        buy_allowed_count = _buy_allowed_count(recommendations_payload)
+        if buy_allowed_count == 0:
+            notify_warning(
+                "Lee Trader KPI alert: no BUY_ALLOWED names",
+                "No BUY_ALLOWED recommendations are available in the serving payload.",
+                {
+                    "asof_date": latest_date,
+                    "buy_allowed_count": buy_allowed_count,
+                    "gate_overall_status": recommendations_payload.get("gate_overall_status"),
+                    "recommendation_count": recommendations_payload.get("count"),
+                },
+            )
+    except Exception:
+        logging.warning("KPI alert dispatch failed", exc_info=True)
 
 
 def main() -> None:
@@ -424,6 +510,7 @@ def main() -> None:
         asof_date=payload.get("summary", {}).get("latest_date"),
         source_path=OUTPUT_JSON,
     )
+    maybe_send_alerts(payload)
     logging.info("Saved score KPI monitor: %s", OUTPUT_MD.resolve())
 
 

@@ -27,6 +27,7 @@
 - `final_score`, `live_rank`, `rank_final` 기준이 바뀌면 `RUNTIME_SORTING.md`를 같이 갱신해야 합니다.
 - 점수 컬럼명 변경은 API, DB, UI, 검증 리포트까지 연쇄 영향이 있습니다.
 - 실험용 점수 변경과 운영 기준 변경은 한 번에 섞지 않는 편이 안전합니다.
+- 점수 수식 버전 전환은 `SCORE_FORMULA_VERSION` 환경변수로 제어됩니다. 운영 모드에서는 `ranking_builder.resolve_score_formula_version()`의 가드가 적용되므로 환경변수 단독으로는 전환되지 않습니다. 승격 기준 전체는 `doc/shadow_promotion_criteria.md` 참조.
 
 ## 연관 모듈
 

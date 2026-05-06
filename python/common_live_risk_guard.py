@@ -164,6 +164,10 @@ def _derive_weekly_loss_pct(balance_payload: dict[str, Any]) -> float | None:
     return (current_total / week_start_total) - 1.0
 
 
+def _derived_metric(balance_payload: dict[str, Any], key: str) -> float | None:
+    return _num((balance_payload.get("derived_metrics") or {}).get(key))
+
+
 def _coalesce_order_amount(order_context: dict[str, Any]) -> float | None:
     explicit = _num(order_context.get("order_amount"))
     if explicit is not None:
@@ -241,7 +245,14 @@ def evaluate_common_buy_guard(order_context: dict[str, Any]) -> tuple[bool, list
     market_latest = _market_status_latest_row(market_status)
     market_latest_date = _parse_date(market_latest.get("date"))
     market_status_missing = not bool(market_latest)
-    market_status_is_latest = _date_text(market_latest_date) == _date_text(market_reference_date) if market_latest_date else False
+    # 전일 종가 기준 데이터는 장전(09:30 이전)에 갱신되지 않으므로
+    # 정확한 날짜 일치 대신 나이(일수) 기반 허용 범위를 사용한다.
+    _market_status_max_age_days = int(_float_env("GLOBAL_MARKET_STATUS_MAX_AGE_DAYS", 5.0))
+    if market_latest_date is not None:
+        _market_age_days = (effective_trade_date - market_latest_date).days
+        market_status_is_latest = _market_age_days <= _market_status_max_age_days
+    else:
+        market_status_is_latest = False
     market_defensive_mode = bool(order_context.get("market_defensive_mode")) if "market_defensive_mode" in order_context else (not bool(market_latest.get("market_up")) if market_latest else False)
 
     fill_items = fills_payload.get("items") or []
@@ -262,6 +273,17 @@ def evaluate_common_buy_guard(order_context: dict[str, Any]) -> tuple[bool, list
     weekly_loss_pct = _num(order_context.get("weekly_loss_pct"))
     if weekly_loss_pct is None:
         weekly_loss_pct = _derive_weekly_loss_pct(balance_payload)
+    weekly_realized_pnl = _derived_metric(balance_payload, "weekly_realized_pnl")
+    weekly_unrealized_pnl = _derived_metric(balance_payload, "weekly_unrealized_pnl")
+    weekly_total_pnl = _derived_metric(balance_payload, "weekly_total_pnl")
+    if weekly_total_pnl is None:
+        weekly_total_pnl = _derived_metric(balance_payload, "weekly_asset_change_amount")
+    week_start_total_assets = _derived_metric(balance_payload, "week_start_total_assets")
+    weekly_loss_source = (balance_payload.get("derived_metrics") or {}).get("weekly_loss_source")
+    weekly_reset_mode = (balance_payload.get("derived_metrics") or {}).get("weekly_reset_mode")
+    week_start_date = (balance_payload.get("derived_metrics") or {}).get("week_start_date")
+    week_start_snapshot_at = (balance_payload.get("derived_metrics") or {}).get("week_start_snapshot_at")
+    timezone_name = (balance_payload.get("derived_metrics") or {}).get("timezone") or "Asia/Seoul"
 
     reasons: list[str] = []
     if side != "BUY":
@@ -345,6 +367,19 @@ def evaluate_common_buy_guard(order_context: dict[str, Any]) -> tuple[bool, list
         "daily_loss_limit_pct": -abs(daily_loss_limit),
         "weekly_loss_pct": weekly_loss_pct,
         "weekly_loss_limit_pct": -abs(weekly_loss_limit),
+        "weekly_realized_pnl": weekly_realized_pnl,
+        "weekly_unrealized_pnl": weekly_unrealized_pnl,
+        "weekly_total_pnl": weekly_total_pnl,
+        "weekly_loss_rate": weekly_loss_pct,
+        "weekly_limit": -abs(weekly_loss_limit),
+        "weekly_blocked": weekly_loss_pct is not None and weekly_loss_pct <= -abs(weekly_loss_limit),
+        "week_start_total_assets": week_start_total_assets,
+        "week_start_date": week_start_date,
+        "week_start_snapshot_at": week_start_snapshot_at,
+        "weekly_loss_source": weekly_loss_source,
+        "weekly_reset_mode": weekly_reset_mode,
+        "timezone": timezone_name,
+        "paper_live_scope": str(order_context.get("run_mode") or ""),
         "holdings_sync_at": holdings_sync_at.isoformat(timespec="seconds") if holdings_sync_at else None,
         "holdings_sync_age_minutes": holdings_sync_age_minutes,
         "fills_sync_at": fills_sync_at.isoformat(timespec="seconds") if fills_sync_at else None,

@@ -39,6 +39,10 @@ def cfg_int(name: str, default: int) -> int:
     return int(float(os.getenv(name, str(default))))
 
 
+def _flag(name: str, default: str = "0") -> bool:
+    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def load_signals(path: Path) -> pd.DataFrame:
     path = resolve(path)
     if not path.exists():
@@ -84,7 +88,9 @@ def evaluate_position_risk(
     latest_date: pd.Timestamp,
 ) -> tuple[str | None, str | None, float | None, int | None, float | None, float | None, list[str]]:
     max_holding_days = cfg_int("RULE_MAX_HOLDING_DAYS", 10)
+    max_holding_days_defensive = cfg_int("RULE_MAX_HOLDING_DAYS_DEFENSIVE", 7)
     max_holding_profit_buffer = cfg_float("RULE_MAX_HOLDING_DAYS_PROFIT_BUFFER", 0.02)
+    profit_target_pct = cfg_float("RULE_PROFIT_TARGET_PCT", 0.0)
     stop_loss_pct = cfg_float("RULE_STOP_LOSS_PCT", 0.05)
     trailing_stop_pct = cfg_float("RULE_TRAILING_STOP_PCT", 0.04)
     trailing_stop_min_profit_pct = cfg_float("RULE_TRAILING_STOP_MIN_PROFIT_PCT", 0.03)
@@ -133,12 +139,18 @@ def evaluate_position_risk(
             return "exit", "trailing_stop_exit", current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
         return "reduce", "trailing_stop_reduce", current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
 
-    if holding_days is not None and holding_days > max_holding_days:
+    if profit_target_pct > 0 and current_return_pct is not None and current_return_pct >= profit_target_pct:
+        return "reduce", "profit_target_reduce", current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
+
+    is_defensive = str(row.get("market_defensive_mode", "")).strip().lower() in {"true", "1", "yes"}
+    effective_max_holding_days = max_holding_days_defensive if is_defensive else max_holding_days
+    if holding_days is not None and holding_days > effective_max_holding_days:
         if current_return_pct is None:
             reasons.append("holding_days_exit_data_incomplete")
         elif current_return_pct < max_holding_profit_buffer:
             action = "reduce" if current_return_pct > 0 else "exit"
-            return action, "max_holding_days_exit", current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
+            holding_reason = "max_holding_days_defensive_exit" if is_defensive else "max_holding_days_exit"
+            return action, holding_reason, current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
 
     return None, None, current_return_pct, holding_days, highest_return_since_entry, drawdown_from_high_pct, reasons
 
@@ -165,6 +177,8 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
     min_cash_weight = cfg_float("RULE_MIN_CASH_WEIGHT", 0.20)
     max_sector_weight = cfg_float("RULE_MAX_SECTOR_WEIGHT", 0.35)
     cooldown_days = cfg_int("RULE_COOLDOWN_DAYS", 5)
+    allow_entry_signal = _flag("RULE_ALLOW_ENTRY_SIGNAL", "0")
+    entry_allow_ratio = cfg_float("RULE_ENTRY_ALLOW_RATIO", 0.6)
     positions = position_frame(account_state)
     held_codes = set(positions["code"].astype(str)) if not positions.empty else set()
     cooldown_codes = recent_trade_codes(account_state, latest_date, cooldown_days)
@@ -220,11 +234,21 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
             if risk_action and risk_reason:
                 action = risk_action
                 reason = risk_reason
-                target_weight = 0.0 if action == "exit" else max(current_weight * 0.5, 0.0)
+                if action == "exit":
+                    target_weight = 0.0
+                elif reason == "profit_target_reduce":
+                    target_weight = max(current_weight * 0.7, 0.0)
+                elif current_return_pct is not None and current_return_pct > 0:
+                    target_weight = max(current_weight * 0.4, 0.0)
+                else:
+                    target_weight = max(current_weight * 0.5, 0.0)
             elif bool(row.get("market_defensive_mode")) and (float(row.get("rule_score_v2") or 0.0) < 45.0):
                 action = "reduce"
                 reason = "defensive_rule_score_v2_drop"
-                target_weight = max(current_weight * 0.5, 0.0)
+                if current_return_pct is not None and current_return_pct > 0:
+                    target_weight = max(current_weight * 0.4, 0.0)
+                else:
+                    target_weight = max(current_weight * 0.5, 0.0)
             elif float(row.get("rule_score_v2") or 0.0) < 35.0 or bool(row.get("gap_risk_blocked")):
                 action = "exit"
                 reason = "rule_exit_condition"
@@ -235,10 +259,12 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
                 target_weight = current_weight
         elif market_defensive_mode:
             reason = "market_defensive_mode_buy_blocked"
-        elif not bool(row.get("strong_entry_signal")):
+        elif not bool(row.get("strong_entry_signal")) and not (allow_entry_signal and bool(row.get("entry_signal"))):
             reason = "not_strong_entry_signal"
         elif len(held_codes) + sum(1 for item in rows if item.get("portfolio_action") == "buy") >= max_positions:
             reason = "max_positions_reached"
+        elif not bool(row.get("strong_entry_signal")) and len(held_codes) + sum(1 for item in rows if item.get("portfolio_action") == "buy") >= int(max_positions * entry_allow_ratio):
+            reason = "entry_allow_ratio_positions_reached"
         elif not sector_limit_pass:
             reason = "sector_limit_failed"
         elif not cooldown_pass:
@@ -249,9 +275,13 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
             reason = "position_limit_failed"
         else:
             action = "buy"
-            reason = "strong_entry_selected"
-            target_weight = new_entry_weight
-            sector_exposure[sector] = sector_after
+            if bool(row.get("strong_entry_signal")):
+                reason = "strong_entry_selected"
+                target_weight = new_entry_weight
+            else:
+                reason = "entry_signal_relaxed_selected"
+                target_weight = new_entry_weight * 0.7
+            sector_exposure[sector] = sector_exposure.get(sector, 0.0) + (target_weight if not held else 0.0)
 
         target_amount = total_equity * target_weight
         rows.append(
@@ -308,6 +338,8 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
             "min_cash_weight": min_cash_weight,
             "max_sector_weight": max_sector_weight,
             "cooldown_days": cooldown_days,
+            "allow_entry_signal": allow_entry_signal,
+            "entry_allow_ratio": entry_allow_ratio,
         },
         "account_state": {
             "total_equity": total_equity,

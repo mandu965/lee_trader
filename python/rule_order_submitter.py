@@ -20,6 +20,13 @@ from rule_execution_simulator import (
 )
 from rule_market_open_snapshot import check_market_data_available, resolve_rule_account_env
 from rule_paper_state_manager import default_state
+from rule_trading_diagnostics import (
+    append_trade_flow_log,
+    build_block_reason_details,
+    build_trade_flow_payload,
+    debug_trade_mode_enabled,
+    select_primary_block_reason,
+)
 from rule_signal_builder import ROOT, resolve
 
 
@@ -132,11 +139,14 @@ def _live_order_context(item: dict[str, Any], market_row: dict[str, Any] | None,
 
 
 def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    debug_trade_mode = debug_trade_mode_enabled()
     if str(market_snapshot.get("api_health_status") or "").strip().lower() == "auth_failed":
         raise RuntimeError(str(market_snapshot.get("api_failure_reason") or "market_snapshot_auth_failed"))
     account = resolve_rule_account_env()
-    client = KISClient.from_rule_env()
-    client.issue_access_token()
+    client = None
+    if not debug_trade_mode:
+        client = KISClient.from_rule_env()
+        client.issue_access_token()
 
     snapshot_map = market_snapshot.get("snapshots") or {}
     results: list[dict[str, Any]] = []
@@ -159,6 +169,8 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
         row["unfilled_qty"] = int(float(row.get("order_qty") or 0))
         row["estimated_amount"] = float(row.get("order_amount") or 0.0)
         row["daily_order_amount_used"] = submitted_buy_amount + submitted_sell_amount
+        row["submit_attempted"] = False
+        row["debug_trade_mode"] = debug_trade_mode
 
         side = str(row.get("side") or "NONE").upper()
         if side == "NONE":
@@ -167,6 +179,23 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
             )
             row["order_status"] = "planned"
             row["reconciliation_status"] = "skipped_no_order_action"
+            trade_flow = build_trade_flow_payload(
+                stage="execution_skip",
+                run_id=str(preview.get("run_id") or row.get("run_id") or ""),
+                symbol=row.get("code"),
+                score=row.get("signal_strength"),
+                strategy_action=row.get("portfolio_action"),
+                risk_pass=False,
+                order_amount=row.get("estimated_amount"),
+                price=row.get("expected_execution_price"),
+                qty=row.get("order_qty"),
+                final_amount=row.get("order_amount"),
+                blocked=True,
+                blocked_reason=row.get("order_block_reason"),
+                extra={"side": side, "submit_attempted": False, "broker_result": "SKIPPED_NO_ORDER_ACTION"},
+            )
+            row["trade_flow"] = trade_flow
+            append_trade_flow_log(trade_flow)
             results.append(row)
             continue
 
@@ -188,11 +217,30 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
             row["common_risk_snapshot"] = row.get("common_risk_snapshot") or {"bypass_reason": "preview_common_risk_blocked"}
             row["order_status"] = "blocked"
             row["reconciliation_status"] = "blocked_before_submit"
+            row["block_reason_details"] = build_block_reason_details(str(row.get("order_block_reason") or "").split(";"))
+            row["primary_block_reason"] = select_primary_block_reason(row["block_reason_details"])
             _log(
                 f"blocked preview-common-risk code={row.get('code')} name={row.get('name')} side={side} qty={row.get('order_qty')} "
                 f"estimated_amount={row.get('estimated_amount')} run_mode={preview.get('run_mode')} "
                 f"reasons={row.get('order_block_reason')}"
             )
+            trade_flow = build_trade_flow_payload(
+                stage="execution_guard",
+                run_id=str(preview.get("run_id") or row.get("run_id") or ""),
+                symbol=row.get("code"),
+                score=row.get("signal_strength"),
+                strategy_action=row.get("portfolio_action"),
+                risk_pass=False,
+                order_amount=row.get("estimated_amount"),
+                price=row.get("expected_execution_price"),
+                qty=row.get("order_qty"),
+                final_amount=row.get("order_amount"),
+                blocked=True,
+                blocked_reason=row.get("order_block_reason"),
+                extra={"side": side, "submit_attempted": False, "broker_result": "POLICY_BLOCK"},
+            )
+            row["trade_flow"] = trade_flow
+            append_trade_flow_log(trade_flow)
             skipped_count += 1
             results.append(row)
             continue
@@ -207,11 +255,30 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
             row["final_guard_details"] = guard_details
             row["order_status"] = "blocked"
             row["reconciliation_status"] = "blocked_before_submit"
+            row["block_reason_details"] = build_block_reason_details(str(row.get("order_block_reason") or "").split(";"))
+            row["primary_block_reason"] = select_primary_block_reason(row["block_reason_details"])
             _log(
                 f"blocked final-guard code={row.get('code')} name={row.get('name')} side={side} qty={row.get('order_qty')} "
                 f"estimated_amount={row.get('estimated_amount')} run_mode={preview.get('run_mode')} "
                 f"reasons={row.get('order_block_reason')}"
             )
+            trade_flow = build_trade_flow_payload(
+                stage="execution_guard",
+                run_id=str(preview.get("run_id") or row.get("run_id") or ""),
+                symbol=row.get("code"),
+                score=row.get("signal_strength"),
+                strategy_action=row.get("portfolio_action"),
+                risk_pass=False,
+                order_amount=row.get("estimated_amount"),
+                price=row.get("expected_execution_price"),
+                qty=row.get("order_qty"),
+                final_amount=row.get("order_amount"),
+                blocked=True,
+                blocked_reason=row.get("order_block_reason"),
+                extra={"side": side, "submit_attempted": False, "broker_result": "POLICY_BLOCK"},
+            )
+            row["trade_flow"] = trade_flow
+            append_trade_flow_log(trade_flow)
             skipped_count += 1
             results.append(row)
             continue
@@ -220,12 +287,39 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
             ord_dvsn = _ord_dvsn(row)
             ord_unpr = _ord_unpr(row, ord_dvsn)
             row["final_guard_details"] = guard_details
+            if debug_trade_mode:
+                row["submitted_at"] = datetime.now().isoformat(timespec="seconds")
+                row["order_status"] = "debug_skipped"
+                row["reconciliation_status"] = "debug_trade_mode_skip"
+                row["order_block_reason"] = _append_reason(row.get("order_block_reason"), "debug_trade_mode")
+                row["block_reason_details"] = build_block_reason_details(str(row.get("order_block_reason") or "").split(";"))
+                row["primary_block_reason"] = select_primary_block_reason(row["block_reason_details"])
+                trade_flow = build_trade_flow_payload(
+                    stage="execution_debug_skip",
+                    run_id=str(preview.get("run_id") or row.get("run_id") or ""),
+                    symbol=row.get("code"),
+                    score=row.get("signal_strength"),
+                    strategy_action=row.get("portfolio_action"),
+                    risk_pass=True,
+                    order_amount=row.get("estimated_amount"),
+                    price=row.get("expected_execution_price"),
+                    qty=row.get("order_qty"),
+                    final_amount=row.get("order_amount"),
+                    blocked=False,
+                    blocked_reason="debug_trade_mode",
+                    extra={"side": side, "submit_attempted": False, "broker_result": "DEBUG_SKIP"},
+                )
+                row["trade_flow"] = trade_flow
+                append_trade_flow_log(trade_flow)
+                results.append(row)
+                continue
             _log(
                 f"approve submit code={row.get('code')} name={row.get('name')} side={side} qty={row.get('order_qty')} "
                 f"estimated_amount={row.get('estimated_amount')} run_mode={preview.get('run_mode')} "
                 f"order_type={row.get('order_type')} ord_dvsn={ord_dvsn} ord_unpr={ord_unpr} "
                 f"daily_used={row.get('daily_order_amount_used')}"
             )
+            row["submit_attempted"] = True
             response_df = order_cash(
                 client,
                 account,
@@ -248,6 +342,25 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
                 submitted_buy_amount += order_amount
             elif side == "SELL":
                 submitted_sell_amount += order_amount
+            row["block_reason_details"] = build_block_reason_details(str(row.get("order_block_reason") or "").split(";"))
+            row["primary_block_reason"] = select_primary_block_reason(row["block_reason_details"])
+            trade_flow = build_trade_flow_payload(
+                stage="execution_submit",
+                run_id=str(preview.get("run_id") or row.get("run_id") or ""),
+                symbol=row.get("code"),
+                score=row.get("signal_strength"),
+                strategy_action=row.get("portfolio_action"),
+                risk_pass=True,
+                order_amount=row.get("estimated_amount"),
+                price=row.get("expected_execution_price"),
+                qty=row.get("order_qty"),
+                final_amount=row.get("order_amount"),
+                blocked=False,
+                blocked_reason="none",
+                extra={"side": side, "submit_attempted": True, "broker_result": "SUBMITTED"},
+            )
+            row["trade_flow"] = trade_flow
+            append_trade_flow_log(trade_flow)
             _log(
                 f"submitted code={row.get('code')} name={row.get('name')} side={side} qty={row.get('order_qty')} "
                 f"estimated_amount={row.get('estimated_amount')} broker_order_id={row.get('broker_order_id')}"
@@ -257,6 +370,25 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
             row["order_block_reason"] = _append_reason(row.get("order_block_reason"), "order_submit_failed", str(exc))
             row["order_status"] = "failed"
             row["reconciliation_status"] = "submit_failed"
+            row["block_reason_details"] = build_block_reason_details(str(row.get("order_block_reason") or "").split(";"))
+            row["primary_block_reason"] = select_primary_block_reason(row["block_reason_details"])
+            trade_flow = build_trade_flow_payload(
+                stage="execution_api_error",
+                run_id=str(preview.get("run_id") or row.get("run_id") or ""),
+                symbol=row.get("code"),
+                score=row.get("signal_strength"),
+                strategy_action=row.get("portfolio_action"),
+                risk_pass=False,
+                order_amount=row.get("estimated_amount"),
+                price=row.get("expected_execution_price"),
+                qty=row.get("order_qty"),
+                final_amount=row.get("order_amount"),
+                blocked=True,
+                blocked_reason=row.get("order_block_reason"),
+                extra={"side": side, "submit_attempted": True, "broker_result": "API_ERROR", "broker_error_message": str(exc)},
+            )
+            row["trade_flow"] = trade_flow
+            append_trade_flow_log(trade_flow)
             _log(
                 f"submit failed code={row.get('code')} name={row.get('name')} side={side} qty={row.get('order_qty')} "
                 f"estimated_amount={row.get('estimated_amount')} run_mode={preview.get('run_mode')} error={exc}"
@@ -270,6 +402,7 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
         "submitted_count": submitted_count,
         "failed_count": failed_count,
         "skipped_count": skipped_count,
+        "debug_skipped_count": sum(1 for row in results if row.get("order_status") == "debug_skipped"),
         "filled_count": 0,
         "partial_filled_count": 0,
         "unfilled_count": 0,
@@ -348,6 +481,8 @@ def main() -> None:
                 "strategy_id": preview.get("strategy_id"),
                 "engine_type": preview.get("engine_type"),
                 "run_mode": preview.get("run_mode"),
+                "run_id": preview.get("run_id"),
+                "debug_trade_mode": debug_trade_mode_enabled(),
                 "paper_only": False,
                 "trading_day_valid": session_status.get("trading_day_valid"),
                 "trading_day_reason": session_status.get("trading_day_reason"),

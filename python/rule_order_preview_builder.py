@@ -9,6 +9,15 @@ from pathlib import Path
 from typing import Any
 
 from rule_account_guard import evaluate_rule_order_guard, resolve_trading_account, validate_account_profile
+from rule_trading_diagnostics import (
+    append_trade_flow_log,
+    build_block_reason_details,
+    build_order_sizing_details,
+    build_trade_flow_payload,
+    debug_trade_mode_enabled,
+    generate_rule_run_id,
+    select_primary_block_reason,
+)
 from rule_signal_builder import ENGINE_TYPE, STRATEGY_ID, ROOT, resolve
 
 
@@ -65,6 +74,10 @@ def calculate_order_quantity(order_amount: float, execution_price: float | None)
     return max(int(math.floor(order_amount / execution_price)), 0)
 
 
+def _bool_env(name: str, default: str = "1") -> bool:
+    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def validate_order_size(order_qty: int, order_amount: float, min_order_amount: float) -> tuple[bool, str]:
     if order_amount < min_order_amount:
         return False, "final_order_amount_below_min_order_amount"
@@ -75,7 +88,12 @@ def validate_order_size(order_qty: int, order_amount: float, min_order_amount: f
 
 def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> dict[str, Any]:
     min_order_amount = cfg_float("RULE_MIN_ORDER_AMOUNT", 100_000.0)
+    max_order_amount = cfg_float("RULE_MAX_ORDER_AMOUNT", 1_000_000.0)
+    minimum_shares = max(int(float(os.getenv("RULE_MINIMUM_SHARES", "1"))), 1)
+    auto_adjust_minimum_shares = _bool_env("RULE_AUTO_ADJUST_MINIMUM_SHARES", "1")
     market_order_enabled = str(os.getenv("MARKET_ORDER_ENABLED", "0")).strip().lower() in {"1", "true", "yes", "on"}
+    debug_trade_mode = debug_trade_mode_enabled()
+    run_id = generate_rule_run_id("rule-preview")
     account_profile = resolve_trading_account(ENGINE_TYPE, run_mode)
     account_profile_ok, account_profile_reasons = validate_account_profile(account_profile)
     account_state = plan.get("account_state") or {}
@@ -85,6 +103,15 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
     available_buying_power = max(0.0, cash - total_equity * min_cash_weight)
     pilot_max_order_amount = optional_cfg_float("RULE_PILOT_MAX_ORDER_AMOUNT") if run_mode == "pilot" else None
     pilot_max_order_qty = optional_cfg_int("RULE_PILOT_MAX_ORDER_QTY") if run_mode == "pilot" else None
+    buy_limit_buffer = cfg_float("RULE_BUY_LIMIT_BUFFER", 0.01)
+    buy_limit_buffer_high_vol = cfg_float("RULE_BUY_LIMIT_BUFFER_HIGH_VOL", 0.02)
+
+    _valid_vol = sorted(
+        float(i.get("vol_20") or 0)
+        for i in (plan.get("items") or [])
+        if (i.get("vol_20") or 0) > 0
+    )
+    vol_20_high_threshold = _valid_vol[int(len(_valid_vol) * 0.70)] if len(_valid_vol) >= 5 else None
 
     items: list[dict[str, Any]] = []
     for idx, item in enumerate(plan.get("items") or [], 1):
@@ -108,6 +135,16 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
                 order_amount = max(current_amount - target_amount, 0.0)
             else:
                 order_amount = current_amount
+        base_order_amount = order_amount
+        required_amount = float(expected_price) * float(minimum_shares) if side == "BUY" and expected_price and expected_price > 0 else None
+        price_too_high = False
+        adjustment_applied = False
+        if side == "BUY" and auto_adjust_minimum_shares and required_amount is not None and base_order_amount > 0:
+            if required_amount <= available_buying_power and required_amount <= max_order_amount:
+                order_amount = max(base_order_amount, required_amount)
+                adjustment_applied = order_amount > base_order_amount
+            elif required_amount > available_buying_power or required_amount > max_order_amount:
+                price_too_high = True
         raw_order_amount = order_amount
         if pilot_max_order_amount is not None and side in {"BUY", "SELL"}:
             order_amount = min(order_amount, pilot_max_order_amount)
@@ -118,12 +155,28 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
             if expected_price and expected_price > 0:
                 order_amount = min(order_amount, float(order_qty) * expected_price)
         size_ok, size_reason = validate_order_size(order_qty, order_amount, min_order_amount)
+        sizing_details = build_order_sizing_details(
+            side=side,
+            base_order_amount=base_order_amount,
+            adjusted_order_amount=order_amount,
+            current_price=expected_price,
+            raw_qty=raw_order_qty,
+            final_qty=order_qty,
+            min_order_amount=min_order_amount,
+            minimum_shares=minimum_shares,
+            required_amount=required_amount,
+            adjustment_applied=adjustment_applied,
+            price_too_high=price_too_high,
+        )
 
         order_type = "limit"
         limit_price = None
+        vol_20 = float(item.get("vol_20") or 0)
+        is_high_vol = vol_20_high_threshold is not None and vol_20 > 0 and vol_20 >= vol_20_high_threshold
         if expected_price:
             if side == "BUY":
-                limit_price = int(expected_price * 1.01)
+                buf = buy_limit_buffer_high_vol if is_high_vol else buy_limit_buffer
+                limit_price = int(expected_price * (1.0 + buf))
             elif side == "SELL":
                 limit_price = int(expected_price * 0.99)
 
@@ -157,8 +210,42 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
             order_context["order_qty"] = order_qty
             order_context["order_amount"] = order_amount
         order_allowed, block_reasons, guard_details = evaluate_rule_order_guard(order_context)
+        if price_too_high and side == "BUY" and "price_too_high_for_minimum_shares" not in block_reasons:
+            block_reasons.append("price_too_high_for_minimum_shares")
         if not size_ok and side in {"BUY", "SELL"} and size_reason not in block_reasons:
             block_reasons.append(size_reason)
+        block_reason_details = build_block_reason_details(block_reasons)
+        primary_block_reason = select_primary_block_reason(block_reason_details)
+        trade_flow = build_trade_flow_payload(
+            stage="preview",
+            run_id=run_id,
+            symbol=item.get("code"),
+            score=item.get("rule_score_v2") or item.get("rule_score"),
+            strategy_action=action,
+            risk_pass=bool(order_allowed),
+            order_amount=base_order_amount,
+            price=expected_price,
+            qty=order_qty,
+            final_amount=order_amount,
+            blocked=not order_allowed,
+            blocked_reason=";".join(dict.fromkeys(block_reasons)) if block_reasons else "none",
+            extra={
+                "side": side,
+                "intent": action,
+                "requested_qty": raw_order_qty,
+                "allowed_qty": order_qty,
+                "policy_status": "ALLOW" if order_allowed else "BLOCK",
+                "market_status": "NOT_CHECKED",
+                "confidence": item.get("signal_strength"),
+                "entry_quality_status": item.get("signal_strength"),
+                "submit_attempted": False,
+                "broker_result": None,
+                "broker_error_code": None,
+                "broker_error_message": None,
+                "order_sizing": sizing_details,
+            },
+        )
+        append_trade_flow_log(trade_flow)
 
         items.append(
             {
@@ -185,11 +272,21 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
                 "current_return_pct": item.get("current_return_pct"),
                 "highest_return_since_entry": item.get("highest_return_since_entry"),
                 "drawdown_from_high_pct": item.get("drawdown_from_high_pct"),
+                "run_id": run_id,
+                "debug_trade_mode": debug_trade_mode,
                 "order_allowed": order_allowed,
                 "order_block_reason": ";".join(dict.fromkeys(block_reasons)) if block_reasons else "none",
+                "block_reason_details": block_reason_details,
+                "primary_block_reason": primary_block_reason,
+                "policy_blocked": any(detail.get("category") == "POLICY_BLOCK" for detail in block_reason_details),
+                "system_blocked": any(detail.get("category") == "SYSTEM_ERROR" for detail in block_reason_details),
+                "api_blocked": any(detail.get("category") == "API_ERROR" for detail in block_reason_details),
                 "common_risk_allowed": bool(guard_details.get("common_risk_allowed", True)),
                 "common_risk_block_reasons": list(guard_details.get("common_risk_block_reasons") or []),
                 "common_risk_snapshot": dict(guard_details.get("common_risk_snapshot") or {}),
+                "guard_details": guard_details,
+                "order_sizing": sizing_details,
+                "trade_flow": trade_flow,
                 "signal_strength": item.get("signal_strength"),
                 "gap_risk_reason": gap_risk_reason,
                 "trading_value_block_reason": trading_value_block_reason,
@@ -231,6 +328,8 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
         "account_profile": account_profile.to_dict(),
         "account_profile_valid": account_profile_ok,
         "account_profile_block_reasons": account_profile_reasons,
+        "run_id": run_id,
+        "debug_trade_mode": debug_trade_mode,
         "trading_day_valid": None,
         "trading_day_reason": "not_checked_in_after_close_preview",
         "market_data_available": None,
@@ -242,10 +341,20 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
         "reconciliation_block_reason": None,
         "items": items,
         "summary": {
+            "run_id": run_id,
             "request_count": len(items),
             "buy_preview_count": sum(1 for row in items if row["side"] == "BUY"),
             "sell_preview_count": sum(1 for row in items if row["side"] == "SELL"),
             "order_allowed_count": sum(1 for row in items if row["order_allowed"]),
+            "policy_blocked_count": sum(1 for row in items if row.get("policy_blocked")),
+            "system_blocked_count": sum(1 for row in items if row.get("system_blocked")),
+            "api_blocked_count": sum(1 for row in items if row.get("api_blocked")),
+            "submit_allowed_count": sum(1 for row in items if row["side"] in {"BUY", "SELL"} and row["order_allowed"]),
+            "price_too_high_count": sum(
+                1
+                for row in items
+                if any(detail.get("block_reason") == "PRICE_TOO_HIGH" for detail in row.get("block_reason_details") or [])
+            ),
         },
     }
 

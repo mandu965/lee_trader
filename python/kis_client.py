@@ -15,10 +15,21 @@ except Exception:
     load_dotenv = None
 
 
+def _notify_critical(message: str) -> None:
+    """Log CRITICAL and forward to notifier if available (notifier failure must not propagate)."""
+    logging.critical("KIS API CRITICAL: %s", message)
+    try:
+        from notifier import send_alert  # type: ignore[import]
+        send_alert(level="CRITICAL", message=message)
+    except Exception:
+        pass
+
+
 DEFAULT_TIMEOUT_SEC = 20
-DEFAULT_MAX_RETRIES = 2
-DEFAULT_RETRY_BACKOFF_BASE_SEC = 1.5
-DEFAULT_RETRY_BACKOFF_MAX_SEC = 5.0
+DEFAULT_MAX_RETRIES = 3
+DEFAULT_RETRY_BACKOFF_BASE_SEC = 1.0
+DEFAULT_RETRY_BACKOFF_FACTOR = 2.0
+DEFAULT_RETRY_BACKOFF_MAX_SEC = 30.0
 DEFAULT_TOKEN_CACHE_TTL_SEC = 60 * 60 * 6
 DEFAULT_TOKEN_CACHE_SKEW_SEC = 300
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +46,11 @@ class KISAuthError(KISError):
 
 class KISHTTPError(KISError):
     """Transport-level or HTTP status failure."""
+
+    def __init__(self, message: str, status_code: int = 0, retry_after_sec: Optional[float] = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after_sec = retry_after_sec
 
 
 class KISBusinessError(KISError):
@@ -56,6 +72,7 @@ class KISClient:
     timeout_sec: int = DEFAULT_TIMEOUT_SEC
     max_retries: int = DEFAULT_MAX_RETRIES
     retry_backoff_base_sec: float = DEFAULT_RETRY_BACKOFF_BASE_SEC
+    retry_backoff_factor: float = DEFAULT_RETRY_BACKOFF_FACTOR
     retry_backoff_max_sec: float = DEFAULT_RETRY_BACKOFF_MAX_SEC
 
     def __post_init__(self) -> None:
@@ -166,8 +183,15 @@ class KISClient:
         if not all([base_url, app_key, app_secret]):
             raise ValueError("KIS env missing or incomplete")
         timeout_sec = max(5, int(os.getenv("KIS_TIMEOUT_SEC", str(DEFAULT_TIMEOUT_SEC))))
-        max_retries = max(0, int(os.getenv("KIS_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))))
-        retry_backoff_base_sec = max(0.5, float(os.getenv("KIS_RETRY_BACKOFF_BASE_SEC", str(DEFAULT_RETRY_BACKOFF_BASE_SEC))))
+        max_retries = max(0, int(
+            os.getenv("KIS_MAX_RETRY") or os.getenv("KIS_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))
+        ))
+        retry_backoff_base_sec = max(0.1, float(
+            os.getenv("KIS_RETRY_WAIT_SEC") or os.getenv("KIS_RETRY_BACKOFF_BASE_SEC", str(DEFAULT_RETRY_BACKOFF_BASE_SEC))
+        ))
+        retry_backoff_factor = max(1.0, float(
+            os.getenv("KIS_RETRY_BACKOFF_FACTOR", str(DEFAULT_RETRY_BACKOFF_FACTOR))
+        ))
         retry_backoff_max_sec = max(
             retry_backoff_base_sec,
             float(os.getenv("KIS_RETRY_BACKOFF_MAX_SEC", str(DEFAULT_RETRY_BACKOFF_MAX_SEC))),
@@ -179,6 +203,7 @@ class KISClient:
             timeout_sec=timeout_sec,
             max_retries=max_retries,
             retry_backoff_base_sec=retry_backoff_base_sec,
+            retry_backoff_factor=retry_backoff_factor,
             retry_backoff_max_sec=retry_backoff_max_sec,
         )
 
@@ -192,8 +217,15 @@ class KISClient:
         if not all([base_url, app_key, app_secret]):
             raise ValueError("KIS rule env missing or incomplete")
         timeout_sec = max(5, int(os.getenv("KIS_TIMEOUT_SEC", str(DEFAULT_TIMEOUT_SEC))))
-        max_retries = max(0, int(os.getenv("KIS_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))))
-        retry_backoff_base_sec = max(0.5, float(os.getenv("KIS_RETRY_BACKOFF_BASE_SEC", str(DEFAULT_RETRY_BACKOFF_BASE_SEC))))
+        max_retries = max(0, int(
+            os.getenv("KIS_MAX_RETRY") or os.getenv("KIS_MAX_RETRIES", str(DEFAULT_MAX_RETRIES))
+        ))
+        retry_backoff_base_sec = max(0.1, float(
+            os.getenv("KIS_RETRY_WAIT_SEC") or os.getenv("KIS_RETRY_BACKOFF_BASE_SEC", str(DEFAULT_RETRY_BACKOFF_BASE_SEC))
+        ))
+        retry_backoff_factor = max(1.0, float(
+            os.getenv("KIS_RETRY_BACKOFF_FACTOR", str(DEFAULT_RETRY_BACKOFF_FACTOR))
+        ))
         retry_backoff_max_sec = max(
             retry_backoff_base_sec,
             float(os.getenv("KIS_RETRY_BACKOFF_MAX_SEC", str(DEFAULT_RETRY_BACKOFF_MAX_SEC))),
@@ -205,6 +237,7 @@ class KISClient:
             timeout_sec=timeout_sec,
             max_retries=max_retries,
             retry_backoff_base_sec=retry_backoff_base_sec,
+            retry_backoff_factor=retry_backoff_factor,
             retry_backoff_max_sec=retry_backoff_max_sec,
         )
 
@@ -251,6 +284,7 @@ class KISClient:
                     break
                 self._sleep_before_retry(attempt)
 
+        _notify_critical(f"KIS token issuance retry exhausted: {last_error}")
         raise KISAuthError(f"Failed to issue KIS access token: {last_error}") from last_error
 
     def build_headers(
@@ -322,6 +356,14 @@ class KISClient:
                     refreshed_token = True
                     continue
 
+                if response.status_code == 429:
+                    retry_after = self._parse_retry_after(response)
+                    raise KISHTTPError(
+                        f"KIS rate limited: path={path} status=429 retry_after={retry_after} body={response.text[:200]}",
+                        status_code=429,
+                        retry_after_sec=retry_after,
+                    )
+
                 if response.status_code >= 400:
                     if not refreshed_token and self._is_token_expired_response(response):
                         logging.info("KIS auth appears expired; refreshing token and retrying")
@@ -329,7 +371,8 @@ class KISClient:
                         refreshed_token = True
                         continue
                     raise KISHTTPError(
-                        f"KIS GET failed: path={path} status={response.status_code} body={response.text[:500]}"
+                        f"KIS GET failed: path={path} status={response.status_code} body={response.text[:500]}",
+                        status_code=response.status_code,
                     )
 
                 data = response.json()
@@ -343,11 +386,12 @@ class KISClient:
                 last_error = exc
                 if not self._should_retry(exc=exc, attempt=attempt):
                     break
-                self._sleep_before_retry(attempt)
+                self._sleep_before_retry(attempt, exc=exc)
 
+        _notify_critical(f"KIS GET retry exhausted: path={path} error={last_error}")
         if isinstance(last_error, KISError):
             raise last_error
-        raise KISHTTPError(f"KIS GET failed unexpectedly for {path}: {last_error}") from last_error
+        raise KISHTTPError(f"KIS GET failed unexpectedly for {path}: {last_error}", status_code=0) from last_error
 
     def request_hashkey(self, payload: Dict[str, Any]) -> str:
         url = f"{self.base_url}/uapi/hashkey"
@@ -381,6 +425,7 @@ class KISClient:
         extra_headers: Optional[Dict[str, str]] = None,
         require_hashkey: bool = False,
         timeout_sec: Optional[int] = None,
+        no_retry: bool = False,
     ) -> Dict[str, Any]:
         return self.post_with_meta(
             path,
@@ -389,6 +434,7 @@ class KISClient:
             extra_headers=extra_headers,
             require_hashkey=require_hashkey,
             timeout_sec=timeout_sec,
+            no_retry=no_retry,
         ).data
 
     def post_with_meta(
@@ -400,14 +446,16 @@ class KISClient:
         extra_headers: Optional[Dict[str, str]] = None,
         require_hashkey: bool = False,
         timeout_sec: Optional[int] = None,
+        no_retry: bool = False,
     ) -> KISResponse:
         url = f"{self.base_url}{path}"
         timeout = timeout_sec or self.timeout_sec
         body = payload or {}
         last_error: Optional[Exception] = None
         refreshed_token = False
+        max_attempts = 1 if no_retry else (self.max_retries + 1)
 
-        for attempt in range(self.max_retries + 1):
+        for attempt in range(max_attempts):
             try:
                 headers = self.build_headers(tr_id=tr_id, extra_headers=extra_headers)
                 headers["custtype"] = headers.get("custtype", "P")
@@ -426,6 +474,14 @@ class KISClient:
                     refreshed_token = True
                     continue
 
+                if response.status_code == 429:
+                    retry_after = self._parse_retry_after(response)
+                    raise KISHTTPError(
+                        f"KIS rate limited: path={path} status=429 retry_after={retry_after} body={response.text[:200]}",
+                        status_code=429,
+                        retry_after_sec=retry_after,
+                    )
+
                 if response.status_code >= 400:
                     if not refreshed_token and self._is_token_expired_response(response):
                         logging.info("KIS auth appears expired for POST; refreshing token and retrying")
@@ -433,7 +489,8 @@ class KISClient:
                         refreshed_token = True
                         continue
                     raise KISHTTPError(
-                        f"KIS POST failed: path={path} status={response.status_code} body={response.text[:500]}"
+                        f"KIS POST failed: path={path} status={response.status_code} body={response.text[:500]}",
+                        status_code=response.status_code,
                     )
 
                 data = response.json()
@@ -447,11 +504,13 @@ class KISClient:
                 last_error = exc
                 if not self._should_retry(exc=exc, attempt=attempt):
                     break
-                self._sleep_before_retry(attempt)
+                self._sleep_before_retry(attempt, exc=exc)
 
+        if not no_retry:
+            _notify_critical(f"KIS POST retry exhausted: path={path} error={last_error}")
         if isinstance(last_error, KISError):
             raise last_error
-        raise KISHTTPError(f"KIS POST failed unexpectedly for {path}: {last_error}") from last_error
+        raise KISHTTPError(f"KIS POST failed unexpectedly for {path}: {last_error}", status_code=0) from last_error
 
     def _raise_for_business_error(self, *, path: str, data: Dict[str, Any]) -> None:
         rt_cd = str(data.get("rt_cd", "")).strip()
@@ -477,9 +536,37 @@ class KISClient:
             return False
         if isinstance(exc, KISBusinessError):
             return False
+        if isinstance(exc, KISHTTPError):
+            sc = exc.status_code
+            if sc == 429:
+                return True
+            if 500 <= sc < 600:
+                return True
+            if 400 <= sc < 500:
+                return False
         return True
 
-    def _sleep_before_retry(self, attempt: int) -> None:
-        delay = min(self.retry_backoff_base_sec * (attempt + 1), self.retry_backoff_max_sec)
-        logging.info("KIS retry backoff %.1fs (attempt=%d/%d)", delay, attempt + 1, self.max_retries + 1)
+    def _sleep_before_retry(self, attempt: int, exc: Optional[Exception] = None) -> None:
+        if isinstance(exc, KISHTTPError) and exc.retry_after_sec is not None:
+            delay = exc.retry_after_sec
+            logging.info(
+                "KIS rate limited; waiting %.1fs per Retry-After (attempt=%d/%d)",
+                delay, attempt + 1, self.max_retries + 1,
+            )
+        else:
+            delay = min(
+                self.retry_backoff_base_sec * (self.retry_backoff_factor ** attempt),
+                self.retry_backoff_max_sec,
+            )
+            logging.info("KIS retry backoff %.1fs (attempt=%d/%d)", delay, attempt + 1, self.max_retries + 1)
         time.sleep(delay)
+
+    @staticmethod
+    def _parse_retry_after(response: requests.Response) -> Optional[float]:
+        header = (response.headers.get("Retry-After") or response.headers.get("retry-after") or "").strip()
+        if not header:
+            return None
+        try:
+            return max(0.0, float(header))
+        except ValueError:
+            return None
