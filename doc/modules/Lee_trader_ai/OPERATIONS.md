@@ -24,6 +24,12 @@ docker compose run --rm scheduler-auto-buy python python/run_operational_refresh
 docker compose run --rm scheduler-auto-buy python python/run_live_auto_trade_cycle.py
 ```
 
+### Runtime Asset Validation
+
+```powershell
+docker compose run --rm scheduler-auto-buy python python/validate_runtime_assets.py --command-set auto_buy --strict
+```
+
 ### Web Sync
 
 ```powershell

@@ -1,10 +1,10 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>모의투자 현황</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260508c" />
     <style>
       .paper-page {
         max-width: 1480px;
@@ -259,18 +259,7 @@
         </div>
       </header>
       <section class="panel panel-block">
-        <div class="page-actions">
-          <button type="button" onclick="location.href='./index.html'">메인</button>
-          <button type="button" class="is-secondary" onclick="location.href='./ranking.html'">리서치 랭킹</button>
-          <button type="button" class="is-secondary" onclick="location.href='./meaningfulness.html'">리서치 리뷰</button>
-          <button type="button" onclick="location.href='./ops-readiness.html'">운영자</button>
-          <button type="button" onclick="location.href='./manual-trading.html'">수동매매</button>
-          <button type="button" onclick="location.href='./holdings.html'">보유종목</button>
-          <button type="button" class="is-active" onclick="location.href='./paper-trading.html'">모의투자</button>
-          <button type="button" onclick="location.href='./trade-history.html'">매매 기록</button>
-          <button type="button" onclick="location.href='./rule-auto-trading.html'">RULE 자동매매</button>
-          <button type="button" onclick="location.href='./live-auto-trading.html'">실자동매매</button>
-        </div>
+        <div data-unified-ops-nav data-nav-active="paper-trading"></div>
       </section>
 
       <section class="panel panel-block">
@@ -389,6 +378,7 @@
       <div id="pageState" class="state-line"></div>
     </div>
 
+    <script src="./ops-unified-nav.js?v=20260508c"></script>
     <script src="./paper-trading.js"></script>
   </body>
 </html>

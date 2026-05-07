@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
@@ -62,11 +62,11 @@
       padding: 18px;
     }
 
-    .nav-strip {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
+    .nav-strip { display: flex; flex-wrap: wrap; gap: 8px; }
+    .snav { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; padding: 4px 0; border-bottom: 1px solid rgba(148,163,184,0.15); margin-bottom: 0; }
+    .snav__item { display: inline-flex; align-items: center; min-height: 30px; padding: 4px 14px; border-radius: 8px; border: 1px solid transparent; background: none; color: #94a3b8; font-size: 13px; font-weight: 600; text-decoration: none; white-space: nowrap; cursor: pointer; transition: color 0.15s, border-color 0.15s, background 0.15s; }
+    .snav__item:hover { color: #f1f5f9; border-color: rgba(148,163,184,0.25); background: rgba(255,255,255,0.05); }
+    .snav__item.is-active { color: #f8fafc; border-color: rgba(96,165,250,0.4); background: rgba(96,165,250,0.1); }
 
     .btn,
     .input,
@@ -590,16 +590,7 @@
 <body>
   <div class="page">
     <section class="top-nav">
-      <div class="nav-strip">
-        <button type="button" class="btn" onclick="location.href='/app'">메인</button>
-        <button type="button" class="btn is-active" onclick="location.href='./ranking.html'">리서치 랭킹</button>
-        <button type="button" class="btn" onclick="location.href='./meaningfulness.html'">리서치 리뷰</button>
-        <button type="button" class="btn" onclick="location.href='./ops-readiness.html'">운영 준비도</button>
-        <button type="button" class="btn" onclick="location.href='./manual-trading.html'">수동매매</button>
-        <button type="button" class="btn" onclick="location.href='./holdings.html'">보유종목</button>
-        <button type="button" class="btn" onclick="location.href='./paper-trading.html'">모의투자</button>
-        <button type="button" class="btn" onclick="location.href='./trade-history.html'">매매기록</button>
-      </div>
+      <div data-unified-ops-nav data-nav-active="ranking"></div>
     </section>
 
     <section class="hero">
@@ -781,6 +772,7 @@
     </section>
   </div>
 
+  <script src="./ops-unified-nav.js?v=20260508c"></script>
   <script src="trading-policy-ui.js?v=20260424b"></script>
   <script src="ranking.js?v=20260424b"></script>
 </body>

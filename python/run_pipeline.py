@@ -68,6 +68,7 @@ STEPS: List[Tuple[str, str]] = [
 CORE_CODES = ["005930", "000660", "035420"]
 DEFAULT_MARKET_TIMEZONE = "Asia/Seoul"
 DEFAULT_MARKET_DATE_CUTOFF = "18:10"
+PIPELINE_ADVISORY_LOCK_KEY = 2026050801
 
 THEME_OVERLAY_OFF = "off"
 THEME_OVERLAY_RESEARCH = "research"
@@ -251,6 +252,42 @@ def parse_cli_args() -> argparse.Namespace:
         help="Optional as_of_date passed to archive_ranking_snapshot.py when CSV date resolution is unavailable.",
     )
     return parser.parse_args()
+
+
+@contextmanager
+def acquire_pipeline_run_lock():
+    if not get_engine:
+        yield
+        return
+
+    eng = get_engine()
+    conn = eng.connect()
+    acquired = False
+    try:
+        acquired = bool(
+            conn.execute(
+                text("SELECT pg_try_advisory_lock(:key)"),
+                {"key": PIPELINE_ADVISORY_LOCK_KEY},
+            ).scalar()
+        )
+        if not acquired:
+            raise RuntimeError(
+                "Another run_pipeline instance is already running. "
+                "Check for duplicate scheduler or task triggers."
+            )
+        logging.info("Acquired run_pipeline advisory lock key=%s", PIPELINE_ADVISORY_LOCK_KEY)
+        yield
+    finally:
+        if acquired:
+            try:
+                conn.execute(
+                    text("SELECT pg_advisory_unlock(:key)"),
+                    {"key": PIPELINE_ADVISORY_LOCK_KEY},
+                )
+                logging.info("Released run_pipeline advisory lock key=%s", PIPELINE_ADVISORY_LOCK_KEY)
+            except Exception:
+                logging.warning("Failed to release run_pipeline advisory lock", exc_info=True)
+        conn.close()
 
 
 def create_model_run_id() -> str:
@@ -1175,123 +1212,125 @@ def main() -> None:
     theme_cfg = _theme_config()
     write_theme_pipeline_mode_note(theme_cfg)
 
-    run_id = create_model_run_id()
-    _log_run_id_event(run_id, "Created pipeline run_id")
+    run_id: str | None = None
     try:
-        pipeline_start = time.perf_counter()
-        archive_status = {
-            "archived": False,
-            "snapshot_path": None,
-            "snapshot_date": None,
-            "meta_path": None,
-            "error": None,
-        }
-        grouped_profile_state: dict[str, dict[str, object]] = {}
-        _log_run_id_event(run_id, f"Pipeline step order: {' -> '.join(name for name, _ in STEPS)}")
-        _log_run_id_event(run_id, f"Resolved pipeline MARKET_DATE={market_date.isoformat()}")
-        _log_run_id_event(
-            run_id,
-            "[theme] effective config: "
-            f"overlay_enabled={theme_cfg['overlay_enabled']} "
-            f"validation_enabled={theme_cfg['validation_enabled']} "
-            f"mode={theme_cfg['mode']} "
-            f"ranking_enabled={theme_cfg['ranking_enabled']}",
-        )
-        for name, script in STEPS:
-            profile_group = PROFILE_STEP_GROUP_BY_STEP.get(name)
-            if profile_group and profile_group not in grouped_profile_state:
-                grouped_profile_state[profile_group] = {
-                    "elapsed_sec": 0.0,
-                    "sample": profile_begin(),
-                }
-            if name == "ranking_builder":
-                maybe_run_theme_overlay_steps(run_id, theme_cfg)
-            if log_pipeline_history:
-                log_pipeline_history(run_id, name, "start", None, None)
-            if name == "fetch_fundamentals_dart" and should_skip_fundamentals_step():
-                logging.info(
-                    "Skipping %s because %s is already fresh for today and not older than %s",
-                    name,
-                    FUNDAMENTALS_CSV.resolve(),
-                    UNIVERSE_CSV.resolve(),
-                )
-                elapsed = 0.0
-                if log_pipeline_history:
-                    log_pipeline_history(run_id, name, "success", elapsed, "skipped_fresh_today")
-            else:
+        with acquire_pipeline_run_lock():
+            run_id = create_model_run_id()
+            _log_run_id_event(run_id, "Created pipeline run_id")
+            pipeline_start = time.perf_counter()
+            archive_status = {
+                "archived": False,
+                "snapshot_path": None,
+                "snapshot_date": None,
+                "meta_path": None,
+                "error": None,
+            }
+            grouped_profile_state: dict[str, dict[str, object]] = {}
+            _log_run_id_event(run_id, f"Pipeline step order: {' -> '.join(name for name, _ in STEPS)}")
+            _log_run_id_event(run_id, f"Resolved pipeline MARKET_DATE={market_date.isoformat()}")
+            _log_run_id_event(
+                run_id,
+                "[theme] effective config: "
+                f"overlay_enabled={theme_cfg['overlay_enabled']} "
+                f"validation_enabled={theme_cfg['validation_enabled']} "
+                f"mode={theme_cfg['mode']} "
+                f"ranking_enabled={theme_cfg['ranking_enabled']}",
+            )
+            for name, script in STEPS:
+                profile_group = PROFILE_STEP_GROUP_BY_STEP.get(name)
+                if profile_group and profile_group not in grouped_profile_state:
+                    grouped_profile_state[profile_group] = {
+                        "elapsed_sec": 0.0,
+                        "sample": profile_begin(),
+                    }
                 if name == "ranking_builder":
-                    disable_overlay = not bool(theme_cfg.get("ranking_enabled"))
-                    with temporarily_disable_theme_overlay_file(disable_overlay, run_id=run_id):
-                        elapsed = run_step(name, script, run_id=run_id)
+                    maybe_run_theme_overlay_steps(run_id, theme_cfg)
+                if log_pipeline_history:
+                    log_pipeline_history(run_id, name, "start", None, None)
+                if name == "fetch_fundamentals_dart" and should_skip_fundamentals_step():
+                    logging.info(
+                        "Skipping %s because %s is already fresh for today and not older than %s",
+                        name,
+                        FUNDAMENTALS_CSV.resolve(),
+                        UNIVERSE_CSV.resolve(),
+                    )
+                    elapsed = 0.0
+                    if log_pipeline_history:
+                        log_pipeline_history(run_id, name, "success", elapsed, "skipped_fresh_today")
                 else:
-                    elapsed = run_step(name, script, run_id=run_id)
-                if log_pipeline_history:
-                    log_pipeline_history(run_id, name, "success", elapsed, None)
-                if name == "ranking_builder":
-                    archive_status = run_archive_snapshot_step(
-                        run_id=run_id,
-                        archive_as_of_date=args.archive_as_of_date,
-                        continue_on_error=bool(args.continue_on_archive_error),
-                    )
-                    maybe_run_snapshot_readiness_reports(run_id)
+                    if name == "ranking_builder":
+                        disable_overlay = not bool(theme_cfg.get("ranking_enabled"))
+                        with temporarily_disable_theme_overlay_file(disable_overlay, run_id=run_id):
+                            elapsed = run_step(name, script, run_id=run_id)
+                    else:
+                        elapsed = run_step(name, script, run_id=run_id)
+                    if log_pipeline_history:
+                        log_pipeline_history(run_id, name, "success", elapsed, None)
+                    if name == "ranking_builder":
+                        archive_status = run_archive_snapshot_step(
+                            run_id=run_id,
+                            archive_as_of_date=args.archive_as_of_date,
+                            continue_on_error=bool(args.continue_on_archive_error),
+                        )
+                        maybe_run_snapshot_readiness_reports(run_id)
 
-            if profile_group:
-                state = grouped_profile_state[profile_group]
-                state["elapsed_sec"] = float(state.get("elapsed_sec", 0.0)) + float(elapsed)
-                if PROFILE_STEP_GROUP_LAST_STEP.get(profile_group) == name:
-                    log_profile_result(
-                        profile_group,
-                        float(state["elapsed_sec"]),
-                        sample=state.get("sample") if isinstance(state.get("sample"), object) else None,
-                        extra={"run_id": run_id, "script": "run_pipeline.py"},
-                    )
+                if profile_group:
+                    state = grouped_profile_state[profile_group]
+                    state["elapsed_sec"] = float(state.get("elapsed_sec", 0.0)) + float(elapsed)
+                    if PROFILE_STEP_GROUP_LAST_STEP.get(profile_group) == name:
+                        log_profile_result(
+                            profile_group,
+                            float(state["elapsed_sec"]),
+                            sample=state.get("sample") if isinstance(state.get("sample"), object) else None,
+                            extra={"run_id": run_id, "script": "run_pipeline.py"},
+                        )
 
-        walkforward_sample = profile_begin()
-        maybe_run_flow_ingestion(run_id)
-        maybe_run_theme_validation(run_id, theme_cfg)
-        maybe_sync_csv_db_parity(run_id)
+            walkforward_sample = profile_begin()
+            maybe_run_flow_ingestion(run_id)
+            maybe_run_theme_validation(run_id, theme_cfg)
+            maybe_sync_csv_db_parity(run_id)
 
-        verify_core_codes(CORE_CODES)
+            verify_core_codes(CORE_CODES)
 
-        append_prediction_history(run_id)
-        append_ranking_history(run_id)
-        append_backtest_outcome(run_id)
-        maybe_run_top20_meaningfulness_report(run_id)
-        maybe_run_operational_decision_reports(run_id)
-        log_profile_result(
-            "walkforward",
-            time.perf_counter() - walkforward_sample.wall_start,
-            sample=walkforward_sample,
-            extra={
-                "run_id": run_id,
-                "script": "run_pipeline.py",
-                "notes": "includes walkforward acceptance and related operational decision reports",
-            },
-        )
-        log_table_stats()
+            append_prediction_history(run_id)
+            append_ranking_history(run_id)
+            append_backtest_outcome(run_id)
+            maybe_run_top20_meaningfulness_report(run_id)
+            maybe_run_operational_decision_reports(run_id)
+            log_profile_result(
+                "walkforward",
+                time.perf_counter() - walkforward_sample.wall_start,
+                sample=walkforward_sample,
+                extra={
+                    "run_id": run_id,
+                    "script": "run_pipeline.py",
+                    "notes": "includes walkforward acceptance and related operational decision reports",
+                },
+            )
+            log_table_stats()
 
-        try:
-            snapshot_script = Path("scripts") / "snapshot_scores.py"
-            if snapshot_script.exists():
-                run_step("snapshot_scores", str(snapshot_script), run_id=run_id)
-            else:
-                logging.warning("snapshot_scores.py not found -> skip snapshot step")
-        except Exception:
-            logging.exception("Snapshot step failed (pipeline continues)")
+            try:
+                snapshot_script = Path("scripts") / "snapshot_scores.py"
+                if snapshot_script.exists():
+                    run_step("snapshot_scores", str(snapshot_script), run_id=run_id)
+                else:
+                    logging.warning("snapshot_scores.py not found -> skip snapshot step")
+            except Exception:
+                logging.exception("Snapshot step failed (pipeline continues)")
 
-        total_elapsed = time.perf_counter() - pipeline_start
-        if log_pipeline_history:
-            log_pipeline_history(run_id, "pipeline", "success", total_elapsed, "all steps completed")
-        logging.info(
-            "Pipeline summary: snapshot_archived=%s snapshot_path=%s snapshot_date=%s",
-            archive_status.get("archived"),
-            archive_status.get("snapshot_path"),
-            archive_status.get("snapshot_date"),
-        )
-        logging.info("Pipeline finished successfully (total=%.2fs)", total_elapsed)
+            total_elapsed = time.perf_counter() - pipeline_start
+            if log_pipeline_history:
+                log_pipeline_history(run_id, "pipeline", "success", total_elapsed, "all steps completed")
+            logging.info(
+                "Pipeline summary: snapshot_archived=%s snapshot_path=%s snapshot_date=%s",
+                archive_status.get("archived"),
+                archive_status.get("snapshot_path"),
+                archive_status.get("snapshot_date"),
+            )
+            logging.info("Pipeline finished successfully (total=%.2fs)", total_elapsed)
     except Exception as e:
         logging.exception("Pipeline error: %s", e)
-        if log_pipeline_history:
+        if log_pipeline_history and run_id:
             try:
                 log_pipeline_history(run_id, "pipeline", "failed", None, str(e))
             except Exception:

@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>오늘의 종목 추천</title>
-  <link rel="stylesheet" href="./styles.css">
-  <link rel="stylesheet" href="./ui-components.css">
+  <link rel="stylesheet" href="./styles.css?v=20260508d">
+  <link rel="stylesheet" href="./ui-components.css?v=20260508b">
 </head>
 <body>
   <div class="container">
@@ -36,19 +36,11 @@
           </select>
         </div>
         <div class="toolbar-nav">
-          <div class="toolbar-section-label">화면 이동</div>
-          <div class="nav-tabs nav-tabs--primary">
-            <button id="opsReadinessBtn" class="nav-tab" aria-label="운영자 대시보드 화면으로 이동">운영자</button>
-            <button id="manualTradingBtn" class="nav-tab" aria-label="수동매매 체크리스트 화면으로 이동">수동매매</button>
-            <button id="holdingsBtn" class="nav-tab" data-operator-only="1" style="display:none;" aria-label="보유종목 화면으로 이동">보유종목</button>
-            <button id="tradeHistoryBtn" class="nav-tab" data-operator-only="1" style="display:none;" aria-label="매매 기록 화면으로 이동">매매 기록</button>
-            <button id="paperTradingBtn" class="nav-tab" aria-label="모의투자 화면으로 이동">모의투자</button>
-            <button id="operatorLoginBtn" class="nav-tab" type="button" style="display:none;" aria-label="운영자 로그인">운영자 로그인</button>
+          <div data-unified-ops-nav data-nav-active="main"></div>
+          <div class="toolbar-nav__aux">
             <button id="alertToggleBtn" class="nav-tab" aria-label="시장 상태 알림 토글">알림 숨기기</button>
-          </div>
-          <div class="nav-tabs nav-tabs--secondary">
-            <button id="recoBtn" class="nav-tab" aria-label="리서치 랭킹 화면으로 이동">리서치 랭킹</button>
-            <button id="meaningfulnessBtn" class="nav-tab" aria-label="리서치 리뷰 화면으로 이동">리서치 리뷰</button>
+            <a id="opsReadinessBtn" class="nav-tab" href="/ops-readiness.html" style="display:none;" aria-label="운영자 화면으로 이동">운영자 화면</a>
+            <button id="operatorLoginBtn" class="nav-tab" type="button" style="display:none;" aria-label="운영자 로그인">운영자 로그인</button>
           </div>
         </div>
       </div>
@@ -64,22 +56,25 @@
 
     <div id="marketAlert" class="market-alert hidden"></div>
 
-    <section class="app-trust-band" aria-label="서비스 소개 및 정책 안내">
-      <div class="app-trust-band__main">
+    <section class="app-trust-band" id="trustBand" aria-label="서비스 소개 및 정책 안내">
+      <div class="app-trust-band__strip">
         <span class="app-trust-band__eyebrow">Public Research Service</span>
+        <div class="app-trust-band__links">
+          <a class="app-trust-link" href="/about">서비스 소개</a>
+          <a class="app-trust-link" href="/methodology">방법론</a>
+          <a class="app-trust-link" href="/contact">문의</a>
+          <a class="app-trust-link" href="/privacy">개인정보 처리방침</a>
+          <a class="app-trust-link" href="/terms">이용약관</a>
+          <a class="app-trust-link" href="/disclaimer">면책 문구</a>
+        </div>
+        <button class="trust-band-toggle" id="trustBandToggle" type="button" aria-expanded="false" aria-controls="trustBandBody">자세히 ▾</button>
+      </div>
+      <div class="app-trust-band__body" id="trustBandBody">
         <h2>국내 주식 랭킹과 운영 해석을 공개하는 리서치 앱입니다.</h2>
         <p>
           Lee Trader Lab은 코스피·코스닥 시가총액 상위 종목을 대상으로 가격, 유동성, 품질, 리스크를 함께 해석하는 공개 리서치 화면입니다.
           본 서비스는 투자 판단 보조 정보 제공을 목적으로 하며, 개별 투자 자문이나 수익 보장을 제공하지 않습니다.
         </p>
-      </div>
-      <div class="app-trust-band__links">
-        <a class="app-trust-link" href="/about">서비스 소개</a>
-        <a class="app-trust-link" href="/methodology">방법론</a>
-        <a class="app-trust-link" href="/contact">문의</a>
-        <a class="app-trust-link" href="/privacy">개인정보 처리방침</a>
-        <a class="app-trust-link" href="/terms">이용약관</a>
-        <a class="app-trust-link" href="/disclaimer">면책 문구</a>
       </div>
     </section>
 
@@ -184,6 +179,7 @@
   </div>
 
   <script src="./ui-components.js"></script>
+  <script src="./ops-unified-nav.js"></script>
   <script>
     const $ = (sel) => document.querySelector(sel);
     const toNum = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
@@ -262,18 +258,14 @@
 
     function applyOperatorUi() {
       const showOperator = !operatorAuth.enabled || operatorAuth.authorized;
-      ["opsReadinessBtn"].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = showOperator ? "" : "none";
-      });
-      ["holdingsBtn", "tradeHistoryBtn", "scoreCheckBtn"].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = showOperator ? "" : "none";
-      });
       const loginBtn = document.getElementById("operatorLoginBtn");
       if (loginBtn) {
         loginBtn.style.display = operatorAuth.enabled ? "" : "none";
         loginBtn.textContent = operatorAuth.authorized ? "운영자 로그아웃" : "운영자 로그인";
+      }
+      const opsBtn = document.getElementById("opsReadinessBtn");
+      if (opsBtn) {
+        opsBtn.style.display = (operatorAuth.enabled && operatorAuth.authorized) ? "" : "none";
       }
       document.querySelectorAll(".compact-btn").forEach((el) => {
         el.style.display = showOperator ? "" : "none";
@@ -1079,7 +1071,28 @@
       }
     }
 
+    function initTrustBand() {
+      const band = document.getElementById("trustBand");
+      const toggle = document.getElementById("trustBandToggle");
+      const body = document.getElementById("trustBandBody");
+      if (!band || !toggle || !body) return;
+      const saved = localStorage.getItem("trustBandExpanded");
+      const expanded = saved === "true";
+      applyTrustBandState(expanded);
+      toggle.addEventListener("click", () => {
+        const next = !band.classList.contains("is-expanded");
+        applyTrustBandState(next);
+        localStorage.setItem("trustBandExpanded", next);
+      });
+      function applyTrustBandState(exp) {
+        band.classList.toggle("is-expanded", exp);
+        toggle.setAttribute("aria-expanded", exp ? "true" : "false");
+        toggle.textContent = exp ? "접기 ▴" : "자세히 ▾";
+      }
+    }
+
     (async function init() {
+      initTrustBand();
       await fetchEnv();
       await fetchMarketStatus();
       await fetchConfidenceCalibration();
@@ -1109,12 +1122,6 @@
         syncSortControl();
         render();
       }));
-      $("#recoBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./ranking.html"; });
-      $("#opsReadinessBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./ops-readiness.html"; });
-      $("#manualTradingBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./manual-trading.html"; });
-      $("#meaningfulnessBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./meaningfulness.html"; });
-      $("#holdingsBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./holdings.html"; });
-      $("#paperTradingBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./paper-trading.html"; });
       $("#operatorLoginBtn")?.addEventListener("click", (e) => {
         e.preventDefault();
         if (operatorAuth.authorized) {
@@ -1123,20 +1130,10 @@
         }
         window.location.href = operatorLoginUrl();
       });
-      $("#tradeHistoryBtn")?.addEventListener("click", (e) => { e.preventDefault(); window.location.href = "./trade-history.html"; });
       $("#alertToggleBtn")?.addEventListener("click", (e) => { e.preventDefault(); setAlertHidden(!alertHidden); });
       $("#mobileFilterBtn")?.addEventListener("click", () => syncMobileFilterState(!mobileFilterOpen));
       $("#mobileFilterCloseBtn")?.addEventListener("click", () => syncMobileFilterState(false));
       $("#heroMetaToggleBtn")?.addEventListener("click", () => syncHeroMetaState(!heroMetaExpanded));
-      const path = (location.pathname || "").toLowerCase();
-      const setActive = (id) => document.querySelectorAll(".nav-tab").forEach((btn) => btn.classList.toggle("active", btn.id === id));
-      if (path.includes("ops-readiness")) setActive("opsReadinessBtn");
-      else if (path.includes("ranking")) setActive("recoBtn");
-      else if (path.includes("manual-trading")) setActive("manualTradingBtn");
-      else if (path.includes("meaningfulness")) setActive("meaningfulnessBtn");
-      else if (path.includes("holdings")) setActive("holdingsBtn");
-      else if (path.includes("paper-trading")) setActive("paperTradingBtn");
-      else if (path.includes("trade-history")) setActive("tradeHistoryBtn");
       const mq = window.matchMedia("(max-width: 768px)");
       const handleViewportChange = () => { syncMobileFilterState(false); syncHeroMetaState(false); render(); };
       if (mq?.addEventListener) mq.addEventListener("change", handleViewportChange);

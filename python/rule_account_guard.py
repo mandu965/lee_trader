@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,8 @@ from typing import Any
 from common_live_risk_guard import evaluate_common_buy_guard
 from rule_trading_diagnostics import build_block_reason_details, select_primary_block_reason
 from rule_signal_builder import ENGINE_TYPE, ROOT, STRATEGY_ID
+
+RULE_LIVE_STATE_PATH = ROOT / "outputs" / "rule_account_live_state.json"
 
 
 RULE_ACCOUNT_ID = "RULE_ACCOUNT_01"
@@ -131,6 +134,31 @@ def validate_account_profile(account_profile: AccountProfile | dict[str, Any]) -
     return not reasons, reasons
 
 
+def _rule_weekly_metrics() -> tuple[float, float]:
+    """RULE 계좌 상태에서 (주간 손익 금액, 주간 손실률) 반환.
+
+    AI 계좌 파일(live_account_holdings.csv, live_account_balance_summary.json)을
+    읽지 않도록 RULE 전용 상태 파일에서 값을 도출합니다.
+    RULE 계좌에 거래 이력이 없으면 (0.0, 0.0)을 반환합니다.
+    """
+    try:
+        if not RULE_LIVE_STATE_PATH.exists():
+            return 0.0, 0.0
+        state = json.loads(RULE_LIVE_STATE_PATH.read_text(encoding="utf-8"))
+        positions = state.get("positions") or []
+        total_equity = float(state.get("total_equity") or 0)
+        unrealized_pnl = sum(float(p.get("pnl_amount") or 0) for p in positions)
+        rate = unrealized_pnl / total_equity if total_equity > 0 else 0.0
+        return unrealized_pnl, rate
+    except Exception:
+        return 0.0, 0.0
+
+
+def _rule_weekly_loss_pct() -> float:
+    _, rate = _rule_weekly_metrics()
+    return rate
+
+
 def _build_common_risk_context(order_context: dict[str, Any], run_mode: str) -> dict[str, Any]:
     context = {
         "now": order_context.get("now"),
@@ -159,6 +187,16 @@ def _build_common_risk_context(order_context: dict[str, Any], run_mode: str) -> 
     ]:
         if key in order_context:
             context[key] = order_context.get(key)
+
+    # RULE 계좌는 AI 계좌 파일(live_account_holdings, live_account_balance_summary)을
+    # 사용하면 안 됩니다. 주간 손익/손실률을 RULE 전용 상태에서 직접 계산해 주입합니다.
+    if "weekly_loss_pct" not in context or "weekly_total_pnl" not in context:
+        pnl_amount, pnl_rate = _rule_weekly_metrics()
+        if "weekly_loss_pct" not in context:
+            context["weekly_loss_pct"] = pnl_rate
+        if "weekly_total_pnl" not in context:
+            context["weekly_total_pnl"] = pnl_amount
+
     return context
 
 

@@ -151,8 +151,26 @@ def _weekly_loss_context(
                     "as_of_date": as_of_date.date().isoformat(),
                 },
             ).mappings().first()
+            fill_summary = conn.execute(
+                text(
+                    """
+                    SELECT
+                        COUNT(*)::integer AS fill_count,
+                        COUNT(*) FILTER (WHERE UPPER(side) = 'BUY')::integer AS buy_fill_count,
+                        COUNT(*) FILTER (WHERE UPPER(side) = 'SELL')::integer AS sell_fill_count
+                    FROM research.live_order_fill
+                    WHERE as_of_date >= :week_start
+                      AND as_of_date <= :as_of_date
+                    """
+                ),
+                {
+                    "week_start": week_start.date().isoformat(),
+                    "as_of_date": as_of_date.date().isoformat(),
+                },
+            ).mappings().first()
     except Exception:
         row = None
+        fill_summary = None
     if not row:
         return {
             "timezone": "Asia/Seoul",
@@ -166,6 +184,11 @@ def _weekly_loss_context(
             "weekly_unrealized_pnl": None,
             "weekly_total_pnl": None,
             "weekly_loss_pct": None,
+            "weekly_fill_count": None,
+            "weekly_buy_fill_count": None,
+            "weekly_sell_fill_count": None,
+            "weekly_external_cash_flow_amount": None,
+            "weekly_loss_guard_basis": "snapshot_total_assets",
             "weekly_reset_mode": "snapshot_based_no_scheduler",
             "weekly_loss_source": "live_position_snapshot_unavailable",
         }
@@ -184,16 +207,41 @@ def _weekly_loss_context(
             "weekly_unrealized_pnl": None,
             "weekly_total_pnl": None,
             "weekly_loss_pct": None,
+            "weekly_fill_count": _to_number((fill_summary or {}).get("fill_count")),
+            "weekly_buy_fill_count": _to_number((fill_summary or {}).get("buy_fill_count")),
+            "weekly_sell_fill_count": _to_number((fill_summary or {}).get("sell_fill_count")),
+            "weekly_external_cash_flow_amount": None,
+            "weekly_loss_guard_basis": "snapshot_total_assets",
             "weekly_reset_mode": "snapshot_based_no_scheduler",
             "weekly_loss_source": "week_start_total_assets_invalid",
         }
 
     week_start_cash_amount = _to_number(row.get("cash_amount"))
     week_start_holding_pnl_amount = _to_number(row.get("holding_pnl_amount")) or 0.0
+    weekly_fill_count = int(_to_number((fill_summary or {}).get("fill_count")) or 0.0)
+    weekly_buy_fill_count = int(_to_number((fill_summary or {}).get("buy_fill_count")) or 0.0)
+    weekly_sell_fill_count = int(_to_number((fill_summary or {}).get("sell_fill_count")) or 0.0)
     weekly_asset_change_amount = total_assets - week_start_total_assets
     weekly_unrealized_pnl = (holding_pnl_amount or 0.0) - week_start_holding_pnl_amount
-    weekly_realized_pnl = weekly_asset_change_amount - weekly_unrealized_pnl
-    weekly_loss_pct = weekly_asset_change_amount / week_start_total_assets
+    implied_realized_pnl = weekly_asset_change_amount - weekly_unrealized_pnl
+    weekly_realized_pnl = implied_realized_pnl
+    weekly_total_pnl = weekly_asset_change_amount
+    weekly_loss_pct = weekly_total_pnl / week_start_total_assets
+    weekly_external_cash_flow_amount = None
+    weekly_loss_guard_basis = "snapshot_total_assets"
+    weekly_loss_source = "live_position_snapshot"
+
+    # If the account had no weekly sell fills, a large "realized" residual usually
+    # means deposit/withdrawal or broker-side cash movement rather than trading loss.
+    no_realizing_trade_this_week = weekly_sell_fill_count == 0
+    suspicious_residual_threshold = max(100000.0, week_start_total_assets * 0.03)
+    if no_realizing_trade_this_week and abs(implied_realized_pnl) >= suspicious_residual_threshold:
+        weekly_realized_pnl = 0.0
+        weekly_total_pnl = weekly_unrealized_pnl
+        weekly_loss_pct = weekly_total_pnl / week_start_total_assets
+        weekly_external_cash_flow_amount = implied_realized_pnl
+        weekly_loss_guard_basis = "unrealized_only_no_weekly_sells"
+        weekly_loss_source = "live_position_snapshot_excluding_external_cash_flow"
     return {
         "timezone": "Asia/Seoul",
         "week_start_date": str(row.get("snapshot_date") or week_start.date().isoformat()),
@@ -204,10 +252,15 @@ def _weekly_loss_context(
         "weekly_asset_change_amount": weekly_asset_change_amount,
         "weekly_realized_pnl": weekly_realized_pnl,
         "weekly_unrealized_pnl": weekly_unrealized_pnl,
-        "weekly_total_pnl": weekly_asset_change_amount,
+        "weekly_total_pnl": weekly_total_pnl,
         "weekly_loss_pct": weekly_loss_pct,
+        "weekly_fill_count": weekly_fill_count,
+        "weekly_buy_fill_count": weekly_buy_fill_count,
+        "weekly_sell_fill_count": weekly_sell_fill_count,
+        "weekly_external_cash_flow_amount": weekly_external_cash_flow_amount,
+        "weekly_loss_guard_basis": weekly_loss_guard_basis,
         "weekly_reset_mode": "snapshot_based_no_scheduler",
-        "weekly_loss_source": "live_position_snapshot",
+        "weekly_loss_source": weekly_loss_source,
     }
 
 

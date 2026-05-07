@@ -2885,7 +2885,23 @@ async function readRuleExecutionResultsPayload() {
 }
 
 async function readRuleBalanceSummaryPayload() {
-  return await readJsonPayloadDbFirst("live_account_balance_summary", [path.join(OUTPUTS_DIR, "live_account_balance_summary.json")]);
+  // RULE 계좌는 AI 계좌 파일(live_account_balance_summary)을 사용하면 안 됩니다.
+  // rule_account_live_state.json에서 직접 파생 지표를 계산합니다.
+  const liveState = readJson(path.join(OUTPUTS_DIR, "rule_account_live_state.json")) || {};
+  const positions = Array.isArray(liveState.positions) ? liveState.positions : [];
+  const totalEquity = Number(liveState.total_equity) || 0;
+  const unrealizedPnl = positions.reduce((sum, p) => sum + (Number(p.pnl_amount) || 0), 0);
+  const weeklyLossPct = totalEquity > 0 ? unrealizedPnl / totalEquity : 0;
+  return {
+    derived_metrics: {
+      cash_amount: Number(liveState.cash) || null,
+      total_equity: totalEquity || null,
+      weekly_total_pnl: unrealizedPnl,
+      weekly_realized_pnl: 0,
+      weekly_unrealized_pnl: unrealizedPnl,
+      weekly_loss_pct: weeklyLossPct,
+    },
+  };
 }
 
 function readRuleExecutionHistoryItems(limit = 50) {
@@ -2951,12 +2967,18 @@ function collectRuleDiagnostics({ preview = {}, execution = {}, balance = {}, ac
     debug_trade_mode: Boolean(preview.debug_trade_mode || execution.debug_trade_mode),
     run_mode: preview.run_mode || execution.run_mode || null,
     current_cash: accountState.cash ?? derived.cash_amount ?? null,
-    weekly_total_pnl: weeklySnapshot.weekly_total_pnl ?? derived.weekly_total_pnl ?? derived.weekly_asset_change_amount ?? null,
-    weekly_realized_pnl: weeklySnapshot.weekly_realized_pnl ?? derived.weekly_realized_pnl ?? null,
-    weekly_unrealized_pnl: weeklySnapshot.weekly_unrealized_pnl ?? derived.weekly_unrealized_pnl ?? null,
+    weekly_total_pnl: derived.weekly_total_pnl ?? weeklySnapshot.weekly_total_pnl ?? derived.weekly_asset_change_amount ?? null,
+    weekly_realized_pnl: derived.weekly_realized_pnl ?? weeklySnapshot.weekly_realized_pnl ?? null,
+    weekly_unrealized_pnl: derived.weekly_unrealized_pnl ?? weeklySnapshot.weekly_unrealized_pnl ?? null,
     weekly_loss_rate: weeklySnapshot.weekly_loss_rate ?? weeklySnapshot.weekly_loss_pct ?? derived.weekly_loss_pct ?? null,
     weekly_limit: weeklySnapshot.weekly_limit ?? weeklySnapshot.weekly_loss_limit_pct ?? -0.03,
     weekly_blocked: Boolean(weeklySnapshot.weekly_blocked),
+    weekly_fill_count: weeklySnapshot.weekly_fill_count ?? derived.weekly_fill_count ?? null,
+    weekly_buy_fill_count: weeklySnapshot.weekly_buy_fill_count ?? derived.weekly_buy_fill_count ?? null,
+    weekly_sell_fill_count: weeklySnapshot.weekly_sell_fill_count ?? derived.weekly_sell_fill_count ?? null,
+    weekly_external_cash_flow_amount:
+      weeklySnapshot.weekly_external_cash_flow_amount ?? derived.weekly_external_cash_flow_amount ?? null,
+    weekly_loss_guard_basis: weeklySnapshot.weekly_loss_guard_basis ?? derived.weekly_loss_guard_basis ?? null,
     weekly_loss_source: weeklySnapshot.weekly_loss_source ?? derived.weekly_loss_source ?? null,
     week_start_date: weeklySnapshot.week_start_date ?? derived.week_start_date ?? null,
     timezone: weeklySnapshot.timezone ?? derived.timezone ?? "Asia/Seoul",
@@ -2993,6 +3015,11 @@ function collectRuleDiagnostics({ preview = {}, execution = {}, balance = {}, ac
         weekly_total_pnl: summary.weekly_total_pnl,
         weekly_loss_rate: summary.weekly_loss_rate,
         weekly_limit: summary.weekly_limit,
+        weekly_fill_count: summary.weekly_fill_count,
+        weekly_buy_fill_count: summary.weekly_buy_fill_count,
+        weekly_sell_fill_count: summary.weekly_sell_fill_count,
+        weekly_external_cash_flow_amount: summary.weekly_external_cash_flow_amount,
+        weekly_loss_guard_basis: summary.weekly_loss_guard_basis,
         weekly_loss_source: summary.weekly_loss_source,
         week_start_date: summary.week_start_date,
         timezone: summary.timezone,

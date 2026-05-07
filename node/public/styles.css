@@ -176,6 +176,7 @@ header h1 {
   transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
 }
 
+a.nav-tab { display: inline-flex; align-items: center; text-decoration: none; }
 .nav-tab:hover { background: #1f2937; }
 
 .nav-tab.active {
@@ -1342,12 +1343,49 @@ th.score-col { text-align: center; }
   font-size: 13px;
 }
 
+/* ── Shared nav (ops-unified-nav.js) ── */
+.snav {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  margin-bottom: 16px;
+}
+
+.snav__item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.snav__item:hover {
+  color: var(--color-text);
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.snav__item.is-active {
+  color: #f8fafc;
+  border-color: rgba(96, 165, 250, 0.4);
+  background: rgba(96, 165, 250, 0.1);
+}
+
 .app-trust-band {
-  display: grid;
-  grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr);
-  gap: 14px;
   margin: 12px 0 14px;
-  padding: 16px 18px;
+  padding: 8px 16px;
   border-radius: var(--radius-xl);
   border: 1px solid rgba(96, 165, 250, 0.18);
   background:
@@ -1356,9 +1394,18 @@ th.score-col { text-align: center; }
   box-shadow: var(--shadow-card-soft);
 }
 
+.app-trust-band__strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-height: 36px;
+}
+
 .app-trust-band__eyebrow {
   display: inline-flex;
   align-items: center;
+  flex-shrink: 0;
   min-height: 24px;
   padding: 3px 10px;
   border-radius: var(--radius-pill);
@@ -1371,43 +1418,76 @@ th.score-col { text-align: center; }
   text-transform: uppercase;
 }
 
-.app-trust-band__main h2 {
-  margin: 10px 0 8px;
-  font-size: 22px;
-  line-height: 1.35;
-  color: #f8fafc;
-}
-
-.app-trust-band__main p {
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.65;
-  color: var(--color-text-secondary);
-}
-
 .app-trust-band__links {
   display: flex;
   flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 8px;
+  gap: 5px;
+  flex: 1;
 }
 
 .app-trust-link {
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
-  padding: 7px 11px;
+  min-height: 26px;
+  padding: 3px 9px;
   border-radius: var(--radius-pill);
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid rgba(148, 163, 184, 0.20);
   background: rgba(255, 255, 255, 0.03);
   color: #dbeafe;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
 }
 
 .app-trust-link:hover {
   background: rgba(96, 165, 250, 0.1);
   border-color: rgba(96, 165, 250, 0.34);
+}
+
+.trust-band-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.trust-band-toggle:hover {
+  color: var(--color-text);
+  border-color: rgba(96, 165, 250, 0.34);
+}
+
+.app-trust-band__body {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.28s ease, padding-top 0.28s ease;
+  padding-top: 0;
+}
+
+.app-trust-band.is-expanded .app-trust-band__body {
+  max-height: 200px;
+  padding-top: 12px;
+}
+
+.app-trust-band__body h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  line-height: 1.35;
+  color: #f8fafc;
+}
+
+.app-trust-band__body p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--color-text-secondary);
 }
 
 .app-footer {
@@ -1805,8 +1885,7 @@ th.score-col { text-align: center; }
   }
   .hero-meta { grid-template-columns: 1fr; }
   .app-trust-band {
-    grid-template-columns: 1fr;
-    padding: 14px;
+    padding: 8px 14px;
   }
   .hero-meta .hero-block--secondary {
     display: none;
@@ -1917,7 +1996,7 @@ th.score-col { text-align: center; }
   }
 
   .app-trust-band {
-    padding: 12px;
+    padding: 7px 12px;
   }
 
   .hero-value {

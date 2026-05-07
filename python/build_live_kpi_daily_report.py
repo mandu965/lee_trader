@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -70,6 +72,41 @@ def _num(value: Any) -> str:
     if value is None:
         return "-"
     return f"{float(value):,.0f}"
+
+
+def _classify_exception(exc: Exception) -> tuple[str, str]:
+    message = str(exc).strip()
+    exc_type = type(exc).__name__
+    lowered = message.lower()
+    if isinstance(exc, FileNotFoundError):
+        return (
+            "file_path_error",
+            "Runtime image is missing a required SQL/report file. Rebuild the image with postgres/*.sql included.",
+        )
+    if "undefinedtable" in lowered or "does not exist" in lowered:
+        return (
+            "table_or_view_missing",
+            "Create the required analytics/research tables or views, then rerun the KPI report.",
+        )
+    if "undefinedcolumn" in lowered or "column" in lowered and "does not exist" in lowered:
+        return (
+            "column_missing",
+            "The DB schema is behind the code. Apply the matching schema/view migration, then rerun.",
+        )
+    if "nan" in lowered or "none" in lowered:
+        return (
+            "none_or_nan_handling",
+            "Inspect recent payload rows for null/NaN values and confirm empty-safe defaults cover them.",
+        )
+    if "connection refused" in lowered or "could not connect" in lowered or exc_type == "OperationalError":
+        return (
+            "db_connection_error",
+            "Verify DATABASE_URL/Postgres availability, then rerun after DB connectivity is restored.",
+        )
+    return (
+        "unexpected_runtime_error",
+        "Check the traceback and SQL dependencies for this report step, then rerun after fixing the failing input.",
+    )
 
 
 def build_report() -> dict[str, Any]:
@@ -284,25 +321,40 @@ def render_markdown(report: dict[str, Any]) -> str:
 
 def main() -> int:
     args = parse_args()
-    if not args.skip_ensure_views:
-        apply_analytics_views()
-    report = build_report()
-    out_json = _resolve(args.out_json)
-    out_md = _resolve(args.out_md)
-    write_json_strict(out_json, report)
-    out_md.parent.mkdir(parents=True, exist_ok=True)
-    out_md.write_text(render_markdown(report), encoding="utf-8")
-    upsert_json_payload(
-        "live_kpi_daily_report",
-        report,
-        asof_date=report.get("as_of_date"),
-        generated_at=report.get("generated_at"),
-        source_path=out_json,
-    )
-    print(f"live_kpi_daily_report_json: {out_json}")
-    print(f"live_kpi_daily_report_md: {out_md}")
-    print(f"sample_status: {report.get('sample_status')}")
-    return 0
+    try:
+        if not args.skip_ensure_views:
+            apply_analytics_views()
+        report = build_report()
+        out_json = _resolve(args.out_json)
+        out_md = _resolve(args.out_md)
+        write_json_strict(out_json, report)
+        out_md.parent.mkdir(parents=True, exist_ok=True)
+        out_md.write_text(render_markdown(report), encoding="utf-8")
+        upsert_json_payload(
+            "live_kpi_daily_report",
+            report,
+            asof_date=report.get("as_of_date"),
+            generated_at=report.get("generated_at"),
+            source_path=out_json,
+        )
+        print(f"live_kpi_daily_report_json: {out_json}")
+        print(f"live_kpi_daily_report_md: {out_md}")
+        print(f"sample_status: {report.get('sample_status')}")
+        return 0
+    except Exception as exc:
+        error_category, hint = _classify_exception(exc)
+        diagnostic = {
+            "step_name": "build_live_kpi_daily_report",
+            "script_name": Path(__file__).name,
+            "exception_type": type(exc).__name__,
+            "error_category": error_category,
+            "error_message": str(exc).strip() or repr(exc),
+            "hint": hint,
+            "occurred_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        print(f"[LIVE_KPI_REPORT_ERROR] {json.dumps(diagnostic, ensure_ascii=False)}", file=sys.stderr)
+        traceback.print_exc()
+        return 1
 
 
 if __name__ == "__main__":

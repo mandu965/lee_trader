@@ -12,6 +12,14 @@ from db import get_engine
 
 ROOT = Path(__file__).resolve().parents[1]
 SQL_PATH = ROOT / "postgres" / "analytics_live_trade_views.sql"
+REQUIRED_LIVE_TRADE_VIEWS = {
+    "live_trade_fact",
+    "live_trade_return_fact",
+    "live_review_kpi",
+    "live_score_bucket_kpi",
+    "live_quality_guard_kpi",
+    "live_closed_trade",
+}
 
 
 def _read_sql() -> str:
@@ -20,12 +28,41 @@ def _read_sql() -> str:
     return SQL_PATH.read_text(encoding="utf-8")
 
 
+def _existing_live_trade_views(engine) -> set[str]:
+    sql = """
+    SELECT viewname
+    FROM pg_views
+    WHERE schemaname = 'analytics'
+      AND viewname = ANY(:view_names)
+    """
+    with engine.connect() as conn:
+        rows = conn.execute(text(sql), {"view_names": sorted(REQUIRED_LIVE_TRADE_VIEWS)}).mappings().all()
+    return {str(row.get("viewname") or "").strip() for row in rows if row.get("viewname")}
+
+
 def apply_analytics_views(*, database_url: str | None = None) -> None:
-    sql = _read_sql()
     if database_url:
         engine = create_engine(database_url, future=True)
     else:
         engine = get_engine()
+
+    try:
+        sql = _read_sql()
+    except FileNotFoundError as exc:
+        existing_views = _existing_live_trade_views(engine)
+        if REQUIRED_LIVE_TRADE_VIEWS.issubset(existing_views):
+            print(
+                "analytics_views_apply_skipped: SQL file missing but required analytics views already exist "
+                f"({SQL_PATH})"
+            )
+            return
+        missing = ", ".join(sorted(REQUIRED_LIVE_TRADE_VIEWS - existing_views)) or "unknown"
+        raise FileNotFoundError(
+            f"{exc}. Required analytics views are also missing: {missing}. "
+            "Restore postgres/analytics_live_trade_views.sql into the runtime image or run with an image built "
+            "without excluding postgres/*.sql."
+        ) from exc
+
     with engine.begin() as conn:
         conn.execute(text(sql))
 

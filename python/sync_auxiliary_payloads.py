@@ -230,6 +230,17 @@ def _first_text(*values: Any) -> str | None:
     return None
 
 
+def _scheduler_message(payload: dict[str, Any]) -> str | None:
+    failure = payload.get("last_failure_details") if isinstance(payload.get("last_failure_details"), dict) else {}
+    warning = payload.get("last_warning_details") if isinstance(payload.get("last_warning_details"), dict) else {}
+    return _first_text(
+        failure.get("error_message"),
+        warning.get("error_message"),
+        payload.get("last_error"),
+        payload.get("status_note"),
+    )
+
+
 def _status_tone(success_today: bool, *, missing: bool = False, failure_today: bool = False, stopped: bool = False, stale: bool = False) -> str:
     if stopped:
         return "stopped"
@@ -261,11 +272,24 @@ def _generic_scheduler_card(name: str, path: Path, today_str: str) -> dict[str, 
         }
     last_success_at = payload.get("last_success_at")
     last_failure_at = payload.get("last_failure_at")
-    last_error = _first_text(payload.get("last_error"), payload.get("status_note"))
+    last_warning_at = payload.get("last_warning_at")
+    failure = payload.get("last_failure_details") if isinstance(payload.get("last_failure_details"), dict) else {}
+    warning = payload.get("last_warning_details") if isinstance(payload.get("last_warning_details"), dict) else {}
+    last_error = _scheduler_message(payload)
     today_success = _is_today(payload.get("last_success_date") or last_success_at, today_str)
     failure_today = _is_today(last_failure_at, today_str)
+    warning_today = _is_today(last_warning_at, today_str)
+    success_ts = _parse_timestamp(last_success_at)
+    failure_ts = _parse_timestamp(last_failure_at)
+    recovered_after_failure = bool(
+        success_ts is not None and failure_ts is not None and success_ts > failure_ts
+    )
+    if recovered_after_failure:
+        failure_today = False
     stale = not today_success and bool(last_success_at)
     tone = _status_tone(today_success, failure_today=failure_today, stale=stale)
+    if tone == "normal" and warning_today:
+        tone = "warning"
     label = "정상" if tone == "normal" else "위험" if tone == "risk" else "주의"
     return {
         "name": name,
@@ -277,28 +301,28 @@ def _generic_scheduler_card(name: str, path: Path, today_str: str) -> dict[str, 
         "scheduler_status": payload.get("status"),
         "last_success_at": last_success_at,
         "last_failure_at": last_failure_at,
+        "last_warning_at": last_warning_at,
         "last_error_message": last_error,
+        "last_failure_details": failure,
+        "last_warning_details": warning,
         "status_note": payload.get("status_note"),
         "configured_daily_time": payload.get("configured_daily_time"),
     }
+
+
+def _close_batch_fallback_card(today_str: str) -> dict[str, Any]:
+    card = _generic_scheduler_card("close_batch", OUTPUT_DIR / "auto_ops_scheduler_status.json", today_str)
+    card["source"] = "scheduler_status_fallback"
+    return card
 
 
 def _close_batch_card(today_str: str) -> dict[str, Any]:
     path = OUTPUT_DIR / "operational_daily_cycle_status.json"
     payload = read_json(path)
     if not payload:
-        return {
-            "name": "close_batch",
-            "source_path": str(path),
-            "available": False,
-            "today_success": False,
-            "status_tone": "warning",
-            "status_label": "주의",
-            "warning_reason": "daily_cycle_status_missing",
-            "last_success_at": None,
-            "last_failure_at": None,
-            "last_error_message": "daily_cycle_status_missing",
-        }
+        fallback = _close_batch_fallback_card(today_str)
+        fallback["warning_reason"] = "daily_cycle_status_missing"
+        return fallback
     steps = payload.get("steps") or []
     critical_failures = [
         step for step in steps
@@ -306,6 +330,12 @@ def _close_batch_card(today_str: str) -> dict[str, Any]:
     ]
     finished_at = payload.get("finished_at")
     finished_today = _is_today(finished_at, today_str)
+    if not finished_today:
+        fallback = _close_batch_fallback_card(today_str)
+        fallback["source_path"] = str(path)
+        fallback["warning_reason"] = "daily_cycle_status_stale"
+        fallback["fallback_finished_at"] = finished_at
+        return fallback
     overall = str(payload.get("overall_status") or "").upper()
     success_today = finished_today and not critical_failures and overall not in {"FAILED", "ERROR"}
     last_error = None
@@ -326,6 +356,7 @@ def _close_batch_card(today_str: str) -> dict[str, Any]:
         "last_failure_at": finished_at if finished_today and not success_today else None,
         "last_error_message": last_error,
         "critical_failure_count": len(critical_failures),
+        "source": "operational_daily_cycle_status",
     }
 
 

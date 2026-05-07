@@ -11,6 +11,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from payload_store import upsert_json_payload
+from validate_runtime_assets import validate_runtime_assets
 
 try:
     from dotenv import load_dotenv
@@ -29,6 +30,18 @@ DEFAULT_RUN_POLICY = "always"
 DEFAULT_PRIMARY_MAX_AGE_HOURS = 20
 DEFAULT_SCHEDULER_MODE = "internal_service"
 DEFAULT_INTERVAL_MINUTES = 0
+OPTIONAL_POST_SYNC_STEPS = {
+    "build_live_kpi_daily_report",
+    "build_live_closed_trade_report",
+    "build_quality_risk_guard_live_review",
+    "check_live_quality_guard_outputs",
+}
+STRUCTURED_ERROR_PREFIXES = (
+    "[LIVE_KPI_REPORT_ERROR]",
+    "[STEP_ERROR]",
+)
+DEFAULT_FAIL_ON_RUNTIME_ASSET_ISSUES = True
+DEFAULT_MULTI_SLOT_SUCCESS_POLICY = "each_slot"
 
 
 def _load_env() -> None:
@@ -351,6 +364,13 @@ def _skip_after_failure_until_next_day() -> bool:
     }
 
 
+def _multi_slot_success_policy() -> str:
+    value = str(os.environ.get("SCHEDULER_MULTI_SLOT_SUCCESS_POLICY", DEFAULT_MULTI_SLOT_SUCCESS_POLICY)).strip().lower()
+    if value in {"once_per_day", "each_slot"}:
+        return value
+    return DEFAULT_MULTI_SLOT_SUCCESS_POLICY
+
+
 def _should_run_today(now: datetime, scheduled_hour: int, scheduled_minute: int, status: dict[str, object]) -> bool:
     last_success_date = str(status.get("last_success_date") or "").strip()
     bootstrap_skip_date = str(status.get("bootstrap_skip_until_date") or "").strip()
@@ -388,6 +408,15 @@ def _should_run_daily_slots(now: datetime, schedule_slots: list[tuple[int, int]]
         if (now.hour, now.minute) >= (hour, minute)
     ]
     if not eligible_slots:
+        return False
+
+    if _multi_slot_success_policy() == "once_per_day":
+        last_success_date = str(status.get("last_success_date") or "").strip()
+        if last_success_date == today:
+            return False
+
+    last_attempt_slot = str(status.get("last_attempt_schedule_slot") or "").strip()
+    if last_attempt_slot == eligible_slots[-1]:
         return False
 
     last_success_slot = str(status.get("last_success_schedule_slot") or "").strip()
@@ -451,9 +480,101 @@ def _evaluate_run_policy(now: datetime, policy: str) -> tuple[bool, str]:
     )
 
 
+def _should_fail_on_runtime_asset_issues() -> bool:
+    return str(
+        os.environ.get(
+            "SCHEDULER_FAIL_ON_RUNTIME_ASSET_ISSUES",
+            "1" if DEFAULT_FAIL_ON_RUNTIME_ASSET_ISSUES else "0",
+        )
+    ).strip().lower() in {"1", "true", "yes", "on"}
+
+
+class SchedulerStepFailure(RuntimeError):
+    def __init__(self, details: dict[str, object]):
+        self.details = details
+        super().__init__(str(details.get("error_message") or details.get("step_name") or "scheduler step failed"))
+
+
+def _script_name(command: list[str]) -> str:
+    for part in reversed(command):
+        text = str(part)
+        if text.endswith(".py"):
+            return Path(text).name
+    return Path(str(command[0])).name if command else "unknown"
+
+
+def _tail_text(value: str, limit: int = 600) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return text if len(text) <= limit else text[-limit:]
+
+
+def _parse_structured_error(stderr: str) -> dict[str, object]:
+    for raw_line in reversed(str(stderr or "").splitlines()):
+        line = raw_line.strip()
+        if not line:
+            continue
+        for prefix in STRUCTURED_ERROR_PREFIXES:
+            if line.startswith(prefix):
+                try:
+                    parsed = json.loads(line[len(prefix):].strip())
+                except Exception:
+                    return {}
+                return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _infer_failure_hint(script_name: str, stderr: str, stdout: str) -> str:
+    combined = "\n".join(part for part in (stderr, stdout) if part).lower()
+    if "analytics view sql not found" in combined or "missing a required sql/report file" in combined:
+        return "Runtime image is missing postgres/analytics_live_trade_views.sql. Rebuild the image after fixing .dockerignore."
+    if "connection refused" in combined or "could not connect" in combined:
+        return "DB connectivity failed. Verify DATABASE_URL/Postgres availability."
+    if "does not exist" in combined and "column" in combined:
+        return "A required DB column is missing. Apply the matching schema/view migration."
+    if "does not exist" in combined:
+        return "A required DB table/view is missing. Apply the matching schema/view migration."
+    return f"Check {script_name} stderr/stdout for the failing stage."
+
+
+def _build_failure_details(name: str, command: list[str], returncode: int, stdout: str, stderr: str) -> dict[str, object]:
+    structured = _parse_structured_error(stderr)
+    script_name = str(structured.get("script_name") or _script_name(command))
+    error_message = str(
+        structured.get("error_message")
+        or _tail_text(stderr.splitlines()[-1] if str(stderr or "").splitlines() else "")
+        or _tail_text(stdout.splitlines()[-1] if str(stdout or "").splitlines() else "")
+        or f"{script_name} exited with code {returncode}"
+    )
+    hint = str(structured.get("hint") or _infer_failure_hint(script_name, stderr, stdout))
+    exception_type = str(structured.get("exception_type") or "CalledProcessError")
+    occurred_at = str(structured.get("occurred_at") or datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).isoformat())
+    return {
+        "step_name": str(structured.get("step_name") or name),
+        "script_name": script_name,
+        "exit_code": int(structured.get("exit_code") or returncode),
+        "exception_type": exception_type,
+        "error_message": error_message,
+        "hint": hint,
+        "occurred_at": occurred_at,
+        "stdout_tail": _tail_text(stdout),
+        "stderr_tail": _tail_text(stderr),
+        "command": [str(part) for part in command],
+    }
+
+
 def _run_step(name: str, command: list[str]) -> None:
     logging.info("START %s", name)
-    subprocess.run(command, cwd=ROOT, check=True)
+    completed = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    if completed.returncode != 0:
+        if completed.stdout.strip():
+            logging.error("STDOUT %s\n%s", name, completed.stdout.rstrip())
+        if completed.stderr.strip():
+            logging.error("STDERR %s\n%s", name, completed.stderr.rstrip())
+        raise SchedulerStepFailure(
+            _build_failure_details(name, command, completed.returncode, completed.stdout, completed.stderr)
+        )
     logging.info("OK %s", name)
 
 
@@ -468,6 +589,9 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
         "status": "running",
         "last_attempt_at": started_at,
         "last_error": "",
+        "last_failure_details": {},
+        "last_warning_details": {},
+        "post_sync_warnings": [],
     }
     _write_status(payload)
 
@@ -481,29 +605,73 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
                 "last_success_at": finished_at,
                 "last_success_date": finished_at[:10],
                 "last_success_schedule_slot": str(status.get("pending_schedule_slot") or ""),
+                "last_attempt_schedule_slot": str(status.get("pending_schedule_slot") or ""),
                 "last_completed_step": run_steps[-1][0],
                 "last_error": "",
                 "status_note": "",
                 "last_failure_skip_date": "",
+                "last_failure_schedule_slot": "",
+                "last_failure_details": {},
+                "last_warning_details": {},
+                "post_sync_warnings": [],
+                "pending_schedule_slot": "",
             }
         )
         _write_status(payload)
+        warning_details: list[dict[str, object]] = []
         for name, command in post_sync_steps:
-            _run_step(name, command)
+            try:
+                _run_step(name, command)
+            except SchedulerStepFailure as exc:
+                details = exc.details
+                if name not in OPTIONAL_POST_SYNC_STEPS:
+                    raise
+                warning_details.append(details)
+                logging.warning("Optional post-sync step failed: %s", details.get("error_message"))
+        if warning_details:
+            latest_warning = warning_details[-1]
+            payload.update(
+                {
+                    "status": "warning",
+                    "status_note": f"Post-sync warning: {latest_warning.get('step_name')} - {latest_warning.get('error_message')}",
+                    "last_warning_at": latest_warning.get("occurred_at"),
+                    "last_warning_details": latest_warning,
+                    "post_sync_warnings": warning_details,
+                }
+            )
+        else:
+            payload.update(
+                {
+                    "status": "idle",
+                    "status_note": "",
+                    "last_warning_at": "",
+                    "last_warning_details": {},
+                    "post_sync_warnings": [],
+                }
+            )
         logging.info("DONE daily cycle completed")
-    except subprocess.CalledProcessError as exc:
+    except SchedulerStepFailure as exc:
         finished_at = _now(ZoneInfo(tz_name)).isoformat()
+        details = dict(exc.details)
+        details["occurred_at"] = details.get("occurred_at") or finished_at
         payload.update(
             {
                 "status": "error",
                 "last_failure_at": finished_at,
+                "last_attempt_schedule_slot": str(status.get("pending_schedule_slot") or ""),
+                "last_failure_schedule_slot": str(status.get("pending_schedule_slot") or ""),
                 "last_completed_step": "",
-                "last_error": f"{exc.cmd} (exit={exc.returncode})",
+                "last_error": f"{details.get('script_name')} failed (exit={details.get('exit_code')})",
+                "last_failure_details": details,
+                "status_note": str(details.get("hint") or ""),
+                "pending_schedule_slot": "",
             }
         )
         if _skip_after_failure_until_next_day():
             payload["last_failure_skip_date"] = finished_at[:10]
-            payload["status_note"] = "Last run failed; skipping further runs until next day."
+            payload["status_note"] = (
+                f"{details.get('hint') or 'Last run failed.'} Skipping further runs until next day."
+            )
         logging.exception("Daily cycle failed")
     _write_status(payload)
     return payload
@@ -519,6 +687,7 @@ def main() -> int:
     interval_minutes = _parse_interval_minutes()
     poll_seconds = int(os.environ.get("SCHEDULER_POLL_SECONDS", str(DEFAULT_POLL_SECONDS)))
     run_policy = os.environ.get("SCHEDULER_RUN_POLICY", DEFAULT_RUN_POLICY).strip() or DEFAULT_RUN_POLICY
+    multi_slot_success_policy = _multi_slot_success_policy()
     command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
     skip_catchup = str(os.environ.get("SCHEDULER_SKIP_CATCHUP_ON_START", "1" if DEFAULT_SKIP_CATCHUP else "0")).strip().lower() in {
         "1",
@@ -528,7 +697,7 @@ def main() -> int:
     }
 
     logging.info(
-        "Scheduler started timezone=%s daily_time=%02d:%02d daily_times=%s interval_minutes=%d poll_seconds=%d skip_catchup=%s run_policy=%s command_set=%s status_path=%s",
+        "Scheduler started timezone=%s daily_time=%02d:%02d daily_times=%s interval_minutes=%d poll_seconds=%d skip_catchup=%s run_policy=%s multi_slot_success_policy=%s command_set=%s status_path=%s",
         tz_name,
         scheduled_hour,
         scheduled_minute,
@@ -537,6 +706,7 @@ def main() -> int:
         poll_seconds,
         skip_catchup,
         run_policy,
+        multi_slot_success_policy,
         command_set,
         _status_path(),
     )
@@ -554,9 +724,41 @@ def main() -> int:
     status["configured_interval_minutes"] = interval_minutes
     status["skip_catchup_on_start"] = skip_catchup
     status["run_policy"] = run_policy
+    status["multi_slot_success_policy"] = multi_slot_success_policy
     status["command_set"] = command_set
+    status.setdefault("pending_schedule_slot", "")
+    status.setdefault("last_attempt_schedule_slot", "")
+    status.setdefault("last_failure_schedule_slot", "")
     status["status_path"] = str(_status_path())
     status["log_path"] = str(_log_path())
+    runtime_asset_issues = validate_runtime_assets(command_set)
+    status["runtime_asset_issues"] = runtime_asset_issues
+    if runtime_asset_issues:
+        for issue in runtime_asset_issues:
+            logging.error("Runtime asset validation failed: %s", issue)
+        if _should_fail_on_runtime_asset_issues():
+            failed_at = _now(tz).isoformat()
+            details = {
+                "step_name": "runtime_asset_validation",
+                "script_name": Path(__file__).name,
+                "exit_code": 1,
+                "exception_type": "RuntimeAssetValidationError",
+                "error_message": runtime_asset_issues[0],
+                "hint": "Rebuild/redeploy the runtime image after restoring the missing file.",
+                "occurred_at": failed_at,
+            }
+            status.update(
+                {
+                    "status": "error",
+                    "last_attempt_at": failed_at,
+                    "last_failure_at": failed_at,
+                    "last_error": "runtime_asset_validation failed (exit=1)",
+                    "last_failure_details": details,
+                    "status_note": details["hint"],
+                }
+            )
+            _write_status(status)
+            return 1
     status.setdefault("bootstrap_skip_until_date", "")
     if (
         interval_minutes <= 0

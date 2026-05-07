@@ -590,10 +590,33 @@ function summarizeRuntimeError(message) {
 
 function schedulerRuntimeChip(row) {
   const status = String(row?.status || "").toLowerCase();
+  if (status === "warning") return `<span class="chip watch">주의</span>`;
+  if (status === "idle" && row?.last_warning_details?.error_message) return `<span class="chip watch">주의</span>`;
   if (status === "idle") return `<span class="chip good">대기</span>`;
   if (status === "running") return `<span class="chip watch">실행중</span>`;
   if (status === "failed" || status === "error") return `<span class="chip bad">오류</span>`;
   return `<span class="chip info">${escapeHtml(status || "unknown")}</span>`;
+}
+
+function runtimeIssueCell(row) {
+  const failure = row?.last_failure_details || {};
+  const warning = row?.last_warning_details || {};
+  const primary = failure.error_message ? failure : (warning.error_message ? warning : null);
+  if (!primary) return runtimeErrorCell(row);
+  const occurredAt = fmtRuntimeDateTime(primary.occurred_at || row?.last_failure_at || row?.last_warning_at);
+  const step = primary.step_name || "-";
+  const script = primary.script_name || "-";
+  const exitCode = primary.exit_code ?? "-";
+  const exceptionType = primary.exception_type || "-";
+  const parts = [
+    `${script}: ${primary.error_message || "-"}`,
+    `step ${step}`,
+    `exit=${exitCode}`,
+    exceptionType !== "-" ? exceptionType : null,
+    primary.hint ? `hint ${primary.hint}` : null,
+    occurredAt !== "-" ? `at ${occurredAt}` : null,
+  ].filter(Boolean);
+  return parts.join(" / ");
 }
 
 function runtimeErrorCell(row) {
@@ -734,7 +757,7 @@ function renderSchedulerRuntime(runtime) {
             <td>${schedulerRuntimeChip(row)}</td>
             <td>${escapeHtml(fmtRuntimeDate(row.last_success_date || row.last_success_at))}</td>
             <td>${escapeHtml(fmtRuntimeDateTime(row.last_success_at))}</td>
-            <td>${escapeHtml(runtimeErrorCell(row))}</td>
+            <td>${escapeHtml(runtimeIssueCell(row))}</td>
           </tr>
         `).join("")}
       </tbody>
@@ -1134,7 +1157,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   loadOpsReadiness().catch((error) => console.error(error));
 });
-
 
 
 

@@ -275,10 +275,17 @@ def evaluate_common_buy_guard(order_context: dict[str, Any]) -> tuple[bool, list
         weekly_loss_pct = _derive_weekly_loss_pct(balance_payload)
     weekly_realized_pnl = _derived_metric(balance_payload, "weekly_realized_pnl")
     weekly_unrealized_pnl = _derived_metric(balance_payload, "weekly_unrealized_pnl")
-    weekly_total_pnl = _derived_metric(balance_payload, "weekly_total_pnl")
+    weekly_total_pnl = _num(order_context.get("weekly_total_pnl"))
+    if weekly_total_pnl is None:
+        weekly_total_pnl = _derived_metric(balance_payload, "weekly_total_pnl")
     if weekly_total_pnl is None:
         weekly_total_pnl = _derived_metric(balance_payload, "weekly_asset_change_amount")
     week_start_total_assets = _derived_metric(balance_payload, "week_start_total_assets")
+    weekly_fill_count = _derived_metric(balance_payload, "weekly_fill_count")
+    weekly_buy_fill_count = _derived_metric(balance_payload, "weekly_buy_fill_count")
+    weekly_sell_fill_count = _derived_metric(balance_payload, "weekly_sell_fill_count")
+    weekly_external_cash_flow_amount = _derived_metric(balance_payload, "weekly_external_cash_flow_amount")
+    weekly_loss_guard_basis = (balance_payload.get("derived_metrics") or {}).get("weekly_loss_guard_basis")
     weekly_loss_source = (balance_payload.get("derived_metrics") or {}).get("weekly_loss_source")
     weekly_reset_mode = (balance_payload.get("derived_metrics") or {}).get("weekly_reset_mode")
     week_start_date = (balance_payload.get("derived_metrics") or {}).get("week_start_date")
@@ -376,6 +383,11 @@ def evaluate_common_buy_guard(order_context: dict[str, Any]) -> tuple[bool, list
         "week_start_total_assets": week_start_total_assets,
         "week_start_date": week_start_date,
         "week_start_snapshot_at": week_start_snapshot_at,
+        "weekly_fill_count": weekly_fill_count,
+        "weekly_buy_fill_count": weekly_buy_fill_count,
+        "weekly_sell_fill_count": weekly_sell_fill_count,
+        "weekly_external_cash_flow_amount": weekly_external_cash_flow_amount,
+        "weekly_loss_guard_basis": weekly_loss_guard_basis,
         "weekly_loss_source": weekly_loss_source,
         "weekly_reset_mode": weekly_reset_mode,
         "timezone": timezone_name,

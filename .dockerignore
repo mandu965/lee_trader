@@ -11,14 +11,12 @@ outputs
 exports
 artifacts
 backups
-postgres
 serving
 tmp_doc
 _tmp_kis_openapi
 
 # Large local archives / dumps
 *.zip
-*.sql
 
 # Local tooling / editor state
 .git

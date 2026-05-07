@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -28,6 +29,12 @@ BUILD_LIVE_KPI_DAILY_REPORT_SCRIPT = ROOT / "python" / "build_live_kpi_daily_rep
 BUILD_QUALITY_RISK_GUARD_LIVE_REVIEW_SCRIPT = ROOT / "python" / "build_quality_risk_guard_live_review.py"
 BUILD_LIVE_CLOSED_TRADE_REPORT_SCRIPT = ROOT / "python" / "build_live_closed_trade_report.py"
 CHECK_LIVE_QUALITY_GUARD_OUTPUTS_SCRIPT = ROOT / "python" / "check_live_quality_guard_outputs.py"
+OPTIONAL_POST_SYNC_STEPS = {
+    "build_live_kpi_daily_report",
+    "build_live_closed_trade_report",
+    "build_quality_risk_guard_live_review",
+    "check_live_quality_guard_outputs",
+}
 
 
 def _load_env() -> None:
@@ -52,8 +59,19 @@ def _env_flag(name: str, default: bool = False) -> bool:
 def _run_step(name: str, command: list[str]) -> None:
     print(f"[START] {name}")
     try:
-        subprocess.run(command, cwd=ROOT, check=True)
+        completed = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+        if completed.returncode != 0:
+            raise subprocess.CalledProcessError(
+                completed.returncode,
+                command,
+                output=completed.stdout,
+                stderr=completed.stderr,
+            )
     except subprocess.CalledProcessError as exc:
+        if str(exc.output or "").strip():
+            print(str(exc.output).rstrip(), file=sys.stderr)
+        if str(exc.stderr or "").strip():
+            print(str(exc.stderr).rstrip(), file=sys.stderr)
         if name in {"submit_live_orders", "sync_live_order_fills"}:
             _notify_step_failure(name, command, exc)
         raise
@@ -129,10 +147,26 @@ def main() -> int:
     _run_step("build_live_trade_consistency_report", [PYTHON, str(BUILD_LIVE_TRADE_CONSISTENCY_SCRIPT)])
     _run_step("build_live_trade_review", [PYTHON, str(BUILD_LIVE_TRADE_REVIEW_SCRIPT)])
     _run_step("build_live_trade_review_summary", [PYTHON, str(BUILD_LIVE_TRADE_REVIEW_SUMMARY_SCRIPT)])
-    _run_step("build_live_kpi_daily_report", [PYTHON, str(BUILD_LIVE_KPI_DAILY_REPORT_SCRIPT)])
-    _run_step("build_live_closed_trade_report", [PYTHON, str(BUILD_LIVE_CLOSED_TRADE_REPORT_SCRIPT)])
-    _run_step("build_quality_risk_guard_live_review", [PYTHON, str(BUILD_QUALITY_RISK_GUARD_LIVE_REVIEW_SCRIPT)])
-    _run_step("check_live_quality_guard_outputs", [PYTHON, str(CHECK_LIVE_QUALITY_GUARD_OUTPUTS_SCRIPT)])
+    warnings: list[dict[str, str]] = []
+    for name, command in [
+        ("build_live_kpi_daily_report", [PYTHON, str(BUILD_LIVE_KPI_DAILY_REPORT_SCRIPT)]),
+        ("build_live_closed_trade_report", [PYTHON, str(BUILD_LIVE_CLOSED_TRADE_REPORT_SCRIPT)]),
+        ("build_quality_risk_guard_live_review", [PYTHON, str(BUILD_QUALITY_RISK_GUARD_LIVE_REVIEW_SCRIPT)]),
+        ("check_live_quality_guard_outputs", [PYTHON, str(CHECK_LIVE_QUALITY_GUARD_OUTPUTS_SCRIPT)]),
+    ]:
+        try:
+            _run_step(name, command)
+        except subprocess.CalledProcessError as exc:
+            if name not in OPTIONAL_POST_SYNC_STEPS:
+                raise
+            warning = {
+                "step_name": name,
+                "script_name": Path(str(command[-1])).name,
+                "exit_code": str(exc.returncode),
+                "error_message": (str(exc.stderr or "").strip().splitlines() or [f"{name} failed"])[-1],
+            }
+            warnings.append(warning)
+            print(f"[WARN] {json.dumps(warning, ensure_ascii=False)}")
     if str(os.environ.get("WEB_DATABASE_URL", "")).strip():
         _run_step(
             "sync_web_display_data",
@@ -144,6 +178,9 @@ def main() -> int:
                 "--skip-trades",
             ],
         )
+    if warnings:
+        print(f"[DONE] live auto trade cycle completed with post-sync warnings={len(warnings)}")
+        return 0
     print(
         f"[DONE] live auto trade cycle completed execute={'Y' if execute else 'N'} "
         f"allow_buy={'Y' if allow_buy else 'N'}"
