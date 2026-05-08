@@ -3114,15 +3114,37 @@ async function readAutoTradingOpsStatusPayload() {
   return await readJsonPayloadDbFirst("auto_trading_ops_status", [path.join(OUTPUTS_DIR, "auto_trading_ops_status.json")]);
 }
 
-async function readAutoTradingRuntimeStatusPayload() {
-  const opsStatus = await readAutoTradingOpsStatusPayload();
+async function readAllSchedulerStatuses() {
+  const [close, intraday, autoBuy, liveSync, ruleBefore, ruleAfter, ruleAfterClose, usMacro, usMacroShadow] = await Promise.all([
+    readJsonPayloadDbFirst("auto_ops_scheduler_status",                [path.join(OUTPUTS_DIR, "auto_ops_scheduler_status.json")]),
+    readJsonPayloadDbFirst("auto_ops_recovery_scheduler_status",        [path.join(OUTPUTS_DIR, "auto_ops_recovery_scheduler_status.json")]),
+    readJsonPayloadDbFirst("auto_ops_auto_buy_scheduler_status",        [path.join(OUTPUTS_DIR, "auto_ops_auto_buy_scheduler_status.json")]),
+    readJsonPayloadDbFirst("auto_ops_live_account_sync_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_live_account_sync_scheduler_status.json")]),
+    readJsonPayloadDbFirst("rule_before_open_scheduler_status",         [path.join(OUTPUTS_DIR, "rule_before_open_scheduler_status.json")]),
+    readJsonPayloadDbFirst("rule_after_open_scheduler_status",          [path.join(OUTPUTS_DIR, "rule_after_open_scheduler_status.json")]),
+    readJsonPayloadDbFirst("rule_after_close_scheduler_status",         [path.join(OUTPUTS_DIR, "rule_after_close_scheduler_status.json")]),
+    readJsonPayloadDbFirst("us_macro_scheduler_status",                 [path.join(OUTPUTS_DIR, "us_macro_scheduler_status.json")]),
+    readJsonPayloadDbFirst("us_macro_shadow_scheduler_status",          [path.join(OUTPUTS_DIR, "us_macro_shadow_scheduler_status.json")]),
+  ]);
   return {
-    close_scheduler: await readJsonPayloadDbFirst("auto_ops_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_scheduler_status.json")]),
-    intraday_scheduler: await readJsonPayloadDbFirst("auto_ops_recovery_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_recovery_scheduler_status.json")]),
-    auto_buy_scheduler: await readJsonPayloadDbFirst("auto_ops_auto_buy_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_auto_buy_scheduler_status.json")]),
-    live_account_sync_scheduler: await readJsonPayloadDbFirst("auto_ops_live_account_sync_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_live_account_sync_scheduler_status.json")]),
-    operations: opsStatus || {},
+    close_scheduler:              close,
+    intraday_scheduler:           intraday,
+    auto_buy_scheduler:           autoBuy,
+    live_account_sync_scheduler:  liveSync,
+    rule_before_open_scheduler:   ruleBefore,
+    rule_after_open_scheduler:    ruleAfter,
+    rule_after_close_scheduler:   ruleAfterClose,
+    us_macro_scheduler:           usMacro,
+    us_macro_shadow_scheduler:    usMacroShadow,
   };
+}
+
+async function readAutoTradingRuntimeStatusPayload() {
+  const [opsStatus, schedulers] = await Promise.all([
+    readAutoTradingOpsStatusPayload(),
+    readAllSchedulerStatuses(),
+  ]);
+  return { ...schedulers, operations: opsStatus || {} };
 }
 
 async function readOperationalRefreshStatusPayload() {
@@ -4641,6 +4663,53 @@ app.post("/api/ops-readiness/notes", operatorAccess.apiGuard, async (req, res) =
     res.json({ ok: true, notes: payload });
   } catch (e) {
     console.error("POST /api/ops-readiness/notes error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/us-macro-overlay", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    const macroRows = await queryRows(`
+      SELECT us_trade_date, kr_apply_date,
+             spy_ret_1d, qqq_ret_1d, vix_ret_1d, semiconductor_ret_1d,
+             sector_breadth, top_sector, bottom_sector,
+             risk_on_flag, risk_off_flag, vix_spike_flag,
+             macro_status, macro_summary, missing_tickers
+      FROM signal.us_macro_feature_daily
+      ORDER BY us_trade_date DESC
+      LIMIT 7
+    `);
+    const overlayRows = await queryRows(`
+      SELECT run_date, engine_type, macro_status,
+             COUNT(*)::int                                                    AS total,
+             COUNT(*) FILTER (WHERE buy_blocked_flag)::int                    AS blocked,
+             COUNT(*) FILTER (WHERE macro_adjustment > 0)::int                AS boosted,
+             COUNT(*) FILTER (WHERE macro_adjustment < 0 AND NOT buy_blocked_flag)::int AS penalized
+      FROM signal.kr_macro_overlay_log
+      GROUP BY run_date, engine_type, macro_status
+      ORDER BY run_date DESC, engine_type
+      LIMIT 14
+    `);
+    const topAffected = await queryRows(`
+      SELECT engine_type, code, name, sector,
+             original_score, macro_adjustment, adjusted_score,
+             buy_blocked_flag, overlay_reason, run_date
+      FROM signal.kr_macro_overlay_log
+      WHERE run_date = (SELECT MAX(run_date) FROM signal.kr_macro_overlay_log)
+        AND (buy_blocked_flag = TRUE OR macro_adjustment <> 0)
+      ORDER BY buy_blocked_flag DESC, ABS(macro_adjustment) DESC
+      LIMIT 10
+    `);
+    res.json({
+      macro_history: macroRows,
+      overlay_summary: overlayRows,
+      top_affected: topAffected,
+    });
+  } catch (e) {
+    if (e.message && e.message.includes("does not exist")) {
+      return res.status(404).json({ error: "us_macro_tables_not_found" });
+    }
+    console.error("GET /api/us-macro-overlay error", e);
     res.status(500).json({ error: "internal error" });
   }
 });
@@ -6835,11 +6904,9 @@ app.get("/api/auto-trading/runtime-status", async (req, res) => {
       confirm_configured: String(process.env.AUTO_TRADE_CONFIRM_TEXT || "").trim() === "LIVE_ORDER",
       source: "process_env",
     };
+    const schedulers = await readAllSchedulerStatuses();
     const payload = {
-      close_scheduler: await readJsonPayloadDbFirst("auto_ops_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_scheduler_status.json")]),
-      intraday_scheduler: await readJsonPayloadDbFirst("auto_ops_recovery_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_recovery_scheduler_status.json")]),
-      auto_buy_scheduler: await readJsonPayloadDbFirst("auto_ops_auto_buy_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_auto_buy_scheduler_status.json")]),
-      live_account_sync_scheduler: await readJsonPayloadDbFirst("auto_ops_live_account_sync_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_live_account_sync_scheduler_status.json")]),
+      ...schedulers,
       operations: opsStatus || {},
       policy: (policyPayload && Object.keys(policyPayload).length ? {
         auto_trade_execute: !!policyPayload.auto_trade_execute,
@@ -6850,7 +6917,7 @@ app.get("/api/auto-trading/runtime-status", async (req, res) => {
         generated_at: policyPayload.generated_at || null,
       } : envPolicy),
     };
-    if (!payload.close_scheduler && !payload.intraday_scheduler && !payload.auto_buy_scheduler && !payload.live_account_sync_scheduler && !Object.keys(payload.operations || {}).length) {
+    if (!payload.close_scheduler && !payload.intraday_scheduler && !payload.auto_buy_scheduler && !payload.live_account_sync_scheduler && !payload.rule_before_open_scheduler && !payload.us_macro_scheduler && !Object.keys(payload.operations || {}).length) {
       return res.status(404).json({ error: "auto trading runtime status not found" });
     }
     res.json(payload);

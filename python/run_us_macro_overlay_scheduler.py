@@ -38,7 +38,7 @@ LOGGER = logging.getLogger("run_us_macro_overlay_scheduler")
 def setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
 
@@ -131,7 +131,7 @@ def main() -> None:
     args = parse_args()
 
     if not _guard_enabled():
-        LOGGER.info("US_MACRO_ENABLED=0 — skipping US macro overlay run.")
+        LOGGER.info("US_MACRO_ENABLED=0 - skipping US macro overlay run.")
         sys.exit(0)
 
     shadow = _guard_shadow_mode()
@@ -146,8 +146,8 @@ def main() -> None:
         sys.exit(1)
 
     LOGGER.info("=" * 60)
-    LOGGER.info("US Macro Overlay Scheduler — Phase 1~2 (Shadow Mode=%s)", shadow)
-    LOGGER.info("⚠ No Korean auto-trading logic will be affected.")
+    LOGGER.info("US Macro Overlay Scheduler - Phase 1~2 (Shadow Mode=%s)", shadow)
+    LOGGER.info("[SHADOW] No Korean auto-trading logic will be affected.")
     LOGGER.info("=" * 60)
 
     target_date = date.fromisoformat(args.date) if args.date else date.today()

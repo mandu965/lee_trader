@@ -361,7 +361,7 @@ def run(
     LOGGER.info("Summary: %s", features.get("macro_summary"))
 
     if dry_run:
-        LOGGER.info("DRY RUN — feature row not written to DB.")
+        LOGGER.info("DRY RUN - feature row not written to DB.")
         return features
 
     with engine.begin() as conn:
@@ -376,7 +376,7 @@ def run(
 def setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
     )
 
 
@@ -403,7 +403,7 @@ def main() -> None:
 
     enabled = os.environ.get("US_MACRO_ENABLED", "1").strip()
     if enabled not in ("1", "true", "yes", "y"):
-        LOGGER.info("US_MACRO_ENABLED is not set — skipping feature computation.")
+        LOGGER.info("US_MACRO_ENABLED is not set - skipping feature computation.")
         return
 
     target_date = date.fromisoformat(args.date) if args.date else date.today()

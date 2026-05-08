@@ -142,7 +142,7 @@ def _fetch_ai_candidates(engine: Any, top_n: int) -> pd.DataFrame:
 
 def _fetch_rule_candidates(csv_path: Path = DEFAULT_RULE_SIGNALS_CSV) -> pd.DataFrame:
     if not csv_path.exists():
-        LOGGER.warning("rule_signals.csv not found at %s — skipping RULE candidates.", csv_path)
+        LOGGER.warning("rule_signals.csv not found at %s - skipping RULE candidates.", csv_path)
         return pd.DataFrame()
     try:
         df = pd.read_csv(csv_path, dtype={"code": str}, low_memory=False)
@@ -294,7 +294,7 @@ def run(
     ai_df = _fetch_ai_candidates(engine, cfg.ai_top_n)
     rule_df = _fetch_rule_candidates(rule_signals_csv)
 
-    LOGGER.info("[Phase 3] Candidates — AI: %d, RULE: %d", len(ai_df), len(rule_df))
+    LOGGER.info("[Phase 3] Candidates - AI: %d, RULE: %d", len(ai_df), len(rule_df))
 
     all_rows: list[dict] = []
 
@@ -340,7 +340,7 @@ def run(
 
     # 5. Write to log table (shadow only, never touches orders)
     if dry_run:
-        LOGGER.info("[Phase 3] DRY RUN — %d rows NOT written to DB.", len(all_rows))
+        LOGGER.info("[Phase 3] DRY RUN - %d rows NOT written to DB.", len(all_rows))
         _log_shadow_summary(all_rows, macro)
         return {
             "kr_apply_date": kr_apply_date,
@@ -355,7 +355,7 @@ def run(
             conn.execute(_INSERT_LOG_SQL, all_rows)
         LOGGER.info("[Phase 3] Inserted/updated %d rows in signal.kr_macro_overlay_log.", len(all_rows))
     else:
-        LOGGER.warning("[Phase 3] No candidate rows — nothing written to log.")
+        LOGGER.warning("[Phase 3] No candidate rows - nothing written to log.")
 
     _log_shadow_summary(all_rows, macro)
 
@@ -375,7 +375,7 @@ def _log_shadow_summary(rows: list[dict], macro: dict) -> None:
     adjusted_down = [r for r in rows if not r.get("buy_blocked_flag") and (r.get("macro_adjustment") or 0) < 0]
 
     LOGGER.info("=" * 60)
-    LOGGER.info("⚠ [SHADOW MODE] 이 결과는 실제 주문에 영향을 주지 않습니다.")
+    LOGGER.info("[SHADOW MODE] 이 결과는 실제 주문에 영향을 주지 않습니다.")
     LOGGER.info("-" * 60)
     LOGGER.info("US Macro Status  : %s", macro.get("macro_status"))
     LOGGER.info("Summary          : %s", macro.get("macro_summary", ""))
@@ -425,5 +425,5 @@ def _log_shadow_summary(rows: list[dict], macro: dict) -> None:
             )
 
     LOGGER.info("=" * 60)
-    LOGGER.info("⚠ [SHADOW MODE] 실제 주문에 반영되지 않음 — Phase 3 로그 전용.")
+    LOGGER.info("[SHADOW MODE] 실제 주문에 반영되지 않음 - Phase 3 로그 전용.")
     LOGGER.info("=" * 60)

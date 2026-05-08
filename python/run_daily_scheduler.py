@@ -138,6 +138,19 @@ def _rule_after_open_command() -> list[str]:
     return [sys.executable, str(ROOT / "python" / "run_rule_after_open_cycle.py")]
 
 
+def _us_macro_collect_command() -> list[str]:
+    lookback = str(os.environ.get("US_MACRO_SCHEDULER_LOOKBACK_DAYS", "2")).strip() or "2"
+    return [
+        sys.executable,
+        str(ROOT / "python" / "run_us_macro_overlay_scheduler.py"),
+        "--lookback-days", lookback,
+    ]
+
+
+def _us_macro_shadow_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "run_us_macro_overlay_shadow.py")]
+
+
 def _resolve_run_steps() -> list[tuple[str, list[str]]]:
     command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
     if command_set == "intraday":
@@ -168,6 +181,14 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
         return [("run_rule_before_open_cycle", _rule_before_open_command())]
     if command_set == "rule_after_open":
         return [("run_rule_after_open_cycle", _rule_after_open_command())]
+    if command_set == "us_macro":
+        return [
+            ("run_us_macro_collect", _us_macro_collect_command()),
+        ]
+    if command_set == "us_macro_shadow":
+        return [
+            ("run_us_macro_shadow", _us_macro_shadow_command()),
+        ]
     return [("run_manual_close_batch", _close_batch_command())]
 
 

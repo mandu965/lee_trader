@@ -229,6 +229,58 @@ services:
       SCHEDULER_LOG_PATH: ${SCHEDULER_RULE_AFTER_OPEN_LOG_PATH:-logs/rule_after_open_scheduler.log}
       RULE_TRADING_RUN_MODE: ${RULE_TRADING_RUN_MODE:-paper}
 
+  scheduler-us-macro:
+    <<: *python-runtime
+    container_name: lee_trader_scheduler_us_macro
+    restart: unless-stopped
+    command: ["python", "python/run_daily_scheduler.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./outputs:/app/outputs
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      SCHEDULER_TIMEZONE: Asia/Seoul
+      SCHEDULER_COMMAND_SET: us_macro
+      SCHEDULER_DAILY_TIME: ${SCHEDULER_US_MACRO_DAILY_TIME:-07:30}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_US_MACRO_POLL_SECONDS:-60}
+      SCHEDULER_SKIP_CATCHUP_ON_START: ${SCHEDULER_US_MACRO_SKIP_CATCHUP_ON_START:-1}
+      SCHEDULER_RUN_POLICY: ${SCHEDULER_US_MACRO_RUN_POLICY:-always}
+      SCHEDULER_STATUS_PATH: ${SCHEDULER_US_MACRO_STATUS_PATH:-outputs/us_macro_scheduler_status.json}
+      SCHEDULER_LOG_PATH: ${SCHEDULER_US_MACRO_LOG_PATH:-logs/us_macro_scheduler.log}
+      SCHEDULER_FAIL_ON_RUNTIME_ASSET_ISSUES: "0"
+      US_MACRO_ENABLED: ${US_MACRO_ENABLED:-1}
+      US_MACRO_SHADOW_MODE: ${US_MACRO_SHADOW_MODE:-1}
+      US_MACRO_DATA_SOURCE: ${US_MACRO_DATA_SOURCE:-yfinance}
+      US_MACRO_ALLOW_REAL_APPLY: "0"
+      US_MACRO_SCHEDULER_LOOKBACK_DAYS: ${US_MACRO_SCHEDULER_LOOKBACK_DAYS:-2}
+
+  scheduler-us-macro-shadow:
+    <<: *python-runtime
+    container_name: lee_trader_scheduler_us_macro_shadow
+    restart: unless-stopped
+    command: ["python", "python/run_daily_scheduler.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./outputs:/app/outputs
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      SCHEDULER_TIMEZONE: Asia/Seoul
+      SCHEDULER_COMMAND_SET: us_macro_shadow
+      SCHEDULER_DAILY_TIME: ${SCHEDULER_US_MACRO_SHADOW_DAILY_TIME:-08:50}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_US_MACRO_SHADOW_POLL_SECONDS:-60}
+      SCHEDULER_SKIP_CATCHUP_ON_START: ${SCHEDULER_US_MACRO_SHADOW_SKIP_CATCHUP_ON_START:-1}
+      SCHEDULER_RUN_POLICY: ${SCHEDULER_US_MACRO_SHADOW_RUN_POLICY:-always}
+      SCHEDULER_STATUS_PATH: ${SCHEDULER_US_MACRO_SHADOW_STATUS_PATH:-outputs/us_macro_shadow_scheduler_status.json}
+      SCHEDULER_LOG_PATH: ${SCHEDULER_US_MACRO_SHADOW_LOG_PATH:-logs/us_macro_shadow_scheduler.log}
+      SCHEDULER_FAIL_ON_RUNTIME_ASSET_ISSUES: "0"
+      US_MACRO_ENABLED: ${US_MACRO_ENABLED:-1}
+      US_MACRO_SHADOW_MODE: ${US_MACRO_SHADOW_MODE:-1}
+      US_MACRO_ALLOW_REAL_APPLY: "0"
+
   node-api:
     build:
       context: .

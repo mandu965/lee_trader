@@ -91,27 +91,75 @@ function renderHero(data) {
   const outputs = data.outputs || {};
   const basis = data.execution_basis || {};
   document.getElementById("heroGrid").innerHTML = `
-    <article class="card">
-      <div class="eyebrow">기준일</div>
-      <div class="big-value">${escapeHtml(data.asof_date || "-")}</div>
-      <div class="muted">${escapeHtml(basis.label || "기준 정보 없음")} · 랭킹 최신일 ${escapeHtml(outputs.ranking_latest_date || "-")}</div>
-    </article>
-    <article class="card">
-      <div class="eyebrow">60일 준비 상태</div>
-      <div class="big-value">${escapeHtml(readiness.confidence_calibration_readiness_60d || "WAIT")}</div>
-      <div class="muted">60일 성숙 스냅샷 ${fmtNum(readiness.matured_snapshot_count_60d)}</div>
-    </article>
-    <article class="card">
-      <div class="eyebrow">매수 gate</div>
-      <div class="big-value">${escapeHtml(gate.overall_status || "-")}</div>
-      <div class="muted">워크포워드 ${escapeHtml(gate.walkforward_acceptance || "-")}</div>
-    </article>
-    <article class="card">
-      <div class="eyebrow">KPI</div>
-      <div class="big-value">${escapeHtml(kpi.overall_status || "-")}</div>
-      <div class="muted">경고 ${fmtNum(kpi.alert_metric_count)} / 관찰 ${fmtNum(kpi.watch_metric_count)}</div>
-    </article>
+    <div class="hero-card">
+      <div class="hero-label">기준일</div>
+      <div class="hero-value">${escapeHtml(data.asof_date || "-")}</div>
+      <div class="hero-sub">${escapeHtml(basis.label || "기준 정보 없음")} · 랭킹 최신일 ${escapeHtml(outputs.ranking_latest_date || "-")}</div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-label">60일 준비 상태</div>
+      <div class="hero-value">${escapeHtml(readiness.confidence_calibration_readiness_60d || "WAIT")}</div>
+      <div class="hero-sub">60일 성숙 스냅샷 ${fmtNum(readiness.matured_snapshot_count_60d)}</div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-label">매수 gate</div>
+      <div class="hero-value">${escapeHtml(gate.overall_status || "-")}</div>
+      <div class="hero-sub">워크포워드 ${escapeHtml(gate.walkforward_acceptance || "-")}</div>
+    </div>
+    <div class="hero-card">
+      <div class="hero-label">KPI</div>
+      <div class="hero-value">${escapeHtml(kpi.overall_status || "-")}</div>
+      <div class="hero-sub">경고 ${fmtNum(kpi.alert_metric_count)} / 관찰 ${fmtNum(kpi.watch_metric_count)}</div>
+    </div>
   `;
+}
+
+function renderSafetyBanner(data) {
+  const banner = document.getElementById("safetyBanner");
+  const text = document.getElementById("safetyText");
+  const detail = document.getElementById("safetyDetail");
+  if (!banner) return;
+  const decision = data.go_no_go?.decision || "WAIT";
+  const gateStatus = data.gate?.overall_status || "-";
+  const kpiStatus = data.kpi?.overall_status || "-";
+  let cls, msg;
+  if (decision === "GO") { cls = "ok"; msg = "오늘 매수 진행 가능 (GO)"; }
+  else if (decision === "NO_GO") { cls = "bad"; msg = "오늘 매수 차단 (NO_GO)"; }
+  else { cls = "warn"; msg = `대기 중 (${decision})`; }
+  banner.className = `safety-banner ${cls}`;
+  text.textContent = msg;
+  detail.textContent = `Gate: ${gateStatus} · KPI: ${kpiStatus}`;
+}
+
+function updateBadgeToday(data) {
+  const badge = document.getElementById("badgeToday");
+  if (!badge) return;
+  const kpi = data.kpi || {};
+  const alertCount = Number(kpi.alert_metric_count || 0) + Number(kpi.watch_metric_count || 0);
+  const critCount = (data.interpretation?.critical_reasons || []).length;
+  const total = alertCount + critCount;
+  if (total > 0) {
+    badge.textContent = total;
+    badge.className = "tab-badge bad";
+  } else {
+    badge.textContent = "";
+    badge.className = "tab-badge";
+  }
+}
+
+function initTabs() {
+  const tabBtns = document.querySelectorAll(".tab-btn");
+  const tabPanes = document.querySelectorAll(".tab-pane");
+  tabBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.tab;
+      tabBtns.forEach((b) => b.classList.remove("active"));
+      tabPanes.forEach((p) => p.classList.remove("active"));
+      btn.classList.add("active");
+      const pane = document.getElementById(`tab-${target}`);
+      if (pane) pane.classList.add("active");
+    });
+  });
 }
 
 function renderKv(targetId, rows) {
@@ -727,10 +775,15 @@ function renderSchedulerRuntime(runtime) {
   if (!wrap) return;
 
   const rows = [
-    ["close", runtime?.close_scheduler],
-    ["intraday", runtime?.intraday_scheduler],
-    ["auto_buy", runtime?.auto_buy_scheduler],
-    ["live_sync", runtime?.live_account_sync_scheduler],
+    ["close (18:10)", runtime?.close_scheduler],
+    ["intraday / recovery (12:00)", runtime?.intraday_scheduler],
+    ["auto_buy (09:30)", runtime?.auto_buy_scheduler],
+    ["live_sync (10:00/14:00/18:00)", runtime?.live_account_sync_scheduler],
+    ["rule_before_open (08:55)", runtime?.rule_before_open_scheduler],
+    ["rule_after_open (09:10)", runtime?.rule_after_open_scheduler],
+    ["rule_after_close (18:00)", runtime?.rule_after_close_scheduler],
+    ["us_macro (07:30)", runtime?.us_macro_scheduler],
+    ["us_macro_shadow (08:50)", runtime?.us_macro_shadow_scheduler],
   ].filter(([, payload]) => payload);
 
   if (!rows.length) {
@@ -925,19 +978,101 @@ async function renderRecentAlerts() {
   }
 }
 
+function macroStatusKind(status) {
+  const s = String(status || "").toUpperCase();
+  if (s === "RISK_OFF") return "bad";
+  if (s === "RISK_ON") return "good";
+  if (s === "DATA_INCOMPLETE") return "watch";
+  return "info";
+}
+
+async function loadUsMacroOverlay() {
+  try {
+    const data = await fetchJsonMaybe("/api/us-macro-overlay");
+    if (!data) {
+      document.getElementById("usMacroSummary").textContent = "US Macro 테이블 없음 — 마이그레이션 필요";
+      return;
+    }
+
+    const latest = (data.macro_history || [])[0] || {};
+    const status = latest.macro_status || "NO_DATA";
+    const kind = macroStatusKind(status);
+
+    // Status chips
+    const chips = [{ label: status, kind }];
+    if (latest.risk_off_flag) chips.push({ label: "RISK_OFF", kind: "bad" });
+    if (latest.vix_spike_flag) chips.push({ label: "VIX SPIKE", kind: "bad" });
+    if (latest.risk_on_flag) chips.push({ label: "RISK_ON", kind: "good" });
+    renderChipRow("usMacroStatusChips", chips);
+
+    const fmtR = (v) => v != null ? `${(Number(v) * 100).toFixed(2)}%` : "-";
+    renderKv("usMacroKv", [
+      ["US 거래일", latest.us_trade_date || "-"],
+      ["KR 적용일", latest.kr_apply_date || "-"],
+      ["SPY 1d", fmtR(latest.spy_ret_1d)],
+      ["QQQ 1d", fmtR(latest.qqq_ret_1d)],
+      ["VIX 1d", fmtR(latest.vix_ret_1d)],
+      ["SMH 1d", fmtR(latest.semiconductor_ret_1d)],
+      ["섹터 breadth", latest.sector_breadth != null ? `${(Number(latest.sector_breadth) * 100).toFixed(0)}%` : "-"],
+      ["top 섹터", latest.top_sector || "-"],
+      ["missing tickers", latest.missing_tickers ? latest.missing_tickers.join(", ") : "없음"],
+    ]);
+    document.getElementById("usMacroSummary").textContent = latest.macro_summary || "";
+
+    // Overlay summary (today = first entry in overlay_summary)
+    const todayOverlay = (data.overlay_summary || []).slice(0, 2);
+    const totalRows = todayOverlay.reduce((s, r) => s + (r.total || 0), 0);
+    const blockedRows = todayOverlay.reduce((s, r) => s + (r.blocked || 0), 0);
+    const penalizedRows = todayOverlay.reduce((s, r) => s + (r.penalized || 0), 0);
+    const boostedRows = todayOverlay.reduce((s, r) => s + (r.boosted || 0), 0);
+    const overKind = blockedRows > 0 ? "bad" : penalizedRows > 0 ? "watch" : "good";
+    renderChipRow("usMacroOverlayChips", [
+      { label: `후보 ${totalRows}개`, kind: "info" },
+      { label: blockedRows > 0 ? `차단 ${blockedRows}` : "차단 없음", kind: blockedRows > 0 ? "bad" : "good" },
+      { label: penalizedRows > 0 ? `감점 ${penalizedRows}` : "감점 없음", kind: penalizedRows > 0 ? "watch" : "good" },
+    ]);
+    renderKv("usMacroOverlayKv", [
+      ["총 후보", `AI ${todayOverlay.find(r => r.engine_type === "ai")?.total || 0} + RULE ${todayOverlay.find(r => r.engine_type === "rule")?.total || 0}`],
+      ["차단 (buy_blocked)", `${blockedRows}개`],
+      ["감점 (score -)", `${penalizedRows}개`],
+      ["가산 (score +)", `${boostedRows}개`],
+      ["run_date", todayOverlay[0]?.run_date || "-"],
+    ]);
+
+    // Affected list
+    const affected = data.top_affected || [];
+    const affectedEl = document.getElementById("usMacroAffectedList");
+    if (!affected.length) {
+      affectedEl.innerHTML = '<li>영향받은 종목 없음</li>';
+    } else {
+      affectedEl.innerHTML = affected.map(r => {
+        const adj = Number(r.macro_adjustment) || 0;
+        const adjtxt = adj >= 0 ? `+${adj.toFixed(1)}` : adj.toFixed(1);
+        const badge = r.buy_blocked_flag ? '<span style="color:#fca5a5">[차단]</span>' : `<span style="color:#fde68a">[${adjtxt}점]</span>`;
+        const engine = `<span style="color:#94a3b8;font-size:11px">[${(r.engine_type || "").toUpperCase()}]</span>`;
+        return `<li>${engine} ${badge} <strong>${escapeHtml(r.name || r.code)}</strong> (${escapeHtml(r.code)}) <span style="color:#94a3b8;font-size:11px">${escapeHtml((r.overlay_reason || "").slice(0, 60))}</span></li>`;
+      }).join("");
+    }
+  } catch (e) {
+    console.warn("us-macro-overlay load failed", e);
+    document.getElementById("usMacroSummary").textContent = `조회 실패: ${e.message}`;
+  }
+}
+
 async function loadOpsReadiness() {
   const state = document.getElementById("pageState");
   state.textContent = "운영 readiness 대시보드를 불러오는 중입니다.";
   try {
-    const [data, policy, runtime] = await Promise.all([
+    const [data, runtime] = await Promise.all([
       fetchJson("/api/ops-readiness"),
-      fetchTradingPolicySafe(),
       fetchJsonMaybe("/api/auto-trading/runtime-status"),
     ]);
     renderRecentAlerts().catch(() => {});
+    loadUsMacroOverlay().catch(() => {});
     renderRuleOps(data.rule_ops || null);
-    renderTradingPolicy(policy);
     renderHero(data);
+    renderSafetyBanner(data);
+    updateBadgeToday(data);
     renderSchedulerRuntime(runtime);
 
     const outputs = data.outputs || {};
@@ -1117,8 +1252,6 @@ async function loadOpsReadiness() {
     });
     renderTransitionChecklist(data.transition_checklist || []);
     renderOperatorMemo(data.notes || {});
-    renderCandidates("candidateGrid", data.manual?.priority_candidates || []);
-    renderShadowCandidates("shadowCandidateGrid", data.shadow?.quality_risk_guard_candidates || []);
     renderShadowRepeatability(data.shadow || {});
 
     const staleNotes = [];
@@ -1129,14 +1262,11 @@ async function loadOpsReadiness() {
     state.textContent = `기준일 ${data.asof_date || "-"} · ${basis.label || "기준 미상"} 기준 운영 readiness 대시보드를 불러왔습니다.${staleNotes.length ? ` stale sources: ${staleNotes.join(", ")}` : ""}`;
   } catch (error) {
     console.error(error);
-    renderTradingPolicy(null);
     document.getElementById("heroGrid").innerHTML = '<div class="empty-state">운영 대시보드를 불러오지 못했습니다.</div>';
     renderList("goReasons", [], "조회 실패");
     renderMetricList("alertMetrics", [], "조회 실패");
     renderList("dailyChecklist", [], "조회 실패");
-    renderCandidates("candidateGrid", []);
     renderIntradayOps("intradayOpsGrid", {});
-    renderShadowCandidates("shadowCandidateGrid", []);
     renderShadowRepeatability({});
     renderRuleOps(null);
     renderSchedulerRuntime(null);
@@ -1145,13 +1275,7 @@ async function loadOpsReadiness() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  const navActions = document.querySelector(".page-header .page-actions");
-  if (navActions) {
-    Array.from(navActions.querySelectorAll("button, a")).forEach((item) => {
-      const label = String(item.textContent || "").replace(/\s+/g, "").trim();
-      if (label === "점수검증") item.remove();
-    });
-  }
+  initTabs();
   document.getElementById("saveOperatorMemoBtn")?.addEventListener("click", () => {
     saveOperatorMemo().catch((error) => console.error(error));
   });

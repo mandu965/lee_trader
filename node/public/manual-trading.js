@@ -37,6 +37,27 @@ async function fetchTradingPolicySafe() {
   }
 }
 
+const STATUS_KO = {
+  BUY_ALLOWED:      "매수 가능",
+  BUY_NOW:          "즉시 매수",
+  PROMOTION_READY:  "승격 준비",
+  TRUSTED:          "신뢰",
+  PROVISIONAL:      "잠정",
+  WATCHLIST:        "관찰 목록",
+  WATCH:            "관찰",
+  MONITOR:          "모니터링",
+  PAPER_ONLY:       "모의 전용",
+  CONDITIONAL:      "조건부",
+  HOLD:             "보류",
+  BLOCK:            "차단",
+  REJECTED:         "거부",
+};
+
+function labelKo(value) {
+  if (!value) return "-";
+  return STATUS_KO[value] ?? value;
+}
+
 function chipClass(kind) {
   if (kind === "BUY_ALLOWED") return "is-good";
   if (kind === "BUY_NOW" || kind === "PROMOTION_READY" || kind === "TRUSTED") return "is-good";
@@ -314,15 +335,12 @@ function renderCandidates(targetId, items, emptyText) {
         </div>
         <div class="candidate-meta">
           <span class="chip ${chipClass(item.buy_eligibility_status)}">${escapeHtml(eligibility.label)}</span>
-          <span class="chip ${chipClass(item.buyability_status)}">${escapeHtml(item.buyability_status || "-")}</span>
-          <span class="chip ${chipClass(item.watchlist_tier)}">${escapeHtml(item.watchlist_tier || "-")}</span>
-          <span class="chip ${chipClass(item.confidence_state_v2)}">${escapeHtml(item.confidence_state_v2 || "-")}</span>
+          ${item.watchlist_tier ? `<span class="chip ${chipClass(item.watchlist_tier)}">${escapeHtml(labelKo(item.watchlist_tier))}</span>` : ""}
           ${buildRecentSurgeChip(item)}
-          <span class="chip ${quoteSource.cls}">시세 ${escapeHtml(quoteSource.label)}</span>
         </div>
         <div class="card-detail">${escapeHtml(buildScoreRoleLine(item))}</div>
-        <div class="card-detail">buy_rank ${fmtNum(item.buy_rank)} | eligibility ${escapeHtml(eligibility.scoreText)} | readiness ${fmtNum(item.promotion_readiness_score, 2)} | raw_confidence_v2 ${fmtNum(item.raw_confidence_v2, 2)}</div>
-        <div class="card-detail">장중 ${escapeHtml(quoteSource.label)} | 변동률 ${escapeHtml(fmtPct(changePct, 1))} | 거래대금 ${escapeHtml(fmtMoneyShort(tradingValue))}</div>
+        <div class="card-detail">매수순위 ${fmtNum(item.buy_rank)}위 | 절대판단 ${escapeHtml(eligibility.scoreText)} | 진입준비도 ${fmtNum(item.promotion_readiness_score, 2)} | 신뢰도 ${fmtNum(item.raw_confidence_v2, 2)} (${escapeHtml(labelKo(item.confidence_state_v2))})</div>
+        <div class="card-detail">시세 ${escapeHtml(quoteSource.label)} | 변동 ${escapeHtml(fmtPct(changePct, 1))} | 거래대금 ${escapeHtml(fmtMoneyShort(tradingValue))} | 매수가능성 ${escapeHtml(labelKo(item.buyability_status))}</div>
         <div class="card-detail">절대 매수 판단: ${escapeHtml(eligibility.reasonText)}</div>
         <ul class="candidate-list">
           ${reasons.length ? reasons.map((reason) => `<li>${escapeHtml(reason)}</li>`).join("") : "<li>사유 정보 없음</li>"}
@@ -334,6 +352,7 @@ function renderCandidates(targetId, items, emptyText) {
 
 async function loadManualTradingSummary() {
   const state = document.getElementById("pageState");
+  state.className = "state-line";
   state.textContent = "수동매매 요약을 불러오는 중입니다.";
 
   try {
@@ -349,6 +368,7 @@ async function loadManualTradingSummary() {
     renderChecklist(data.checklist || []);
     renderCandidates("priorityGrid", data.priority_candidates || [], "우선 검토 후보가 없습니다.");
     renderCandidates("cautionGrid", data.caution_candidates || [], "보수 검토 후보가 없습니다.");
+    state.className = "state-line";
     state.textContent = `기준일 ${data.asof_date || "-"} 기준으로 수동매매 요약을 불러왔습니다.`;
   } catch (error) {
     console.error(error);
@@ -359,7 +379,8 @@ async function loadManualTradingSummary() {
     document.getElementById("checkList").innerHTML = "";
     renderCandidates("priorityGrid", [], "우선 검토 후보를 불러오지 못했습니다.");
     renderCandidates("cautionGrid", [], "보수 검토 후보를 불러오지 못했습니다.");
-    state.textContent = `조회 실패: ${error.message}`;
+    state.className = "state-line is-error";
+    state.textContent = `데이터를 불러오지 못했습니다 — ${error.message}`;
   }
 }
 

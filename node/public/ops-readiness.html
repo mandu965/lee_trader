@@ -1,436 +1,456 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>운영자 페이지</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260508c" />
     <style>
-      .ops-page { max-width: 1380px; margin: 0 auto; padding: 24px 20px 48px; }
-      .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
-      .page-title { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
-      .page-subtitle { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.65; max-width: 860px; }
-      .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-      .page-actions button { flex: 0 0 auto; }
-      .page-actions button.is-active { border-color: rgba(56, 189, 248, 0.44); background: rgba(56, 189, 248, 0.12); color: #bae6fd; }
-      .page-actions .nav-link { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(71, 85, 105, 0.7); background: rgba(30, 41, 59, 0.9); color: #f8fafc; font-size: 14px; font-weight: 700; text-decoration: none; }
-      .page-actions .nav-link:hover { background: rgba(51, 65, 85, 0.96); }
-      .page-actions .nav-link.is-active { border-color: rgba(56, 189, 248, 0.44); background: rgba(56, 189, 248, 0.12); color: #bae6fd; }
-      .section { margin-bottom: 18px; }
-      .section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
-      .section-kicker { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: #60a5fa; font-weight: 800; }
-      .section-title { margin: 0; font-size: 20px; letter-spacing: -0.02em; }
-      .section-note { color: #94a3b8; font-size: 12px; line-height: 1.6; }
-      .grid-hero { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-      .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-      .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-      .focus-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr); gap: 12px; }
-      .state-link { font-size: 12px; color: #60a5fa; text-decoration: none; }
-      .state-link:hover { text-decoration: underline; color: #93c5fd; }
-      .card { border: 1px solid rgba(71, 85, 105, 0.55); border-radius: 18px; background: linear-gradient(180deg, rgba(15,23,42,0.92), rgba(15,23,42,0.74)); padding: 18px; box-shadow: 0 18px 40px rgba(2, 6, 23, 0.34); }
-      .card h2, .card h3 { margin: 0 0 10px; }
-      .eyebrow { font-size: 11px; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
-      .big-value { margin-top: 8px; font-size: 30px; font-weight: 800; }
-      .muted { color: #cbd5e1; }
-      .kv { display: grid; gap: 10px; margin-top: 12px; }
-      .kv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid rgba(51, 65, 85, 0.55); }
+      /* ── 레이아웃 ── */
+      .ops-page { max-width: 1480px; margin: 0 auto; padding: 20px 20px 60px; }
+
+      /* ── 상단 내비 ── */
+      .page-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+      .page-nav-title { font-size: 18px; font-weight: 800; letter-spacing: -.02em; margin-right: 8px; white-space: nowrap; }
+      .page-nav a { display: inline-flex; align-items: center; min-height: 34px; padding: 4px 12px; border-radius: 8px; border: 1px solid rgba(71,85,105,.6); background: rgba(30,41,59,.85); color: #f8fafc; font-size: 13px; font-weight: 600; text-decoration: none; }
+      .page-nav a:hover { background: rgba(51,65,85,.9); }
+      .page-nav a.is-active { border-color: rgba(96,165,250,.4); background: rgba(96,165,250,.1); color: #bae6fd; }
+
+      /* ── Safety 배너 ── */
+      .safety-banner { display: flex; align-items: center; gap: 12px; padding: 11px 18px; border-radius: 12px; border: 1px solid; margin-bottom: 14px; font-size: 14px; font-weight: 600; transition: background .3s; }
+      .safety-banner.ok     { border-color: rgba(34,197,94,.35);  background: rgba(34,197,94,.08);  color: #86efac; }
+      .safety-banner.warn   { border-color: rgba(250,204,21,.35); background: rgba(250,204,21,.08); color: #fde68a; }
+      .safety-banner.bad    { border-color: rgba(248,113,113,.35);background: rgba(248,113,113,.08);color: #fca5a5; }
+      .safety-banner.loading{ border-color: rgba(71,85,105,.4);   background: rgba(15,23,42,.4);    color: #94a3b8; }
+      .safety-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+      .safety-banner.ok   .safety-dot { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+      .safety-banner.warn .safety-dot { background: #facc15; box-shadow: 0 0 4px #facc15; }
+      .safety-banner.bad  .safety-dot { background: #f87171; box-shadow: 0 0 6px #f87171; }
+      .safety-banner.loading .safety-dot { background: #64748b; }
+      .safety-detail { margin-left: auto; font-size: 12px; font-weight: 400; opacity: .8; }
+
+      /* ── Hero 카드 ── */
+      .hero-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; margin-bottom: 14px; }
+      .hero-card { border: 1px solid rgba(71,85,105,.55); border-radius: 14px; background: rgba(255,255,255,.03); padding: 16px; }
+      .hero-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: .07em; font-weight: 700; }
+      .hero-value { margin-top: 6px; font-size: 26px; font-weight: 800; line-height: 1.2; }
+      .hero-sub   { margin-top: 5px; font-size: 12px; color: #94a3b8; line-height: 1.5; }
+
+      /* ── 탭 ── */
+      .tab-nav { display: flex; gap: 2px; border-bottom: 1px solid rgba(71,85,105,.55); margin-bottom: 18px; }
+      .tab-btn { padding: 9px 18px; font-size: 13px; font-weight: 700; background: none; border: none; border-bottom: 2px solid transparent; color: #94a3b8; cursor: pointer; margin-bottom: -1px; transition: color .15s; }
+      .tab-btn:hover { color: #e2e8f0; }
+      .tab-btn.active { color: #93c5fd; border-bottom-color: #60a5fa; }
+      .tab-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; font-size: 10px; font-weight: 700; background: rgba(255,255,255,.08); color: #94a3b8; margin-left: 5px; }
+      .tab-badge.bad { background: rgba(248,113,113,.2); color: #fca5a5; }
+      .tab-pane { display: none; }
+      .tab-pane.active { display: block; }
+
+      /* ── 섹션 헤더 ── */
+      .sec-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+      .sec-kicker { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #60a5fa; font-weight: 800; }
+      .sec-title { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+      .sec-note  { font-size: 12px; color: #64748b; line-height: 1.6; }
+
+      /* ── 패널 카드 ── */
+      .pc { border: 1px solid rgba(71,85,105,.5); border-radius: 14px; background: rgba(255,255,255,.025); padding: 16px; }
+      .pc.emph { border-color: rgba(96,165,250,.2); background: linear-gradient(135deg,rgba(30,41,59,.95),rgba(15,23,42,.8)); }
+      .pc h3 { margin: 0 0 0 0; font-size: 14px; font-weight: 700; }
+      .ey { font-size: 10px; color: #93c5fd; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; margin-bottom: 4px; }
+
+      /* ── 그리드 ── */
+      .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+      .g3 { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-bottom: 14px; }
+      .gf { display: grid; grid-template-columns: minmax(0,1.25fr) minmax(280px,.75fr); gap: 12px; margin-bottom: 14px; }
+      .mb { margin-bottom: 14px; }
+
+      /* ── KV ── */
+      .kv { display: grid; gap: 7px; margin-top: 10px; }
+      .kv-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; padding: 5px 0; border-bottom: 1px solid rgba(51,65,85,.45); }
       .kv-row:last-child { border-bottom: none; }
-      .kv-row strong { color: #f8fafc; font-weight: 700; }
-      .chip-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-      .chip { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); }
-      .chip.good { color: #86efac; border-color: rgba(34,197,94,0.28); background: rgba(34,197,94,0.12); }
-      .chip.watch { color: #fde68a; border-color: rgba(250,204,21,0.28); background: rgba(250,204,21,0.12); }
-      .chip.bad { color: #fca5a5; border-color: rgba(248,113,113,0.28); background: rgba(248,113,113,0.12); }
-      .chip.info { color: #93c5fd; border-color: rgba(96,165,250,0.28); background: rgba(96,165,250,0.12); }
-      .metric-list, .reason-list, .candidate-list, .check-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
-      .metric-list li, .reason-list li, .candidate-list li, .check-list li { position: relative; padding: 6px 0 6px 16px; color: #e2e8f0; line-height: 1.7; }
-      .metric-list li::before, .reason-list li::before, .candidate-list li::before, .check-list li::before { content: ""; position: absolute; left: 0; top: 13px; width: 6px; height: 6px; border-radius: 999px; background: rgba(96, 165, 250, 0.9); box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.14); }
-      .metric-list li strong, .reason-list li strong, .candidate-list li strong, .check-list li strong { color: #93c5fd; font-weight: 800; }
-      .list-keyword { color: #93c5fd; font-weight: 800; }
-      .list-value { color: #f8fafc; }
-      .note-box { width: 100%; min-height: 88px; border-radius: 14px; border: 1px solid var(--border); background: rgba(15,23,42,0.45); color: var(--color-text-primary); padding: 12px 14px; font: inherit; resize: vertical; }
-      .note-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; }
-      .note-meta { font-size: 12px; color: var(--color-text-secondary); }
-      .candidate-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-      .candidate-grid--single { grid-template-columns: 1fr; }
-      .candidate-card { border: 1px solid rgba(71, 85, 105, 0.55); border-radius: 16px; background: linear-gradient(180deg, rgba(15,23,42,0.82), rgba(15,23,42,0.68)); padding: 14px; }
-      .runtime-table-wrap { overflow-x: auto; border: 1px solid rgba(71, 85, 105, 0.55); border-radius: 16px; background: rgba(15,23,42,0.42); }
+      .kv-row span   { color: #94a3b8; }
+      .kv-row strong { color: #f8fafc; font-weight: 700; text-align: right; }
+
+      /* ── 칩 ── */
+      .chip-row { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+      .chip { display: inline-flex; align-items: center; min-height: 24px; padding: 2px 10px; border-radius: 999px; font-size: 11px; font-weight: 800; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.05); }
+      .chip.good  { color: #86efac; border-color: rgba(34,197,94,.28); background: rgba(34,197,94,.1); }
+      .chip.watch { color: #fde68a; border-color: rgba(250,204,21,.28); background: rgba(250,204,21,.1); }
+      .chip.bad   { color: #fca5a5; border-color: rgba(248,113,113,.28); background: rgba(248,113,113,.1); }
+      .chip.info  { color: #93c5fd; border-color: rgba(96,165,250,.28); background: rgba(96,165,250,.1); }
+
+      /* ── 리스트 ── */
+      .il { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+      .il li { position: relative; padding: 4px 0 4px 13px; color: #e2e8f0; font-size: 13px; line-height: 1.65; }
+      .il li::before { content: ""; position: absolute; left: 0; top: 12px; width: 5px; height: 5px; border-radius: 50%; background: rgba(96,165,250,.9); }
+      .il li strong { color: #93c5fd; font-weight: 700; }
+
+      /* ── 테이블 ── */
+      .table-wrap { overflow-x: auto; border: 1px solid rgba(71,85,105,.5); border-radius: 14px; background: rgba(15,23,42,.42); }
       .runtime-table { width: 100%; min-width: 760px; border-collapse: collapse; }
-      .runtime-table th, .runtime-table td { padding: 14px 16px; text-align: left; border-bottom: 1px solid rgba(148, 163, 184, 0.12); font-size: 13px; }
+      .runtime-table th, .runtime-table td { padding: 11px 14px; text-align: left; border-bottom: 1px solid rgba(148,163,184,.1); font-size: 13px; }
+      .runtime-table th { color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; background: rgba(15,23,42,.5); }
       .runtime-table td { color: #f8fafc; }
-      .runtime-table th { color: #cbd5e1; font-weight: 800; background: rgba(15,23,42,0.56); }
-      .runtime-table tbody tr:nth-child(odd) { background: rgba(15,23,42,0.40); }
-      .runtime-table tbody tr:nth-child(even) { background: rgba(15,23,42,0.22); }
+      .runtime-table tbody tr:hover td { background: rgba(255,255,255,.02); }
       .runtime-table tbody tr:last-child td { border-bottom: none; }
-      .candidate-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-      .candidate-name { margin: 0; font-size: 18px; }
-      .candidate-meta { margin-top: 6px; font-size: 12px; color: #cbd5e1; }
-      .candidate-score { font-size: 24px; font-weight: 800; }
-      .empty-state { padding: 18px; border: 1px dashed var(--border); border-radius: 16px; color: var(--color-text-secondary); text-align: center; }
-      .state-line { margin-top: 10px; font-size: 12px; color: #cbd5e1; line-height: 1.65; }
-      .section-emphasis { background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.8)); border-color: rgba(96, 165, 250, 0.22); }
-      .section-emphasis .state-line { color: #dbeafe; }
-      .summary-card { background: linear-gradient(135deg, rgba(30, 41, 59, 0.98), rgba(15, 23, 42, 0.86)); border-color: rgba(96, 165, 250, 0.28); }
-      .summary-card .kv-row { border-bottom-color: rgba(96, 165, 250, 0.2); }
-      .compact-card { padding-top: 16px; }
-      .chart-bg { fill: rgba(148, 163, 184, 0.06); stroke: rgba(148, 163, 184, 0.14); }
-      .chart-axis { stroke: rgba(148, 163, 184, 0.22); stroke-width: 1; }
-      .chart-line-a { fill: none; stroke: #38bdf8; stroke-width: 3; }
-      .chart-line-b { fill: none; stroke: #f59e0b; stroke-width: 3; }
+
+      /* ── 노트박스 ── */
+      .note-box { width: 100%; min-height: 80px; border-radius: 10px; border: 1px solid rgba(71,85,105,.5); background: rgba(15,23,42,.45); color: var(--color-text-primary); padding: 10px 12px; font: inherit; resize: vertical; margin-top: 8px; }
+      .note-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; }
+      .note-meta { font-size: 12px; color: #64748b; }
+
+      /* ── 차트 ── */
+      .chart-bg    { fill: rgba(148,163,184,.06); stroke: rgba(148,163,184,.14); }
+      .chart-axis  { stroke: rgba(148,163,184,.22); stroke-width: 1; }
+      .chart-line-a{ fill: none; stroke: #38bdf8; stroke-width: 3; }
+      .chart-line-b{ fill: none; stroke: #f59e0b; stroke-width: 3; }
       .chart-dot-a { fill: #38bdf8; }
       .chart-dot-b { fill: #f59e0b; }
       .chart-label { fill: #94a3b8; font-size: 11px; }
+
+      /* ── 기타 ── */
+      .empty-state { padding: 20px; border: 1px dashed rgba(71,85,105,.5); border-radius: 12px; color: #64748b; text-align: center; font-size: 13px; }
+      .state-link  { font-size: 12px; color: #60a5fa; text-decoration: none; }
+      .state-link:hover { text-decoration: underline; }
+      .sub-note    { margin-top: 8px; font-size: 12px; color: #64748b; line-height: 1.65; }
+      .status-bar  { margin-top: 20px; font-size: 12px; color: #475569; text-align: right; }
+      .candidate-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+      .candidate-card { border: 1px solid rgba(71,85,105,.5); border-radius: 12px; background: rgba(255,255,255,.025); padding: 14px; }
+      .candidate-top   { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+      .candidate-name  { margin: 0; font-size: 17px; }
+      .candidate-meta  { margin-top: 5px; font-size: 12px; color: #94a3b8; }
+      .candidate-score { font-size: 22px; font-weight: 800; }
+
+      /* ── 반응형 ── */
       @media (max-width: 1100px) {
-        .grid-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .grid-hero { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .candidate-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .focus-grid { grid-template-columns: 1fr; }
-        .page-header { flex-direction: column; }
-        .section-heading { flex-direction: column; align-items: flex-start; }
+        .hero-grid { grid-template-columns: repeat(2,1fr); }
+        .g3 { grid-template-columns: 1fr 1fr; }
+        .gf { grid-template-columns: 1fr; }
       }
       @media (max-width: 640px) {
-        .ops-page { padding: 18px 12px 36px; }
-        .page-title { font-size: 24px; }
-        .card { padding: 14px; }
-        .big-value { font-size: 24px; }
-        .kv-row { flex-direction: column; align-items: flex-start; gap: 4px; }
-        .grid-2, .grid-3, .grid-hero, .candidate-grid, .candidate-grid--single, .focus-grid { grid-template-columns: 1fr; }
-        .page-actions {
-          flex-wrap: nowrap;
-          overflow-x: auto;
-          padding-bottom: 4px;
-          -webkit-overflow-scrolling: touch;
-        }
-        .note-actions { align-items: stretch; flex-direction: column; }
-        .note-actions > * { width: 100%; }
-      }
-      @media (max-width: 430px) {
-        .ops-page { padding: 14px 10px 28px; }
-        .page-title { font-size: 22px; }
-        .page-subtitle, .muted, .state-line, .kv-row, .metric-list, .reason-list, .candidate-list, .check-list { font-size: 11px; }
-        .card { padding: 12px; border-radius: 14px; }
-        .big-value { font-size: 22px; }
-        .candidate-name { font-size: 16px; }
-        .candidate-score { font-size: 20px; }
+        .ops-page { padding: 12px 12px 40px; }
+        .g2,.g3,.gf,.hero-grid,.candidate-grid { grid-template-columns: 1fr; }
+        .hero-value { font-size: 22px; }
+        .tab-btn { padding: 8px 12px; font-size: 12px; }
+        .page-nav { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
+        .note-actions { flex-direction: column; align-items: stretch; }
       }
       @media (max-width: 390px) {
-        .page-actions button { min-height: 38px; font-size: 12px; }
-        .chip { font-size: 10px; padding: 3px 8px; }
+        .tab-btn { padding: 7px 10px; font-size: 11px; }
+        .chip { font-size: 10px; padding: 2px 8px; }
       }
     </style>
   </head>
   <body>
     <div class="ops-page">
-      <header class="page-header">
-        <div>
-          <h1 class="page-title">운영자 페이지</h1>
-          <p class="page-subtitle">운영 readiness, buy gate, KPI, 산출물 최신 상태와 오늘 수동 검토 후보를 한 화면에서 확인하는 운영 대시보드입니다.</p>
-        </div>
-        <div class="page-actions">
-          <a class="nav-link" href="/app">메인</a>
-          <a class="nav-link is-active" href="/ops-readiness.html">운영자</a>
-          <a class="nav-link" href="/alerts.html">알림 로그</a>
-          <a class="nav-link" href="/rule-auto-trading.html">RULE 자동매매</a>
-          <a class="nav-link" href="/live-auto-trading.html">실자동매매</a>
-          <a class="nav-link" href="/ranking.html">리서치랭킹</a>
-          <a class="nav-link" href="/meaningfulness.html">리서치리뷰</a>
-          <a class="nav-link" href="/manual-trading.html">수동매매</a>
-          <a class="nav-link" href="/holdings.html">보유종목</a>
-          <a class="nav-link" href="/paper-trading.html">모의투자</a>
-          <a class="nav-link" href="/trade-history.html">매매기록</a>
-        </div>
-      </header>
 
-      <section class="section">
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker">Daily Brief</div>
-            <h2 class="section-title">오늘 판단</h2>
-          </div>
-          <div class="section-note">운영자가 먼저 읽어야 할 결론과 핵심 사유를 위로 올렸습니다.</div>
-        </div>
-        <div class="focus-grid">
-          <article class="card summary-card">
-            <div class="eyebrow">운영 해석</div>
-            <h2>오늘 해석</h2>
+      <!-- 상단 내비 -->
+      <nav class="page-nav">
+        <span class="page-nav-title">운영자 페이지</span>
+        <a href="/app">메인</a>
+        <a href="/ops-readiness.html" class="is-active">운영자</a>
+        <a href="/alerts.html">알림 로그</a>
+        <a href="/rule-auto-trading.html">RULE 자동매매</a>
+        <a href="/live-auto-trading.html">AI 자동매매</a>
+        <a href="/ranking.html">리서치랭킹</a>
+        <a href="/meaningfulness.html">리서치리뷰</a>
+        <a href="/manual-trading.html">수동매매</a>
+        <a href="/holdings.html">보유종목</a>
+        <a href="/paper-trading.html">모의투자</a>
+        <a href="/trade-history.html">매매기록</a>
+      </nav>
+
+      <!-- Safety 배너 -->
+      <div class="safety-banner loading" id="safetyBanner">
+        <div class="safety-dot"></div>
+        <span id="safetyText">운영 상태 확인 중…</span>
+        <span class="safety-detail" id="safetyDetail"></span>
+      </div>
+
+      <!-- Hero 카드 -->
+      <div class="hero-grid" id="heroGrid">
+        <div class="hero-card"><div class="hero-label">기준일</div><div class="hero-value">-</div></div>
+        <div class="hero-card"><div class="hero-label">60일 준비</div><div class="hero-value">-</div></div>
+        <div class="hero-card"><div class="hero-label">매수 Gate</div><div class="hero-value">-</div></div>
+        <div class="hero-card"><div class="hero-label">KPI</div><div class="hero-value">-</div></div>
+      </div>
+
+      <!-- 탭 내비 -->
+      <nav class="tab-nav">
+        <button class="tab-btn active" data-tab="today">오늘 <span class="tab-badge" id="badgeToday"></span></button>
+        <button class="tab-btn" data-tab="ops">운영</button>
+        <button class="tab-btn" data-tab="usmacro">US Macro</button>
+        <button class="tab-btn" data-tab="rule">RULE</button>
+        <button class="tab-btn" data-tab="ref">참고</button>
+      </nav>
+
+      <!-- ═══ 탭: 오늘 ═══ -->
+      <div class="tab-pane active" id="tab-today">
+        <div class="gf">
+          <div class="pc emph">
+            <div class="ey">운영 해석</div>
+            <h3 style="margin-bottom:0">오늘 판단</h3>
             <div id="interpretationChips" class="chip-row"></div>
             <div class="kv" id="interpretationKv"></div>
-          </article>
-          <article class="card section-emphasis">
-            <div class="eyebrow">핵심 사유</div>
-            <h2>꼭 확인할 사유</h2>
-            <ul id="criticalReasons" class="reason-list"></ul>
-          </article>
-        </div>
-      </section>
-
-      <section class="section grid-hero" id="heroGrid"></section>
-      <section class="section"><div id="policyStrip"></div></section>
-      <section class="section"><div id="opsPolicyRules"></div></section>
-
-      <section class="section grid-2">
-        <article class="card compact-card">
-          <div class="eyebrow">준비 상태</div>
-          <h2>이력 축적 상태</h2>
-          <div class="kv" id="readinessKv"></div>
-          <div id="readinessHelp" class="state-line"></div>
-        </article>
-        <article class="card compact-card">
-          <div class="eyebrow">집행 판단</div>
-          <h2>운영 전환 판단</h2>
-          <div id="goChipRow" class="chip-row"></div>
-          <ul id="goReasons" class="reason-list"></ul>
-          <div id="transitionHelp" class="state-line"></div>
-        </article>
-      </section>
-
-      <section class="section">
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker">Action Queue</div>
-            <h2 class="section-title">바로 볼 것</h2>
           </div>
-          <div class="section-note">CRITICAL/WARNING 알림, KPI 경고 지표, 오늘 확인 사항을 한 줄로 봅니다.</div>
+          <div class="pc emph">
+            <div class="ey">핵심 사유</div>
+            <h3 style="margin-bottom:0">꼭 확인할 사유</h3>
+            <ul id="criticalReasons" class="il"></ul>
+          </div>
         </div>
-        <div class="grid-3">
-          <article class="card section-emphasis">
-            <div class="eyebrow">알림 로그</div>
+
+        <div class="sec-head">
+          <div>
+            <div class="sec-kicker">Action Queue</div>
+            <h2 class="sec-title">바로 볼 것</h2>
+          </div>
+          <div class="sec-note">CRITICAL/WARNING 알림 · KPI 경고 · 오늘 확인 사항</div>
+        </div>
+        <div class="g3">
+          <div class="pc emph">
+            <div class="ey">알림 로그</div>
             <h3>최근 CRITICAL / WARNING</h3>
-            <div id="recentAlertsLog"><div class="state-line">알림 로그 불러오는 중...</div></div>
+            <div id="recentAlertsLog"><div class="sub-note">알림 로그 불러오는 중…</div></div>
             <div style="margin-top:10px;"><a href="/alerts.html" class="state-link">전체 알림 로그 →</a></div>
-          </article>
-          <article class="card section-emphasis">
-            <div class="eyebrow">KPI 지표</div>
+          </div>
+          <div class="pc emph">
+            <div class="ey">KPI 지표</div>
             <h3>지금 걸리는 항목</h3>
-            <ul id="alertMetrics" class="metric-list"></ul>
-          </article>
-          <article class="card section-emphasis">
-            <div class="eyebrow">체크리스트</div>
+            <ul id="alertMetrics" class="il"></ul>
+          </div>
+          <div class="pc emph">
+            <div class="ey">체크리스트</div>
             <h3>오늘 확인 사항</h3>
-            <ul id="dailyChecklist" class="check-list"></ul>
-          </article>
-        </div>
-      </section>
-
-      <section class="section">
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker">Operations</div>
-            <h2 class="section-title">운영 상태</h2>
+            <ul id="dailyChecklist" class="il"></ul>
           </div>
-          <div class="section-note">게이트, 시장 국면, KPI, 산출물과 스케줄러 상태를 한 묶음으로 확인합니다.</div>
         </div>
-      </section>
+      </div>
 
-      <section class="section grid-3">
-        <article class="card">
-          <div class="eyebrow">매수 gate</div>
-          <h3>운영 gate</h3>
-          <div id="gateChipRow" class="chip-row"></div>
-          <div class="kv" id="gateKv"></div>
-          <div id="gateHelp" class="state-line"></div>
-        </article>
-        <article class="card">
-          <div class="eyebrow">시장 국면</div>
-          <h3>시장 국면</h3>
-          <div id="marketRegimeChipRow" class="chip-row"></div>
-          <div class="kv" id="marketRegimeKv"></div>
-          <div id="marketRegimeHelp" class="state-line"></div>
-          <div id="marketRegimeStance" class="state-line"></div>
-          <ul id="marketRegimeActions" class="reason-list"></ul>
-        </article>
-        <article class="card">
-          <div class="eyebrow">Score KPI</div>
-          <h3>KPI 상태</h3>
-          <div id="kpiChipRow" class="chip-row"></div>
-          <div class="kv" id="kpiKv"></div>
-          <div id="kpiHelp" class="state-line"></div>
-        </article>
-      </section>
-
-      <section class="section grid-2">
-        <article class="card">
-          <div class="eyebrow">산출물</div>
-          <h3>산출물 최신 상태</h3>
-          <div class="kv" id="outputsKv"></div>
-        </article>
-        <article class="card">
-          <div class="eyebrow">스케줄러</div>
-          <h3>수동 배포 상태</h3>
-          <div id="schedulerChipRow" class="chip-row"></div>
-          <div class="kv" id="schedulerKv"></div>
-        </article>
-      </section>
-
-      <section class="section">
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker">RULE Trading</div>
-            <h2 class="section-title">RULE 자동매매 현황</h2>
+      <!-- ═══ 탭: 운영 ═══ -->
+      <div class="tab-pane" id="tab-ops">
+        <div class="g2">
+          <div class="pc">
+            <div class="ey">준비 상태</div>
+            <h3>이력 축적 상태</h3>
+            <div class="kv" id="readinessKv"></div>
+            <div id="readinessHelp" class="sub-note"></div>
           </div>
-          <div class="section-note">오늘 주문 실행 결과 · 현재 보유 포지션 · 부분 체결 top-up 대기를 한 화면에서 확인합니다.</div>
+          <div class="pc">
+            <div class="ey">집행 판단</div>
+            <h3>운영 전환 판단</h3>
+            <div id="goChipRow" class="chip-row"></div>
+            <ul id="goReasons" class="il"></ul>
+            <div id="transitionHelp" class="sub-note"></div>
+          </div>
         </div>
-        <div class="grid-3" style="margin-bottom:12px;">
-          <article class="card">
-            <div class="eyebrow">오늘 실행</div>
+
+        <div class="g3">
+          <div class="pc">
+            <div class="ey">매수 Gate</div>
+            <h3>운영 Gate</h3>
+            <div id="gateChipRow" class="chip-row"></div>
+            <div class="kv" id="gateKv"></div>
+            <div id="gateHelp" class="sub-note"></div>
+          </div>
+          <div class="pc">
+            <div class="ey">시장 국면</div>
+            <h3>시장 국면</h3>
+            <div id="marketRegimeChipRow" class="chip-row"></div>
+            <div class="kv" id="marketRegimeKv"></div>
+            <div id="marketRegimeHelp" class="sub-note"></div>
+            <div id="marketRegimeStance" class="sub-note"></div>
+            <ul id="marketRegimeActions" class="il"></ul>
+          </div>
+          <div class="pc">
+            <div class="ey">Score KPI</div>
+            <h3>KPI 상태</h3>
+            <div id="kpiChipRow" class="chip-row"></div>
+            <div class="kv" id="kpiKv"></div>
+            <div id="kpiHelp" class="sub-note"></div>
+          </div>
+        </div>
+
+        <div class="g2">
+          <div class="pc">
+            <div class="ey">산출물</div>
+            <h3>산출물 최신 상태</h3>
+            <div class="kv" id="outputsKv"></div>
+          </div>
+          <div class="pc">
+            <div class="ey">스케줄러</div>
+            <h3>수동 배포 상태</h3>
+            <div id="schedulerChipRow" class="chip-row"></div>
+            <div class="kv" id="schedulerKv"></div>
+          </div>
+        </div>
+
+        <div class="mb">
+          <div class="sec-head">
+            <div>
+              <div class="sec-kicker">Runtime</div>
+              <h2 class="sec-title">자동 스케줄</h2>
+            </div>
+            <div class="sec-note">각 스케줄러 마지막 성공 · 실패 이력</div>
+          </div>
+          <div class="table-wrap" id="runtimeTableWrap">
+            <div class="sub-note" style="padding:16px;">runtime loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ 탭: US Macro ═══ -->
+      <div class="tab-pane" id="tab-usmacro">
+        <div class="sec-head">
+          <div>
+            <div class="sec-kicker">US Macro Overlay</div>
+            <h2 class="sec-title">미국 매크로 오버레이</h2>
+          </div>
+          <div class="sec-note">미국 ETF/지수 기반 매크로 상태 · Shadow Mode — 실매매 미반영</div>
+        </div>
+        <div class="g3">
+          <div class="pc" id="usMacroStatusCard">
+            <div class="ey">Macro Status</div>
+            <h3>오늘 매크로 상태</h3>
+            <div id="usMacroStatusChips" class="chip-row"></div>
+            <div class="kv" id="usMacroKv"></div>
+            <div id="usMacroSummary" class="sub-note"></div>
+          </div>
+          <div class="pc">
+            <div class="ey">Overlay 집계</div>
+            <h3>오늘 Overlay 결과</h3>
+            <div id="usMacroOverlayChips" class="chip-row"></div>
+            <div class="kv" id="usMacroOverlayKv"></div>
+            <div class="sub-note">Shadow Mode — 실제 주문/점수에 미반영</div>
+          </div>
+          <div class="pc">
+            <div class="ey">영향 종목</div>
+            <h3>감점 / 차단 종목</h3>
+            <ul id="usMacroAffectedList" class="il"></ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ 탭: RULE ═══ -->
+      <div class="tab-pane" id="tab-rule">
+        <div class="sec-head">
+          <div>
+            <div class="sec-kicker">RULE Trading</div>
+            <h2 class="sec-title">RULE 자동매매 현황</h2>
+          </div>
+          <div class="sec-note">오늘 주문 실행 결과 · 보유 포지션 · 부분 체결 top-up 대기</div>
+        </div>
+        <div class="g3">
+          <div class="pc">
+            <div class="ey">오늘 실행</div>
             <h3>주문 실행 결과</h3>
             <div id="ruleExecChipRow" class="chip-row"></div>
             <div class="kv" id="ruleExecKv"></div>
-            <ul id="ruleExecItems" class="candidate-list" style="margin-top:10px;"></ul>
-          </article>
-          <article class="card">
-            <div class="eyebrow">포지션</div>
+            <ul id="ruleExecItems" class="il" style="margin-top:10px;"></ul>
+          </div>
+          <div class="pc">
+            <div class="ey">포지션</div>
             <h3>현재 보유 종목</h3>
             <div id="ruleAccountChipRow" class="chip-row"></div>
-            <ul id="rulePositionList" class="candidate-list" style="margin-top:10px;"></ul>
-          </article>
-          <article class="card">
-            <div class="eyebrow">부분 체결</div>
+            <ul id="rulePositionList" class="il" style="margin-top:10px;"></ul>
+          </div>
+          <div class="pc">
+            <div class="ey">부분 체결</div>
             <h3>Top-up 대기</h3>
             <div id="rulePartialFillChipRow" class="chip-row"></div>
-            <ul id="rulePartialFillList" class="candidate-list" style="margin-top:10px;"></ul>
-            <div id="rulePartialFillHelp" class="state-line"></div>
-          </article>
+            <ul id="rulePartialFillList" class="il" style="margin-top:10px;"></ul>
+            <div id="rulePartialFillHelp" class="sub-note"></div>
+          </div>
         </div>
-      </section>
+      </div>
 
-      <section class="section">
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker">Runtime</div>
-            <h2 class="section-title">자동 스케줄</h2>
+      <!-- ═══ 탭: 참고 ═══ -->
+      <div class="tab-pane" id="tab-ref">
+        <div class="g2">
+          <div class="pc">
+            <div class="ey">7D Visitors</div>
+            <h3>방문 추이</h3>
+            <svg id="visitorTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="방문 추이 차트"></svg>
+            <div id="visitorTrendBadges" class="chip-row"></div>
+            <div class="sub-note">최근 7일 페이지뷰와 순방문자 추이</div>
           </div>
-          <div class="section-note">현재 상태와 과거 실패 이력을 분리해서 읽을 수 있게 유지합니다.</div>
+          <div class="pc">
+            <div class="ey">Visitors</div>
+            <h3>방문 집계</h3>
+            <div id="visitorChipRow" class="chip-row"></div>
+            <div class="kv" id="visitorKv"></div>
+            <ul id="visitorTopPages" class="il"></ul>
+          </div>
         </div>
-        <article class="card">
-          <div class="eyebrow">Auto Trading Runtime</div>
-          <h2>Scheduler Runtime</h2>
-          <div class="state-line">자동매매 화면에 있던 스케줄러 상세 상태를 운영자 화면으로 이관했습니다. 상태는 현재 기준이고, 실패 이력은 과거 로그 참고용입니다.</div>
-          <div class="runtime-table-wrap" id="runtimeTableWrap">
-            <div class="state-line">runtime loading...</div>
-          </div>
-        </article>
-      </section>
 
-      <section class="section">
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker">Review Set</div>
-            <h2 class="section-title">수동 검토 후보</h2>
+        <div class="mb">
+          <div class="pc">
+            <div class="ey">장중 대응</div>
+            <h3>장중 대응 변화</h3>
+            <div class="candidate-grid" id="intradayOpsGrid" style="margin-top:12px;"></div>
           </div>
-          <div class="section-note">실제 운영 판단에 직접 쓰는 후보와 shadow 비교를 먼저 배치했습니다.</div>
         </div>
-      </section>
 
-      <section class="section">
-        <article class="card">
-          <div class="eyebrow">오늘 후보</div>
-          <h2>오늘 수동 검토 후보</h2>
-          <div class="candidate-grid" id="candidateGrid"></div>
-        </article>
-      </section>
-
-      <section class="section">
-        <article class="card">
-          <div class="eyebrow">Shadow</div>
-          <h2>Shadow 개선 후보 상위 5개</h2>
-          <div class="candidate-grid" id="shadowCandidateGrid"></div>
-        </article>
-      </section>
-
-      <section class="section">
-        <div class="section-heading">
-          <div>
-            <div class="section-kicker">Reference</div>
-            <h2 class="section-title">추이와 참고 자료</h2>
+        <div class="g2">
+          <div class="pc">
+            <div class="ey">추이</div>
+            <h3>스냅샷 / 성숙도 추이</h3>
+            <svg id="readinessTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="준비 상태 추이 차트"></svg>
+            <div id="recentStateBadges" class="chip-row"></div>
+            <div class="sub-note">최근 스냅샷 누적과 60일 성숙도 흐름</div>
           </div>
-          <div class="section-note">방문 추이, 장중 변화, shadow 반복성, 운영 메모를 아래에서 이어서 봅니다.</div>
+          <div class="pc">
+            <div class="ey">전환 점검</div>
+            <h3>운영 전환 체크</h3>
+            <div id="transitionSummary" class="chip-row"></div>
+            <ul id="transitionChecklist" class="il"></ul>
+          </div>
         </div>
-      </section>
 
-      <section class="section grid-2">
-        <article class="card">
-          <div class="eyebrow">7D Visitors</div>
-          <h3>방문 추이</h3>
-          <svg id="visitorTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="방문 추이 차트"></svg>
-          <div id="visitorTrendBadges" class="chip-row"></div>
-          <div class="state-line">최근 7일 페이지뷰와 순방문자 추이입니다.</div>
-        </article>
-        <article class="card">
-          <div class="eyebrow">Visitors</div>
-          <h3>방문 집계</h3>
-          <div id="visitorChipRow" class="chip-row"></div>
-          <div class="kv" id="visitorKv"></div>
-          <ul id="visitorTopPages" class="candidate-list"></ul>
-        </article>
-      </section>
-
-      <section class="section">
-        <article class="card">
-          <div class="eyebrow">장중 대응</div>
-          <h2>장중 대응 변화</h2>
-          <div class="candidate-grid" id="intradayOpsGrid"></div>
-        </article>
-      </section>
-
-      <section class="section grid-2">
-        <article class="card">
-          <div class="eyebrow">추이</div>
-          <h3>스냅샷 / 성숙도 추이</h3>
-          <svg id="readinessTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="준비 상태 추이 차트"></svg>
-          <div id="recentStateBadges" class="chip-row"></div>
-          <div class="state-line">최근 스냅샷 누적과 60일 성숙도 흐름입니다.</div>
-        </article>
-        <article class="card">
-          <div class="eyebrow">전환 점검</div>
-          <h3>운영 전환 체크</h3>
-          <div id="transitionSummary" class="chip-row"></div>
-          <ul id="transitionChecklist" class="check-list"></ul>
-        </article>
-      </section>
-
-      <section class="section grid-2">
-        <article class="card">
-          <div class="eyebrow">7일 gate</div>
-          <h3>매수 gate 최근 7일</h3>
-          <svg id="gateTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="매수 gate 추이 차트"></svg>
-          <div id="gateTrendBadges" class="chip-row"></div>
-          <div class="state-line">신뢰 비율, 성숙 벤치마크 수, 관찰 후보 흐름을 함께 봅니다.</div>
-        </article>
-        <article class="card">
-          <div class="eyebrow">7일 KPI</div>
-          <h3>KPI 최근 7일</h3>
-          <svg id="kpiTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="KPI 추이 차트"></svg>
-          <div id="kpiTrendBadges" class="chip-row"></div>
-          <div class="state-line">신뢰도, 워크포워드, 경고 지표 수 추이를 함께 봅니다.</div>
-        </article>
-      </section>
-
-      <section class="section grid-2">
-        <article class="card">
-          <div class="eyebrow">Shadow Repeatability</div>
-          <h2>Shadow 반복 유효성 확인</h2>
-          <div id="shadowRepeatabilityChips" class="chip-row"></div>
-          <div class="kv" id="shadowRepeatabilityKv"></div>
-          <div id="shadowRepeatabilityHelp" class="state-line"></div>
-          <ul id="shadowRepeatabilityList" class="candidate-list"></ul>
-        </article>
-        <article class="card compact-card">
-          <div class="eyebrow">운영 메모</div>
-          <h2>운영 메모</h2>
-          <div class="state-line">핵심 판단과 보류 사유만 짧게 적는 보조 기록 영역입니다.</div>
-          <textarea id="operatorMemo" class="note-box" placeholder="예: auto_buy 정상, intraday 후보 없음, 특정 이슈 보류"></textarea>
-          <div class="note-actions">
-            <div id="operatorMemoMeta" class="note-meta">아직 저장한 메모가 없습니다.</div>
-            <button type="button" id="saveOperatorMemoBtn">메모 저장</button>
+        <div class="g2">
+          <div class="pc">
+            <div class="ey">7일 Gate</div>
+            <h3>매수 Gate 최근 7일</h3>
+            <svg id="gateTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="매수 gate 추이 차트"></svg>
+            <div id="gateTrendBadges" class="chip-row"></div>
+            <div class="sub-note">신뢰 비율 · 성숙 벤치마크 수 · 관찰 후보 흐름</div>
           </div>
-        </article>
-      </section>
+          <div class="pc">
+            <div class="ey">7일 KPI</div>
+            <h3>KPI 최근 7일</h3>
+            <svg id="kpiTrendChart" viewBox="0 0 640 220" width="100%" height="220" aria-label="KPI 추이 차트"></svg>
+            <div id="kpiTrendBadges" class="chip-row"></div>
+            <div class="sub-note">신뢰도 · 워크포워드 · 경고 지표 수 추이</div>
+          </div>
+        </div>
 
-      <div id="pageState" class="state-line"></div>
+        <div class="g2">
+          <div class="pc">
+            <div class="ey">Shadow Repeatability</div>
+            <h3>Shadow 반복 유효성</h3>
+            <div id="shadowRepeatabilityChips" class="chip-row"></div>
+            <div class="kv" id="shadowRepeatabilityKv"></div>
+            <div id="shadowRepeatabilityHelp" class="sub-note"></div>
+            <ul id="shadowRepeatabilityList" class="il"></ul>
+          </div>
+          <div class="pc">
+            <div class="ey">운영 메모</div>
+            <h3>운영 메모</h3>
+            <div class="sub-note">핵심 판단과 보류 사유만 짧게 적는 보조 기록 영역입니다.</div>
+            <textarea id="operatorMemo" class="note-box" placeholder="예: auto_buy 정상, intraday 후보 없음, 특정 이슈 보류"></textarea>
+            <div class="note-actions">
+              <div id="operatorMemoMeta" class="note-meta">아직 저장한 메모가 없습니다.</div>
+              <button type="button" id="saveOperatorMemoBtn">메모 저장</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="pageState" class="status-bar"></div>
     </div>
+
     <script src="./trading-policy-ui.js?v=20260422-3"></script>
     <script src="./ops-unified-nav.js?v=20260429-rule-nav-v1"></script>
-    <script src="./ops-readiness.js?v=20260422-3"></script>
+    <script src="./ops-readiness.js?v=20260509-tabs"></script>
   </body>
 </html>

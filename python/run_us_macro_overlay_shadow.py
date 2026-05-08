@@ -38,7 +38,7 @@ LOGGER = logging.getLogger("run_us_macro_overlay_shadow")
 def setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
         handlers=[logging.StreamHandler(sys.stdout)],
     )
 
@@ -87,7 +87,7 @@ def main() -> None:
 
     # ── Safety guards ────────────────────────────────────────────────────────
     if not _guard_enabled():
-        LOGGER.info("US_MACRO_ENABLED=0 — skipping Phase 3 shadow overlay.")
+        LOGGER.info("US_MACRO_ENABLED=0 - skipping Phase 3 shadow overlay.")
         sys.exit(0)
 
     if _guard_allow_real_apply():
@@ -101,12 +101,12 @@ def main() -> None:
     if not _guard_shadow_mode():
         LOGGER.warning(
             "US_MACRO_SHADOW_MODE=0 detected. "
-            "Phase 3 is shadow-only regardless — proceeding in shadow mode."
+            "Phase 3 is shadow-only regardless - proceeding in shadow mode."
         )
 
     LOGGER.info("=" * 60)
-    LOGGER.info("Phase 3: US Macro Overlay — SHADOW MODE")
-    LOGGER.info("⚠ 실제 주문/랭킹/점수에는 영향을 주지 않습니다.")
+    LOGGER.info("Phase 3: US Macro Overlay - SHADOW MODE")
+    LOGGER.info("[SHADOW] 실제 주문/랭킹/점수에는 영향을 주지 않습니다.")
     LOGGER.info("=" * 60)
 
     kr_apply_date = (
@@ -141,7 +141,7 @@ def main() -> None:
         result.get("ai_rows", 0),
         result.get("blocked_count", 0),
     )
-    LOGGER.info("⚠ [SHADOW MODE] 이 결과는 실제 자동매매에 영향을 주지 않습니다.")
+    LOGGER.info("[SHADOW MODE] 이 결과는 실제 자동매매에 영향을 주지 않습니다.")
     LOGGER.info("결과 확인: signal.kr_macro_overlay_log 테이블 조회")
     LOGGER.info("=" * 60)
 

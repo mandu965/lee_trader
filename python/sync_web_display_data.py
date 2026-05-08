@@ -66,6 +66,11 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("live_quality_guard_output_check", OUTPUT_DIR / "live_quality_guard_output_check.json", None),
     ("auto_ops_auto_buy_scheduler_status", OUTPUT_DIR / "auto_ops_auto_buy_scheduler_status.json", None),
     ("auto_ops_live_account_sync_scheduler_status", OUTPUT_DIR / "auto_ops_live_account_sync_scheduler_status.json", None),
+    ("rule_before_open_scheduler_status", OUTPUT_DIR / "rule_before_open_scheduler_status.json", None),
+    ("rule_after_open_scheduler_status", OUTPUT_DIR / "rule_after_open_scheduler_status.json", None),
+    ("rule_after_close_scheduler_status", OUTPUT_DIR / "rule_after_close_scheduler_status.json", None),
+    ("us_macro_scheduler_status", OUTPUT_DIR / "us_macro_scheduler_status.json", None),
+    ("us_macro_shadow_scheduler_status", OUTPUT_DIR / "us_macro_shadow_scheduler_status.json", None),
     ("auto_trading_policy", OUTPUT_DIR / "auto_trading_policy.json", None),
     ("rule_dashboard_summary", OUTPUT_DIR / "rule_dashboard_summary.json", "as_of_date"),
     ("rule_signals_latest", OUTPUT_DIR / "rule_signals_latest.json", "as_of_date"),
@@ -468,6 +473,234 @@ def sync_live_trade_review_table(source_database_url: str) -> None:
         target_engine.dispose()
 
 
+def _ensure_us_macro_tables(conn) -> None:
+    conn.execute(text("CREATE SCHEMA IF NOT EXISTS signal"))
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS signal.us_macro_feature_daily (
+            id                          bigserial    PRIMARY KEY,
+            us_trade_date               date         NOT NULL,
+            kr_apply_date               date         NOT NULL,
+            spy_ret_1d                  numeric,
+            spy_ret_5d                  numeric,
+            qqq_ret_1d                  numeric,
+            qqq_ret_5d                  numeric,
+            semiconductor_ret_1d        numeric,
+            semiconductor_ret_5d        numeric,
+            vix_ret_1d                  numeric,
+            dxy_ret_1d                  numeric,
+            tnx_ret_1d                  numeric,
+            sector_breadth              numeric,
+            top_sector                  varchar(100),
+            bottom_sector               varchar(100),
+            sector_strength_rank        jsonb,
+            risk_on_flag                boolean,
+            risk_off_flag               boolean,
+            vix_spike_flag              boolean,
+            semiconductor_strength_flag boolean,
+            macro_status                varchar(50)  NOT NULL,
+            macro_summary               text,
+            data_source                 varchar(50)  NOT NULL DEFAULT 'yfinance',
+            missing_tickers             text[],
+            created_at                  timestamptz  NOT NULL DEFAULT now(),
+            updated_at                  timestamptz  NOT NULL DEFAULT now(),
+            UNIQUE (us_trade_date)
+        )
+    """))
+    conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_us_macro_feature_kr_apply_date
+            ON signal.us_macro_feature_daily (kr_apply_date DESC)
+    """))
+    conn.execute(text("""
+        CREATE TABLE IF NOT EXISTS signal.kr_macro_overlay_log (
+            id                  bigserial    PRIMARY KEY,
+            run_date            date         NOT NULL,
+            us_trade_date       date,
+            kr_apply_date       date         NOT NULL,
+            macro_status        varchar(50),
+            engine_type         varchar(20)  NOT NULL,
+            code                varchar(10)  NOT NULL,
+            name                text,
+            sector              text,
+            original_score      numeric,
+            macro_adjustment    numeric,
+            adjusted_score      numeric,
+            buy_blocked_flag    boolean,
+            is_buy_candidate    boolean,
+            overlay_reason      text,
+            shadow_mode         boolean      NOT NULL DEFAULT true,
+            created_at          timestamptz  NOT NULL DEFAULT now(),
+            UNIQUE (run_date, engine_type, code)
+        )
+    """))
+    conn.execute(text("""
+        CREATE INDEX IF NOT EXISTS idx_kr_macro_overlay_log_run_date
+            ON signal.kr_macro_overlay_log (run_date DESC, engine_type)
+    """))
+
+
+def sync_us_macro_signal_tables(source_database_url: str) -> None:
+    source_url = str(source_database_url or "").strip()
+    target_url = str(os.environ.get("DATABASE_URL", "")).strip()
+    if not source_url:
+        logging.info("Skip US macro signal sync: source DATABASE_URL not set")
+        return
+    if not target_url:
+        logging.info("Skip US macro signal sync: target DATABASE_URL not set")
+        return
+    if source_url == target_url:
+        logging.info("Skip US macro signal sync: source and target DB are identical")
+        return
+
+    source_engine = create_engine(source_url, future=True)
+    target_engine = get_engine()
+    try:
+        # ── us_macro_feature_daily (last 90 days) ────────────────────────────
+        with source_engine.connect() as conn:
+            source_exists = bool(conn.execute(text("SELECT to_regclass('signal.us_macro_feature_daily')")).scalar())
+            if not source_exists:
+                logging.info("Skip US macro signal sync: signal.us_macro_feature_daily not found in source")
+                return
+            macro_rows = [
+                dict(row)
+                for row in conn.execute(text("""
+                    SELECT us_trade_date, kr_apply_date,
+                           spy_ret_1d, spy_ret_5d, qqq_ret_1d, qqq_ret_5d,
+                           semiconductor_ret_1d, semiconductor_ret_5d,
+                           vix_ret_1d, dxy_ret_1d, tnx_ret_1d,
+                           sector_breadth, top_sector, bottom_sector,
+                           sector_strength_rank,
+                           risk_on_flag, risk_off_flag, vix_spike_flag, semiconductor_strength_flag,
+                           macro_status, macro_summary, data_source, missing_tickers,
+                           created_at, updated_at
+                    FROM signal.us_macro_feature_daily
+                    WHERE us_trade_date >= CURRENT_DATE - INTERVAL '90 days'
+                    ORDER BY us_trade_date DESC
+                """)).mappings()
+            ]
+
+        # ── kr_macro_overlay_log (last 30 run_dates) ─────────────────────────
+        with source_engine.connect() as conn:
+            overlay_source_exists = bool(conn.execute(text("SELECT to_regclass('signal.kr_macro_overlay_log')")).scalar())
+            overlay_rows: list[dict] = []
+            if overlay_source_exists:
+                overlay_rows = [
+                    dict(row)
+                    for row in conn.execute(text("""
+                        SELECT run_date, us_trade_date, kr_apply_date,
+                               macro_status, engine_type,
+                               code, name, sector,
+                               original_score, macro_adjustment, adjusted_score,
+                               buy_blocked_flag, is_buy_candidate,
+                               overlay_reason, shadow_mode, created_at
+                        FROM signal.kr_macro_overlay_log
+                        WHERE run_date >= (
+                            SELECT COALESCE(MIN(run_date), CURRENT_DATE - 30)
+                            FROM (
+                                SELECT DISTINCT run_date
+                                FROM signal.kr_macro_overlay_log
+                                ORDER BY run_date DESC
+                                LIMIT 30
+                            ) t
+                        )
+                        ORDER BY run_date DESC, engine_type, code
+                    """)).mappings()
+                ]
+
+        # ── Write to target ───────────────────────────────────────────────────
+        with target_engine.begin() as conn:
+            _ensure_us_macro_tables(conn)
+            for row in macro_rows:
+                row["sector_strength_rank"] = (
+                    json.dumps(row["sector_strength_rank"], ensure_ascii=False)
+                    if row.get("sector_strength_rank") is not None else None
+                )
+                conn.execute(text("""
+                    INSERT INTO signal.us_macro_feature_daily (
+                        us_trade_date, kr_apply_date,
+                        spy_ret_1d, spy_ret_5d, qqq_ret_1d, qqq_ret_5d,
+                        semiconductor_ret_1d, semiconductor_ret_5d,
+                        vix_ret_1d, dxy_ret_1d, tnx_ret_1d,
+                        sector_breadth, top_sector, bottom_sector,
+                        sector_strength_rank,
+                        risk_on_flag, risk_off_flag, vix_spike_flag, semiconductor_strength_flag,
+                        macro_status, macro_summary, data_source, missing_tickers,
+                        created_at, updated_at
+                    ) VALUES (
+                        :us_trade_date, :kr_apply_date,
+                        :spy_ret_1d, :spy_ret_5d, :qqq_ret_1d, :qqq_ret_5d,
+                        :semiconductor_ret_1d, :semiconductor_ret_5d,
+                        :vix_ret_1d, :dxy_ret_1d, :tnx_ret_1d,
+                        :sector_breadth, :top_sector, :bottom_sector,
+                        CAST(:sector_strength_rank AS jsonb),
+                        :risk_on_flag, :risk_off_flag, :vix_spike_flag, :semiconductor_strength_flag,
+                        :macro_status, :macro_summary, :data_source, :missing_tickers,
+                        :created_at, :updated_at
+                    )
+                    ON CONFLICT (us_trade_date) DO UPDATE SET
+                        kr_apply_date               = EXCLUDED.kr_apply_date,
+                        spy_ret_1d                  = EXCLUDED.spy_ret_1d,
+                        spy_ret_5d                  = EXCLUDED.spy_ret_5d,
+                        qqq_ret_1d                  = EXCLUDED.qqq_ret_1d,
+                        qqq_ret_5d                  = EXCLUDED.qqq_ret_5d,
+                        semiconductor_ret_1d        = EXCLUDED.semiconductor_ret_1d,
+                        semiconductor_ret_5d        = EXCLUDED.semiconductor_ret_5d,
+                        vix_ret_1d                  = EXCLUDED.vix_ret_1d,
+                        dxy_ret_1d                  = EXCLUDED.dxy_ret_1d,
+                        tnx_ret_1d                  = EXCLUDED.tnx_ret_1d,
+                        sector_breadth              = EXCLUDED.sector_breadth,
+                        top_sector                  = EXCLUDED.top_sector,
+                        bottom_sector               = EXCLUDED.bottom_sector,
+                        sector_strength_rank        = EXCLUDED.sector_strength_rank,
+                        risk_on_flag                = EXCLUDED.risk_on_flag,
+                        risk_off_flag               = EXCLUDED.risk_off_flag,
+                        vix_spike_flag              = EXCLUDED.vix_spike_flag,
+                        semiconductor_strength_flag = EXCLUDED.semiconductor_strength_flag,
+                        macro_status                = EXCLUDED.macro_status,
+                        macro_summary               = EXCLUDED.macro_summary,
+                        data_source                 = EXCLUDED.data_source,
+                        missing_tickers             = EXCLUDED.missing_tickers,
+                        updated_at                  = EXCLUDED.updated_at
+                """), row)
+
+            if overlay_rows:
+                conn.execute(text("""
+                    INSERT INTO signal.kr_macro_overlay_log (
+                        run_date, us_trade_date, kr_apply_date,
+                        macro_status, engine_type,
+                        code, name, sector,
+                        original_score, macro_adjustment, adjusted_score,
+                        buy_blocked_flag, is_buy_candidate,
+                        overlay_reason, shadow_mode, created_at
+                    ) VALUES (
+                        :run_date, :us_trade_date, :kr_apply_date,
+                        :macro_status, :engine_type,
+                        :code, :name, :sector,
+                        :original_score, :macro_adjustment, :adjusted_score,
+                        :buy_blocked_flag, :is_buy_candidate,
+                        :overlay_reason, :shadow_mode, :created_at
+                    )
+                    ON CONFLICT (run_date, engine_type, code) DO UPDATE SET
+                        us_trade_date    = EXCLUDED.us_trade_date,
+                        kr_apply_date    = EXCLUDED.kr_apply_date,
+                        macro_status     = EXCLUDED.macro_status,
+                        original_score   = EXCLUDED.original_score,
+                        macro_adjustment = EXCLUDED.macro_adjustment,
+                        adjusted_score   = EXCLUDED.adjusted_score,
+                        buy_blocked_flag = EXCLUDED.buy_blocked_flag,
+                        is_buy_candidate = EXCLUDED.is_buy_candidate,
+                        overlay_reason   = EXCLUDED.overlay_reason,
+                        shadow_mode      = EXCLUDED.shadow_mode
+                """), overlay_rows)
+
+        logging.info(
+            "Synced US macro signal tables: feature_daily=%d rows, overlay_log=%d rows",
+            len(macro_rows), len(overlay_rows),
+        )
+    finally:
+        source_engine.dispose()
+        target_engine.dispose()
+
+
 def run_script(script_name: str, *extra_args: str) -> None:
     script_path = ROOT / "python" / script_name
     command = [PYTHON, str(script_path), *extra_args]
@@ -502,6 +735,7 @@ def main() -> int:
         logging.info("Skip trades.csv -> web trades sync; web public.trades is treated as source of truth")
     if not args.skip_meaningfulness_review:
         sync_meaningfulness_review_notes(source_database_url)
+    sync_us_macro_signal_tables(source_database_url)
     logging.info("Web display sync completed")
     return 0
 

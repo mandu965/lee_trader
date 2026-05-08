@@ -84,6 +84,15 @@
       .candidate-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--color-text-secondary); font-size: 12px; }
       .empty-state { padding: 18px; border: 1px dashed var(--border); border-radius: var(--radius-lg); color: var(--color-text-secondary); text-align: center; }
       .state-line { margin-top: 8px; font-size: 12px; color: var(--color-text-secondary); }
+      .state-line.is-error {
+        margin-top: 12px;
+        padding: 10px 14px;
+        border-radius: var(--radius-lg);
+        background: rgba(248,113,113,0.10);
+        border: 1px solid rgba(248,113,113,0.28);
+        color: #fca5a5;
+        font-size: 13px;
+      }
       @media (max-width: 960px) {
         .page-header { flex-direction: column; }
         .hero-grid, .candidate-grid { grid-template-columns: 1fr; }
@@ -128,6 +137,7 @@
           <p class="page-subtitle">큰 숫자는 추천 우선순위이고, `매수 가능/관찰/차단`은 실제 진입 판단입니다.</p>
         </div>
       </header>
+      <div id="pageState" class="state-line"></div>
       <section class="panel panel-block">
         <div data-unified-ops-nav data-nav-active="manual-trading"></div>
       </section>
@@ -171,10 +181,9 @@
         </div>
         <div class="candidate-grid" id="cautionGrid"></div>
       </section>
-      <div id="pageState" class="state-line"></div>
     </div>
     <script src="./ops-unified-nav.js?v=20260508c"></script>
     <script src="./trading-policy-ui.js"></script>
-    <script src="./manual-trading.js"></script>
+    <script src="./manual-trading.js?v=20260509b"></script>
   </body>
 </html>

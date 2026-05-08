@@ -185,7 +185,7 @@ def collect(
 
     for ticker in tickers:
         label = US_TICKER_LABELS.get(ticker, ticker)
-        LOGGER.info("[%s] Fetching %s → %s", ticker, start_date, end_date)
+        LOGGER.info("[%s] Fetching %s to %s", ticker, start_date, end_date)
         try:
             df = adapter.fetch_ohlcv(ticker, start_date, end_date)
         except Exception as exc:
@@ -214,7 +214,7 @@ def collect(
             })
 
         if dry_run:
-            LOGGER.info("[%s] DRY RUN — would upsert %d rows.", ticker, len(rows))
+            LOGGER.info("[%s] DRY RUN - would upsert %d rows.", ticker, len(rows))
             success.append(ticker)
             continue
 
@@ -275,7 +275,7 @@ def _resolve_tickers() -> list[str]:
 def setup_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+        format="%(asctime)s [%(levelname)s] %(name)s - %(message)s",
     )
 
 
@@ -313,7 +313,7 @@ def main() -> None:
 
     enabled = os.environ.get("US_MACRO_ENABLED", "1").strip()
     if enabled not in ("1", "true", "yes", "y"):
-        LOGGER.info("US_MACRO_ENABLED is not set — skipping collection.")
+        LOGGER.info("US_MACRO_ENABLED is not set - skipping collection.")
         return
 
     end_date = date.fromisoformat(args.date) if args.date else date.today()
