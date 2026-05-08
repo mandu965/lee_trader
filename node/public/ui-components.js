@@ -121,8 +121,6 @@
     ret_score: "예측수익",
     prob_score: "확률",
     pred_score: "연구용 모델",
-    safety_score: "안정성",
-    liquidity_score: "유동성",
     risk_penalty: "리스크"
   };
 
