@@ -33,6 +33,7 @@ SYNC_AUXILIARY_PAYLOADS_SCRIPT = ROOT / "python" / "sync_auxiliary_payloads.py"
 PERFORMANCE_REPORT_SCRIPT = ROOT / "python" / "build_pipeline_performance_reports.py"
 LIVE_SYNC_SCRIPT = ROOT / "python" / "sync_live_account_holdings.py"
 LIVE_PREVIEW_SCRIPT = ROOT / "python" / "build_live_order_preview.py"
+SUBMIT_LIVE_ORDERS_SCRIPT = ROOT / "python" / "submit_live_orders.py"
 TRADE_INTENTS_SCRIPT = ROOT / "python" / "build_trade_intents.py"
 WATCH_AUTO_BUY_SIM_SCRIPT = ROOT / "python" / "build_watch_auto_buy_simulation.py"
 LIVE_HOLDINGS_CSV = ROOT / "data" / "live_account_holdings.csv"
@@ -277,6 +278,7 @@ def main() -> int:
     if not args.skip_paper_trading_db:
         steps.append(("paper_trading_db_sync", [PYTHON, str(PAPER_TRADING_DB_SYNC_SCRIPT)], False))
     if args.with_live_account and not args.skip_live_preview:
+        steps.append(("order_requests_preview", [PYTHON, str(SUBMIT_LIVE_ORDERS_SCRIPT)], False))
         steps.append(("live_order_preview", [PYTHON, str(LIVE_PREVIEW_SCRIPT)], False))
     steps.append(("export_serving_payloads", [PYTHON, str(EXPORT_SCRIPT)], True))
     steps.append(("shadow_quality_risk_guard_daily_report", [PYTHON, str(SHADOW_DAILY_REPORT_SCRIPT)], False))

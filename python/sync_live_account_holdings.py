@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -20,6 +21,7 @@ OUTPUT_DIR = ROOT / "outputs"
 
 OUT_HOLDINGS_CSV = DATA_DIR / "live_account_holdings.csv"
 OUT_SUMMARY_JSON = OUTPUT_DIR / "live_account_balance_summary.json"
+DEFAULT_WEEKLY_EXTERNAL_CASH_FLOW_JSON = ROOT / "config" / "weekly_external_cash_flow_adjustments.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,6 +38,38 @@ def _resolve(path: Path) -> Path:
 def _to_number(value: object) -> float | None:
     numeric = pd.to_numeric(value, errors="coerce")
     return None if pd.isna(numeric) else float(numeric)
+
+
+def _float_env(name: str, default: float = 0.0) -> float:
+    raw = str(os.getenv(name, "")).strip()
+    if not raw:
+        return default
+    try:
+        return float(raw.replace(",", ""))
+    except ValueError:
+        return default
+
+
+def _load_weekly_external_cash_flow_adjustment(week_start: pd.Timestamp) -> tuple[float, str]:
+    config_path = DEFAULT_WEEKLY_EXTERNAL_CASH_FLOW_JSON
+    if config_path.exists():
+        try:
+            payload = json.loads(config_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        adjustments = payload.get("adjustments") if isinstance(payload, dict) else None
+        if isinstance(adjustments, list):
+            target_week = week_start.date().isoformat()
+            for item in adjustments:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("week_start_date") or "").strip() != target_week:
+                    continue
+                amount = _to_number(item.get("amount"))
+                if amount is None:
+                    continue
+                return amount, f"config:{config_path.name}"
+    return _float_env("WEEKLY_EXTERNAL_CASH_FLOW_ADJUSTMENT", 0.0), "env:WEEKLY_EXTERNAL_CASH_FLOW_ADJUSTMENT"
 
 
 def _normalize_summary_row(summary_df: pd.DataFrame) -> dict[str, float | str | None]:
@@ -224,18 +258,25 @@ def _weekly_loss_context(
     weekly_asset_change_amount = total_assets - week_start_total_assets
     weekly_unrealized_pnl = (holding_pnl_amount or 0.0) - week_start_holding_pnl_amount
     implied_realized_pnl = weekly_asset_change_amount - weekly_unrealized_pnl
+    manual_external_cash_flow_amount, manual_external_cash_flow_source = _load_weekly_external_cash_flow_adjustment(week_start)
     weekly_realized_pnl = implied_realized_pnl
     weekly_total_pnl = weekly_asset_change_amount
-    weekly_loss_pct = weekly_total_pnl / week_start_total_assets
     weekly_external_cash_flow_amount = None
     weekly_loss_guard_basis = "snapshot_total_assets"
     weekly_loss_source = "live_position_snapshot"
+    if abs(manual_external_cash_flow_amount) > 0:
+        weekly_realized_pnl = implied_realized_pnl - manual_external_cash_flow_amount
+        weekly_total_pnl = weekly_asset_change_amount - manual_external_cash_flow_amount
+        weekly_external_cash_flow_amount = manual_external_cash_flow_amount
+        weekly_loss_guard_basis = "manual_external_cash_flow_adjustment"
+        weekly_loss_source = f"live_position_snapshot_excluding_manual_external_cash_flow:{manual_external_cash_flow_source}"
+    weekly_loss_pct = weekly_total_pnl / week_start_total_assets
 
     # If the account had no weekly sell fills, a large "realized" residual usually
     # means deposit/withdrawal or broker-side cash movement rather than trading loss.
     no_realizing_trade_this_week = weekly_sell_fill_count == 0
     suspicious_residual_threshold = max(100000.0, week_start_total_assets * 0.03)
-    if no_realizing_trade_this_week and abs(implied_realized_pnl) >= suspicious_residual_threshold:
+    if weekly_external_cash_flow_amount is None and no_realizing_trade_this_week and abs(implied_realized_pnl) >= suspicious_residual_threshold:
         weekly_realized_pnl = 0.0
         weekly_total_pnl = weekly_unrealized_pnl
         weekly_loss_pct = weekly_total_pnl / week_start_total_assets

@@ -9,8 +9,12 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
+
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
 
 import db as db_module
 from db import get_engine
@@ -108,7 +112,8 @@ def setup_logging() -> None:
 
 
 def load_environment() -> None:
-    load_dotenv(ROOT / ".env", override=False)
+    if load_dotenv:
+        load_dotenv(ROOT / ".env", override=False)
 
 
 def resolve_source_database_url() -> str:

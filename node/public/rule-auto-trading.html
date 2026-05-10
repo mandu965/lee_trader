@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>RULE 자동매매 운영</title>
-    <link rel="stylesheet" href="./styles.css?v=20260508c" />
+    <link rel="stylesheet" href="./styles.css?v=20260510a" />
     <style>
       /* ── 레이아웃 ── */
       .rule-page { max-width: 1480px; margin: 0 auto; padding: 24px 20px 60px; }
@@ -123,6 +123,46 @@
         .tab-btn { padding: 8px 14px; font-size: 13px; }
         .page-nav { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
       }
+
+      /* ── 시그널 테이블 개선 ── */
+      .rank-badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 22px; height: 22px; border-radius: 50%;
+        font-size: 11px; font-weight: 700;
+        background: rgba(255,255,255,.07); color: var(--color-text-secondary);
+      }
+      .rank-badge.top { background: rgba(250,204,21,.15); color: #fde68a; }
+      .score-hi { color: #86efac; font-weight: 700; }
+      .score-lo { color: #fde68a; }
+
+      /* Strong 시그널 테이블 */
+      #strongTable { min-width: 820px; }
+      #strongTable thead th, #entryTable thead th {
+        position: sticky; top: 0; z-index: 2;
+        background: #0c1628;
+        box-shadow: 0 1px 0 var(--border);
+      }
+      #strongTable th:nth-child(1) { width: 40px; text-align: center; }
+      #strongTable td:nth-child(1) { text-align: center; }
+      #strongTable th:nth-child(2) { width: 78px; }
+      #strongTable th:nth-child(5), #strongTable th:nth-child(6) { width: 90px; }
+      #strongTable th:nth-child(7) { width: 100px; }
+      #strongTable th:nth-child(8) { width: 80px; }
+      #strongTable th:nth-child(9) { width: 108px; text-align: center; }
+      #strongTable td:nth-child(9) { text-align: center; }
+
+      /* Entry 시그널 테이블 */
+      #entryTable { min-width: 800px; }
+      #entryTable th:nth-child(1) { width: 72px; text-align: center; }
+      #entryTable td:nth-child(1) { text-align: center; }
+      #entryTable th:nth-child(2) { width: 78px; }
+      #entryTable th:nth-child(5), #entryTable th:nth-child(6) { width: 90px; }
+      #entryTable th:nth-child(7) { width: 110px; }
+
+      /* 섹터 컬럼 말줄임 */
+      #strongTable td:nth-child(4), #entryTable td:nth-child(4) {
+        max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
     </style>
   </head>
   <body>
@@ -218,9 +258,10 @@
             </div>
           </div>
           <div class="table-wrap">
-            <table>
+            <table id="strongTable">
               <thead>
                 <tr>
+                  <th class="center">#</th>
                   <th>코드</th>
                   <th>종목명</th>
                   <th>섹터</th>
@@ -228,7 +269,7 @@
                   <th class="right">점수 v2</th>
                   <th class="right">예상 진입가</th>
                   <th class="right">예상 갭</th>
-                  <th>포트폴리오 판단</th>
+                  <th class="center">포트폴리오 판단</th>
                 </tr>
               </thead>
               <tbody id="strongSignalsTbody"></tbody>
@@ -243,10 +284,10 @@
             </div>
           </div>
           <div class="table-wrap">
-            <table>
+            <table id="entryTable">
               <thead>
                 <tr>
-                  <th>강도</th>
+                  <th class="center">강도</th>
                   <th>코드</th>
                   <th>종목명</th>
                   <th>섹터</th>
@@ -383,6 +424,6 @@
     </div>
 
     <script src="./ops-unified-nav.js?v=20260508c"></script>
-    <script src="./rule-auto-trading.js?v=20260508c"></script>
+    <script src="./rule-auto-trading.js?v=20260510a"></script>
   </body>
 </html>

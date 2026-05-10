@@ -994,6 +994,26 @@ async function loadUsMacroOverlay() {
       return;
     }
 
+    // Update mode labels based on server-reported config
+    const cfg = data.config || {};
+    const isRealApply = cfg.enabled && !cfg.shadow_mode && cfg.allow_real_apply;
+    const modeLabel = !cfg.enabled
+      ? "비활성화"
+      : isRealApply
+        ? "실반영 모드 — RULE 자동매매 적용 중"
+        : "Shadow Mode — 실매매 미반영";
+    const modeColor = isRealApply ? "#4ade80" : "#fbbf24";
+    const headerNote = document.getElementById("usMacroHeaderNote");
+    if (headerNote) {
+      headerNote.innerHTML = `미국 ETF/지수 기반 매크로 상태 · <span style="color:${modeColor};font-weight:600">${modeLabel}</span>`;
+    }
+    const overlayNote = document.getElementById("usMacroOverlayNote");
+    if (overlayNote) {
+      overlayNote.innerHTML = isRealApply
+        ? `<span style="color:#4ade80;font-weight:600">실반영 ON</span> — RULE 매수 차단 실제 적용`
+        : `<span style="color:#fbbf24">Shadow Mode</span> — 실제 주문/점수에 미반영`;
+    }
+
     const latest = (data.macro_history || [])[0] || {};
     const status = latest.macro_status || "NO_DATA";
     const kind = macroStatusKind(status);

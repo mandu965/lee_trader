@@ -5,11 +5,63 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-import yaml
+try:
+    import yaml
+except Exception:
+    yaml = None
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PRODUCTION_CONFIG_PATH = ROOT / "config" / "production_v1.yaml"
+
+
+def _parse_scalar(text: str) -> Any:
+    value = text.strip()
+    if not value:
+        return ""
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        return value[1:-1]
+    lower = value.lower()
+    if lower in {"true", "yes", "on"}:
+        return True
+    if lower in {"false", "no", "off"}:
+        return False
+    if lower in {"null", "none", "~"}:
+        return None
+    try:
+        if any(ch in value for ch in {".", "e", "E"}):
+            return float(value)
+        return int(value)
+    except ValueError:
+        return value
+
+
+def _load_simple_yaml_mapping(text: str) -> dict[str, Any]:
+    root: dict[str, Any] = {}
+    stack: list[tuple[int, dict[str, Any]]] = [(-1, root)]
+    for raw_line in text.splitlines():
+        if not raw_line.strip():
+            continue
+        stripped_comment = raw_line.lstrip()
+        if stripped_comment.startswith("#"):
+            continue
+        indent = len(raw_line) - len(raw_line.lstrip(" "))
+        line = raw_line.strip()
+        if ":" not in line:
+            continue
+        key, remainder = line.split(":", 1)
+        key = key.strip()
+        remainder = remainder.strip()
+        while len(stack) > 1 and indent <= stack[-1][0]:
+            stack.pop()
+        current = stack[-1][1]
+        if not remainder:
+            child: dict[str, Any] = {}
+            current[key] = child
+            stack.append((indent, child))
+            continue
+        current[key] = _parse_scalar(remainder)
+    return root
 
 
 def resolve_production_config_path() -> Path:
@@ -25,7 +77,11 @@ def load_production_config() -> dict[str, Any]:
     path = resolve_production_config_path()
     if not path.exists():
         return {}
-    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    raw = path.read_text(encoding="utf-8")
+    if yaml is not None:
+        payload = yaml.safe_load(raw) or {}
+    else:
+        payload = _load_simple_yaml_mapping(raw)
     if not isinstance(payload, dict):
         raise ValueError(f"production config must be a mapping: {path}")
     return payload

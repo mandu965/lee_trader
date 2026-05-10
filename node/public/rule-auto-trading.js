@@ -244,25 +244,38 @@ function renderBacktest(summary) {
   `;
 }
 
+const scoreClass = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "";
+  if (n >= 85) return "score-hi";
+  if (n < 75)  return "score-lo";
+  return "";
+};
+
 /* ── Strong / Entry 시그널 테이블 ── */
 function renderStrongSignals(items) {
   const tbody = document.getElementById("strongSignalsTbody");
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="center"><div class="empty">Strong 후보가 없습니다.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="9" class="center"><div class="empty">Strong 후보가 없습니다.</div></td></tr>`;
     return;
   }
-  tbody.innerHTML = items.map((item) => `
-    <tr>
-      <td class="mono">${esc(item.code)}</td>
-      <td>${esc(item.name)}</td>
-      <td>${esc(item.sector || "-")}</td>
-      <td class="right">${fmtNum(item.rule_score, 2)}</td>
-      <td class="right">${fmtNum(item.rule_score_v2, 2)}</td>
-      <td class="right">${fmtNum(item.expected_entry_price)}</td>
-      <td class="right ${signedClass(item.expected_gap)}">${fmtPct(item.expected_gap)}</td>
-      <td>${actionChip(item.portfolio_action || "hold")}</td>
-    </tr>
-  `).join("");
+  tbody.innerHTML = items.map((item, idx) => {
+    const rank = idx + 1;
+    const rankCls = rank <= 3 ? "top" : "";
+    return `
+      <tr>
+        <td><span class="rank-badge ${rankCls}">${rank}</span></td>
+        <td class="mono">${esc(item.code)}</td>
+        <td>${esc(item.name)}</td>
+        <td title="${esc(item.sector || "")}">${esc(item.sector || "-")}</td>
+        <td class="right ${scoreClass(item.rule_score)}">${fmtNum(item.rule_score, 2)}</td>
+        <td class="right ${scoreClass(item.rule_score_v2)}">${fmtNum(item.rule_score_v2, 2)}</td>
+        <td class="right">${fmtNum(item.expected_entry_price)}</td>
+        <td class="right ${signedClass(item.expected_gap)}">${fmtPct(item.expected_gap)}</td>
+        <td>${actionChip(item.portfolio_action || "hold")}</td>
+      </tr>
+    `;
+  }).join("");
 }
 
 function renderEntrySignals(items) {
@@ -280,9 +293,9 @@ function renderEntrySignals(items) {
         <td>${signalChip(item.signal_strength)}</td>
         <td class="mono">${esc(item.code)}</td>
         <td>${esc(item.name)}</td>
-        <td>${esc(item.sector || "-")}</td>
-        <td class="right">${fmtNum(item.rule_score, 2)}</td>
-        <td class="right">${fmtNum(item.rule_score_v2, 2)}</td>
+        <td title="${esc(item.sector || "")}">${esc(item.sector || "-")}</td>
+        <td class="right ${scoreClass(item.rule_score)}">${fmtNum(item.rule_score, 2)}</td>
+        <td class="right ${scoreClass(item.rule_score_v2)}">${fmtNum(item.rule_score_v2, 2)}</td>
         <td class="right">${fmtWon(item.trading_value_ma_20)}</td>
         <td>${esc(blockText || "없음")}</td>
       </tr>

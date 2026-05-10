@@ -1,0 +1,11 @@
+{
+  "timezone": "Asia/Seoul",
+  "notes": "Manual external cash flow adjustments by trading week start date. Negative values represent withdrawals; positive values represent deposits.",
+  "adjustments": [
+    {
+      "week_start_date": "2026-05-04",
+      "amount": -964503,
+      "note": "Manual withdrawal adjustment"
+    }
+  ]
+}

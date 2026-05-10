@@ -4704,6 +4704,11 @@ app.get("/api/us-macro-overlay", operatorAccess.apiGuard, async (req, res) => {
       macro_history: macroRows,
       overlay_summary: overlayRows,
       top_affected: topAffected,
+      config: {
+        enabled: process.env.US_MACRO_ENABLED !== "0",
+        shadow_mode: process.env.US_MACRO_SHADOW_MODE !== "0",
+        allow_real_apply: process.env.US_MACRO_ALLOW_REAL_APPLY === "1",
+      },
     });
   } catch (e) {
     if (e.message && e.message.includes("does not exist")) {

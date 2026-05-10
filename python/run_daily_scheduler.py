@@ -53,14 +53,14 @@ def _should_sync_web_display() -> bool:
     return str(os.environ.get("SCHEDULER_SYNC_WEB_DISPLAY", "1")).strip().lower() not in {"0", "false", "no", "off"}
 
 
-def _close_batch_command() -> list[str]:
+def _close_batch_command(*, skip_web_sync: bool = False) -> list[str]:
     command = [
         sys.executable,
         str(ROOT / "python" / "run_manual_close_batch.py"),
         "--skip-build",
         "--skip-node-api",
     ]
-    if not _should_sync_web_display():
+    if skip_web_sync or not _should_sync_web_display():
         command.append("--skip-web-sync")
     return command
 
@@ -176,7 +176,10 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
             ("check_live_quality_guard_outputs", _live_quality_guard_output_check_command()),
         ]
     if command_set == "rule_after_close":
-        return [("run_rule_after_close_cycle", _rule_after_close_command())]
+        return [
+            ("run_manual_close_batch", _close_batch_command(skip_web_sync=True)),
+            ("run_rule_after_close_cycle", _rule_after_close_command()),
+        ]
     if command_set == "rule_before_open":
         return [("run_rule_before_open_cycle", _rule_before_open_command())]
     if command_set == "rule_after_open":
@@ -226,7 +229,14 @@ def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
         return steps
     if command_set == "close":
         return []
-    if command_set in {"rule_after_close", "rule_before_open", "rule_after_open"}:
+    if command_set == "rule_after_close":
+        if not _should_sync_web_display():
+            return []
+        if not str(os.environ.get("WEB_DATABASE_URL", "")).strip():
+            logging.info("Skip web display sync: WEB_DATABASE_URL not set")
+            return []
+        return [("sync_web_display_data", [sys.executable, str(ROOT / "python" / "sync_web_display_data.py")])]
+    if command_set in {"rule_before_open", "rule_after_open"}:
         return []
     if not _should_sync_web_display():
         return []

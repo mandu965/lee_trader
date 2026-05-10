@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from rule_signal_builder import ENGINE_TYPE, STRATEGY_ID, ROOT, resolve
+
+LOGGER = logging.getLogger(__name__)
 
 
 DATA_DIR = ROOT / "data"
@@ -34,6 +37,91 @@ def parse_args() -> argparse.Namespace:
 
 def cfg_float(name: str, default: float) -> float:
     return float(os.getenv(name, str(default)))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# US Macro Overlay helpers (Phase 5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _load_macro_row(kr_date: date, max_lag: int = 3) -> dict | None:
+    """Load us_macro_feature_daily for the given KR apply date.
+
+    Tries kr_date, then up to max_lag calendar days earlier (weekend / holiday gaps).
+    Returns None if US_MACRO_ENABLED=0 or DB unavailable.
+    """
+    if not _flag("US_MACRO_ENABLED", "1"):
+        return None
+    try:
+        from sqlalchemy import text as _text
+        import sys as _sys
+        _sys.path.insert(0, str(ROOT / "python"))
+        from db import get_engine as _get_engine
+        engine = _get_engine()
+        with engine.connect() as conn:
+            for lag in range(max_lag + 1):
+                check_date = kr_date - timedelta(days=lag)
+                result = conn.execute(
+                    _text(
+                        "SELECT * FROM signal.us_macro_feature_daily "
+                        "WHERE kr_apply_date = :d ORDER BY us_trade_date DESC LIMIT 1"
+                    ),
+                    {"d": check_date},
+                )
+                row = result.fetchone()
+                if row is not None:
+                    if lag > 0:
+                        LOGGER.warning(
+                            "[US Macro] No macro row for %s, using %s (lag=%d)",
+                            kr_date, check_date, lag,
+                        )
+                    stale_limit = int(os.getenv("US_MACRO_STALE_DAYS_LIMIT", "3"))
+                    if lag > stale_limit:
+                        LOGGER.warning(
+                            "[US Macro] Macro data is stale (lag=%d > limit=%d), skipping overlay",
+                            lag, stale_limit,
+                        )
+                        return None
+                    return dict(row._mapping)
+    except Exception as exc:
+        LOGGER.warning("[US Macro] Failed to load macro features (continuing without overlay): %s", exc)
+    return None
+
+
+def _apply_macro_overlay(
+    code: str,
+    name: str | None,
+    sector: str,
+    rule_score_v2: float | None,
+    macro_row: dict | None,
+) -> dict:
+    """Wrap _apply_overlay_rules from compute_us_macro_overlay_shadow.
+
+    Returns dict with: buy_blocked_flag, macro_adjustment, adjusted_score, overlay_reason.
+    Safe: any import or computation error returns neutral (no block, no adjustment).
+    """
+    default = {
+        "buy_blocked_flag": False,
+        "macro_adjustment": 0.0,
+        "adjusted_score": rule_score_v2,
+        "overlay_reason": "",
+    }
+    if macro_row is None:
+        return default
+    try:
+        from compute_us_macro_overlay_shadow import _apply_overlay_rules, _Cfg as _OverlayCfg
+        result = _apply_overlay_rules(
+            code=code,
+            name=name,
+            sector=sector,
+            original_score=rule_score_v2,
+            is_buy_candidate=True,
+            macro=macro_row,
+            cfg=_OverlayCfg(),
+        )
+        return result
+    except Exception as exc:
+        LOGGER.warning("[US Macro] _apply_overlay_rules error for %s: %s", code, exc)
+        return default
 
 
 def cfg_int(name: str, default: int) -> int:
@@ -181,6 +269,17 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
     total_equity = float(account_state.get("total_equity") or 10_000_000.0)
     cash = float(account_state.get("cash") or total_equity)
     max_positions = cfg_int("RULE_MAX_POSITIONS", 5)
+
+    # ── US Macro Overlay (Phase 5) ────────────────────────────────────────────
+    _macro_row = _load_macro_row(latest_date.date())
+    _macro_real_apply = _flag("US_MACRO_ALLOW_REAL_APPLY", "0")
+    _macro_shadow = _flag("US_MACRO_SHADOW_MODE", "1")
+    if _macro_row is not None:
+        LOGGER.info(
+            "[US Macro] status=%s real_apply=%s shadow=%s",
+            _macro_row.get("macro_status"), _macro_real_apply, _macro_shadow,
+        )
+    # ─────────────────────────────────────────────────────────────────────────
     max_position_weight = cfg_float("RULE_MAX_POSITION_WEIGHT", 0.15)
     new_entry_weight = cfg_float("RULE_NEW_ENTRY_WEIGHT", 0.05)
     min_cash_weight = cfg_float("RULE_MIN_CASH_WEIGHT", 0.20)
@@ -299,6 +398,28 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
                 target_weight = new_entry_weight * 0.7
             sector_exposure[sector] = sector_exposure.get(sector, 0.0) + (target_weight if not held else 0.0)
 
+        # ── US Macro Overlay gate (Phase 5) ─────────────────────────────────
+        us_macro_overlay: dict = _apply_macro_overlay(
+            code=code,
+            name=str(row.get("name") or ""),
+            sector=sector,
+            rule_score_v2=_float(row.get("rule_score_v2")),
+            macro_row=_macro_row if action == "buy" else None,
+        )
+        us_macro_blocked: bool = us_macro_overlay["buy_blocked_flag"]
+        # Real-apply: only when ALLOW_REAL_APPLY=1 AND SHADOW_MODE=0 AND it's a new buy
+        if action == "buy" and us_macro_blocked and _macro_real_apply and not _macro_shadow:
+            _added_weight = target_weight  # save before zeroing
+            action = "skip"
+            reason = "us_macro_risk_off_blocked"
+            target_weight = 0.0
+            # Undo the sector exposure added in the buy branch
+            sector_exposure[sector] = max(sector_exposure.get(sector, 0.0) - _added_weight, 0.0)
+            LOGGER.info("[US Macro] REAL BLOCK %s sector=%s reason=%s", code, sector, us_macro_overlay.get("overlay_reason"))
+        elif action == "buy" and us_macro_blocked:
+            LOGGER.info("[US Macro] Shadow block %s sector=%s reason=%s", code, sector, us_macro_overlay.get("overlay_reason"))
+        # ────────────────────────────────────────────────────────────────────
+
         target_amount = total_equity * target_weight
         rows.append(
             {
@@ -338,6 +459,12 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
                 "trading_value_block_reason": row.get("trading_value_block_reason"),
                 "market_defensive_mode": bool(row.get("market_defensive_mode")),
                 "partial_fill_topup": bool(action == "buy" and reason == "partial_fill_topup"),
+                # US Macro Overlay (Phase 5)
+                "us_macro_blocked": us_macro_overlay["buy_blocked_flag"],
+                "us_macro_adjustment": us_macro_overlay["macro_adjustment"],
+                "us_macro_adjusted_score": us_macro_overlay["adjusted_score"],
+                "us_macro_reason": us_macro_overlay["overlay_reason"],
+                "us_macro_shadow_mode": _macro_shadow if _macro_row is not None else None,
             }
         )
 
@@ -371,6 +498,8 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
             "reduce_count": sum(1 for item in rows if item["portfolio_action"] == "reduce"),
             "exit_count": sum(1 for item in rows if item["portfolio_action"] == "exit"),
             "skip_count": sum(1 for item in rows if item["portfolio_action"] == "skip"),
+            "us_macro_blocked_count": sum(1 for item in rows if item.get("us_macro_blocked")),
+            "us_macro_status": _macro_row.get("macro_status") if _macro_row else None,
         },
     }
     return plan

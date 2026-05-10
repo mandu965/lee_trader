@@ -51,6 +51,9 @@ OUT_EXEC_JSON = OUTPUT_DIR / "order_requests_execution.json"
 OUT_EXEC_MD = OUTPUT_DIR / "order_requests_execution.md"
 BUY_APPROVAL_JSON = OUTPUT_DIR / "order_buy_approvals.json"
 RUN_LOG_JSONL = OUTPUT_DIR / "live_auto_trade_run_log.jsonl"
+LIVE_BALANCE_SUMMARY_JSON = OUTPUT_DIR / "live_account_balance_summary.json"
+LIVE_ORDER_FILLS_JSON = OUTPUT_DIR / "live_order_fills.json"
+MARKET_STATUS_CSV = DATA_DIR / "market_status.csv"
 
 
 def _load_env() -> None:
@@ -259,6 +262,8 @@ def _preview_expected_hold_reason(*, side: str, blocked_reason: str | None, fina
         return "Live BUY context is unavailable, so the order stays on preview only."
     if blocked == "buy_qty_zero":
         return "Final BUY quantity is zero, so nothing will be submitted."
+    if blocked == "buy_qty_zero_budget_below_one_share":
+        return "Target budget is smaller than one share price, so the BUY quantity stays at zero."
     if blocked.startswith("policy_blocked"):
         return "Policy blocked this BUY order before broker submission."
     if blocked == "live_price_unavailable":
@@ -335,6 +340,17 @@ def build_order_requests(
         cash_summary = summarize_cash(summary_df)
         available_cash = cash_summary.get("dnca_tot_amt")
         total_assets = cash_summary.get("tot_evlu_amt")
+    balance_payload = _safe_read_json(LIVE_BALANCE_SUMMARY_JSON)
+    fills_payload = _safe_read_json(LIVE_ORDER_FILLS_JSON)
+    balance_generated_at = balance_payload.get("generated_at")
+    fills_generated_at = fills_payload.get("generated_at")
+    summary_row_payload = balance_payload.get("summary_row") or {}
+    derived_metrics_payload = balance_payload.get("derived_metrics") or {}
+    daily_loss_pct_snapshot = _num_or_none(summary_row_payload.get("asst_icdc_erng_rt"))
+    if daily_loss_pct_snapshot is not None and daily_loss_pct_snapshot > 1.0:
+        daily_loss_pct_snapshot /= 100.0
+    weekly_loss_pct_snapshot = _num_or_none(derived_metrics_payload.get("weekly_loss_pct"))
+    weekly_total_pnl_snapshot = _num_or_none(derived_metrics_payload.get("weekly_total_pnl"))
 
     items: list[dict[str, Any]] = []
     for _, row in intents.iterrows():
@@ -367,6 +383,7 @@ def build_order_requests(
         allowed_qty = None
         final_qty = None
         blocked_reason = None
+        budget_shortfall_reason = None
 
         if side == "BUY":
             if client is None or account is None:
@@ -453,10 +470,23 @@ def build_order_requests(
             )
             allowed_qty = _coalesce_allowed_qty(nrcvb_buy_qty, max_buy_qty)
             final_qty = min(planned_qty, allowed_qty)
+            if order_price and planned_qty == 0 and allowed_qty > 0:
+                target_weight_value = float(target_weight) if pd.notna(target_weight) else 0.0
+                desired_budget = (float(available_cash) if pd.notna(pd.to_numeric(available_cash, errors="coerce")) else 0.0) * target_weight_value
+                if pd.notna(pd.to_numeric(total_assets, errors="coerce")) and float(total_assets) > 0:
+                    desired_budget = float(total_assets) * target_weight_value
+                    if pd.notna(current_position_value) and float(current_position_value) > 0:
+                        desired_budget = max(desired_budget - float(current_position_value), 0.0)
+                available_cash_value = float(available_cash) if pd.notna(pd.to_numeric(available_cash, errors="coerce")) else 0.0
+                effective_budget = min(available_cash_value, desired_budget)
+                budget_shortfall_reason = (
+                    f"target_budget_below_one_share: budget={effective_budget:.0f}, price={float(order_price):.0f}, "
+                    f"target_weight={target_weight_value:.4f}"
+                )
             if str(policy.get("policy_status") or "").upper() == "BLOCK":
                 blocked_reason = f"policy_blocked:{policy.get('block_type') or 'POLICY_BLOCK'}"
             elif not final_qty or final_qty <= 0:
-                blocked_reason = "buy_qty_zero"
+                blocked_reason = "buy_qty_zero_budget_below_one_share" if budget_shortfall_reason else "buy_qty_zero"
             elif bool(gate_result.get("blocked")):
                 blocked_reason = entry_price_gate_reason
             else:
@@ -469,6 +499,14 @@ def build_order_requests(
                         "order_qty": int(final_qty),
                         "order_amount": float(final_qty) * float(order_price) if order_price else None,
                         "reference_price": order_price if order_price else None,
+                        "balance_json": LIVE_BALANCE_SUMMARY_JSON,
+                        "fills_json": LIVE_ORDER_FILLS_JSON,
+                        "market_status_csv": MARKET_STATUS_CSV,
+                        "holdings_generated_at": balance_generated_at,
+                        "fills_generated_at": fills_generated_at,
+                        "daily_loss_pct": daily_loss_pct_snapshot,
+                        "weekly_loss_pct": weekly_loss_pct_snapshot,
+                        "weekly_total_pnl": weekly_total_pnl_snapshot,
                     }
                 )
                 if not common_risk_allowed:
@@ -520,7 +558,7 @@ def build_order_requests(
                 "target_weight": _num_or_none(row.get("target_weight")),
                 "priority": _int_or_none(row.get("priority")),
                 "reason": row.get("reason"),
-                "raw_reason": row.get("raw_reason") or row.get("reason"),
+                "raw_reason": budget_shortfall_reason or row.get("raw_reason") or row.get("reason"),
                 "policy_status": row.get("policy_status") or policy["policy_status"],
                 "block_type": row.get("block_type") or policy["block_type"],
                 "severity": row.get("severity") or policy["severity"],
