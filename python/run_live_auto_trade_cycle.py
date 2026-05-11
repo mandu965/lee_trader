@@ -29,6 +29,7 @@ BUILD_LIVE_KPI_DAILY_REPORT_SCRIPT = ROOT / "python" / "build_live_kpi_daily_rep
 BUILD_QUALITY_RISK_GUARD_LIVE_REVIEW_SCRIPT = ROOT / "python" / "build_quality_risk_guard_live_review.py"
 BUILD_LIVE_CLOSED_TRADE_REPORT_SCRIPT = ROOT / "python" / "build_live_closed_trade_report.py"
 CHECK_LIVE_QUALITY_GUARD_OUTPUTS_SCRIPT = ROOT / "python" / "check_live_quality_guard_outputs.py"
+UPDATE_AI_POSITION_STATE_SCRIPT = ROOT / "python" / "update_ai_position_state.py"
 OPTIONAL_POST_SYNC_STEPS = {
     "build_live_kpi_daily_report",
     "build_live_closed_trade_report",
@@ -142,6 +143,7 @@ def main() -> int:
     )
 
     _run_step("sync_live_account_holdings", [PYTHON, str(SYNC_LIVE_ACCOUNT_HOLDINGS_SCRIPT)])
+    _run_step("update_ai_position_state", [PYTHON, str(UPDATE_AI_POSITION_STATE_SCRIPT)])
 
     _run_step("sync_live_order_fills", [PYTHON, str(SYNC_LIVE_ORDER_FILLS_SCRIPT)])
     _run_step("build_live_trade_consistency_report", [PYTHON, str(BUILD_LIVE_TRADE_CONSISTENCY_SCRIPT)])

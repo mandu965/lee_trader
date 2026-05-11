@@ -1,6 +1,6 @@
 # 5차 과제: scheduler health ledger 구축
 
-> 상태: ⬜ 대기
+> 상태: ✅ 완료
 > 작성일: 2026-05-07
 > 의존성: 없음 (1차와 독립적으로 진행 가능)
 > 다음 과제: 없음 (독립 완결)
@@ -267,8 +267,36 @@ command_set: auto_buy | 총 소요: 312초
 
 ## 완료 후 기록
 
-완료일:
+완료일: 2026-05-12
+
 변경 파일:
+- python/scheduler_health.py (신설)
+- python/run_daily_scheduler.py (수정: _run_step_tracked, _record_remaining_skipped, _finalize_health, run_daily_cycle)
+- .env.example (SCHEDULER_HEALTH_ENABLED 등 4개 환경변수 추가)
+- doc/improvement/05_health_ledger.md (이 파일)
+- doc/improvement/ROADMAP.md (상태 갱신)
+
 검증 결과:
+- Case 1 (success): PASS
+- Case 2 (failed + exit_code + error_message): PASS
+- Case 3 (skipped): PASS
+- Case 4 (summary 집계): PASS
+- Case 5 (CSV output_rows): PASS
+- Case 6 (JSON output_rows): PASS
+- Case 7 (unmapped → output_rows=null): PASS
+- Case 8 (markdown report): PASS
+- Case 9 (ENABLED=false → 파일 미생성): PASS
+- Case 10 (NOTIFY_ON_FAILURE + 실패 → notifier 호출): 설계 반영 (notifier 미구성 시 warning 로그)
+- Case 11 (health 예외 swallow): PASS
+- Case 12 (auto_ops_scheduler_status.json 호환): PASS (_write_status 호출 횟수 3개 유지)
+
 주요 결정 사항:
+- emoji 상태 아이콘(✅❌⏭)을 ASCII([OK][FAIL][SKIP])로 변경 (Windows cp949 인코딩 대응)
+- em dash(—) 대신 하이픈(-) 사용 (동일 이유)
+- _run_step 자체는 수정하지 않고 _run_step_tracked wrapper로 분리 (기존 흐름 보존)
+- health 기록 실패는 예외를 swallow하고 warning 로그만 남김 (scheduler 중단 방지)
+- run_daily_cycle 내 nested function(_record_remaining_skipped, _finalize_health)으로 skipped 기록 및 summary 생성
+
 다음 과제 연결 포인트:
+- scheduler_health.json을 활용한 KPI 모니터링 (score_kpi_monitor.py 연동)
+- notifier.py 알림 채널 구성 후 SCHEDULER_HEALTH_NOTIFY_ON_FAILURE=true 활성화

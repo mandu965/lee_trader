@@ -93,8 +93,14 @@ def fetch_single_open_snapshot(client: KISClient, symbol: str) -> dict[str, Any]
     acc_volume = _to_float(output.get("acml_vol"))
     acc_trading_value = _to_float(output.get("acml_tr_pbmn"))
     actual_open_gap = None
-    if open_price is not None and prev_close not in {None, 0.0}:
+    if open_price is not None and open_price > 0 and prev_close not in {None, 0.0}:
         actual_open_gap = (open_price / prev_close) - 1.0
+    elif open_price is not None and open_price <= 0:
+        import logging as _logging
+        _logging.warning(
+            "[RULE_OPEN_SNAPSHOT] open_price=%s is zero/negative for symbol=%s — actual_open_gap set to None (장 시작 전 또는 시가 미확정)",
+            open_price, symbol,
+        )
     intraday_return = None
     if current_price is not None and prev_close not in {None, 0.0}:
         intraday_return = (current_price / prev_close) - 1.0
@@ -119,7 +125,11 @@ def fetch_single_open_snapshot(client: KISClient, symbol: str) -> dict[str, Any]
         "actual_open_gap": actual_open_gap,
         "high_from_open": high_from_open,
         "low_from_open": low_from_open,
-        "market_data_available": all(value is not None for value in (current_price, open_price, prev_close)),
+        "market_data_available": (
+            current_price is not None and current_price > 0
+            and open_price is not None and open_price > 0
+            and prev_close is not None and prev_close > 0
+        ),
         "raw_output": output,
     }
 

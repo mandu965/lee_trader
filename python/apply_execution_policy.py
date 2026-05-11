@@ -10,6 +10,7 @@ from typing import Iterable
 
 import pandas as pd
 
+from ai_position_risk import evaluate_ai_position_risk, load_ai_position_state
 from production_config import get_production_config_value
 
 
@@ -866,6 +867,8 @@ def classify_holdings(
     latest_lookup = latest_snapshot.set_index("code") if not latest_snapshot.empty else pd.DataFrame()
     sector_weights = holdings.groupby("sector", dropna=False)["weight"].sum().to_dict() if "weight" in holdings.columns else {}
     theme_weights = holdings.groupby("dominant_theme", dropna=False)["weight"].sum().to_dict() if "weight" in holdings.columns else {}
+    _ai_position_state = load_ai_position_state()
+    _today = datetime.now().strftime("%Y-%m-%d")
 
     rows: list[dict[str, object]] = []
     for _, row in holdings.iterrows():
@@ -882,6 +885,21 @@ def classify_holdings(
         action = "HOLD"
         confidence_policy = resolve_confidence_policy(confidence, args, live_grade)
         policy_cap_weight = min(args.max_position_weight * confidence_policy.position_cap_scale, 1.0)
+
+        # AI 포지션 리스크 평가 (stop_loss / trailing_stop / max_holding_days)
+        pnl_pct = pd.to_numeric(row.get("pnl_pct"), errors="coerce")
+        _risk_action, _risk_reason = evaluate_ai_position_risk(
+            code=code,
+            pnl_pct=float(pnl_pct) if pd.notna(pnl_pct) else None,
+            position_state=_ai_position_state,
+            as_of_date=_today,
+        )
+        if _risk_action == "exit":
+            action = "EXIT_CANDIDATE"
+            reasons.append(_risk_reason or "ai_position_risk_exit")
+        elif _risk_action == "reduce":
+            action = "TRIM"
+            reasons.append(_risk_reason or "ai_position_risk_reduce")
 
         if code in candidate_lookup.index:
             candidate_rank = candidate_lookup.at[code, "buy_rank"]
@@ -900,7 +918,8 @@ def classify_holdings(
         if pd.notna(confidence) and float(confidence) < args.force_exit_confidence:
             action = "EXIT_CANDIDATE"
             reasons.append(f"confidence {_fmt_num(confidence)} < force exit floor {_fmt_num(args.force_exit_confidence)}")
-        elif pd.notna(confidence) and float(confidence) < args.min_hold_confidence:
+        elif action != "EXIT_CANDIDATE" and pd.notna(confidence) and float(confidence) < args.min_hold_confidence:
+            # position risk로 이미 EXIT_CANDIDATE인 경우 다운그레이드하지 않음
             action = "REPLACE_CANDIDATE"
             reasons.append(f"confidence {_fmt_num(confidence)} < hold floor {_fmt_num(args.min_hold_confidence)}")
         if pd.notna(current_weight) and float(current_weight) > args.max_position_weight + 1e-8:

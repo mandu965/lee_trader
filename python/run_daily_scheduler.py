@@ -18,6 +18,15 @@ try:
 except Exception:
     load_dotenv = None
 
+try:
+    import scheduler_health as _sh
+    from scheduler_health import JobResult as _JobResult
+    _HEALTH_AVAILABLE = True
+except Exception:
+    _sh = None  # type: ignore[assignment]
+    _JobResult = None  # type: ignore[assignment]
+    _HEALTH_AVAILABLE = False
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUTS_DIR = ROOT / "outputs"
@@ -96,6 +105,10 @@ def _live_account_sync_command() -> list[str]:
 
 def _live_order_fills_sync_command() -> list[str]:
     return [sys.executable, str(ROOT / "python" / "sync_live_order_fills.py")]
+
+
+def _update_ai_position_state_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "update_ai_position_state.py")]
 
 
 def _live_trade_consistency_command() -> list[str]:
@@ -200,6 +213,7 @@ def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
     if command_set == "auto_buy":
         steps: list[tuple[str, list[str]]] = [
             ("sync_live_account_holdings", _live_account_sync_command()),
+            ("update_ai_position_state", _update_ai_position_state_command()),
             ("sync_live_order_fills", _live_order_fills_sync_command()),
             ("build_live_trade_consistency_report", _live_trade_consistency_command()),
             ("build_live_trade_review", _live_trade_review_command()),
@@ -609,9 +623,76 @@ def _run_step(name: str, command: list[str]) -> None:
     logging.info("OK %s", name)
 
 
+def _run_step_tracked(
+    name: str,
+    command: list[str],
+    command_set: str,
+    tz_name: str,
+    health_jobs: list,
+) -> None:
+    if not _HEALTH_AVAILABLE:
+        _run_step(name, command)
+        return
+
+    started_at = datetime.now(ZoneInfo(tz_name)).isoformat(timespec="seconds")
+    try:
+        _run_step(name, command)
+        finished_at = datetime.now(ZoneInfo(tz_name)).isoformat(timespec="seconds")
+        try:
+            dt_start = datetime.fromisoformat(started_at)
+            dt_end = datetime.fromisoformat(finished_at)
+            duration = round((dt_end - dt_start).total_seconds(), 1)
+        except Exception:
+            duration = None
+        meta = _sh.infer_output_metadata(name)
+        result = _JobResult(
+            job_name=name,
+            command_set=command_set,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_seconds=duration,
+            status="success",
+            exit_code=0,
+            output_file=meta.get("output_file"),
+            output_rows=meta.get("output_rows"),
+            notes=meta.get("notes"),
+        )
+        health_jobs.append(result)
+        _sh.record_job(result)
+    except SchedulerStepFailure as exc:
+        finished_at = datetime.now(ZoneInfo(tz_name)).isoformat(timespec="seconds")
+        try:
+            dt_start = datetime.fromisoformat(started_at)
+            dt_end = datetime.fromisoformat(finished_at)
+            duration = round((dt_end - dt_start).total_seconds(), 1)
+        except Exception:
+            duration = None
+        details = exc.details
+        meta = _sh.infer_output_metadata(name)
+        error_msg = str(details.get("error_message") or f"{name} failed")
+        result = _JobResult(
+            job_name=name,
+            command_set=command_set,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_seconds=duration,
+            status="failed",
+            exit_code=int(details.get("exit_code") or 1),
+            error_message=error_msg,
+            output_file=meta.get("output_file"),
+            output_rows=meta.get("output_rows"),
+            notes=meta.get("notes"),
+        )
+        health_jobs.append(result)
+        _sh.record_job(result)
+        _sh.notify_scheduler_failure_if_enabled(result)
+        raise
+
+
 def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> dict[str, object]:
     run_steps = _resolve_run_steps()
     post_sync_steps = _resolve_post_sync_steps()
+    command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
     started_at = now.isoformat()
     payload = {
         **status,
@@ -626,9 +707,43 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
     }
     _write_status(payload)
 
+    health_jobs: list = []
+    all_steps = list(run_steps) + list(post_sync_steps)
+    ran_step_names: set[str] = set()
+
+    def _record_remaining_skipped(failed_name: str) -> None:
+        if not _HEALTH_AVAILABLE:
+            return
+        try:
+            skip_ts = datetime.now(ZoneInfo(tz_name)).isoformat(timespec="seconds")
+            ran = ran_step_names | {failed_name}
+            for sname, _ in all_steps:
+                if sname not in ran:
+                    skip_result = _JobResult(
+                        job_name=sname,
+                        command_set=command_set,
+                        started_at=skip_ts,
+                        status="skipped",
+                        notes="previous step failed",
+                    )
+                    health_jobs.append(skip_result)
+                    _sh.record_job(skip_result)
+        except Exception:
+            logging.warning("[scheduler_health] _record_remaining_skipped failed", exc_info=True)
+
+    def _finalize_health() -> None:
+        if not _HEALTH_AVAILABLE:
+            return
+        try:
+            today = now.strftime("%Y-%m-%d")
+            _sh.write_health_summary(today, command_set)
+        except Exception:
+            logging.warning("[scheduler_health] _finalize_health failed", exc_info=True)
+
     try:
         for name, command in run_steps:
-            _run_step(name, command)
+            _run_step_tracked(name, command, command_set, tz_name, health_jobs)
+            ran_step_names.add(name)
         finished_at = _now(ZoneInfo(tz_name)).isoformat()
         payload.update(
             {
@@ -652,7 +767,8 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
         warning_details: list[dict[str, object]] = []
         for name, command in post_sync_steps:
             try:
-                _run_step(name, command)
+                _run_step_tracked(name, command, command_set, tz_name, health_jobs)
+                ran_step_names.add(name)
             except SchedulerStepFailure as exc:
                 details = exc.details
                 if name not in OPTIONAL_POST_SYNC_STEPS:
@@ -681,10 +797,13 @@ def run_daily_cycle(now: datetime, tz_name: str, status: dict[str, object]) -> d
                 }
             )
         logging.info("DONE daily cycle completed")
+        _finalize_health()
     except SchedulerStepFailure as exc:
         finished_at = _now(ZoneInfo(tz_name)).isoformat()
         details = dict(exc.details)
         details["occurred_at"] = details.get("occurred_at") or finished_at
+        _record_remaining_skipped(str(details.get("step_name") or ""))
+        _finalize_health()
         payload.update(
             {
                 "status": "error",

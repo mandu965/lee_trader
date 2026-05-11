@@ -647,6 +647,40 @@ function describePreviewExecutionRisk(row, runtime) {
   return "현재 preview 기준 제출 가능 상태입니다.";
 }
 
+function translateBlockedReason(row) {
+  const key = String(row?.blocked_reason || "").trim();
+  const gapPct = Number(row?.entry_price_gap_pct);
+  const gapStr = Number.isFinite(gapPct) ? ` (${gapPct >= 0 ? "+" : ""}${(gapPct * 100).toFixed(1)}%)` : "";
+  if (key === "entry_gap_up_hard_blocked")
+    return `진입 급등 차단${gapStr} — 기준가 대비 급등으로 매수 보류`;
+  if (key === "entry_gap_up_blocked")
+    return `진입 갭업 차단${gapStr} — 가격 상승으로 매수 보류`;
+  if (key === "buy_qty_zero_budget_below_one_share")
+    return "예산 부족 — 목표 예산이 1주 가격 미달";
+  if (key === "holding_qty_missing")
+    return "보유수량 미확인 — 계좌 CSV 확인 필요";
+  if (key === "invalid_final_request_qty")
+    return "주문수량 0 이하 — 제출 불가";
+  if (key.includes("gap_up"))
+    return `가격 갭업 차단${gapStr}`;
+  return key || "";
+}
+
+function buildPreviewBlockDetail(row) {
+  const parts = [];
+  if (row.blocked_reason) parts.push(`차단: ${row.blocked_reason}`);
+  if (row.entry_price_gate_reason && row.entry_price_gate_reason !== row.blocked_reason)
+    parts.push(`진입게이트: ${row.entry_price_gate_reason}`);
+  const gapPct = Number(row.entry_price_gap_pct);
+  if (Number.isFinite(gapPct))
+    parts.push(`갭: ${gapPct >= 0 ? "+" : ""}${(gapPct * 100).toFixed(1)}%`);
+  const hold = String(row.expected_hold_reason || "");
+  if (hold && !hold.startsWith("No expected"))
+    parts.push(hold);
+  if (!parts.length) return row.raw_reason || row.blocked_reason || "-";
+  return parts.join(" | ");
+}
+
 function renderPreview(preview, runtime) {
   const tbody = document.getElementById("previewTbody");
   const rows = preview?.items || [];
@@ -654,7 +688,12 @@ function renderPreview(preview, runtime) {
     document.getElementById("previewWrap").innerHTML = `<div class="empty-state">order requests preview 산출물이 아직 없습니다.</div>`;
     return;
   }
-  tbody.innerHTML = rows.map((row) => `
+  tbody.innerHTML = rows.map((row) => {
+    const isPolicyAllow = String(row.policy_status || "").toUpperCase() === "ALLOW";
+    const blockMsg = row.blocked_reason && isPolicyAllow
+      ? translateBlockedReason(row)
+      : row.user_message_ko;
+    return `
     <tr>
       <td>${orderStateChip(row)}</td>
       <td class="mono">${escapeHtml(row.request_id || "-")}</td>
@@ -667,10 +706,11 @@ function renderPreview(preview, runtime) {
       <td>${escapeHtml(row.severity || "-")}</td>
       <td class="right">${fmtNum(row.final_request_qty)}</td>
       <td class="right">${fmtNum(row.allowed_qty)}</td>
-      <td>${escapeHtml(row.user_message_ko || describePreviewExecutionRisk(row, runtime))}</td>
-      <td><details><summary>보기</summary>${escapeHtml(row.raw_reason || row.blocked_reason || "-")}</details></td>
+      <td>${escapeHtml(blockMsg || describePreviewExecutionRisk(row, runtime))}</td>
+      <td><details><summary>보기</summary>${escapeHtml(buildPreviewBlockDetail(row))}</details></td>
     </tr>
-  `).join("");
+  `;
+  }).join("");
 }
 
 // ── Execution table ───────────────────────────
@@ -700,16 +740,31 @@ function renderExecution(execution, preview, runtime) {
     wrap.innerHTML = `<div class="empty-state">order requests execution 산출물이 아직 없습니다.</div>`;
     return;
   }
+
+  const executedAt = execution?.executed_at || execution?.generated_at;
+  const asofDate = execution?.asof_date;
+  const existingMeta = wrap.previousElementSibling;
+  if (existingMeta && existingMeta.classList.contains("execution-meta")) existingMeta.remove();
+  if (executedAt) {
+    const meta = document.createElement("div");
+    meta.className = "execution-meta section-note";
+    meta.style.marginBottom = "6px";
+    meta.textContent = `실행: ${String(executedAt).slice(0, 16)}${asofDate ? `  ·  기준일: ${asofDate}` : ""}  ·  총 ${rows.length}건`;
+    wrap.insertAdjacentElement("beforebegin", meta);
+  }
+
   tbody.innerHTML = rows.map((row) => `
     <tr>
       <td>${executionStateChip(row)}</td>
       <td class="mono">${escapeHtml(row.request_id || "-")}</td>
       <td class="mono">${escapeHtml(row.code || "-")}</td>
+      <td>${escapeHtml(row.name || "-")}</td>
       <td>${escapeHtml(row.side || "-")}</td>
       <td>${escapeHtml(row.broker_result || (String(row.submission_status || "").toLowerCase() === "failed" ? "BROKER_REJECT" : row.block_type || "-"))}</td>
       <td class="mono">${escapeHtml(row.broker_error_code || ((String(row.skip_reason || "").match(/msg_cd=([A-Z0-9_-]+)/i) || [])[1]) || "-")}</td>
       <td class="right">${fmtNum(row.final_request_qty)}</td>
       <td class="mono">${escapeHtml(row.broker_order_id || "-")}</td>
+      <td class="mono">${escapeHtml(row.submitted_at ? String(row.submitted_at).slice(0, 16) : "-")}</td>
       <td>${escapeHtml(row.broker_error_message || describeExecutionReason(row.skip_reason, row, runtime))}</td>
     </tr>
   `).join("");

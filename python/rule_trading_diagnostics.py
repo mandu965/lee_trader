@@ -64,6 +64,36 @@ BLOCK_REASON = {
         "user_message_ko": "증권사 주문 API 호출 중 오류가 발생했습니다.",
         "recommended_action": "브로커 응답 코드와 네트워크/인증 상태를 확인하세요.",
     },
+    "GAP_RISK_NEGATIVE": {
+        "category": "POLICY_BLOCK",
+        "severity": "BLOCKED",
+        "user_message_ko": "당일 실제 시가가 전일 기준가 대비 -4% 초과 하락하여 갭 하락 방어 정책에 의해 매수 차단되었습니다.",
+        "recommended_action": "장 시작 시가와 전일 기준가를 비교하고, 갭 차단 임계값 설정을 확인하세요.",
+    },
+    "GAP_RISK_POSITIVE": {
+        "category": "POLICY_BLOCK",
+        "severity": "BLOCKED",
+        "user_message_ko": "당일 실제 시가가 전일 기준가 대비 +5% 초과 상승하여 과열 진입 방어 정책에 의해 매수 차단되었습니다.",
+        "recommended_action": "갭 상승 임계값 설정과 해당 종목의 시가 데이터를 확인하세요.",
+    },
+    "GAP_RISK_UNAVAILABLE": {
+        "category": "POLICY_BLOCK",
+        "severity": "BLOCKED",
+        "user_message_ko": "실제 시가 또는 전일 기준가를 확인할 수 없어 갭 계산이 불가능해 안전 차단되었습니다.",
+        "recommended_action": "장 시작 시가 스냅샷 파일(rule_market_open_snapshot.json)과 KIS API 응답을 확인하세요.",
+    },
+    "MARKET_SNAPSHOT_UNMAPPED": {
+        "category": "POLICY_BLOCK",
+        "severity": "BLOCKED",
+        "user_message_ko": "장 시작 시가 스냅샷에서 해당 종목을 찾지 못해 주문이 안전 차단되었습니다. (매핑 실패)",
+        "recommended_action": "종목코드 6자리 정규화 여부와 market snapshot 수집 결과를 확인하세요.",
+    },
+    "NO_ORDER_ACTION": {
+        "category": "POLICY_BLOCK",
+        "severity": "INFO",
+        "user_message_ko": "해당 종목은 주문 대상이 아닙니다 (NONE 액션).",
+        "recommended_action": "시그널 결과와 포트폴리오 액션을 확인하세요.",
+    },
 }
 
 RAW_REASON_TO_BLOCK_REASON = {
@@ -75,8 +105,23 @@ RAW_REASON_TO_BLOCK_REASON = {
     "daily_buy_amount_limit_exceeded": "CASH_SHORTAGE",
     "weekly_buy_amount_limit_exceeded": "CASH_SHORTAGE",
     "order_submit_failed": "API_ERROR",
+    "order_submit_failed_possibly_sent": "API_ERROR",
     "limit_price_missing": "INVALID_PRICE",
     "market_status_missing": "MARKET_CLOSED",
+    # Gap risk — 실제 갭 하락/상승
+    "actual_open_gap_lt_minus_4pct": "GAP_RISK_NEGATIVE",
+    "actual_open_gap_lt_threshold": "GAP_RISK_NEGATIVE",
+    "actual_open_gap_gt_5pct": "GAP_RISK_POSITIVE",
+    "actual_open_gap_gt_threshold": "GAP_RISK_POSITIVE",
+    # Gap risk — 데이터 없음 (실제 갭 하락과 구분)
+    "actual_open_gap_unavailable": "GAP_RISK_UNAVAILABLE",
+    "actual_open_price_unavailable": "GAP_RISK_UNAVAILABLE",
+    "prev_close_unavailable": "GAP_RISK_UNAVAILABLE",
+    "actual_open_gap_blocked": "GAP_RISK_UNAVAILABLE",
+    # Snapshot 매핑 실패 (종목코드 미발견)
+    "market_snapshot_unmapped": "MARKET_SNAPSHOT_UNMAPPED",
+    # 주문 액션 없음
+    "no_order_action": "NO_ORDER_ACTION",
 }
 
 
@@ -226,7 +271,12 @@ def select_primary_block_reason(details: list[dict[str, Any]]) -> dict[str, Any]
         "MIN_ORDER_AMOUNT": 70,
         "CASH_SHORTAGE": 60,
         "MARKET_CLOSED": 50,
-        "INVALID_PRICE": 40,
-        "API_ERROR": 30,
+        "INVALID_PRICE": 45,
+        "API_ERROR": 40,
+        "GAP_RISK_NEGATIVE": 35,
+        "GAP_RISK_POSITIVE": 35,
+        "GAP_RISK_UNAVAILABLE": 30,
+        "MARKET_SNAPSHOT_UNMAPPED": 28,
+        "NO_ORDER_ACTION": 5,
     }
     return sorted(details, key=lambda item: priority.get(str(item.get("block_reason")), 0), reverse=True)[0]

@@ -51,3 +51,50 @@ docker compose run --rm scheduler-live-account-sync python python/sync_web_displ
 - `python/run_live_auto_trade_cycle.py` sends critical alerts for order submission failure and fill sync failure.
 - Policy reference: `doc/alert_policy.md`
 - If `SLACK_WEBHOOK_URL` is not configured, alerts fall back to console/log output without stopping operations.
+
+## Project C Phase 2-2: US Financial Collector
+
+Current status:
+
+- A standalone `yfinance`-based US financial collector is implemented.
+- It is not attached to any production scheduler.
+- It must be run manually.
+
+Operational rules:
+
+- `US_FINANCIAL_COLLECT_ENABLED` must remain disabled by default.
+- US financial collection failure must not affect Korean AI or RULE auto-trading operations.
+- Do not attach the future collector to `run_pipeline.py`, `run_live_auto_trade_cycle.py`, or `run_daily_scheduler.py` in this phase.
+
+Manual execution:
+
+```powershell
+python -m python.us.collect_us_financials_yfinance
+python -m python.us.collect_us_financials_yfinance --universe NASDAQ100 --limit 10
+python -m python.us.collect_us_financials_yfinance --ticker AAPL --ticker MSFT
+```
+
+Planned storage:
+
+- `raw.us_stock_financial_statement`
+- `raw.us_stock_financial_metric`
+
+Write policy:
+
+- upsert by `ticker + period_type + fiscal_date + source`
+- nullable metrics allowed because `yfinance` coverage is inconsistent across tickers and periods
+
+Failure checks:
+
+1. confirm `US_FINANCIAL_COLLECT_ENABLED`
+2. confirm `US_FINANCIAL_SOURCE=yfinance`
+3. confirm Phase 2-1 financial schema migration is applied in the target DB
+4. confirm `market.us_stock_universe` has active US tickers
+5. inspect ticker-level retry/failure logs
+6. confirm rows in `raw.us_stock_financial_statement` and `raw.us_stock_financial_metric`
+
+Notes:
+
+- `yfinance` may omit fields by ticker or by period.
+- Missing fields should not be treated as batch failure.
+- Failed tickers are isolated unless `US_FINANCIAL_FAIL_FAST=1`.

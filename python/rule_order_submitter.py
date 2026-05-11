@@ -186,15 +186,51 @@ def _build_market_snapshot(symbols: list[str], out_path: Path) -> dict[str, Any]
     return payload
 
 
+def _gap_thresholds() -> tuple[float, float]:
+    """환경변수로 갭 차단 임계값을 읽습니다. 기본값: 상단 +5%, 하단 -4%."""
+    try:
+        upper = float(os.environ.get("RULE_BUY_MAX_ACTUAL_OPEN_GAP", "0.05"))
+    except (ValueError, TypeError):
+        upper = 0.05
+    try:
+        lower = float(os.environ.get("RULE_BUY_MIN_ACTUAL_OPEN_GAP", "-0.04"))
+    except (ValueError, TypeError):
+        lower = -0.04
+    return upper, lower
+
+
+def _block_on_gap_unavailable() -> bool:
+    return os.environ.get("RULE_BLOCK_ON_OPEN_GAP_UNAVAILABLE", "1").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _live_order_context(item: dict[str, Any], market_row: dict[str, Any] | None, preview: dict[str, Any]) -> dict[str, Any]:
+    side = str(item.get("side") or "NONE").upper()
     actual_open_gap = _float((market_row or {}).get("actual_open_gap"))
-    actual_gap_reason = None
-    if actual_open_gap is None and str(item.get("side") or "").upper() == "BUY":
-        actual_gap_reason = "actual_open_gap_unavailable"
-    elif actual_open_gap is not None and actual_open_gap > 0.05:
-        actual_gap_reason = "actual_open_gap_gt_5pct"
-    elif actual_open_gap is not None and actual_open_gap < -0.04:
-        actual_gap_reason = "actual_open_gap_lt_minus_4pct"
+    actual_gap_reason: str | None = None
+    gap_upper, gap_lower = _gap_thresholds()
+
+    if side == "BUY":
+        if market_row is None:
+            # snapshot 파일에 종목코드가 없음 (매핑 실패)
+            actual_gap_reason = "market_snapshot_unmapped"
+        elif actual_open_gap is None:
+            # snapshot row는 있지만 open_price/prev_close 값이 유효하지 않음
+            if _block_on_gap_unavailable():
+                actual_gap_reason = "actual_open_gap_unavailable"
+        elif actual_open_gap > gap_upper:
+            actual_gap_reason = "actual_open_gap_gt_5pct"
+        elif actual_open_gap < gap_lower:
+            actual_gap_reason = "actual_open_gap_lt_minus_4pct"
+
+    open_price = (market_row or {}).get("open_price")
+    prev_close = (market_row or {}).get("previous_close")
+    _log(
+        f"[RULE_ORDER_GUARD] symbol={item.get('code')} name={item.get('name')} side={side} "
+        f"prev_close={prev_close} open_price={open_price} actual_open_gap={actual_open_gap} "
+        f"market_row_found={market_row is not None} actual_gap_reason={actual_gap_reason}"
+    )
+    if market_row is not None and (open_price is None or (isinstance(open_price, (int, float)) and open_price <= 0)):
+        _log(f"[RULE_ORDER_GUARD] WARNING open_price={open_price} is None/zero for symbol={item.get('code')} — actual_open_gap should be None")
 
     base_gap_reason = item.get("gap_risk_reason")
     gap_reason = actual_gap_reason or base_gap_reason

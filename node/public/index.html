@@ -340,7 +340,8 @@
       const meta = getCalibrationMeta();
       const bucket = getCalibrationBucket(score);
       if (!meta || !bucket) return null;
-      const calibratedScore = toNum(bucket.calibrated_confidence_score);
+      const rawCalibratedScore = bucket.calibrated_confidence_score;
+      const calibratedScore = (rawCalibratedScore === null || rawCalibratedScore === undefined) ? null : toNum(rawCalibratedScore);
       const band = String(bucket.calibrated_confidence_band || "unknown").toLowerCase();
       const sourceMode = String(meta.source_mode || "");
       return {
@@ -472,6 +473,7 @@
       const view = getCalibrationView(r.confidence_score);
       if (!view || !view.isProvisional) return "";
       const band = view.band || "unknown";
+      if (band === "unknown") return "";
       const scoreText = view.calibratedScore === null ? "" : ` ${fmtScore(view.calibratedScore)}`;
       const bandText = band === "high" ? "높음" : band === "medium" ? "중간" : band === "low" ? "낮음" : "정보없음";
       return `<span class="compact-badge compact-badge--calibration is-${escapeHtml(band)}" title="walk-forward provisional calibration 기준 ${escapeHtml(view.bucketLabel)} bucket">${escapeHtml(`WF ${bandText}${scoreText}`)}</span>`;

@@ -31,16 +31,16 @@
 
 | 순위 | 과제 | 상태 | 파일 |
 |---:|---|:---:|---|
-| 1 | Ranking Trust Gate 구축 | 🔄 진행중 | 01_trust_gate.md |
-| 2 | 자동매매 BUY gate 신뢰도 연결 | ⬜ 대기 | 02_buy_gate.md |
-| 3 | AI 자동매매 종목별 청산 로직 추가 | ⬜ 대기 | 03_ai_exit.md |
-| 4 | submit_unknown + broker lookup 복구 | ⬜ 대기 | 04_order_recovery.md |
-| 5 | scheduler health ledger 구축 | ⬜ 대기 | 05_health_ledger.md |
-| 6 | Rule live strong_entry 기준 고정 | ⬜ 대기 | 06_rule_entry.md |
-| 7 | AI/Rule 시장 레짐 공통화 | ⬜ 대기 | 07_regime_unify.md |
-| 8 | max_holding_days 청산 백테스트 실험 | ⬜ 대기 | 08_holding_backtest.md |
-| 9 | 섹터 집중 hard cap 명시화 | ⬜ 대기 | 09_sector_cap.md |
-| 10 | theme overlay 활성화 시 알림/로그 추가 | ⬜ 대기 | 10_theme_alert.md |
+| 1 | Ranking Trust Gate 구축 | ⏸ 불필요 | 01_trust_gate.md |
+| 2 | 자동매매 BUY gate 신뢰도 연결 | ⏸ 불필요 | 02_buy_gate.md |
+| 3 | AI 자동매매 종목별 청산 로직 추가 | ✅ 완료 | 03_ai_exit.md |
+| 4 | submit_unknown + broker lookup 복구 | ⏸ 보류 | 04_order_recovery.md |
+| 5 | scheduler health ledger 구축 | ✅ 완료 | 05_health_ledger.md |
+| 6 | Rule live strong_entry 기준 고정 | ⏸ 불필요 | 06_rule_entry.md |
+| 7 | AI/Rule 시장 레짐 공통화 | ⏸ 보류 | 07_regime_unify.md |
+| 8 | max_holding_days 청산 백테스트 실험 | ⏸ 보류 | 08_holding_backtest.md |
+| 9 | 섹터 집중 hard cap 명시화 | ⏸ 불필요 | 09_sector_cap.md |
+| 10 | theme overlay 활성화 시 알림/로그 추가 | ⏸ 불필요 | 10_theme_alert.md |
 
 **상태 표시:** ✅ 완료 / 🔄 진행중 / ⬜ 대기 / ⏸ 보류
 
@@ -110,3 +110,6 @@ doc/improvement/[과제파일].md를 읽고
 | 날짜 | 내용 |
 |---|---|
 | 2026-05-07 | 최초 작성. 10개 과제 정의. |
+| 2026-05-12 | 3차 과제(AI 청산 로직) 완료. ai_position_risk.py 신설, apply_execution_policy.py·run_daily_scheduler.py·run_live_auto_trade_cycle.py 수정. |
+| 2026-05-12 | 5차 과제(scheduler health ledger) 완료. scheduler_health.py 신설, run_daily_scheduler.py 수정. |
+| 2026-05-12 | 전체 과제 재검토. 1·2·6·9·10번 불필요(이미 구현되어 있거나 현실과 불일치), 4·7·8번 보류. 실질 완료. |

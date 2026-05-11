@@ -6,6 +6,7 @@ const fmtNum = (v, digits = 0) => {
 };
 
 const fmtPct = (v, digits = 2) => {
+  if (v === null || v === undefined) return "-";
   const n = Number(v);
   if (!Number.isFinite(n)) return "-";
   return `${(n * 100).toFixed(digits)}%`;
@@ -45,14 +46,14 @@ const actionChip = (v) => {
 
 const orderStatusChip = (row) => {
   const s = row.order_status;
-  if (s === "simulated_filled" || s === "filled") return `<span class="chip ok">체결</span>`;
+  if (s === "simulated_filled" || s === "filled")     return `<span class="chip ok">체결</span>`;
   if (s === "simulated_unfilled" || s === "unfilled") return `<span class="chip warn">미체결</span>`;
-  if (s === "submitted") return `<span class="chip ok">제출</span>`;
+  if (s === "submitted")    return `<span class="chip ok">제출</span>`;
   if (s === "partial_filled") return `<span class="chip info">부분체결</span>`;
-  if (s === "canceled") return `<span class="chip warn">취소</span>`;
-  if (s === "failed") return `<span class="chip bad">실패</span>`;
-  if (s === "blocked") return `<span class="chip bad">차단</span>`;
-  if (row.order_allowed) return `<span class="chip ok">허용</span>`;
+  if (s === "canceled")     return `<span class="chip warn">취소</span>`;
+  if (s === "failed")       return `<span class="chip bad">실패</span>`;
+  if (s === "blocked")      return `<span class="chip bad">차단</span>`;
+  if (row.order_allowed)    return `<span class="chip ok">허용</span>`;
   if (row.side === "BUY" || row.side === "SELL") return `<span class="chip info">미리보기</span>`;
   return `<span class="chip bad">차단</span>`;
 };
@@ -70,7 +71,7 @@ async function fetchJson(url) {
   return res.json();
 }
 
-/* ── 탭 전환 ── */
+/* ── 주 탭 전환 ── */
 function initTabs() {
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -79,7 +80,37 @@ function initTabs() {
       document.querySelectorAll(".tab-pane").forEach((p) => p.classList.remove("active"));
       btn.classList.add("active");
       document.getElementById(`tab-${tab}`)?.classList.add("active");
+      // 주문 탭 진입 시 토글 버튼 보임/숨김
+      document.getElementById("buyOnlyToggle").style.display = tab === "orders" ? "" : "none";
     });
+  });
+}
+
+/* ── 서브 탭 전환 ── */
+function initSubTabs() {
+  document.querySelectorAll(".sub-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const sub = btn.dataset.sub;
+      document.querySelectorAll(".sub-tab-btn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".sub-tab-pane").forEach((p) => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(`sub-${sub}`)?.classList.add("active");
+    });
+  });
+}
+
+/* ── BUY only 토글 ── */
+let _portfolioAllItems = [];
+let _buyOnly = true;
+
+function initBuyOnlyToggle() {
+  const btn = document.getElementById("buyOnlyToggle");
+  btn.style.display = "none"; // 주문 탭 외에는 숨김
+  btn.addEventListener("click", () => {
+    _buyOnly = !_buyOnly;
+    btn.classList.toggle("active", _buyOnly);
+    btn.textContent = _buyOnly ? "BUY/SELL만 보기" : "전체 보기";
+    renderPortfolio(_portfolioAllItems);
   });
 }
 
@@ -93,10 +124,10 @@ function renderSafety(summary, diagnostics) {
   const controls = ops.controls || {};
   const diag     = diagnostics?.summary || {};
 
-  const killActive = controls.global_kill_switch || controls.rule_kill_switch;
+  const killActive  = controls.global_kill_switch || controls.rule_kill_switch;
   const weeklyBlocked = diag.weekly_blocked;
-  const liveReady  = diag.live_trade_ready;
-  const runMode    = esc(diag.run_mode || summary.run_mode || "-");
+  const liveReady   = diag.live_trade_ready;
+  const runMode     = esc(diag.run_mode || summary.run_mode || "-");
 
   const flags = [
     `GLOBAL ${flagText(controls.global_kill_switch)}`,
@@ -158,7 +189,7 @@ function renderHero(summary) {
 }
 
 /* ── 탭 뱃지 업데이트 ── */
-function updateBadges(summary, signals, preview) {
+function updateBadges(summary, signals, preview, execResults) {
   const counts = summary.counts || {};
   document.getElementById("badgeSignals").textContent =
     fmtNum((counts.entry_signal_count || 0) + (counts.strong_entry_count || 0));
@@ -166,6 +197,40 @@ function updateBadges(summary, signals, preview) {
     fmtNum(counts.preview_request_count || 0);
   document.getElementById("badgeAccount").textContent =
     fmtNum(counts.account_position_count || counts.paper_position_count || 0);
+
+  // 서브탭 뱃지
+  const portfolioCount = counts.total_candidates || 0;
+  const draftCount     = (preview?.items || []).length;
+  const execCount      = (execResults?.items || []).length;
+  document.getElementById("badgePortfolio").textContent = portfolioCount || "-";
+  document.getElementById("badgeDraft").textContent     = draftCount     || "-";
+  document.getElementById("badgeExecution").textContent = execCount      || "-";
+}
+
+/* ── 개요 — Top 3 Strong 카드 ── */
+function renderSignalCards(strongItems) {
+  const el = document.getElementById("signalCardsGrid");
+  if (!strongItems.length) {
+    el.innerHTML = `<div class="empty" style="grid-column:1/-1">오늘 Strong 시그널이 없습니다.</div>`;
+    return;
+  }
+  el.innerHTML = strongItems.slice(0, 3).map((item, idx) => {
+    const rankLabel = ["1위", "2위", "3위"][idx] || `${idx+1}위`;
+    return `
+      <div class="signal-card">
+        <div class="signal-card-top">
+          <span class="chip ok" style="font-size:10px">${rankLabel}</span>
+          <span class="signal-card-code">${esc(item.code)}</span>
+          ${actionChip(item.portfolio_action || "hold")}
+        </div>
+        <div class="signal-card-name">${esc(item.name)}</div>
+        <div class="signal-card-score ${signedClass(item.rule_score)}">${fmtNum(item.rule_score, 1)}</div>
+        <div class="signal-card-meta">
+          예상 갭 ${fmtPct(item.expected_gap)} &nbsp;·&nbsp; ${esc(item.sector || "-")}
+        </div>
+      </div>
+    `;
+  }).join("");
 }
 
 /* ── 시스템 안전 상태 ── */
@@ -206,11 +271,11 @@ function renderWhyNoTrade(diagnostics) {
 
 /* ── 차단 사유 분포 ── */
 function renderBlockReasons(summary) {
-  const dist   = summary.distributions || {};
-  const order  = dist.order_block_reason || [];
-  const value  = dist.trading_value_block_reason || [];
-  const gap    = dist.gap_risk_reason || [];
-  const rows   = [];
+  const dist  = summary.distributions || {};
+  const order = dist.order_block_reason || [];
+  const value = dist.trading_value_block_reason || [];
+  const gap   = dist.gap_risk_reason || [];
+  const rows  = [];
 
   order.slice(0, 5).forEach((i) =>
     rows.push(`<div class="kv-row"><span>주문 차단 · ${esc(i.name)}</span><strong>${fmtNum(i.count)}건</strong></div>`));
@@ -261,18 +326,17 @@ function renderStrongSignals(items) {
   }
   tbody.innerHTML = items.map((item, idx) => {
     const rank = idx + 1;
-    const rankCls = rank <= 3 ? "top" : "";
     return `
       <tr>
-        <td><span class="rank-badge ${rankCls}">${rank}</span></td>
+        <td><span class="rank-badge ${rank <= 3 ? "top" : ""}">${rank}</span></td>
         <td class="mono">${esc(item.code)}</td>
         <td>${esc(item.name)}</td>
-        <td title="${esc(item.sector || "")}">${esc(item.sector || "-")}</td>
+        <td title="${esc(item.sector || "")}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.sector || "-")}</td>
         <td class="right ${scoreClass(item.rule_score)}">${fmtNum(item.rule_score, 2)}</td>
         <td class="right ${scoreClass(item.rule_score_v2)}">${fmtNum(item.rule_score_v2, 2)}</td>
         <td class="right">${fmtNum(item.expected_entry_price)}</td>
         <td class="right ${signedClass(item.expected_gap)}">${fmtPct(item.expected_gap)}</td>
-        <td>${actionChip(item.portfolio_action || "hold")}</td>
+        <td class="center">${actionChip(item.portfolio_action || "hold")}</td>
       </tr>
     `;
   }).join("");
@@ -290,10 +354,10 @@ function renderEntrySignals(items) {
       : (!item.trading_value_pass ? item.trading_value_block_reason : "없음");
     return `
       <tr>
-        <td>${signalChip(item.signal_strength)}</td>
+        <td class="center">${signalChip(item.signal_strength)}</td>
         <td class="mono">${esc(item.code)}</td>
         <td>${esc(item.name)}</td>
-        <td title="${esc(item.sector || "")}">${esc(item.sector || "-")}</td>
+        <td title="${esc(item.sector || "")}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.sector || "-")}</td>
         <td class="right ${scoreClass(item.rule_score)}">${fmtNum(item.rule_score, 2)}</td>
         <td class="right ${scoreClass(item.rule_score_v2)}">${fmtNum(item.rule_score_v2, 2)}</td>
         <td class="right">${fmtWon(item.trading_value_ma_20)}</td>
@@ -305,17 +369,26 @@ function renderEntrySignals(items) {
 
 /* ── 포트폴리오 계획 ── */
 function renderPortfolio(items) {
+  _portfolioAllItems = items;
+  const filtered = _buyOnly
+    ? items.filter((i) => ["buy","sell"].includes(String(i.portfolio_action || "").toLowerCase()))
+    : items;
+
+  const meta = document.getElementById("portfolioMeta");
+  const totalBuy = items.filter((i) => String(i.portfolio_action || "").toLowerCase() === "buy").length;
+  meta.textContent = `BUY ${totalBuy}건 / 전체 ${items.length}건${_buyOnly ? " (BUY/SELL만 표시)" : ""}`;
+
   const tbody = document.getElementById("portfolioTbody");
-  if (!items.length) {
+  if (!filtered.length) {
     tbody.innerHTML = `<tr><td colspan="8" class="center"><div class="empty">포트폴리오 계획이 없습니다.</div></td></tr>`;
     return;
   }
-  tbody.innerHTML = items.slice(0, 40).map((item) => `
+  tbody.innerHTML = filtered.map((item) => `
     <tr>
       <td>${actionChip(item.portfolio_action)}</td>
       <td class="mono">${esc(item.code)}</td>
       <td>${esc(item.name)}</td>
-      <td>${esc(item.sector || "-")}</td>
+      <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(item.sector||"")}">${esc(item.sector || "-")}</td>
       <td class="right">${fmtPct(item.target_weight)}</td>
       <td class="right">${fmtPct(item.current_weight)}</td>
       <td class="right">${fmtWon(item.target_amount)}</td>
@@ -324,18 +397,20 @@ function renderPortfolio(items) {
   `).join("");
 }
 
-/* ── 주문 미리보기 ── */
+/* ── 주문 초안 ── */
 function renderPreview(items) {
   const tbody = document.getElementById("previewTbody");
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="center"><div class="empty">주문 미리보기가 없습니다.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="center"><div class="empty">주문 초안이 없습니다.</div></td></tr>`;
     return;
   }
   tbody.innerHTML = items.slice(0, 50).map((item) => {
     const blockChips = (Array.isArray(item.block_reason_details) ? item.block_reason_details : [])
       .map((d) => {
         const cls = d.category === "API_ERROR" || d.severity === "ERROR" || d.severity === "BLOCKED" ? "bad" : "warn";
-        return `<span class="chip ${cls}">${esc(d.block_reason || d.raw_reason || "-")}</span>`;
+        const label = d.block_reason && d.block_reason !== "UNMAPPED" ? d.block_reason : (d.raw_reason || "-");
+        const tip = d.user_message_ko ? esc(d.user_message_ko) : "";
+        return `<span class="chip ${cls}" title="${tip}">${esc(label)}</span>`;
       }).join(" ") || esc(item.order_block_reason || "-");
     return `
       <tr>
@@ -367,7 +442,9 @@ function renderExecution(results) {
     const blockChips = (Array.isArray(item.block_reason_details) ? item.block_reason_details : [])
       .map((d) => {
         const cls = d.category === "API_ERROR" || d.severity === "ERROR" || d.severity === "BLOCKED" ? "bad" : "warn";
-        return `<span class="chip ${cls}">${esc(d.block_reason || d.raw_reason || "-")}</span>`;
+        const label = d.block_reason && d.block_reason !== "UNMAPPED" ? d.block_reason : (d.raw_reason || "-");
+        const tip = d.user_message_ko ? esc(d.user_message_ko) : "";
+        return `<span class="chip ${cls}" title="${tip}">${esc(label)}</span>`;
       }).join(" ") || esc(item.order_block_reason || "-");
     return `
       <tr>
@@ -432,12 +509,9 @@ async function loadRuleDashboard() {
 
     renderSafety(summary, diagnostics);
     renderHero(summary);
-    updateBadges(summary, signals, preview);
-    renderSystemStatus(diagnostics);
-    renderWhyNoTrade(diagnostics);
-    renderBlockReasons(summary);
-    renderBacktest(summary);
+    updateBadges(summary, signals, preview, executionResults);
 
+    // 개요 탭
     const strongItems = (signals.items || [])
       .filter((i) => i.strong_entry_signal)
       .slice(0, 10)
@@ -445,11 +519,22 @@ async function loadRuleDashboard() {
         const plan = (portfolio.items || []).find((r) => r.code === i.code);
         return { ...i, portfolio_action: plan?.portfolio_action || "hold" };
       });
+    renderSignalCards(strongItems);
+    renderSystemStatus(diagnostics);
+    renderWhyNoTrade(diagnostics);
+    renderBlockReasons(summary);
+    renderBacktest(summary);
+
+    // 시그널 탭
     renderStrongSignals(strongItems);
     renderEntrySignals((signals.items || []).filter((i) => i.entry_signal).slice(0, 20));
+
+    // 주문 탭 (서브탭 3개)
     renderPortfolio(portfolio.items || []);
     renderPreview(preview.items || []);
     renderExecution(executionResults);
+
+    // 계좌 탭
     renderPaperState(paperState);
 
     const counts = summary.counts || {};
@@ -473,7 +558,7 @@ async function loadRuleDashboard() {
 
 document.addEventListener("DOMContentLoaded", () => {
   initTabs();
-  document.getElementById("refreshBtn")?.addEventListener("click", () =>
-    loadRuleDashboard().catch(console.error));
+  initSubTabs();
+  initBuyOnlyToggle();
   loadRuleDashboard().catch(console.error);
 });

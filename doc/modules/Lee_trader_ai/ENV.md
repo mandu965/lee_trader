@@ -78,3 +78,28 @@ This document summarizes environment variables used by the AI pipeline and live 
 - Other `4xx`: fail immediately.
 - `order_cash` and `order_rvsecncl` should remain `no_retry=True` to avoid duplicate orders.
 - If retries are exhausted, the system should log at critical level and attempt notifier delivery without stopping the main flow.
+
+## Project C Phase 2-2: US Financial Collector
+
+The following variables are used by the standalone US stock financial collector.
+The collector is implemented, but it is not attached to production schedulers.
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_FINANCIAL_COLLECT_ENABLED` | `0` | Master switch for the standalone US financial collector | Project C US financial | Must stay disabled by default |
+| `US_FINANCIAL_SOURCE` | `yfinance` | Financial data source | standalone collector | Only `yfinance` is supported now |
+| `US_FINANCIAL_PERIOD_TYPES` | `annual,quarterly` | Period types to request | standalone collector | Only `annual` and `quarterly` are supported now |
+| `US_FINANCIAL_LOOKBACK_YEARS` | `5` | History depth filter for fiscal periods | standalone collector | Older periods are skipped |
+| `US_FINANCIAL_MAX_TICKERS_PER_RUN` | `100` | Per-run ticker cap | standalone collector | Prevents accidental large runs |
+| `US_FINANCIAL_SLEEP_SEC` | `1.0` | Sleep between ticker requests | standalone collector | Conservative default |
+| `US_FINANCIAL_RETRY_COUNT` | `3` | Retry count on temporary ticker failures | standalone collector | Applied per ticker |
+| `US_FINANCIAL_RETRY_SLEEP_SEC` | `5` | Retry wait seconds | standalone collector | Applied between retries |
+| `US_FINANCIAL_FAIL_FAST` | `0` | Stop on first ticker failure when enabled | standalone collector | Default keeps ticker failures isolated |
+| `US_FINANCIAL_WRITE_MODE` | `upsert` | DB write mode | standalone collector | Only `upsert` is supported now |
+| `US_FINANCIAL_LOG_LEVEL` | `INFO` | Collector log level | standalone collector | Safe default |
+
+### Operating Notes
+
+- `US_FINANCIAL_COLLECT_ENABLED=0` keeps the collector detached from current production schedulers.
+- The collector is standalone only and is not wired into Korean schedulers.
+- `US_FINANCIAL_*` settings must remain independent from Korean AI, RULE, and live-order flows.

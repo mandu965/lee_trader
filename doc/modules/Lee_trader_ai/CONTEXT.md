@@ -1,46 +1,45 @@
 # Lee_trader_ai Context
 
-## 개요
+## Overview
 
-- 이 모듈은 데이터 수집, feature 생성, 모델 예측, 랭킹 산출, AI 주문 preview, 실자동매매, 웹 반영까지 포함합니다.
-- AI 운영 경로는 `run_pipeline.py`와 `run_live_auto_trade_cycle.py`를 중심으로 이어집니다.
-- 배치, DB, 웹, 실계좌 동기화가 강하게 연결되어 있어 단일 파일 변경도 연쇄 영향이 큽니다.
+- `Lee_trader_ai` covers the Korean AI recommendation, ranking, preview, and live auto-trading path.
+- The main runtime path is centered on `run_pipeline.py` and `run_live_auto_trade_cycle.py`.
+- Ranking, preview payloads, order submission, and web sync are tightly coupled, so changes in this area require extra caution.
 
-## 핵심 흐름
+## Main Runtime Flow
 
-- 데이터/예측 파이프라인
-  - `fetch_market_data -> fetch_top_universe -> download_prices_kis -> clean_prices -> create_adjusted_prices -> fetch_fundamentals_dart -> quality_builder -> feature_builder -> label_builder -> model_train -> model_predict -> ranking_builder`
-- 점수/랭킹
-  - `ranking_builder.py`가 예측, 품질, 기술, 리스크, overlay 정보를 합쳐 `final_score`, `live_rank`, `rank_final` 등을 계산합니다.
-- 주문 준비
-  - `build_trade_intents.py`가 매매 의도를 만듭니다.
-  - `build_live_order_preview.py`가 preview와 차단 사유를 생성합니다.
-- 실주문
-  - `run_live_auto_trade_cycle.py`가 자동매매 사이클을 실행합니다.
-  - `submit_live_orders.py`가 KIS 주문 호출 직전 최종 검증과 제출을 담당합니다.
-- 웹 반영
-  - `sync_web_display_data.py`가 JSON 산출물과 DB payload를 동기화합니다.
-  - `node/index.js`와 프론트 JS가 이를 화면에 노출합니다.
+- Data / feature / model path:
+  - `fetch_market_data -> download_prices_kis -> clean_prices -> create_adjusted_prices -> quality_builder -> feature_builder -> label_builder -> model_train -> model_predict -> ranking_builder`
+- Order preparation path:
+  - `build_trade_intents.py -> build_live_order_preview.py -> submit_live_orders.py`
+- Live operation path:
+  - `run_live_auto_trade_cycle.py -> sync_live_order_fills.py -> sync_live_account_holdings.py -> sync_web_display_data.py`
 
-## 운영상 주의점
+## Operational Notes
 
-- `ranking_builder.py`는 점수, 순위, 주문 후보, UI 정렬에 동시에 영향을 줍니다.
-- `submit_live_orders.py`와 `run_live_auto_trade_cycle.py`는 실주문 경로이므로 보수적으로 수정해야 합니다.
-- `DATABASE_URL`과 Postgres 경로가 기본 운영 기준입니다.
-- preview와 execution JSON 스키마가 바뀌면 프론트와 API를 같이 수정해야 합니다.
-- AI 일반 경로와 RULE 경로는 계좌, 앱키, 실주문 상태를 섞지 않습니다.
+- `ranking_builder.py` affects score output, live ranking, preview payloads, and UI payload ordering.
+- `submit_live_orders.py` and `run_live_auto_trade_cycle.py` are part of the Korean live order path and must be treated as high-risk files.
+- `DATABASE_URL` and Postgres are the default persistence path for current AI operations.
 
-## 연관 모듈
+## Related Modules
 
 - `Lee_trader_score`
-  - 점수 계산의 핵심 로직을 공유합니다.
+  - shared score calculation logic
 - `Lee_trader_backTest`
-  - prediction history, ranking history, outcome 계산과 연결됩니다.
+  - prediction history, ranking history, and outcome analysis
 - `Lee_trader_rule`
-  - 일부 데이터와 웹 동기화 경로는 공유하지만 주문 경로는 분리됩니다.
+  - Korean rule-based trading path kept separate from the AI order path
 
-## 확인 포인트
+## Project C Phase 2-2
 
-- 최신 ranking 산출물이 preview와 화면까지 일관되게 반영되는지
-- 실주문 guard가 preview 해석과 서로 어긋나지 않는지
-- live account/fill sync 결과가 UI payload에 반영되는지
+- Project C is expanding into a separate US stock financial data track.
+- Phase 2-2 implements a standalone `yfinance`-based financial raw collector.
+- This phase covers raw financial statement / metric collection only.
+- Feature generation, label generation, ranking integration, paper trading, and live trading are still out of scope.
+
+## Separation Principle
+
+- Korean auto-trading and US financial data collection must remain operationally separate.
+- Failure in a future US financial collector must not stop Korean AI or RULE pipelines.
+- `US_FINANCIAL_*` settings are reserved for the future Project C collector only.
+- Phase 2-2 must not modify Korean KIS order execution, Korean scoring, or Korean scheduler wiring.
