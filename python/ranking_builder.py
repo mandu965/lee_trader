@@ -3516,6 +3516,9 @@ def _merge_inputs(
     for col in ["vol_20", "vol_60", "vol_ma_20", "volume", "mom_20", "close_over_ma20", "rsi_14", "vol_ratio_20", "ma_5", "ma_20", "ma_60", "ret_5d", "ret_10d"]:
         if col in feats.columns:
             feat_cols.append(col)
+    for col in ["flow_foreign_net_5d", "flow_inst_net_5d", "flow_foreign_net_20d", "flow_inst_net_20d"]:
+        if col in feats.columns:
+            feat_cols.append(col)
 
     base = base.merge(
         feats[feat_cols],
