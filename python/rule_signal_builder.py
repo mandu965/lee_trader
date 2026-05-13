@@ -214,6 +214,8 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
         "liquidity_score",
         "quality_missing_ratio",
         "quality_score_confidence",
+        "flow_foreign_net_5d",
+        "flow_inst_net_5d",
     ]:
         if col not in out.columns:
             out[col] = np.nan
@@ -284,6 +286,34 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
         * 100.0
     ).clip(0, 100)
 
+    # flow_component: 외국인 60% + 기관 40% 순매수 날짜내 상대 순위, [0,1]
+    # 데이터 미존재 시 0.5 (neutral) — 수급 없음 ≠ 수급 나쁨
+    has_foreign = "flow_foreign_net_5d" in out.columns and out["flow_foreign_net_5d"].notna().any()
+    has_inst = "flow_inst_net_5d" in out.columns and out["flow_inst_net_5d"].notna().any()
+    if has_foreign and has_inst:
+        _f = percentile_by_date(out, "flow_foreign_net_5d").fillna(50.0) / 100.0
+        _i = percentile_by_date(out, "flow_inst_net_5d").fillna(50.0) / 100.0
+        _flow_raw = (0.6 * _f + 0.4 * _i).clip(0.0, 1.0)
+    elif has_foreign:
+        _flow_raw = (percentile_by_date(out, "flow_foreign_net_5d").fillna(50.0) / 100.0).clip(0.0, 1.0)
+    elif has_inst:
+        _flow_raw = (percentile_by_date(out, "flow_inst_net_5d").fillna(50.0) / 100.0).clip(0.0, 1.0)
+    else:
+        _flow_raw = pd.Series(0.5, index=out.index)
+    out["flow_component"] = _flow_raw
+
+    # rule_score_v3: flow 반영 공식 (shadow — entry_signal은 v2 기반 유지)
+    out["rule_score_v3"] = (
+        (
+            0.30 * out["trend_component"]
+            + 0.25 * out["liquidity_component"]
+            + 0.15 * out["stability_component"]
+            + 0.15 * out["regime_component"]
+            + 0.15 * out["flow_component"]
+        )
+        * 100.0
+    ).clip(0, 100)
+
     base_conditions = (
         (out["close"] > numeric(out.get("ma_20")))
         & (numeric(out.get("ma_20")) >= numeric(out.get("ma_60")))
@@ -306,18 +336,35 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
     entry_rule_score_v2_min = get_float_env("RULE_ENTRY_RULE_SCORE_V2_MIN", 65.0)
     strong_rule_score_min = get_float_env("RULE_STRONG_RULE_SCORE_MIN", 70.0)
     strong_rule_score_v2_min = get_float_env("RULE_STRONG_RULE_SCORE_V2_MIN", 60.0)
+    entry_rule_score_v3_min = get_float_env("RULE_ENTRY_RULE_SCORE_V3_MIN", 65.0)
+    strong_rule_score_v3_min = get_float_env("RULE_STRONG_RULE_SCORE_V3_MIN", 60.0)
     out["entry_rule_score_min"] = entry_rule_score_min
     out["entry_rule_score_v2_min"] = entry_rule_score_v2_min
+    out["entry_rule_score_v3_min"] = entry_rule_score_v3_min
     out["strong_rule_score_min"] = strong_rule_score_min
     out["strong_rule_score_v2_min"] = strong_rule_score_v2_min
-    out["entry_signal"] = base_conditions.fillna(False) & (~overheated) & (
+    out["strong_rule_score_v3_min"] = strong_rule_score_v3_min
+    # v2 shadow: 비교 기록용 (실주문 미사용)
+    out["entry_signal_v2_shadow"] = base_conditions.fillna(False) & (~overheated) & (
         (out["rule_score"] >= entry_rule_score_min) | (out["rule_score_v2"] >= entry_rule_score_v2_min)
     )
-    out["strong_entry_signal"] = base_conditions.fillna(False) & (~overheated) & (
+    out["strong_entry_signal_v2_shadow"] = base_conditions.fillna(False) & (~overheated) & (
         (out["rule_score"] >= strong_rule_score_min) & (out["rule_score_v2"] >= strong_rule_score_v2_min)
+    )
+    # v3 (flow 반영): 실제 entry_signal에 적용
+    out["entry_signal"] = base_conditions.fillna(False) & (~overheated) & (
+        (out["rule_score"] >= entry_rule_score_min) | (out["rule_score_v3"] >= entry_rule_score_v3_min)
+    )
+    out["strong_entry_signal"] = base_conditions.fillna(False) & (~overheated) & (
+        (out["rule_score"] >= strong_rule_score_min) & (out["rule_score_v3"] >= strong_rule_score_v3_min)
     )
     out["signal_strength"] = np.select(
         [out["strong_entry_signal"], out["entry_signal"]],
+        ["strong_entry", "entry"],
+        default="none",
+    )
+    out["signal_strength_v2_shadow"] = np.select(
+        [out["strong_entry_signal_v2_shadow"], out["entry_signal_v2_shadow"]],
         ["strong_entry", "entry"],
         default="none",
     )

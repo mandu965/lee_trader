@@ -1,0 +1,57 @@
+name: Flow Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      flow_start_date:
+        description: "백필 시작일 (YYYYMMDD, 예: 20250101)"
+        required: true
+        type: string
+      flow_end_date:
+        description: "백필 종료일 (YYYYMMDD, 예: 20260513)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lee-trader-flow-backfill
+  cancel-in-progress: false
+
+jobs:
+  flow-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      TZ: Asia/Seoul
+      MARKET_TIMEZONE: Asia/Seoul
+      ENABLE_FLOW_INGESTION: "1"
+      FLOW_START_DATE: ${{ github.event.inputs.flow_start_date }}
+      FLOW_END_DATE: ${{ github.event.inputs.flow_end_date }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      KIS_BASE_URL: ${{ secrets.KIS_BASE_URL }}
+      KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+      KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: python/requirements.txt
+
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgomp1
+
+      - name: Install Python packages
+        run: python -m pip install --upgrade pip && pip install -r python/requirements.txt
+
+      - name: Run flow backfill
+        run: python python/run_flow_ingestion_batch.py

@@ -103,3 +103,80 @@ The collector is implemented, but it is not attached to production schedulers.
 - `US_FINANCIAL_COLLECT_ENABLED=0` keeps the collector detached from current production schedulers.
 - The collector is standalone only and is not wired into Korean schedulers.
 - `US_FINANCIAL_*` settings must remain independent from Korean AI, RULE, and live-order flows.
+
+## Project C Phase 2-3: US Financial Feature Builder
+
+The following variables are used by the standalone US financial feature builder.
+This builder reads raw financial tables and writes a separate financial feature table.
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_FINANCIAL_FEATURE_BUILD_ENABLED` | `0` | Master switch for the standalone US financial feature builder | Project C US financial | Must stay disabled by default |
+| `US_FINANCIAL_FEATURE_SOURCE_STATEMENT_TABLE` | `raw.us_stock_financial_statement` | Raw statement source table | standalone feature builder | Current implementation supports this table only |
+| `US_FINANCIAL_FEATURE_SOURCE_METRIC_TABLE` | `raw.us_stock_financial_metric` | Raw metric source table | standalone feature builder | Current implementation supports this table only |
+| `US_FINANCIAL_FEATURE_TARGET_TABLE` | `feature.us_stock_financial_feature` | Target financial feature table | standalone feature builder | Separate from daily price features |
+| `US_FINANCIAL_FEATURE_PERIOD_TYPES` | `annual,quarterly` | Period types to build | standalone feature builder | Only `annual` and `quarterly` are supported now |
+| `US_FINANCIAL_FEATURE_LOOKBACK_YEARS` | `5` | Source fiscal history depth | standalone feature builder | Older periods are ignored |
+| `US_FINANCIAL_FEATURE_WRITE_MODE` | `upsert` | DB write mode | standalone feature builder | Only `upsert` is supported now |
+| `US_FINANCIAL_FEATURE_LOG_LEVEL` | `INFO` | Builder log level | standalone feature builder | Safe default |
+
+### Operating Notes
+
+- `US_FINANCIAL_FEATURE_BUILD_ENABLED=0` keeps the builder detached from current production schedulers and domestic trading flows.
+- The builder is standalone only and must not be attached to `run_pipeline.py`, `run_live_auto_trade_cycle.py`, or `run_daily_scheduler.py`.
+- Financial features are stored in a separate table because `fiscal_date` / `period_type` do not align with `feature.us_stock_feature_daily`'s daily `feature_date` axis.
+- Null-heavy raw financial inputs are expected. Missing fields should not be treated as batch failure.
+
+## Project C Phase 2-4: US Relative Strength Builder
+
+The following variables are used by the standalone US relative strength builder.
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_RELATIVE_STRENGTH_BUILD_ENABLED` | `0` | Master switch for standalone relative strength generation | Project C US price features | Must stay disabled by default |
+| `US_RELATIVE_STRENGTH_SOURCE_TABLE` | `market.us_stock_daily_price` | Source price table | standalone relative strength builder | Current implementation supports this table only |
+| `US_RELATIVE_STRENGTH_TARGET_TABLE` | `feature.us_stock_relative_strength_daily` | Target relative strength table | standalone relative strength builder | Separate from existing Phase 1 daily features |
+| `US_RELATIVE_STRENGTH_BENCHMARKS` | `SPY,QQQ` | Fixed benchmark list | standalone relative strength builder | Only `SPY,QQQ` is supported in this phase |
+| `US_RELATIVE_STRENGTH_WINDOWS` | `5,20,60,120,252` | Trading-day return windows | standalone relative strength builder | Used for return and relative strength features |
+| `US_RELATIVE_STRENGTH_PRICE_COLUMN` | `auto` | Price column selection mode | standalone relative strength builder | `adj_close_price` first, `close_price` fallback |
+| `US_RELATIVE_STRENGTH_WRITE_MODE` | `upsert` | DB write mode | standalone relative strength builder | Only `upsert` is supported now |
+| `US_RELATIVE_STRENGTH_LOG_LEVEL` | `INFO` | Builder log level | standalone relative strength builder | Safe default |
+
+### Relative Strength Notes
+
+- `US_RELATIVE_STRENGTH_BUILD_ENABLED=0` keeps the builder detached from domestic production schedulers.
+- `SPY` and `QQQ` price rows must already exist in `market.us_stock_daily_price`.
+- If either benchmark is missing, the related benchmark return and relative strength fields are left null with warning logs.
+
+## Project C Phase 2-5: US Label Builder
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_LABEL_BUILD_ENABLED` | `0` | Master switch for standalone label generation | Project C US labels | Must stay disabled by default |
+| `US_LABEL_SOURCE_PRICE_TABLE` | `market.us_stock_daily_price` | Source price table | standalone label builder | Current implementation supports this table only |
+| `US_LABEL_TARGET_TABLE` | `label.us_stock_label_daily` | Target label table | standalone label builder | Separate label layer |
+| `US_LABEL_PRICE_COLUMN` | `auto` | Price column selection mode | standalone label builder | `adj_close_price` first, `close_price` fallback |
+| `US_LABEL_WINDOWS` | `5,20,60` | Forward-return windows | standalone label builder | Trading-day based |
+| `US_LABEL_TOP_PERCENTILE` | `0.20` | Top-percentile cutoff | standalone label builder | Used for `label_top20_*` |
+| `US_LABEL_MIN_UNIVERSE_SIZE` | `30` | Minimum same-date universe size | standalone label builder | Smaller dates keep top20 labels null |
+| `US_LABEL_EXCLUDE_BENCHMARKS` | `SPY,QQQ` | Excluded benchmark tickers | standalone label builder | Excluded from top20 label universe |
+| `US_LABEL_WRITE_MODE` | `upsert` | DB write mode | standalone label builder | Only `upsert` is supported now |
+| `US_LABEL_LOG_LEVEL` | `INFO` | Builder log level | standalone label builder | Safe default |
+
+## Project C Phase 2-5: US Dataset Validator
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_DATASET_VALIDATE_ENABLED` | `0` | Master switch for standalone dataset validation | Project C US dataset | Must stay disabled by default |
+| `US_DATASET_FEATURE_TABLE` | `feature.us_stock_feature_daily` | Base daily feature table | standalone dataset validator | Current implementation supports this table only |
+| `US_DATASET_FINANCIAL_FEATURE_TABLE` | `feature.us_stock_financial_feature` | Financial feature table | standalone dataset validator | Used for row-count and leakage notes |
+| `US_DATASET_RELATIVE_STRENGTH_TABLE` | `feature.us_stock_relative_strength_daily` | Relative strength feature table | standalone dataset validator | Joined on `ticker + trade_date` |
+| `US_DATASET_LABEL_TABLE` | `label.us_stock_label_daily` | Label table | standalone dataset validator | Joined on `ticker + trade_date` |
+| `US_DATASET_REPORT_PATH` | `reports/us_stock_dataset_validation.md` | Markdown report output path | standalone dataset validator | Relative paths resolve from repo root |
+| `US_DATASET_LOG_LEVEL` | `INFO` | Validator log level | standalone dataset validator | Safe default |
+
+### Label / Dataset Notes
+
+- Both label building and dataset validation are standalone only.
+- `US_LABEL_BUILD_ENABLED=0` and `US_DATASET_VALIDATE_ENABLED=0` keep them detached from domestic schedulers.
+- Financial feature as-of join is intentionally not auto-applied in this phase because `reported_date`-aware leakage control is not fully implemented.

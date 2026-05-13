@@ -467,6 +467,11 @@
                 <div id="qualExplain" class="ms">품질 점수 정보 없음</div>
               </div>
               <div class="metric">
+                <div class="sl">수급 신호</div>
+                <div id="flowScoreMetric" class="mv">-</div>
+                <div id="flowScoreExplain" class="ms">외국인·기관 수급 정보 없음</div>
+              </div>
+              <div class="metric">
                 <div class="sl">연구 참고 점수</div>
                 <div id="predScoreMetric" class="mv">-</div>
                 <div id="predScoreExplain" class="ms">보조 비교값 정보 없음</div>
@@ -591,7 +596,7 @@
   </div>
 
   <script src="./ui-components.js"></script>
-  <script src="./ops-unified-nav.js?v=20260429-rule-nav-v1"></script>
+  <script src="./ops-unified-nav.js?v=20260513a"></script>
   <script>
     const $ = (s) => document.querySelector(s);
     const q = (n) => new URLSearchParams(location.search).get(n);
@@ -669,6 +674,7 @@
       contrib_prob: "상위 진입 확률",
       contrib_qual: "품질 점수",
       contrib_tech: "기술 점수",
+      contrib_flow: "수급 기여도",
       contrib_safety: "안정성",
       contrib_liquidity: "유동성",
       contrib_penalty: "리스크 패널티"
@@ -812,7 +818,8 @@
         { label: "예측 수익", value: Number(d.ret_score) },
         { label: "확률", value: Number(d.prob_score) },
         { label: "품질", value: Number(d.qual_score) },
-        { label: "기술", value: Number(d.tech_score) }
+        { label: "기술", value: Number(d.tech_score) },
+        { label: "수급", value: Number(d.flow_score) }
       ];
       const shadowDelta = Number(d.shadow_quality_risk_guard_rank_delta);
       const shadowPenalty = Number(d.shadow_quality_risk_guard_penalty);
@@ -856,6 +863,7 @@
       const prob = Number(d.prob_score);
       const qual = Number(d.qual_score);
       const tech = Number(d.tech_score);
+      const flow = Number(d.flow_score);
       const safe = Number(d.safety_score);
       const conf = Number(d.confidence_score);
       const pen = Number(d.risk_penalty);
@@ -865,6 +873,7 @@
       if (reg === "defensive" && Number.isFinite(safe) && safe >= 70) positive.push("방어 장세에 상대적으로 유리");
       if (Number.isFinite(prob) && prob >= 65) positive.push("상위 진입 확률 양호");
       if (Number.isFinite(tech) && tech >= 65) positive.push("기술 신호 양호");
+      if (Number.isFinite(flow) && flow >= 70) positive.push("외국인·기관 수급 우호적");
       if (Number.isFinite(Number(d.shadow_quality_risk_guard_rank_delta)) && Number(d.shadow_quality_risk_guard_rank_delta) > 0) {
         positive.push(`shadow guard 기준 순위 개선 여지 +${Math.round(Number(d.shadow_quality_risk_guard_rank_delta))}`);
       }
@@ -872,6 +881,7 @@
       if (Number.isFinite(tech) && tech < 45) caution.push("기술 신호는 보조 수준");
       if (Number.isFinite(conf) && conf < 50) caution.push("신뢰도가 낮아 보수적 해석이 필요");
       if (!Number.isFinite(conf)) caution.push("신뢰도 데이터가 부족함");
+      if (Number.isFinite(flow) && flow < 35) caution.push("외국인·기관 수급 약세");
       if (Number.isFinite(pen) && pen >= 8) caution.push("감점 요인이 반영됨");
       if (Number.isFinite(Number(d.shadow_quality_risk_guard_penalty)) && Number(d.shadow_quality_risk_guard_penalty) > 0) {
         caution.push(`shadow guard 추가 penalty ${Number(d.shadow_quality_risk_guard_penalty).toFixed(1)} 확인 필요`);
@@ -928,7 +938,7 @@
     }
 
     function explainFactors(d) {
-      const keys = ["contrib_ret", "contrib_prob", "contrib_qual", "contrib_tech", "contrib_safety", "contrib_liquidity", "contrib_penalty"];
+      const keys = ["contrib_ret", "contrib_prob", "contrib_qual", "contrib_tech", "contrib_flow", "contrib_safety", "contrib_liquidity", "contrib_penalty"];
       return keys.map((k) => ({ key: k, label: explainLabels[k] || k, value: Number(d[k]) }))
         .filter((x) => Number.isFinite(x.value));
     }
@@ -1307,6 +1317,16 @@
 
       $("#techScoreMetric").textContent = fmt1(d.tech_score);
       $("#qualScoreMetric").textContent = fmt1(d.qual_score);
+      const flowScoreVal = Number(d.flow_score);
+      if (Number.isFinite(flowScoreVal)) {
+        $("#flowScoreMetric").textContent = fmt1(flowScoreVal);
+        const wFlowPct = Number.isFinite(Number(d.w_flow_base)) ? ` (가중치 ${(Number(d.w_flow_base) * 100).toFixed(0)}%)` : "";
+        $("#flowScoreExplain").textContent = flowScoreVal >= 70
+          ? `외국인·기관 수급 우호적${wFlowPct}`
+          : flowScoreVal >= 50
+            ? `수급 중립${wFlowPct}`
+            : `외국인·기관 수급 약세${wFlowPct}`;
+      }
       $("#predScoreMetric").textContent = fmt1(d.pred_score);
       $("#riskPenaltyMetric").textContent = fmt1(d.risk_penalty);
       $("#techExplain").textContent = techExplain(lat);

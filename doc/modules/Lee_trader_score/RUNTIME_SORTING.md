@@ -55,6 +55,11 @@
 - `final_score_v2`, `final_score_v3`는 theme 비교/실험 또는 향후 operational theme 전환 대비용으로 보는 것이 맞다.
 - 만약 나중에 theme overlay operational을 켜면 그 시점부터는 `live_rank`, `rank_final`이 `final_score_v3` 기준으로 바뀔 수 있다.
 
+## 컬럼 정의 참조
+
+각 점수 컬럼의 계산 방식·운영 여부·research 전용 여부는 아래를 참조.
+- `doc/score_column_definitions.md` — 전체 score 컬럼 정의 및 운영/research 구분표
+
 ## 나중에 확인할 파일
 - `data/theme_overlay_mode_resolution.md` 또는 관련 debug output
 - `data/ranking_final.csv`

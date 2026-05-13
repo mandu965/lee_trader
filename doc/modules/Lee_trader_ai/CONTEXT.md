@@ -37,9 +37,36 @@
 - This phase covers raw financial statement / metric collection only.
 - Feature generation, label generation, ranking integration, paper trading, and live trading are still out of scope.
 
+## Project C Phase 2-3
+
+- Phase 2-3 adds a standalone financial feature layer on top of the US raw financial tables.
+- Raw financial data and financial features are intentionally separated:
+  - raw tables preserve nullable source values
+  - feature tables store growth, margin, stability, valuation, and score-skeleton fields
+- Financial features remain separate from `feature.us_stock_feature_daily` because fiscal periods do not share the same time axis as daily price features.
+- This phase still does not connect US financial features to ranking, label generation, model training, paper trading, or live trading.
+
+## Project C Phase 2-4
+
+- Phase 2-4 adds standalone relative strength features versus `SPY` and `QQQ`.
+- This layer is daily and price-based, but it is still kept separate from the existing Phase 1 daily feature table to avoid changing the current daily feature builder contract.
+- Relative strength features capture stock return minus benchmark return over fixed trading-day windows.
+- This phase still does not connect relative strength features to ranking, label generation, model training, paper trading, or live trading.
+
+## Project C Phase 2-5
+
+- Phase 2-5 adds standalone US stock label generation and dataset validation.
+- Labels are forward-return based and are built from future trading-day prices only.
+- Dataset validation focuses on row coverage, null ratios, label distribution, duplicate keys, and leakage-risk notes.
+- This phase still does not run model training, ranking, recommendation, paper trading, or live trading.
+
 ## Separation Principle
 
 - Korean auto-trading and US financial data collection must remain operationally separate.
 - Failure in a future US financial collector must not stop Korean AI or RULE pipelines.
 - `US_FINANCIAL_*` settings are reserved for the future Project C collector only.
-- Phase 2-2 must not modify Korean KIS order execution, Korean scoring, or Korean scheduler wiring.
+- `US_FINANCIAL_FEATURE_*` settings are reserved for the standalone Project C financial feature builder only.
+- `US_RELATIVE_STRENGTH_*` settings are reserved for the standalone Project C relative strength builder only.
+- `US_LABEL_*` settings are reserved for the standalone Project C label builder only.
+- `US_DATASET_*` settings are reserved for the standalone Project C dataset validator only.
+- Phase 2-3 must not modify Korean KIS order execution, Korean scoring, or Korean scheduler wiring.

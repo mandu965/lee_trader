@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from krx_price_utils import normalize_krx_limit_price
 from rule_account_guard import evaluate_rule_order_guard, resolve_trading_account, validate_account_profile
 from rule_trading_diagnostics import (
     append_trade_flow_log,
@@ -176,9 +177,9 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
         if expected_price:
             if side == "BUY":
                 buf = buy_limit_buffer_high_vol if is_high_vol else buy_limit_buffer
-                limit_price = int(expected_price * (1.0 + buf))
+                limit_price = normalize_krx_limit_price(expected_price * (1.0 + buf), side="BUY")
             elif side == "SELL":
-                limit_price = int(expected_price * 0.99)
+                limit_price = normalize_krx_limit_price(expected_price * 0.99, side="SELL")
 
         gap_risk_reason = item.get("gap_risk_reason")
         trading_value_block_reason = item.get("trading_value_block_reason")

@@ -36,9 +36,16 @@ Final score formula summary
   defensive -> quality weight is relatively higher
 - Final output:
   final_score    -> regime-aware weighted score after soft risk penalty
-  final_score_v2 -> legacy fixed-weight reference score after soft risk penalty
-  rank_final     -> per-date rank by final_score
+  final_score_v2 -> legacy fixed-weight reference score after soft risk penalty (research only)
+  final_score_v3 -> theme-confidence-adjusted score; becomes live_score source only when
+                    live_uses_theme=True (currently OFF — research/future use)
+  live_score     -> actual sort key used by live_rank: equals final_score (theme OFF, current)
+                    or final_score_v3 (theme ON)
+  live_rank      -> per-date rank by live_score; equals rank_final
+  rank_final     -> per-date rank by final_score (= live_rank)
   rank_v2        -> per-date rank by final_score_v2 (comparison-only reference)
+- Column policy reference:
+  doc/score_column_definitions.md — full column definitions, operating vs. research split
 """
 import argparse
 import json

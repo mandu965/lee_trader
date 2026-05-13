@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from krx_price_utils import normalize_krx_limit_price
 from kis_client import KISAuthError, KISClient, KISHTTPError
 from kis_live_account import order_cash
 from rule_account_guard import evaluate_rule_order_guard
@@ -87,7 +88,11 @@ def _ord_unpr(item: dict[str, Any], ord_dvsn: str) -> str:
     numeric = _float(price)
     if numeric is None or numeric <= 0:
         raise ValueError("limit_price_missing")
-    return str(int(numeric))
+    side = str(item.get("side") or "BUY").upper()
+    normalized = normalize_krx_limit_price(numeric, side="SELL" if side == "SELL" else "BUY")
+    if normalized is None or normalized <= 0:
+        raise ValueError("limit_price_invalid")
+    return str(normalized)
 
 
 def _log(message: str) -> None:

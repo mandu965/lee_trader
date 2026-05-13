@@ -1,41 +1,62 @@
 # Lee_trader_us Flow
 
-## Target Flow
+> 문서 역할: `현재 기준 문서`
+>
+> 현재 시점의 전체 흐름을 설명한다. 상세 정책이나 명령어보다 먼저 큰 구조를 볼 때 사용한다.
 
-`Universe 관리 -> OHLCV 수집 -> 데이터 품질 검증 -> feature 생성 -> score/ranking -> backtest -> paper trading -> live trading 검토`
+## Current End-to-End Flow
 
-## Phase 1 Scope
+Current Project C US-stock flow is:
 
-Phase 1 prepares only the early data foundation:
+`Universe -> Price -> Validation -> Features -> Ranking -> Backtest / Forward Test -> Paper Trading -> Live Safety -> Micro Live -> Status Sync -> Reconciliation -> Operations Report`
+
+## Current Phase Boundary
+
+The project is now effectively through Phase 7.
+
+Implemented layers:
 
 1. Universe management
 2. OHLCV collection
 3. data quality validation
-4. baseline feature generation
+4. baseline and financial/RS feature generation
+5. Rule-based ranking
+6. backtest and forward-test reporting
+7. paper-trading lifecycle
+8. live safety policy and approval flow
+9. Micro order request / send review path
+10. status and fill synchronization
+11. reconciliation
+12. daily operations reporting
 
-The following stages are explicitly out of scope in this phase:
+## What Phase 7 Means In The Flow
 
-1. AI/ML model training
-2. score/ranking implementation
-3. backtest implementation
-4. paper trading
-5. live trading review and execution
+Phase 7 is not unrestricted live trading.
 
-## Phase 1-5 Note
+Phase 7 adds:
 
-`build_us_features.py` calculates only simple price-based baseline features.
+1. approved Micro order review
+2. mock / sandbox / gated live path separation
+3. broker status sync
+4. fill sync
+5. internal-vs-broker reconciliation
+6. operations report and incident-response workflow
 
-- It is not an AI model.
-- It does not create final recommendation scores.
-- It does not connect to Korean auto-trading flows.
+## What Is Still Outside The Flow
 
-## Phase 1-6 Note
+The following are still outside the allowed runtime path:
 
-`run_us_daily_pipeline.py` runs the standalone Phase 1 sequence:
+1. unrestricted production live auto-trading
+2. automatic re-order
+3. automatic position correction
+4. automatic broker-state overwrite
+5. unrestricted sell automation
 
-1. universe load
-2. price collection
-3. quality validation
-4. baseline feature generation
+## Recommended Reading Path
 
-It stays isolated from Korean schedulers and does not execute paper trading, live trading, or AI model training.
+1. [PHASE7_SUMMARY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/PHASE7_SUMMARY.md)
+2. [CONTEXT.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/CONTEXT.md)
+3. [OPERATIONS.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/OPERATIONS.md)
+4. [US_STOCK_LIVE_TRADING_POLICY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_TRADING_POLICY.md)
+5. [US_STOCK_LIVE_RISK_POLICY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_RISK_POLICY.md)
+6. [US_STOCK_LIVE_OPERATION_RUNBOOK.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_OPERATION_RUNBOOK.md)

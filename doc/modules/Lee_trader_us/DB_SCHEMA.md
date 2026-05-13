@@ -1,0 +1,630 @@
+# Lee_trader_us DB Schema
+
+> 문서 역할: `현재 기준 문서`
+>
+> 이 문서는 Phase 7까지 실제 운영/검증에 쓰이는 핵심 US 테이블과, Phase 8-1에서 설계만 추가한 BUY 자동화 후보 테이블을 함께 정리한다.
+
+## Purpose
+
+This document summarizes the main US-stock tables that matter operationally after Phase 7 and adds the Phase 8-1 proposed table design for limited BUY automation.
+
+Notes:
+
+- this is a design/reference document
+- it is not a migration file
+- Phase 8-1 proposed BUY tables are not applied in DB yet
+
+## Baseline Documents Status
+
+- `ARCHITECTURE.md` now exists in `Lee_trader_us`
+- this `DB_SCHEMA.md` remains the schema-reference companion for Phase 8 work
+
+## Core Tables By Phase
+
+### Ranking And Recommendation
+
+#### `recommend.us_stock_rank_daily`
+
+Purpose:
+
+- canonical daily US ranking snapshot
+
+Key columns:
+
+- `trade_date`
+- `symbol`
+- `rank_no`
+- `recommend_grade`
+- `total_score`
+- `momentum_score`
+- `relative_strength_score`
+- `fundamental_score`
+- `growth_score`
+- `valuation_score`
+- `risk_score`
+- `score_detail_json`
+- `reason_summary`
+- `exclude_reason`
+- `source`
+
+PK / uniqueness:
+
+- `(trade_date, symbol)`
+
+Written by:
+
+- Phase 3 ranking calculation
+
+### Paper Trading
+
+#### `paper.us_stock_paper_account`
+
+Purpose:
+
+- virtual account state for paper trading
+
+#### `paper.us_stock_paper_order`
+
+Purpose:
+
+- paper order lifecycle
+
+#### `paper.us_stock_paper_fill`
+
+Purpose:
+
+- paper fill records
+
+#### `paper.us_stock_paper_position`
+
+Purpose:
+
+- open paper positions
+
+#### `paper.us_stock_paper_account_snapshot`
+
+Purpose:
+
+- daily paper account valuation snapshot
+
+### Live Safety
+
+#### `risk.us_stock_live_kill_switch`
+
+Purpose:
+
+- scoped kill-switch state
+
+#### `risk.us_stock_live_kill_switch_event_log`
+
+Purpose:
+
+- append-only kill-switch audit events
+
+#### `risk.us_stock_live_daily_risk_usage`
+
+Purpose:
+
+- daily order/risk usage counters
+
+#### `risk.us_stock_live_order_block_log`
+
+Purpose:
+
+- pre-trade blocked candidate audit log
+
+#### `risk.us_stock_live_order_approval`
+
+Purpose:
+
+- approval request state before Micro Live handling
+
+#### `risk.us_stock_live_order_approval_event_log`
+
+Purpose:
+
+- append-only approval lifecycle log
+
+### Micro Live
+
+#### `live.us_stock_micro_order_request`
+
+Purpose:
+
+- Micro Live order request rows
+
+#### `live.us_stock_micro_order_event_log`
+
+Purpose:
+
+- append-only Micro order lifecycle events
+
+#### `live.us_stock_micro_order_fill`
+
+Purpose:
+
+- normalized fill rows after broker/mock/sandbox sync
+
+#### `live.us_stock_micro_reconciliation_result`
+
+Purpose:
+
+- internal vs broker reconciliation results
+
+#### `live.us_stock_micro_reconciliation_event_log`
+
+Purpose:
+
+- reconciliation run-level events
+
+## Phase 8-1 Proposed BUY Automation Tables
+
+Phase 8-1 is design only. The following tables are proposed for later implementation.
+
+### `trade.us_buy_candidate_log`
+
+Purpose:
+
+- store every symbol entering the BUY evaluation funnel
+- preserve the ranking snapshot and early filter context even if the symbol is later blocked
+
+Recommended key columns:
+
+- `candidate_id VARCHAR(120) NOT NULL`
+- `trade_date DATE NOT NULL`
+- `account_id VARCHAR(100)`
+- `automation_mode VARCHAR(20) NOT NULL`
+- `ranking_source VARCHAR(50) NOT NULL`
+- `symbol VARCHAR(20) NOT NULL`
+- `company_name VARCHAR(200)`
+- `sector VARCHAR(100)`
+- `rank_no INTEGER`
+- `recommend_grade VARCHAR(30)`
+- `total_score NUMERIC(24,6)`
+- `score_detail_json JSONB`
+- `price_ref NUMERIC(24,6)`
+- `candidate_amount_usd NUMERIC(24,6)`
+- `candidate_status VARCHAR(30) NOT NULL`
+- `filter_stage VARCHAR(50) NOT NULL`
+- `filter_reason_code VARCHAR(100)`
+- `filter_reason_detail TEXT`
+- `created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`
+
+Recommended PK:
+
+- `PRIMARY KEY (candidate_id)`
+
+Recommended uniqueness:
+
+- `UNIQUE (trade_date, automation_mode, symbol, filter_stage)`
+
+Stored when:
+
+- every time the BUY evaluation job includes a symbol in the candidate funnel
+
+Retention:
+
+- keep at least 1 year for audit and threshold tuning
+
+Writer:
+
+- future Phase 8 SHADOW/PAPER BUY evaluation runner
+
+### `trade.us_buy_decision_log`
+
+Purpose:
+
+- store final allow/block outcome for each symbol after all rule checks
+
+Recommended key columns:
+
+- `decision_id VARCHAR(120) NOT NULL`
+- `trade_date DATE NOT NULL`
+- `account_id VARCHAR(100)`
+- `automation_mode VARCHAR(20) NOT NULL`
+- `symbol VARCHAR(20) NOT NULL`
+- `candidate_id VARCHAR(120)`
+- `decision VARCHAR(20) NOT NULL`
+- `severity VARCHAR(20) NOT NULL`
+- `decision_reason_code VARCHAR(100) NOT NULL`
+- `decision_reason_detail TEXT`
+- `rule_tags JSONB`
+- `rank_no INTEGER`
+- `recommend_grade VARCHAR(30)`
+- `total_score NUMERIC(24,6)`
+- `price_ref NUMERIC(24,6)`
+- `planned_order_amount_usd NUMERIC(24,6)`
+- `cooldown_until DATE`
+- `requires_manual_review BOOLEAN DEFAULT TRUE`
+- `report_group VARCHAR(50)`
+- `created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`
+
+Recommended PK:
+
+- `PRIMARY KEY (decision_id)`
+
+Recommended uniqueness:
+
+- `UNIQUE (trade_date, automation_mode, symbol)`
+
+Stored when:
+
+- final BUY decision is produced
+
+Retention:
+
+- keep at least 2 years because final decision logs are higher-value audit artifacts
+
+Writer:
+
+- future Phase 8 SHADOW/PAPER BUY decision module
+
+### `trade.us_risk_guard_log`
+
+Purpose:
+
+- store market-wide and portfolio-wide guard evaluation so symbol blocks can be explained in context
+
+Recommended key columns:
+
+- `guard_log_id VARCHAR(120) NOT NULL`
+- `trade_date DATE NOT NULL`
+- `account_id VARCHAR(100)`
+- `automation_mode VARCHAR(20) NOT NULL`
+- `guard_scope VARCHAR(30) NOT NULL`
+- `guard_name VARCHAR(100) NOT NULL`
+- `guard_status VARCHAR(20) NOT NULL`
+- `severity VARCHAR(20) NOT NULL`
+- `metric_value NUMERIC(24,6)`
+- `threshold_value NUMERIC(24,6)`
+- `reason_code VARCHAR(100)`
+- `reason_detail TEXT`
+- `raw_payload JSONB`
+- `created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`
+
+Recommended PK:
+
+- `PRIMARY KEY (guard_log_id)`
+
+Recommended uniqueness:
+
+- `UNIQUE (trade_date, automation_mode, guard_scope, guard_name, account_id)`
+
+Stored when:
+
+- each global risk guard is evaluated
+
+Retention:
+
+- keep at least 1 year
+
+Writer:
+
+- future Phase 8 BUY risk-guard evaluation module
+
+### `trade.us_paper_order`
+
+Purpose:
+
+- store internal Phase 8 PAPER-mode virtual BUY records without touching any broker path
+
+Recommended key columns:
+
+- `paper_order_id VARCHAR(120) NOT NULL`
+- `trade_date DATE NOT NULL`
+- `account_id VARCHAR(100)`
+- `automation_mode VARCHAR(20) NOT NULL`
+- `symbol VARCHAR(20) NOT NULL`
+- `side VARCHAR(10) NOT NULL`
+- `paper_order_qty NUMERIC(24,6)`
+- `paper_order_price NUMERIC(24,6)`
+- `paper_order_amount NUMERIC(24,6)`
+- `assumed_fill_price NUMERIC(24,6)`
+- `assumed_fill_status VARCHAR(30)`
+- `source_decision_id VARCHAR(120)`
+- `created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`
+- `updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`
+
+Recommended PK:
+
+- `PRIMARY KEY (paper_order_id)`
+
+Recommended uniqueness:
+
+- `UNIQUE (trade_date, automation_mode, symbol, side)`
+
+Stored when:
+
+- Phase 8 PAPER skeleton creates a virtual BUY record
+
+Retention:
+
+- keep at least 1 year for audit and comparison with future paper/live paths
+
+Writer:
+
+- Phase 8 PAPER-only BUY automation skeleton
+
+## Phase 8-3 Proposed Report Tables
+
+### `trade.us_buy_daily_report`
+
+Purpose:
+
+- store daily BUY automation report snapshots after SHADOW/PAPER review
+
+Key columns:
+
+- `report_id`
+- `trade_date`
+- `automation_mode`
+- `report_type`
+- `source_json_path`
+- `summary_json`
+- `created_at`
+- `updated_at`
+
+Uniqueness:
+
+- `UNIQUE (trade_date, automation_mode, report_type)`
+
+### `trade.us_paper_performance_snapshot`
+
+Purpose:
+
+- store daily PAPER performance snapshots derived from virtual BUY orders only
+
+Key columns:
+
+- `snapshot_id`
+- `trade_date`
+- `paper_order_id`
+- `symbol`
+- `benchmark_symbol`
+- `latest_price`
+- `current_value`
+- `unrealized_pnl`
+- `unrealized_pnl_pct`
+- `benchmark_return_pct`
+- `excess_return_pct`
+- `status`
+- `summary_json`
+- `created_at`
+- `updated_at`
+
+Uniqueness:
+
+- `UNIQUE (trade_date, paper_order_id)`
+
+## Proposed PostgreSQL DDL Sketches
+
+These are design sketches only. Do not apply them automatically in Phase 8-1.
+
+```sql
+CREATE TABLE trade.us_buy_candidate_log (
+    candidate_id VARCHAR(120) PRIMARY KEY,
+    trade_date DATE NOT NULL,
+    account_id VARCHAR(100),
+    automation_mode VARCHAR(20) NOT NULL,
+    ranking_source VARCHAR(50) NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    company_name VARCHAR(200),
+    sector VARCHAR(100),
+    rank_no INTEGER,
+    recommend_grade VARCHAR(30),
+    total_score NUMERIC(24,6),
+    score_detail_json JSONB,
+    price_ref NUMERIC(24,6),
+    candidate_amount_usd NUMERIC(24,6),
+    candidate_status VARCHAR(30) NOT NULL,
+    filter_stage VARCHAR(50) NOT NULL,
+    filter_reason_code VARCHAR(100),
+    filter_reason_detail TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (trade_date, automation_mode, symbol, filter_stage)
+);
+
+CREATE TABLE trade.us_buy_decision_log (
+    decision_id VARCHAR(120) PRIMARY KEY,
+    trade_date DATE NOT NULL,
+    account_id VARCHAR(100),
+    automation_mode VARCHAR(20) NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    candidate_id VARCHAR(120),
+    decision VARCHAR(20) NOT NULL,
+    severity VARCHAR(20) NOT NULL,
+    decision_reason_code VARCHAR(100) NOT NULL,
+    decision_reason_detail TEXT,
+    rule_tags JSONB,
+    rank_no INTEGER,
+    recommend_grade VARCHAR(30),
+    total_score NUMERIC(24,6),
+    price_ref NUMERIC(24,6),
+    planned_order_amount_usd NUMERIC(24,6),
+    cooldown_until DATE,
+    requires_manual_review BOOLEAN DEFAULT TRUE,
+    report_group VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (trade_date, automation_mode, symbol)
+);
+
+CREATE TABLE trade.us_risk_guard_log (
+    guard_log_id VARCHAR(120) PRIMARY KEY,
+    trade_date DATE NOT NULL,
+    account_id VARCHAR(100),
+    automation_mode VARCHAR(20) NOT NULL,
+    guard_scope VARCHAR(30) NOT NULL,
+    guard_name VARCHAR(100) NOT NULL,
+    guard_status VARCHAR(20) NOT NULL,
+    severity VARCHAR(20) NOT NULL,
+    metric_value NUMERIC(24,6),
+    threshold_value NUMERIC(24,6),
+    reason_code VARCHAR(100),
+    reason_detail TEXT,
+    raw_payload JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (trade_date, automation_mode, guard_scope, guard_name, account_id)
+);
+
+CREATE TABLE trade.us_paper_order (
+    paper_order_id VARCHAR(120) PRIMARY KEY,
+    trade_date DATE NOT NULL,
+    account_id VARCHAR(100),
+    automation_mode VARCHAR(20) NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    side VARCHAR(10) NOT NULL,
+    paper_order_qty NUMERIC(24,6),
+    paper_order_price NUMERIC(24,6),
+    paper_order_amount NUMERIC(24,6),
+    assumed_fill_price NUMERIC(24,6),
+    assumed_fill_status VARCHAR(30),
+    source_decision_id VARCHAR(120),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (trade_date, automation_mode, symbol, side)
+);
+
+CREATE TABLE trade.us_buy_daily_report (
+    report_id VARCHAR(120) PRIMARY KEY,
+    trade_date DATE NOT NULL,
+    automation_mode VARCHAR(20) NOT NULL,
+    report_type VARCHAR(30) NOT NULL,
+    source_json_path TEXT,
+    summary_json JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (trade_date, automation_mode, report_type)
+);
+
+CREATE TABLE trade.us_paper_performance_snapshot (
+    snapshot_id VARCHAR(120) PRIMARY KEY,
+    trade_date DATE NOT NULL,
+    paper_order_id VARCHAR(120) NOT NULL,
+    symbol VARCHAR(20) NOT NULL,
+    benchmark_symbol VARCHAR(20) NOT NULL,
+    latest_price NUMERIC(24,6),
+    current_value NUMERIC(24,6),
+    unrealized_pnl NUMERIC(24,6),
+    unrealized_pnl_pct NUMERIC(24,6),
+    benchmark_return_pct NUMERIC(24,6),
+    excess_return_pct NUMERIC(24,6),
+    status VARCHAR(40) NOT NULL,
+    summary_json JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (trade_date, paper_order_id)
+);
+```
+
+## Design Notes
+
+### Why Separate Candidate And Decision Logs
+
+`candidate_log` and `decision_log` should stay separate because:
+
+- the candidate funnel may include multiple filter stages per symbol
+- operators need to see where a symbol dropped out
+- final decision should stay one-row-per-symbol-per-day-per-mode
+
+### Why Reuse Existing Paper Tables
+
+Phase 5 already has stable paper-trading lifecycle tables. Phase 8 currently keeps a lighter `trade.us_paper_order` skeleton log for BUY automation review, while the older paper-trading lifecycle remains available separately:
+
+- `paper.us_stock_paper_order`
+- `paper.us_stock_paper_fill`
+- `paper.us_stock_paper_position`
+- `paper.us_stock_paper_account_snapshot`
+
+The open design question for later phases is whether to:
+
+- keep `trade.us_paper_order` as a thin intent log, or
+- map BUY automation PAPER decisions directly into `paper.us_stock_paper_order`
+
+### Why No Live BUY Table Yet
+
+Phase 8-1 is still pre-LIVE. A separate live BUY decision table can wait until:
+
+- SHADOW logging is stable
+- PAPER decision-to-order mapping is validated
+- LIVE account state and release control are clearly defined
+
+### Phase 8-3 Reporting Limitation
+
+The Phase 8-3 report and performance layer is for operator review only.
+
+- it does not write to broker state
+- it does not read real account balances
+- it does not decide LIVE readiness automatically
+
+## Phase 8-5 Proposed Readiness Tables
+
+### `trade.us_buy_readiness_report`
+
+Purpose:
+
+- store the daily readiness evaluation snapshot
+
+Suggested columns:
+
+- `report_id`
+- `evaluation_date`
+- `evaluation_period_days`
+- `benchmark_symbol`
+- `live_ready`
+- `readiness_score`
+- `decision`
+- `reasons JSONB`
+- `summary_json JSONB`
+- `created_at`
+
+### `trade.us_paper_performance_summary`
+
+Purpose:
+
+- store rolled-up PAPER performance windows such as 20d / 60d / 120d / ALL
+
+Suggested columns:
+
+- `summary_id`
+- `evaluation_date`
+- `period_label`
+- `benchmark_symbol`
+- `paper_order_count`
+- `unique_symbol_count`
+- `total_return_pct`
+- `benchmark_return_pct`
+- `excess_return_pct`
+- `win_rate`
+- `max_drawdown_pct`
+- `data_missing_rate`
+- `summary_json`
+- `created_at`
+
+### `trade.us_live_promotion_check`
+
+Purpose:
+
+- store the promotion-policy decision snapshot separately from the detailed report body
+
+Suggested columns:
+
+- `check_id`
+- `evaluation_date`
+- `benchmark_symbol`
+- `live_ready`
+- `readiness_score`
+- `manual_approval_required`
+- `reasons JSONB`
+- `policy_snapshot JSONB`
+- `operational_snapshot JSONB`
+- `created_at`
+
+### Phase 8-5 DDL
+
+- see [phase8_5_live_readiness_tables.sql](/d:/ai/lee_trader/sql/lee_trader_us/phase8_5_live_readiness_tables.sql)
+
+### Phase 8-5 Limitation
+
+- these tables are design / manual migration targets only
+- readiness evaluation in the current phase is file/report based
+- DB migration is not auto-applied

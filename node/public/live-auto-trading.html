@@ -7,8 +7,8 @@
     <link rel="stylesheet" href="./styles.css?v=20260508c" />
     <style>
       .live-page { max-width: 1480px; margin: 0 auto; padding: 24px 20px 48px; }
-      .page-header { margin-bottom: 16px; }
-      .page-title { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+      .page-header { display: block; margin-bottom: 16px; }
+      .page-title { display: block; margin: 0; font-size: 28px; letter-spacing: -0.02em; }
       .page-subtitle { margin: 6px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
       .page-label {
         display: inline-flex; align-items: center; gap: 6px;
@@ -198,19 +198,7 @@
       </div>
 
       <!-- 메인 Nav -->
-      <section class="panel panel-block">
-        <div data-unified-ops-nav data-nav-active="live-auto-trading">
-          <button type="button" onclick="location.href='/app'">메인</button>
-          <button type="button" onclick="location.href='/ranking.html'" class="is-secondary">리서치 랭킹</button>
-          <button type="button" onclick="location.href='/meaningfulness.html'" class="is-secondary">리서치 리뷰</button>
-          <button type="button" onclick="location.href='/ops-readiness.html'">운영자</button>
-          <button type="button" onclick="location.href='/manual-trading.html'">수동매매</button>
-          <button type="button" onclick="location.href='/holdings.html'">보유종목</button>
-          <button type="button" onclick="location.href='/trade-history.html'">매매기록</button>
-          <button type="button" onclick="location.href='/rule-auto-trading.html'">RULE 자동매매</button>
-          <button type="button" onclick="location.href='/live-auto-trading.html'" class="is-active">실자동매매</button>
-        </div>
-      </section>
+      <div data-unified-ops-nav data-nav-active="live-auto-trading"></div>
 
       <!-- 탭 네비게이션 -->
       <nav class="tab-nav" id="tabNav">
@@ -472,7 +460,7 @@
       <div class="state-line" id="pageState"></div>
     </div><!-- /live-page -->
 
-    <script src="./ops-unified-nav.js?v=20260508c"></script>
+    <script src="./ops-unified-nav.js?v=20260513a"></script>
     <script src="./live-auto-trading.js?v=20260508"></script>
   </body>
 </html>

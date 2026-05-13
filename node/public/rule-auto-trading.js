@@ -258,8 +258,8 @@ function renderWhyNoTrade(diagnostics) {
     <div class="kv-row"><span>주요 원인</span><strong>${esc(main?.user_message_ko || main?.message_ko || "차단 사유 없음")}</strong></div>
     <div class="kv-row"><span>원문 코드</span><strong>${esc(main?.raw_reason || s.main_block_reason || "-")}</strong></div>
     <div class="kv-row"><span>제출 가능 주문</span><strong>${fmtNum(s.submit_allowed_count)}건</strong></div>
-    <div class="kv-row"><span>정책 차단</span><strong>${fmtNum(s.policy_blocked_count)}건</strong></div>
-    <div class="kv-row"><span>API 실패</span><strong>${fmtNum(s.api_error_count)}건</strong></div>
+    <div class="kv-row"><span>실행 정책 차단</span><strong>${fmtNum(s.policy_blocked_count)}건</strong></div>
+    <div class="kv-row"><span>실행 API 실패</span><strong>${fmtNum(s.api_error_count)}건</strong></div>
     <div class="kv-row"><span>재생성 경고</span><strong class="${s.replay_warning ? "neg" : ""}">${s.replay_warning ? "있음" : "없음"}</strong></div>
   `;
 

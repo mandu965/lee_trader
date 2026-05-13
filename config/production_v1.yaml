@@ -2,7 +2,7 @@ metadata:
   release_package: production_v1
   released_at: "2026-03-31"
   runtime_mode: operational
-  score_formula_version: ranking_builder_v8_return_prob_tech_regime
+  score_formula_version: ranking_builder_v9_flow
   candidate_selection_version: buy_candidate_builder_v1
   gate_version: operational_buy_gate_v1
   portfolio_version: model_portfolio_constructor_v1
@@ -56,13 +56,13 @@ portfolio:
   trading_value_very_low: 4000000000.0
 
 buy_gate:
-  primary_bucket: 8
+  primary_bucket: 10
   min_matured_benchmark_dates: 3
   pilot_min_matured_benchmark_dates: 0
   max_liquidity_risk_ratio: 0.40
   max_very_low_liquidity_ratio: 0.40
   max_relaxed_selection_ratio: 0.60
-  max_sector_top_share: 0.40
+  max_sector_top_share: 0.45
   max_overheat_ratio: 0.20
   min_confidence_score: 82.0
   pilot_min_confidence_score: 80.0
@@ -79,13 +79,13 @@ confidence_calibration:
 
 execution_policy:
   candidate_universe_top_n: 20
-  entry_review_top_n: 8
-  entry_review_extended_top_n: 10
+  entry_review_top_n: 10
+  entry_review_extended_top_n: 12
   watch_limited_entry_override_mode: pilot
   standard_entry_confidence: 76.0
   extended_entry_confidence: 70.0
-  max_holdings: 8
-  max_position_weight: 0.24
+  max_holdings: 10
+  max_position_weight: 0.20
   sector_cap: 0.35
   theme_cap: 0.35
   cash_minimum: 0.05
@@ -94,9 +94,9 @@ execution_policy:
   watch_limited_total_exposure: 0.15
   watch_limited_position_cap: 0.08
   pilot_limited_auto_buy_enabled: true
-  pilot_limited_max_entries: 4
-  pilot_limited_total_exposure: 0.36
-  pilot_limited_position_cap: 0.12
+  pilot_limited_max_entries: 5
+  pilot_limited_total_exposure: 0.40
+  pilot_limited_position_cap: 0.10
   min_entry_confidence: 55.0
   min_hold_confidence: 55.0
   force_exit_confidence: 55.0

@@ -2,7 +2,7 @@
   const ITEMS = [
     { key: "main",              label: "메인",          href: "/app" },
     { key: "manual-trading",    label: "수동매매",        href: "/manual-trading.html" },
-    { key: "live-auto-trading", label: "AI 자동매매",     href: "/live-auto-trading.html" },
+    { key: "live-auto-trading", label: "AI 실자동매매",    href: "/live-auto-trading.html" },
     { key: "rule-auto-trading", label: "RULE 자동매매",   href: "/rule-auto-trading.html" },
     { key: "paper-trading",     label: "모의투자",        href: "/paper-trading.html" },
     { key: "ranking",           label: "리서치 랭킹",     href: "/ranking.html" },

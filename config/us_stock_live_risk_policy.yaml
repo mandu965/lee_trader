@@ -1,0 +1,72 @@
+US_LIVE_RULE_V1:
+  enabled: false
+  description: "US stock Rule v1 Micro Live risk policy"
+
+  safety:
+    live_trading_enabled: false
+    live_order_enabled: false
+    buy_enabled: false
+    sell_enabled: false
+    require_manual_approval: true
+    real_order_blocked: true
+    kill_switch_required_clear: true
+
+  account:
+    account_id: "US_LIVE_RULE_V1"
+    base_currency: "USD"
+    min_cash_weight: 0.50
+    max_position_count: 5
+
+  order:
+    default_order_type: "LIMIT"
+    allow_market_order: false
+    max_order_amount_usd: 50
+    min_order_amount_usd: 10
+    max_daily_buy_amount_usd: 100
+    max_daily_sell_amount_usd: 500
+    max_daily_order_count: 3
+    max_daily_new_buys: 1
+    max_order_retry: 1
+    max_daily_order_failures: 3
+
+  position:
+    max_position_weight: 0.05
+    max_symbol_position_amount_usd: 250
+    block_duplicate_symbol_order: true
+    block_if_open_order_exists: true
+
+  sector:
+    max_sector_weight: 0.20
+    unknown_sector_policy: "BLOCK"
+
+  instrument:
+    block_leveraged_etf: true
+    block_inverse_etf: true
+    allow_etf: true
+    allow_fractional_shares: true
+
+  market:
+    block_buy_on_spy_drop_pct: -0.02
+    block_buy_on_qqq_drop_pct: -0.025
+    block_buy_on_symbol_gap_up_pct: 0.05
+    block_buy_on_symbol_gap_down_pct: -0.05
+    max_symbol_volatility_20d: 0.05
+    block_bear_high_vol_regime: true
+
+  time:
+    regular_session_only: true
+    block_first_minutes_after_open: 15
+    block_last_minutes_before_close: 15
+    block_premarket: true
+    block_afterhours: true
+
+  approval:
+    manual_approval_required: true
+    approval_expires_minutes: 30
+
+  notification:
+    notify_on_candidate: true
+    notify_on_block: true
+    notify_on_kill_switch: true
+    notify_on_order_failure: true
+    notify_on_approval: true

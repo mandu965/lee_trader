@@ -325,7 +325,7 @@ function buildTopIdeaCard(row, index) {
         </div>
         <div class="idea-row">
           <strong>핵심 수치</strong>
-          <div class="muted">기대수익 ${fmtPct(row.pred_return_60d)} / 예상 MDD ${fmtPct(row.pred_mdd_60d)} / 수익대비위험 ${ratio === null ? "-" : ratio.toFixed(2)}</div>
+          <div class="muted">기대수익 ${fmtPct(row.pred_return_60d)} / 예상 MDD ${fmtPct(row.pred_mdd_60d)} / 수급 ${fmtScore(row.flow_score)}</div>
         </div>
         <div class="idea-row">
           <strong>행동 메모</strong>
@@ -351,9 +351,12 @@ function buildTableRow(row, index) {
     `저장 ${fmtScore(row.final_score)}`,
     row.live_rank ? `live_rank ${fmtScore(row.live_rank)}` : "",
   ].filter(Boolean).join(" / ");
+  const flowVal = toNum(row.flow_score);
+  const flowTag = flowVal === null ? "" : flowVal >= 70 ? " ▲" : flowVal < 35 ? " ▼" : "";
   const confidenceText = [
     `신뢰 ${fmtScore(row.confidence_score)}`,
     `리스크 ${fmtScore(row.risk_penalty)}`,
+    `수급 ${fmtScore(row.flow_score)}${flowTag}`,
   ].join(" / ");
   const memo = [
     normalizeSentence(row.score_explain_summary, buildWhyNow(row)),
@@ -511,6 +514,7 @@ function renderInsights() {
     `<li><strong>ret_score 평균</strong> ${fmtScore(topMean("ret_score"))}</li>`,
     `<li><strong>prob_score 평균</strong> ${fmtScore(topMean("prob_score"))}</li>`,
     `<li><strong>tech_score 평균</strong> ${fmtScore(topMean("tech_score"))}</li>`,
+    `<li><strong>flow_score 평균</strong> ${fmtScore(topMean("flow_score"))}</li>`,
     `<li><strong>confidence 평균</strong> ${fmtScore(topMean("confidence_score"))}</li>`,
     `<li><strong>상위 20개 평균 기대수익</strong> ${fmtPct(topMean("pred_return_60d"))}</li>`,
     `<li><strong>상위 20개 평균 예상 MDD</strong> ${fmtPct(topMean("pred_mdd_60d"))}</li>`,

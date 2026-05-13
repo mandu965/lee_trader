@@ -216,6 +216,20 @@ def get_table_column_types(table: str) -> dict[str, str]:
     return {str(row["column_name"]): str(row["data_type"]).lower() for row in rows}
 
 
+def _ensure_columns_exist(table: str, df: pd.DataFrame, existing: dict[str, str]) -> None:
+    """CSV에 있고 DB 테이블에 없는 수치 컬럼을 DOUBLE PRECISION으로 자동 추가."""
+    _NUMERIC_DTYPES = {"float64", "float32", "int64", "int32"}
+    engine = get_engine()
+    with engine.begin() as conn:
+        for col in df.columns:
+            if col in existing:
+                continue
+            if str(df[col].dtype) not in _NUMERIC_DTYPES:
+                continue
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION"))
+            logging.info("auto-added column %s.%s DOUBLE PRECISION", table, col)
+
+
 def _coerce_bool(series: pd.Series) -> pd.Series:
     normalized = series.copy()
     if normalized.dtype == bool:
@@ -315,6 +329,12 @@ def sync_table(spec: dict[str, object]) -> dict[str, object]:
 
     configured_columns = spec.get("columns")
     table_column_types = get_table_column_types(str(spec["table"]))
+    # CSV에만 있고 DB에 없는 컬럼을 자동으로 추가 (schema drift 방지)
+    # configured_columns=None(전체 sync) 테이블에만 적용
+    if configured_columns is None and spec.get("auto_add_columns", True):
+        _ensure_columns_exist(str(spec["table"]), df, table_column_types)
+        get_table_column_types.cache_clear()
+        table_column_types = get_table_column_types(str(spec["table"]))
     if configured_columns is None:
         columns = [col for col in df.columns if col in table_column_types]
     else:

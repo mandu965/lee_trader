@@ -2932,8 +2932,45 @@ function chooseLatestActualRuleExecution(historyItems = []) {
   return null;
 }
 
+function parseExecutionTimestamp(item = {}) {
+  const raw = item?.generated_at || item?.executed_at || null;
+  if (!raw) return Number.NEGATIVE_INFINITY;
+  const ts = Date.parse(raw);
+  return Number.isFinite(ts) ? ts : Number.NEGATIVE_INFINITY;
+}
+
+function chooseMostRecentRuleExecution(historyCandidate = null, currentExecution = null) {
+  const historyTs = parseExecutionTimestamp(historyCandidate);
+  const currentTs = parseExecutionTimestamp(currentExecution);
+  return currentTs >= historyTs ? (currentExecution || historyCandidate || {}) : (historyCandidate || currentExecution || {});
+}
+
+function summarizeRuleExecutionDetailCounts(items = []) {
+  const counts = new Map();
+  items.forEach((item) => {
+    const details = Array.isArray(item?.block_reason_details) ? item.block_reason_details : [];
+    details.forEach((detail) => {
+      const key = [
+        detail?.block_reason || "UNKNOWN",
+        detail?.raw_reason || "",
+        detail?.user_message_ko || detail?.message_ko || "",
+      ].join("||");
+      const current = counts.get(key);
+      if (current) {
+        current.count += 1;
+      } else {
+        counts.set(key, { detail, count: 1 });
+      }
+    });
+  });
+  return Array.from(counts.values()).sort((a, b) => b.count - a.count);
+}
+
 function collectRuleDiagnostics({ preview = {}, execution = {}, balance = {}, accountState = {}, executionHistory = [] } = {}) {
-  const actualExecution = chooseLatestActualRuleExecution(executionHistory) || execution || {};
+  const actualExecution = chooseMostRecentRuleExecution(
+    chooseLatestActualRuleExecution(executionHistory),
+    execution || {}
+  );
   const previewItems = Array.isArray(preview.items) ? preview.items : [];
   const executionItems = Array.isArray(execution.items) ? execution.items : [];
   const actualExecutionItems = Array.isArray(actualExecution.items) ? actualExecution.items : [];
@@ -2942,11 +2979,26 @@ function collectRuleDiagnostics({ preview = {}, execution = {}, balance = {}, ac
   const actualBlockedBuyItems = actualExecutionItems.filter((item) =>
     String(item.side || "").toUpperCase() === "BUY" && String(item.order_status || "").toLowerCase() === "blocked"
   );
-  const executionBlockedItems = executionItems.filter((item) => String(item.order_status || "").toLowerCase() === "blocked");
-  const failedExecutionItems = executionItems.filter((item) => String(item.order_status || "").toLowerCase() === "failed");
-  const submittedItems = executionItems.filter((item) => String(item.order_status || "").toLowerCase() === "submitted");
+  const actualFailedExecutionItems = actualExecutionItems.filter((item) =>
+    String(item.side || "").toUpperCase() === "BUY" && String(item.order_status || "").toLowerCase() === "failed"
+  );
+  const actualSubmittedItems = actualExecutionItems.filter((item) =>
+    String(item.side || "").toUpperCase() === "BUY" && String(item.order_status || "").toLowerCase() === "submitted"
+  );
+  const currentFailedExecutionItems = executionItems.filter((item) =>
+    String(item.side || "").toUpperCase() === "BUY" && String(item.order_status || "").toLowerCase() === "failed"
+  );
+  const failedExecutionItems = actualFailedExecutionItems.length ? actualFailedExecutionItems : currentFailedExecutionItems;
+  const submittedItems = actualSubmittedItems.length
+    ? actualSubmittedItems
+    : executionItems.filter((item) =>
+        String(item.side || "").toUpperCase() === "BUY" && String(item.order_status || "").toLowerCase() === "submitted"
+      );
   const currentBlockedDetails = blockedPreviewItems.flatMap((item) => Array.isArray(item.block_reason_details) ? item.block_reason_details : []);
   const actualBlockedDetails = actualBlockedBuyItems.flatMap((item) => Array.isArray(item.block_reason_details) ? item.block_reason_details : []);
+  const actualOutcomeItems = [...actualFailedExecutionItems, ...actualBlockedBuyItems];
+  const actualOutcomeDetailSummary = summarizeRuleExecutionDetailCounts(actualOutcomeItems);
+  const dominantActualDetail = actualOutcomeDetailSummary[0]?.detail || null;
   const allBlockedDetails = actualBlockedDetails.length ? actualBlockedDetails : currentBlockedDetails;
   const weeklySnapshot =
     actualBlockedBuyItems.find((item) => item.common_risk_snapshot)?.common_risk_snapshot ||
@@ -2960,7 +3012,9 @@ function collectRuleDiagnostics({ preview = {}, execution = {}, balance = {}, ac
     recommendation_count: preview.summary?.buy_preview_count ?? previewBuyItems.length,
     order_candidate_count: preview.summary?.request_count ?? previewItems.length,
     submit_allowed_count: preview.summary?.submit_allowed_count ?? previewItems.filter((item) => item.order_allowed).length,
-    policy_blocked_count: actualBlockedBuyItems.length || preview.summary?.policy_blocked_count || blockedPreviewItems.length,
+    policy_blocked_count: actualExecutionItems.length
+      ? actualBlockedBuyItems.length
+      : (preview.summary?.policy_blocked_count ?? blockedPreviewItems.length),
     api_error_count: failedExecutionItems.length,
     broker_submitted_count: actualExecution.summary?.submitted_count ?? submittedItems.length,
     live_trade_ready: Boolean((preview.summary?.submit_allowed_count ?? 0) > 0 && !preview.debug_trade_mode),
@@ -2990,7 +3044,7 @@ function collectRuleDiagnostics({ preview = {}, execution = {}, balance = {}, ac
     actual_failure_run_mode: actualExecution.run_mode || null,
     current_preview_as_of_date: preview.as_of_date || null,
     current_preview_generated_at: preview.generated_at || null,
-    actual_execution_submitted_count: actualExecution.summary?.submitted_count ?? 0,
+    actual_execution_submitted_count: actualExecution.summary?.submitted_count ?? submittedItems.length,
     current_execution_aborted: Boolean(execution.order_run_aborted),
     current_execution_abort_reason: execution.order_run_abort_reason || null,
     replay_warning: Boolean(
@@ -2999,8 +3053,12 @@ function collectRuleDiagnostics({ preview = {}, execution = {}, balance = {}, ac
       currentPreviewDate !== actualExecutionDate &&
       String(preview.as_of_date || "") === String(actualExecution.as_of_date || "")
     ),
-    main_block_reason: actualBlockedBuyItems[0]?.order_block_reason || blockedPreviewItems[0]?.order_block_reason || null,
-    main_block_detail: allBlockedDetails[0] || null,
+    main_block_reason:
+      dominantActualDetail?.raw_reason ||
+      actualBlockedBuyItems[0]?.order_block_reason ||
+      blockedPreviewItems[0]?.order_block_reason ||
+      null,
+    main_block_detail: dominantActualDetail || allBlockedDetails[0] || null,
   };
   const diagnostics = [];
   if (summary.weekly_blocked) {

@@ -36,6 +36,9 @@ FEATURES_DB_COLUMNS = [
     "ret_5d",
     "ret_10d",
     "mom_20",
+    "ret_60d",
+    "ret_120d",
+    "high_52w_ratio",
     "ma_5",
     "ma_20",
     "ma_60",
@@ -56,6 +59,10 @@ FEATURES_DB_COLUMNS = [
     "quality_factor_count",
     "quality_missing_ratio",
     "quality_score_confidence",
+    "flow_foreign_net_5d",
+    "flow_foreign_net_20d",
+    "flow_inst_net_5d",
+    "flow_inst_net_20d",
 ]
 FEATURES_PK = ["date", "code"]
 
@@ -245,6 +252,9 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
         g["mom_20"] = g["close"].pct_change(20)
         g["ret_5d"] = g["close"].pct_change(5)
         g["ret_10d"] = g["close"].pct_change(10)
+        g["ret_60d"] = g["close"].pct_change(60)
+        g["ret_120d"] = g["close"].pct_change(120)
+        g["high_52w_ratio"] = g["close"] / g["close"].rolling(252, min_periods=60).max()
 
         g["ma_5"] = g["close"].rolling(5, min_periods=5).mean()
         g["ma_20"] = g["close"].rolling(20, min_periods=20).mean()
@@ -277,6 +287,9 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
             "ret_5d",
             "ret_10d",
             "mom_20",
+            "ret_60d",
+            "ret_120d",
+            "high_52w_ratio",
             "ma_5",
             "ma_20",
             "ma_60",
@@ -379,6 +392,76 @@ def merge_quality(feat_df: pd.DataFrame) -> pd.DataFrame:
         return feat_df
 
 
+def merge_flow(feat_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    flow_daily 테이블에서 외국인·기관 순매수를 읽어 5d/20d 롤링합계 피처로 변환 후 병합.
+    flow_daily 데이터가 없거나 DB 연결 불가 시 원본을 그대로 반환.
+    """
+    if get_engine is None:
+        logging.info("merge_flow: DB engine unavailable -> skipping flow merge")
+        return feat_df
+    try:
+        engine = get_engine()
+        df_flow = pd.read_sql(
+            """
+            SELECT date, code, investor_type, net_buy_amount
+            FROM flow_daily
+            WHERE fetch_status = 'success'
+              AND investor_type IN ('foreign', 'institution')
+              AND net_buy_amount IS NOT NULL
+            """,
+            engine,
+            dtype={"code": str},
+        )
+    except Exception as exc:
+        logging.warning("merge_flow: flow_daily load failed -> skipping: %s", exc)
+        return feat_df
+
+    if df_flow.empty:
+        logging.info("merge_flow: flow_daily is empty -> skipping")
+        return feat_df
+
+    df_flow["date"] = pd.to_datetime(df_flow["date"], errors="coerce")
+    df_flow["code"] = df_flow["code"].astype(str).str.zfill(6)
+    df_flow["net_buy_amount"] = pd.to_numeric(df_flow["net_buy_amount"], errors="coerce")
+    df_flow = df_flow.dropna(subset=["date", "net_buy_amount"])
+
+    pivoted = df_flow.pivot_table(
+        index=["date", "code"],
+        columns="investor_type",
+        values="net_buy_amount",
+        aggfunc="sum",
+    ).reset_index()
+    pivoted.columns.name = None
+
+    if "foreign" not in pivoted.columns:
+        pivoted["foreign"] = float("nan")
+    if "institution" not in pivoted.columns:
+        pivoted["institution"] = float("nan")
+
+    result_parts = []
+    for _, grp in pivoted.groupby("code", sort=False):
+        grp = grp.sort_values("date").copy()
+        grp["flow_foreign_net_5d"] = grp["foreign"].rolling(5, min_periods=3).sum()
+        grp["flow_foreign_net_20d"] = grp["foreign"].rolling(20, min_periods=10).sum()
+        grp["flow_inst_net_5d"] = grp["institution"].rolling(5, min_periods=3).sum()
+        grp["flow_inst_net_20d"] = grp["institution"].rolling(20, min_periods=10).sum()
+        result_parts.append(
+            grp[["date", "code", "flow_foreign_net_5d", "flow_foreign_net_20d", "flow_inst_net_5d", "flow_inst_net_20d"]]
+        )
+
+    if not result_parts:
+        return feat_df
+
+    flow_feat = pd.concat(result_parts, ignore_index=True)
+    merged = feat_df.merge(flow_feat, on=["date", "code"], how="left")
+
+    flow_cols = ["flow_foreign_net_5d", "flow_foreign_net_20d", "flow_inst_net_5d", "flow_inst_net_20d"]
+    nan_ratios = {col: round(merged[col].isna().mean(), 3) for col in flow_cols if col in merged.columns}
+    logging.info("merge_flow: rows=%d, NaN ratios=%s", len(merged), nan_ratios)
+    return merged
+
+
 def save_features(df_feat: pd.DataFrame):
     out = df_feat.copy()
     out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y-%m-%d")
@@ -409,6 +492,13 @@ def save_features(df_feat: pd.DataFrame):
                         conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS value_ratio_20d DOUBLE PRECISION"))
                         conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS volume_score DOUBLE PRECISION"))
                         conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS liquidity_score DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS flow_foreign_net_5d DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS flow_foreign_net_20d DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS flow_inst_net_5d DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS flow_inst_net_20d DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS ret_60d DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS ret_120d DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS high_52w_ratio DOUBLE PRECISION"))
                 replace_table_rows_pg("features", out, columns=FEATURES_DB_COLUMNS)
                 logging.info("Replaced features rows in Postgres (rows=%d)", len(out))
                 return
@@ -470,6 +560,13 @@ def save_features(df_feat: pd.DataFrame):
             ("value_ratio_20d", "REAL"),
             ("volume_score", "REAL"),
             ("liquidity_score", "REAL"),
+            ("flow_foreign_net_5d", "REAL"),
+            ("flow_foreign_net_20d", "REAL"),
+            ("flow_inst_net_5d", "REAL"),
+            ("flow_inst_net_20d", "REAL"),
+            ("ret_60d", "REAL"),
+            ("ret_120d", "REAL"),
+            ("high_52w_ratio", "REAL"),
         ]:
             if col not in existing:
                 conn.execute(f"ALTER TABLE features ADD COLUMN {col} {col_type}")
@@ -504,6 +601,8 @@ def main():
         len(feat_df),
         feat_df.get("quality_score").isna().mean() if "quality_score" in feat_df.columns else 1.0,
     )
+
+    feat_df = merge_flow(feat_df)
 
     save_features(feat_df)
 

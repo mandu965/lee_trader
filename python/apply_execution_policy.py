@@ -688,10 +688,10 @@ def resolve_confidence_policy(confidence_value: object, args: argparse.Namespace
             label="LIVE_C",
             entry_allowed=c_entry_enabled,
             hold_allowed=base_policy.hold_allowed,
-            weight_scale=min(base_policy.weight_scale, 0.2),
-            position_cap_scale=min(base_policy.position_cap_scale, 0.2),
+            weight_scale=base_policy.weight_scale,
+            position_cap_scale=base_policy.position_cap_scale,
             guidance=(
-                "live grade C: limited BUY allowed with reduced size due to insufficient or unclear live evidence"
+                "live grade C: treated as STANDARD size (early operation, insufficient live evidence)"
                 if c_entry_enabled
                 else "live grade C: watch-only due to insufficient or unclear live evidence"
             ),

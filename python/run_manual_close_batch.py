@@ -118,9 +118,7 @@ def main() -> int:
 
     has_docker = docker_available()
     pipeline_env = {
-        # Close-batch operations should not run the optional KIS flow ingestion
-        # unless the operator explicitly enables it.
-        "RUN_PIPELINE_SKIP_FLOW_INGESTION": os.environ.get("RUN_PIPELINE_SKIP_FLOW_INGESTION", "1"),
+        "RUN_PIPELINE_SKIP_FLOW_INGESTION": os.environ.get("RUN_PIPELINE_SKIP_FLOW_INGESTION", "0"),
     }
 
     if not args.skip_build and not has_docker:

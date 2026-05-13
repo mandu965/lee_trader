@@ -1,0 +1,44 @@
+US_PAPER_RULE_V1:
+  account_id: "US_PAPER_RULE_V1"
+  account_name: "US Stock Rule v1 Paper Trading"
+  initial_cash: 100000
+  base_currency: "USD"
+
+  strategy:
+    source_rank_table: "recommend.us_stock_rank_daily"
+    selection_rule: "TOP20"
+    buy_grades:
+      - "STRONG_BUY"
+      - "BUY"
+    sell_grades:
+      - "HOLD"
+      - "EXCLUDE"
+    max_rank_no: 20
+    max_positions: 20
+
+  rebalance:
+    enabled: false
+    frequency: "DAILY"
+    sell_first: true
+    allow_rebuy_same_day: false
+    min_rebalance_amount: 100
+    min_weight_diff: 0.02
+    full_sell_on_rank_exit: true
+    full_sell_on_grade_downgrade: true
+
+  risk:
+    max_position_weight: 0.10
+    max_sector_weight: 0.30
+    min_cash_weight: 0.05
+    max_daily_new_buys: 5
+    allow_fractional_shares: true
+
+  execution:
+    entry_price_basis: "NEXT_DAY_CLOSE"
+    exit_price_basis: "NEXT_DAY_CLOSE"
+    commission_per_trade: 0
+    slippage_bps: 5
+
+  safety:
+    enabled: false
+    real_order_blocked: true

@@ -67,7 +67,8 @@ except Exception:
 #  SSL Inspection(회사 보안장비) 환경 대응
 # ─────────────────────────────────────────────────────────────────────────────
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-SSL_VERIFY = False   # 일반 인터넷 환경이면 True 로 변경
+# NAVER_FALLBACK_VERIFY_SSL=0 일 때만 False (SSL 인스펙션 차단 환경 대응)
+SSL_VERIFY = os.environ.get("NAVER_FALLBACK_VERIFY_SSL", "1").strip() != "0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  soft-import: db 모듈 (없어도 CSV 저장까지 정상 동작)

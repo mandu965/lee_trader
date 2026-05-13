@@ -124,7 +124,7 @@ def allow_experimental_runtime_features(default: bool = True) -> bool:
     return bool(configured)
 
 
-_SCORE_FORMULA_VERSION_DEFAULT = "ranking_builder_v8_return_prob_tech_regime"
+_SCORE_FORMULA_VERSION_DEFAULT = "ranking_builder_v9_flow"
 
 
 def get_score_formula_version() -> str:

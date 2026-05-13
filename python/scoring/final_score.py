@@ -8,7 +8,7 @@ import pandas as pd
 
 
 # Production operating weight profile:
-# positive axes = ret_score, prob_score, tech_score, qual_score
+# positive axes = ret_score, prob_score, tech_score, qual_score, flow_score
 # deduction axis = risk_penalty
 @dataclass(frozen=True)
 class WeightProfile:
@@ -17,33 +17,39 @@ class WeightProfile:
     prob: float
     tech: float
     qual: float
+    flow: float
     risk_penalty: float
 
 
+# v9_flow: flow_score component added (2026-05-14)
+# Existing positive-axis weights reduced proportionally to accommodate flow=0.08~0.12.
 BULL_WEIGHT_PROFILE = WeightProfile(
     profile="bull_service_growth_lead",
-    ret=0.38,
-    prob=0.27,
-    tech=0.27,
+    ret=0.33,
+    prob=0.24,
+    tech=0.23,
     qual=0.08,
+    flow=0.12,
     risk_penalty=0.40,
 )
 
 NEUTRAL_WEIGHT_PROFILE = WeightProfile(
     profile="neutral_service_balanced",
-    ret=0.32,
-    prob=0.26,
-    tech=0.24,
+    ret=0.28,
+    prob=0.23,
+    tech=0.21,
     qual=0.18,
+    flow=0.10,
     risk_penalty=0.65,
 )
 
 DEFENSIVE_WEIGHT_PROFILE = WeightProfile(
     profile="defensive_service_carry",
-    ret=0.26,
-    prob=0.22,
-    tech=0.18,
+    ret=0.23,
+    prob=0.19,
+    tech=0.16,
     qual=0.34,
+    flow=0.08,
     risk_penalty=0.80,
 )
 
@@ -61,6 +67,8 @@ FINAL_SCORE_OPTIONAL_INPUTS = [
     "pred_return_30d",
     "pred_mdd_30d",
     "prob_top20_30d",
+    "flow_foreign_net_5d",
+    "flow_inst_net_5d",
     # prob_top20_90d is retained as an optional stored / research signal.
     # The operating prob_score policy uses prob_top20_60d only.
     "prob_top20_90d",
@@ -391,6 +399,27 @@ def compute_qual_score(base: pd.DataFrame) -> pd.DataFrame:
     return base
 
 
+def compute_flow_score(base: pd.DataFrame) -> pd.DataFrame:
+    """
+    flow_score = 0.6 * percentile(flow_foreign_net_5d) + 0.4 * percentile(flow_inst_net_5d)
+    Range 0-100; NaN when both inputs are absent.
+    """
+    base = base.copy()
+    has_foreign = "flow_foreign_net_5d" in base.columns
+    has_inst = "flow_inst_net_5d" in base.columns
+    if has_foreign and has_inst:
+        foreign_pct = percentile_by_date(base, "flow_foreign_net_5d")
+        inst_pct = percentile_by_date(base, "flow_inst_net_5d")
+        base["flow_score"] = (0.6 * foreign_pct + 0.4 * inst_pct).clip(lower=0.0, upper=100.0)
+    elif has_foreign:
+        base["flow_score"] = percentile_by_date(base, "flow_foreign_net_5d").clip(lower=0.0, upper=100.0)
+    elif has_inst:
+        base["flow_score"] = percentile_by_date(base, "flow_inst_net_5d").clip(lower=0.0, upper=100.0)
+    else:
+        base["flow_score"] = np.nan
+    return base
+
+
 def compute_safety_score(base: pd.DataFrame) -> pd.DataFrame:
     base = base.copy()
     safety_parts = []
@@ -472,6 +501,7 @@ def compute_component_scores(base: pd.DataFrame) -> pd.DataFrame:
     base = compute_ret_and_pred_scores(base)
     base = compute_prob_score(base)
     base = compute_qual_score(base)
+    base = compute_flow_score(base)
     base = compute_safety_score(base)
     base = compute_liquidity_score(base)
     base = compute_valuation_score(base)
@@ -696,6 +726,8 @@ def resolve_core_weight_profile(base: pd.DataFrame) -> pd.DataFrame:
     base["w_prob_base"] = base["w_prob"]
     base["w_qual"] = np.select([bull_mask, neutral_mask], [BULL_WEIGHT_PROFILE.qual, NEUTRAL_WEIGHT_PROFILE.qual], default=DEFENSIVE_WEIGHT_PROFILE.qual)
     base["w_qual_base"] = base["w_qual"]
+    base["w_flow"] = np.select([bull_mask, neutral_mask], [BULL_WEIGHT_PROFILE.flow, NEUTRAL_WEIGHT_PROFILE.flow], default=DEFENSIVE_WEIGHT_PROFILE.flow)
+    base["w_flow_base"] = base["w_flow"]
     base["w_risk_penalty"] = np.select(
         [bull_mask, neutral_mask],
         [BULL_WEIGHT_PROFILE.risk_penalty, NEUTRAL_WEIGHT_PROFILE.risk_penalty],
@@ -742,6 +774,7 @@ def compute_score_explain(base: pd.DataFrame) -> pd.DataFrame:
     base["contrib_ret"] = pd.to_numeric(base["w_ret"], errors="coerce").fillna(0.0) * pd.to_numeric(base["ret_score"], errors="coerce").fillna(0.0)
     base["contrib_prob"] = pd.to_numeric(base["w_prob"], errors="coerce").fillna(0.0) * pd.to_numeric(base["prob_score"], errors="coerce").fillna(0.0)
     base["contrib_qual"] = pd.to_numeric(base["w_qual"], errors="coerce").fillna(0.0) * pd.to_numeric(base["qual_score"], errors="coerce").fillna(0.0)
+    base["contrib_flow"] = pd.to_numeric(base.get("w_flow"), errors="coerce").fillna(0.0) * pd.to_numeric(base.get("flow_score"), errors="coerce").fillna(50.0)
     # valuation_score is retained as a compatibility / diagnostic column, but
     # it is not part of the production operating final_score formula.
     base["contrib_valuation"] = 0.0
@@ -754,6 +787,7 @@ def compute_score_explain(base: pd.DataFrame) -> pd.DataFrame:
     base["score_contribution_prob"] = base["contrib_prob"]
     base["score_contribution_tech"] = base["contrib_tech"]
     base["score_contribution_qual"] = base["contrib_qual"]
+    base["score_contribution_flow"] = base["contrib_flow"]
     base["score_contribution_safety"] = base["contrib_safety"]
     base["score_contribution_liquidity"] = base["contrib_liquidity"]
     base["score_contribution_theme"] = base["contrib_theme"]
@@ -763,6 +797,7 @@ def compute_score_explain(base: pd.DataFrame) -> pd.DataFrame:
         + base["contrib_ret"].fillna(0.0)
         + base["contrib_prob"].fillna(0.0)
         + base["contrib_qual"].fillna(0.0)
+        + base["contrib_flow"].fillna(0.0)
     )
     return base
 
@@ -774,18 +809,19 @@ def apply_baseline_final_score(
     include_explain: bool = True,
 ) -> pd.DataFrame:
     """
-    Apply the production operating final_score formula.
+    Apply the production operating final_score formula (v9_flow).
 
     final_score =
-        w_ret  * ret_score
-      + w_prob * prob_score
-      + w_tech * tech_score
-      + w_qual * qual_score
+        w_ret   * ret_score
+      + w_prob  * prob_score
+      + w_tech  * tech_score
+      + w_qual  * qual_score
+      + w_flow  * flow_score
       - w_risk_penalty * risk_penalty
 
-    valuation_score, safety_score, and liquidity_score may still be computed
-    as compatibility or diagnostic columns, but they are not direct operating
-    axes in the baseline production final_score.
+    flow_score missing → filled with 50.0 (neutral percentile) so that stocks
+    without flow data are not penalized relative to the universe.
+    valuation_score, safety_score, and liquidity_score remain diagnostic-only.
     """
     out = base.copy()
     out = compute_risk_penalty(out)
@@ -797,6 +833,11 @@ def apply_baseline_final_score(
         for col in score_cols:
             source = out[col] if col in out.columns else _series_like(out, np.nan)
             out[col] = pd.to_numeric(source, errors="coerce").fillna(0.0)
+    # flow_score: missing data → neutral 50.0, not 0.0, to avoid penalizing stocks with no flow
+    if "flow_score" not in out.columns:
+        out["flow_score"] = 50.0
+    else:
+        out["flow_score"] = pd.to_numeric(out["flow_score"], errors="coerce").fillna(50.0)
     if "valuation_score" in out.columns:
         out["valuation_score"] = pd.to_numeric(out.get("valuation_score"), errors="coerce")
     out["risk_penalty"] = pd.to_numeric(out.get("risk_penalty"), errors="coerce").fillna(0.0)
@@ -806,6 +847,7 @@ def apply_baseline_final_score(
         + out["w_prob_base"] * out["prob_score"]
         + out["w_tech_base"] * out["tech_score"]
         + out["w_qual_base"] * out["qual_score"]
+        + out["w_flow_base"] * out["flow_score"]
         - out["w_risk_penalty"] * out["risk_penalty"]
     )
     out["final_score"] = pd.to_numeric(out["final_score_before_theme"], errors="coerce").clip(lower=0.0, upper=100.0)

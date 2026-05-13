@@ -583,8 +583,13 @@ def _flow_codes_arg() -> str:
 
 
 def _flow_window() -> tuple[str, str]:
+    start_env = os.environ.get("FLOW_START_DATE", "").strip()
+    end_env = os.environ.get("FLOW_END_DATE", "").strip()
+    if start_env and end_env:
+        return start_env, end_env
     end = datetime.combine(_effective_market_date(), datetime.min.time())
-    start = end - timedelta(days=7)
+    lookback = int(os.environ.get("FLOW_LOOKBACK_DAYS", "7"))
+    start = end - timedelta(days=lookback)
     return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
 
 

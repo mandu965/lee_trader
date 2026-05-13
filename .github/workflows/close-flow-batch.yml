@@ -17,7 +17,7 @@ jobs:
     env:
       TZ: Asia/Seoul
       MARKET_TIMEZONE: Asia/Seoul
-      ENABLE_FLOW_INGESTION: "0"
+      ENABLE_FLOW_INGESTION: "1"
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DART_API_KEY: ${{ secrets.DART_API_KEY }}
       KIS_BASE_URL: ${{ secrets.KIS_BASE_URL }}

@@ -190,7 +190,6 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
         ]
     if command_set == "rule_after_close":
         return [
-            ("run_manual_close_batch", _close_batch_command(skip_web_sync=True)),
             ("run_rule_after_close_cycle", _rule_after_close_command()),
         ]
     if command_set == "rule_before_open":
