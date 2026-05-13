@@ -24,8 +24,22 @@ AUTO_TRADING_OPS_STATUS_PATH = OUTPUT_DIR / "auto_trading_ops_status.json"
 
 
 def _load_env() -> None:
+    env_path = ROOT / ".env"
     if load_dotenv:
-        load_dotenv(ROOT / ".env", override=False)
+        load_dotenv(env_path, override=False)
+        return
+    # Fallback: manually parse .env when python-dotenv is unavailable
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        val = val.strip().split("#")[0].strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = val
 
 
 def read_json(path: Path) -> dict[str, Any]:

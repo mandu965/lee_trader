@@ -88,6 +88,7 @@
 - `doc/modules/Lee_trader_us/OPERATIONS.md`: manual operations and failure checks
 - `doc/modules/Lee_trader_us/DB_SCHEMA.md`: current US schema summary and Phase 8-1 proposed BUY tables
 - `doc/modules/Lee_trader_us/BUY_AUTOMATION_DESIGN.md`: Phase 8-1 limited BUY automation design
+- `doc/modules/Lee_trader_us/SELL_AUTOMATION_DESIGN.md`: Phase 8-6 limited SELL / Exit design
 - `doc/modules/Lee_trader_us/RANKING.md`: Phase 3-2 ranking result table design
 - `doc/modules/Lee_trader_us/US_STOCK_RANKING_V1.md`: integrated Phase 3 operations guide
 - `doc/modules/Lee_trader_us/PHASE3_CHECKLIST.md`: short-form Phase 3 completion checklist

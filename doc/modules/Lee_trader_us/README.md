@@ -2,7 +2,7 @@
 
 > 문서 역할: `현재 기준 문서`
 >
-> 이 문서는 `Lee_trader_us` 문서 세트의 시작점이다. 먼저 읽고, 여기서 연결된 기준 문서로 이동하면 된다.
+> 이 문서는 `Lee_trader_us` 문서 트리의 시작점입니다. 먼저 여기서 현재 상태를 확인하고, 목적에 맞는 상세 문서로 이동하면 됩니다.
 
 ## Purpose
 
@@ -10,7 +10,7 @@
 
 ## Current Status
 
-The codebase is now effectively through Phase 7.
+The codebase is now effectively through Phase 8-6 design and validation work.
 
 Implemented layers:
 
@@ -21,6 +21,8 @@ Implemented layers:
 - Phase 5: paper-trading account, orders, fills, snapshot, rebalance, validation
 - Phase 6: live safety policy, risk policy, pre-trade check, kill switch, approval flow
 - Phase 7: Micro Live mock/sandbox/live-gated order review, status sync, fill sync, reconciliation, operations report, incident runbook
+- Phase 8-1 to 8-5: limited BUY automation design, SHADOW/PAPER evaluation, reporting, scheduler integration, readiness evaluation
+- Phase 8-6: limited SELL / Exit design
 
 ## Safety Boundary
 
@@ -32,23 +34,9 @@ Current boundary:
 - no automatic re-order
 - no automatic position correction
 - no automatic broker-state overwrite
+- no LIVE SELL activation
 - Live account/order access remains disabled by default
 - Korean real-trading logic must stay untouched
-
-## What Phase 7 Means
-
-Phase 7 does not mean production auto-trading.
-
-It means the project now has:
-
-- a manual approval gate
-- pre-trade blocking rules
-- kill switch controls
-- Micro order request lifecycle
-- broker status / fill synchronization
-- broker-vs-internal reconciliation
-- integrated daily operations reporting
-- incident-response runbook
 
 ## Primary Documents
 
@@ -59,6 +47,7 @@ It means the project now has:
 - [OPERATIONS.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/OPERATIONS.md)
 - [DB_SCHEMA.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/DB_SCHEMA.md)
 - [BUY_AUTOMATION_DESIGN.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/BUY_AUTOMATION_DESIGN.md)
+- [SELL_AUTOMATION_DESIGN.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/SELL_AUTOMATION_DESIGN.md)
 - [US_STOCK_RANKING_V1.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_RANKING_V1.md)
 - [US_STOCK_BACKTEST_V1.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_BACKTEST_V1.md)
 - [US_STOCK_PAPER_TRADING.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_PAPER_TRADING.md)
@@ -81,27 +70,29 @@ Use the documents in this order.
 | `ENV.md` | current environment-variable reference | when touching config or safety flags |
 | `OPERATIONS.md` | current command reference | when running scripts manually |
 | `DB_SCHEMA.md` | current schema summary and proposed design tables | when reviewing data contracts |
-| `BUY_AUTOMATION_DESIGN.md` | Phase 8-1 limited BUY design baseline | when preparing Phase 8 implementation |
+| `BUY_AUTOMATION_DESIGN.md` | Phase 8 BUY design baseline | when preparing entry-policy implementation |
+| `SELL_AUTOMATION_DESIGN.md` | Phase 8-6 limited SELL / Exit design baseline | when preparing exit-policy implementation |
 | `FILE_INDEX.md` | code and script map | when locating implementation files |
 | `US_STOCK_*` detailed docs | detailed reference documents | when working inside a specific phase/domain |
 
 ## Next Step
 
-The next step is Phase 8-6: PAPER lifecycle 정교화와 수동 승격 워크플로우 보강입니다.
+The next step is Phase 8-7: SELL / HOLD / REVIEW_REQUIRED skeleton implementation and Paper position lifecycle wiring.
 
 That phase must remain constrained:
 
-- BUY only
-- 1 day 1 order or less
-- very small order notional
-- limit orders only
-- no automatic SELL expansion until separately validated
+- no real SELL order submission
+- Paper position first
+- reviewable exit logic
+- no LIVE SELL activation
+- no broker path addition
 
-Current implementation status:
+## Current Implementation Status
 
-- Phase 8-1 design document is complete
-- Phase 8-2 BUY automation skeleton is now implemented in SHADOW / PAPER review form
-- Phase 8-3 report / validation / PAPER performance layer is now implemented
-- Phase 8-4 scheduler integration is now implemented in SHADOW / PAPER only form
-- Phase 8-5 readiness evaluation and promotion-policy layer is now implemented
+- Phase 8-1 BUY design document is complete
+- Phase 8-2 BUY automation skeleton is implemented in SHADOW / PAPER review form
+- Phase 8-3 BUY report / validation / PAPER performance layer is implemented
+- Phase 8-4 scheduler integration is implemented in SHADOW / PAPER only form
+- Phase 8-5 readiness evaluation and promotion-policy layer is implemented
+- Phase 8-6 SELL / Exit policy design is documented
 - `LIVE` remains blocked and non-executable

@@ -295,6 +295,29 @@ python scripts/run_us_buy_readiness.py --days 60 --benchmark SPY --format markdo
 - `PAPER_DAYS_BELOW_MINIMUM` or `PAPER_ORDERS_BELOW_MINIMUM` means the sample is still too small
 - readiness output must never be treated as permission to activate LIVE automatically
 
+## Phase 8-6 SELL Design Review Inputs
+
+Phase 8-6 is design-only. No SELL execution command is added yet.
+
+Use the following existing commands as design-review inputs:
+
+```powershell
+python scripts/report_us_stock_paper_trading.py --account-id US_PAPER_RULE_V1 --format console
+python scripts/run_us_buy_report.py --format console
+python scripts/run_us_buy_readiness.py --format console
+python scripts/report_us_micro_live_operations.py --trade-date 2026-05-16 --account-id US_LIVE_TEST --format console
+```
+
+### Phase 8-6 Operator Review Questions
+
+1. Which exits should force full Paper liquidation versus review-only state?
+2. Is stop-loss more important than benchmark-relative underperformance for the first version?
+3. Should data errors become `REVIEW_REQUIRED` rather than automatic Paper SELL?
+4. Is same-day BUY re-entry after a SELL decision allowed or blocked?
+5. Is partial take-profit worth adding before Paper position persistence is more mature?
+6. Which position state is authoritative for `highest_price_since_entry`?
+7. If price / rank / benchmark inputs disagree, should the system default to hold, sell, or review?
+
 ## Backfill Method
 
 - use `US_STOCK_PRICE_BACKFILL_YEARS` as the default historical range

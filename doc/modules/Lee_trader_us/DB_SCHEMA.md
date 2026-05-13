@@ -628,3 +628,136 @@ Suggested columns:
 - these tables are design / manual migration targets only
 - readiness evaluation in the current phase is file/report based
 - DB migration is not auto-applied
+
+## Phase 8-6 Proposed SELL / Exit Tables
+
+### `trade.us_paper_position`
+
+Purpose:
+
+- canonical Paper position state used for SELL / Exit evaluation
+
+Suggested columns:
+
+- `paper_position_id`
+- `account_id`
+- `symbol`
+- `entry_trade_date`
+- `entry_price`
+- `quantity`
+- `remaining_quantity`
+- `avg_entry_price`
+- `latest_price`
+- `highest_price_since_entry`
+- `unrealized_pnl`
+- `unrealized_pnl_pct`
+- `holding_days`
+- `status`
+- `exit_reason`
+- `created_at`
+- `updated_at`
+
+Suggested uniqueness:
+
+- `UNIQUE (account_id, symbol, entry_trade_date)`
+
+### `trade.us_paper_position_snapshot`
+
+Purpose:
+
+- daily Paper position mark-to-market snapshot for exit review and report reconstruction
+
+Suggested columns:
+
+- `snapshot_id`
+- `snapshot_date`
+- `paper_position_id`
+- `symbol`
+- `latest_price`
+- `remaining_quantity`
+- `highest_price_since_entry`
+- `unrealized_pnl`
+- `unrealized_pnl_pct`
+- `holding_days`
+- `status`
+- `created_at`
+
+Suggested uniqueness:
+
+- `UNIQUE (snapshot_date, paper_position_id)`
+
+### `trade.us_sell_decision_log`
+
+Purpose:
+
+- final SELL / PARTIAL_SELL / HOLD / REVIEW_REQUIRED decision log
+
+Suggested columns:
+
+- `sell_decision_id`
+- `trade_date`
+- `account_id`
+- `automation_mode`
+- `paper_position_id`
+- `symbol`
+- `decision`
+- `sell_action`
+- `sell_ratio`
+- `sell_quantity`
+- `exit_reason`
+- `review_required`
+- `applied_rules JSONB`
+- `decision_reason_detail`
+- `created_at`
+
+Suggested uniqueness:
+
+- `UNIQUE (trade_date, automation_mode, paper_position_id)`
+
+### `trade.us_sell_signal_log`
+
+Purpose:
+
+- lower-level rule trigger evidence before the final sell decision is resolved
+
+Suggested columns:
+
+- `sell_signal_id`
+- `trade_date`
+- `paper_position_id`
+- `symbol`
+- `rule_name`
+- `rule_result`
+- `metric_value`
+- `threshold_value`
+- `severity`
+- `detail`
+- `created_at`
+
+### `trade.us_paper_sell_order`
+
+Purpose:
+
+- Paper-only SELL action artifact, separate from any future real SELL path
+
+Suggested columns:
+
+- `paper_sell_order_id`
+- `trade_date`
+- `paper_position_id`
+- `symbol`
+- `side`
+- `sell_ratio`
+- `sell_quantity`
+- `sell_price_ref`
+- `assumed_fill_status`
+- `source_sell_decision_id`
+- `created_at`
+- `updated_at`
+
+### Phase 8-6 Design Notes
+
+- these tables are design-only in this phase
+- no migration is auto-applied
+- Paper position state should become the source for stop-loss, trailing-stop, and holding-day evaluation
+- real SELL lifecycle tables should wait until Paper SELL validation is mature

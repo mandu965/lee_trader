@@ -516,3 +516,48 @@ Phase 8-1 is design only. The variables below are proposed for later implementat
 - readiness evaluation must not change any LIVE ENV value automatically.
 - benchmark data missing means fail-safe `NOT_READY`.
 - manual approval remains mandatory regardless of score.
+
+## Phase 8-6 SELL / Exit Design Variables
+
+### Immediately Usable Design ENV
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_SELL_AUTOMATION_MODE` | `SHADOW` | SELL automation operating mode | sell design | `SHADOW`, `PAPER`, `LIVE` |
+| `US_SELL_AUTOMATION_ENABLED` | `0` | Master switch for SELL evaluation | sell design | Must stay off by default |
+| `US_SELL_STOP_LOSS_PCT` | `-8` | Stop-loss threshold | sell design | Percent-style design value |
+| `US_SELL_TAKE_PROFIT_PCT` | `15` | Take-profit threshold | sell design | Conservative baseline |
+| `US_SELL_TRAILING_STOP_PCT` | `10` | Trailing-stop threshold from high-water mark | sell design | Conservative baseline |
+| `US_SELL_MAX_HOLDING_DAYS` | `60` | Maximum intended holding period | sell design | Time-based exit |
+| `US_SELL_RANK_EXIT_THRESHOLD` | `30` | Rank deterioration exit threshold | sell design | Review-oriented baseline |
+| `US_SELL_MIN_SCORE_HOLD` | `0.50` | Minimum score to continue holding | sell design | Future score mapping needed |
+| `US_SELL_REQUIRE_BENCHMARK_STRENGTH` | `1` | Require benchmark-relative context | sell design | Fail-safe review if missing |
+| `US_SELL_BENCHMARK_SYMBOL` | `SPY` | Primary benchmark for SELL review | sell design | `SPY` default |
+| `US_SELL_BENCHMARK_UNDERPERFORM_PCT` | `-5` | Underperformance threshold vs benchmark | sell design | Percent-style design value |
+| `US_SELL_RISK_OFF_EXIT_ENABLED` | `1` | Enable risk-off exit logic | sell design | Review-first policy |
+| `US_SELL_MARKET_DRAWDOWN_EXIT_PCT` | `-5` | Market stress threshold | sell design | Percent-style design value |
+| `US_SELL_FAILSAFE_ON_DATA_ERROR` | `1` | Fail-safe on SELL data error | sell design | Prefer `REVIEW_REQUIRED` over blind SELL |
+
+### Paper-Position-Dependent Design ENV
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_SELL_MIN_PROB_HOLD` | `0.50` | Minimum probability to continue holding | sell design | Only after stable probability field exists |
+| `US_SELL_PARTIAL_TAKE_PROFIT_ENABLED` | `0` | Allow partial profit-taking | sell design | Disabled for first version |
+| `US_SELL_PARTIAL_TAKE_PROFIT_RATIO` | `0.5` | Default partial-sell ratio | sell design | Only when partial take-profit is enabled |
+| `US_SELL_COOLDOWN_AFTER_EXIT_DAYS` | `5` | Cooldown after full exit | sell design | Prevent churn / same-day re-entry |
+
+### LIVE-Only Future ENV
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_SELL_LIVE_ENABLED` | `0` | Future explicit SELL live gate | future live sell | Must stay off |
+| `US_SELL_REQUIRE_MANUAL_APPROVAL` | `1` | Require approval before real SELL release | future live sell | Conservative default |
+| `US_SELL_REQUIRE_RECON_OK` | `1` | Require reconciliation health before real SELL release | future live sell | Depends on Phase 7 stability |
+| `US_SELL_REQUIRE_OPS_HEALTH_BELOW` | `ATTENTION` | Max ops severity before SELL release | future live sell | Example policy only |
+
+### Phase 8-6 Notes
+
+- SELL design in this phase is Paper-position oriented only.
+- fail-safe does not automatically mean real SELL; it can mean `REVIEW_REQUIRED`.
+- SELL design must stay separate from BUY readiness and must not activate live execution.

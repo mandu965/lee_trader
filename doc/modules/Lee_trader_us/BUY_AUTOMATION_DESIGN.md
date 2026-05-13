@@ -898,3 +898,20 @@ Phase 8-6 should focus on:
 - stronger scheduler/readiness history persistence
 - more realistic portfolio-equity curve construction
 - manual promotion workflow scaffolding without any automatic LIVE release
+
+## Phase 8-6 BUY / SELL Relationship
+
+Phase 8-6 adds SELL / Exit design as a separate control layer.
+
+Key relationship rules:
+
+- BUY automation decides new entry only
+- SELL automation decides whether an existing Paper position should remain open or be reduced/closed
+- BUY and SELL must remain independently runnable
+- a symbol with an active position should not receive unrestricted repeat BUY evaluation
+- a symbol with a same-day SELL signal should be blocked from same-day new BUY by default
+- if BUY and SELL conflict on the same evaluation day, SELL / REVIEW_REQUIRED takes precedence
+
+Reference document:
+
+- see [SELL_AUTOMATION_DESIGN.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/SELL_AUTOMATION_DESIGN.md)
