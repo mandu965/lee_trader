@@ -2594,9 +2594,9 @@ function normalizeRuleSignalRow(row) {
   return {
     date: toIsoDate(row.date) || String(row.date || "").trim() || null,
     code: String(row.code || "").trim().padStart(6, "0"),
-    name: row.name || null,
-    sector: row.sector || null,
-    market: row.market || null,
+    name: cleanDisplayText(row.name),
+    sector: cleanDisplayText(row.sector),
+    market: cleanDisplayText(row.market),
     close: toNum(row.close),
     open: toNum(row.open),
     expected_gap: toNum(row.expected_gap),
@@ -2623,11 +2623,38 @@ function normalizeRuleSignalRow(row) {
   };
 }
 
+function cleanDisplayText(value) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  if (lower === "nan" || lower === "none" || lower === "null") return null;
+  return text;
+}
+
+function buildRuleSignalFallbackLookup(asOfDate) {
+  if (!asOfDate) return new Map();
+  const rows = readCsv(path.join(DATA_DIR, "confidence_score_v2.csv")) || [];
+  const lookup = new Map();
+  rows.forEach((row) => {
+    const rowDate = toIsoDate(row.date) || String(row.date || "").trim();
+    if (rowDate !== asOfDate) return;
+    const code = String(row.code || "").trim().padStart(6, "0");
+    if (!code) return;
+    lookup.set(code, {
+      name: cleanDisplayText(row.name),
+      sector: cleanDisplayText(row.sector),
+      market: cleanDisplayText(row.market),
+    });
+  });
+  return lookup;
+}
+
 function loadLatestRuleSignals() {
   const portfolio = readJson(path.join(OUTPUTS_DIR, "rule_portfolio_plan.json")) || {};
   const preview = readJson(path.join(OUTPUTS_DIR, "rule_order_preview.json")) || {};
   const portfolioItems = Array.isArray(portfolio.items) ? portfolio.items : [];
   const previewItems = Array.isArray(preview.items) ? preview.items : [];
+  const fallbackLookup = buildRuleSignalFallbackLookup(portfolio.as_of_date || null);
   if (portfolio.as_of_date && portfolioItems.length) {
     const previewByCode = new Map(
       previewItems.map((item) => [String(item.code || item.symbol || "").trim().padStart(6, "0"), item])
@@ -2635,12 +2662,13 @@ function loadLatestRuleSignals() {
     const items = portfolioItems.map((item) => {
       const code = String(item.code || "").trim().padStart(6, "0");
       const previewItem = previewByCode.get(code) || {};
+      const fallbackItem = fallbackLookup.get(code) || {};
       return {
         date: portfolio.as_of_date,
         code,
-        name: item.name || previewItem.name || null,
-        sector: item.sector || null,
-        market: null,
+        name: cleanDisplayText(item.name) || cleanDisplayText(previewItem.name) || fallbackItem.name || null,
+        sector: cleanDisplayText(item.sector) || cleanDisplayText(previewItem.sector) || fallbackItem.sector || null,
+        market: cleanDisplayText(item.market) || cleanDisplayText(previewItem.market) || fallbackItem.market || null,
         close: null,
         open: null,
         expected_gap: null,
@@ -2685,10 +2713,18 @@ function loadLatestRuleSignals() {
     .filter(Boolean)
     .sort()
     .pop();
+  const csvFallbackLookup = buildRuleSignalFallbackLookup(latestDate);
   const strengthRank = { strong_entry: 2, entry: 1, none: 0 };
   const items = rows
     .filter((row) => (toIsoDate(row.date) || String(row.date || "").trim()) === latestDate)
-    .map(normalizeRuleSignalRow)
+    .map((row) => {
+      const item = normalizeRuleSignalRow(row);
+      const fallbackItem = csvFallbackLookup.get(item.code) || {};
+      if (!item.name) item.name = fallbackItem.name || null;
+      if (!item.sector) item.sector = fallbackItem.sector || null;
+      if (!item.market) item.market = fallbackItem.market || null;
+      return item;
+    })
     .sort((a, b) => {
       const strengthDiff = (strengthRank[b.signal_strength] || 0) - (strengthRank[a.signal_strength] || 0);
       if (strengthDiff) return strengthDiff;

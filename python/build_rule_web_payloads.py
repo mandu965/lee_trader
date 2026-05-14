@@ -18,6 +18,7 @@ LIVE_STATE_PATH = OUTPUT_DIR / "rule_account_live_state.json"
 BACKTEST_PATH = OUTPUT_DIR / "rule_strategy_backtest_report.json"
 EXECUTION_PATH = OUTPUT_DIR / "rule_execution_results.json"
 SIGNALS_CSV_PATH = DATA_DIR / "rule_signals.csv"
+CONFIDENCE_CSV_PATH = DATA_DIR / "confidence_score_v2.csv"
 SUMMARY_OUT = OUTPUT_DIR / "rule_dashboard_summary.json"
 SIGNALS_OUT = OUTPUT_DIR / "rule_signals_latest.json"
 
@@ -73,6 +74,15 @@ def to_iso_date(value: Any) -> str | None:
     return text
 
 
+def clean_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null"}:
+        return None
+    return text
+
+
 def parse_iso_datetime(value: Any) -> datetime | None:
     text = str(value or "").strip()
     if not text:
@@ -116,9 +126,9 @@ def normalize_rule_signal_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "date": to_iso_date(row.get("date")),
         "code": str(row.get("code") or "").strip().zfill(6),
-        "name": row.get("name") or None,
-        "sector": row.get("sector") or None,
-        "market": row.get("market") or None,
+        "name": clean_text(row.get("name")),
+        "sector": clean_text(row.get("sector")),
+        "market": clean_text(row.get("market")),
         "close": to_num(row.get("close")),
         "open": to_num(row.get("open")),
         "expected_gap": to_num(row.get("expected_gap")),
@@ -145,11 +155,34 @@ def normalize_rule_signal_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_signal_fallback_lookup(as_of_date: str | None) -> dict[str, dict[str, str | None]]:
+    if not as_of_date:
+        return {}
+    rows = read_csv_rows(CONFIDENCE_CSV_PATH)
+    if not rows:
+        return {}
+    lookup: dict[str, dict[str, str | None]] = {}
+    for row in rows:
+        if (to_iso_date(row.get("date")) or "") != as_of_date:
+            continue
+        code = str(row.get("code") or "").strip().zfill(6)
+        if not code:
+            continue
+        lookup[code] = {
+            "name": clean_text(row.get("name")),
+            "sector": clean_text(row.get("sector")),
+            "market": clean_text(row.get("market")),
+        }
+    return lookup
+
+
 def load_latest_rule_signals() -> tuple[str | None, list[dict[str, Any]]]:
     portfolio = read_json(PORTFOLIO_PATH)
     preview = read_json(PREVIEW_PATH)
     portfolio_items = portfolio.get("items") or []
     preview_items = preview.get("items") or []
+    latest_date = str(portfolio.get("as_of_date")) if portfolio.get("as_of_date") else None
+    fallback_lookup = build_signal_fallback_lookup(latest_date)
     if portfolio.get("as_of_date") and portfolio_items:
         preview_by_code = {
             str(item.get("code") or item.get("symbol") or "").strip().zfill(6): item
@@ -159,13 +192,14 @@ def load_latest_rule_signals() -> tuple[str | None, list[dict[str, Any]]]:
         for item in portfolio_items:
             code = str(item.get("code") or "").strip().zfill(6)
             preview_item = preview_by_code.get(code, {})
+            fallback_item = fallback_lookup.get(code, {})
             items.append(
                 {
                     "date": portfolio.get("as_of_date"),
                     "code": code,
-                    "name": item.get("name") or preview_item.get("name"),
-                    "sector": item.get("sector"),
-                    "market": None,
+                    "name": clean_text(item.get("name")) or clean_text(preview_item.get("name")) or fallback_item.get("name"),
+                    "sector": clean_text(item.get("sector")) or clean_text(preview_item.get("sector")) or fallback_item.get("sector"),
+                    "market": clean_text(item.get("market")) or clean_text(preview_item.get("market")) or fallback_item.get("market"),
                     "close": None,
                     "open": None,
                     "expected_gap": None,
@@ -191,13 +225,25 @@ def load_latest_rule_signals() -> tuple[str | None, list[dict[str, Any]]]:
                     "run_mode": portfolio.get("run_mode") or preview.get("run_mode"),
                 }
             )
-        latest_date = str(portfolio.get("as_of_date"))
     else:
         rows = read_csv_rows(SIGNALS_CSV_PATH)
         if not rows:
             return None, []
         latest_date = max((to_iso_date(row.get("date")) or "" for row in rows), default=None)
-        items = [normalize_rule_signal_row(row) for row in rows if (to_iso_date(row.get("date")) or "") == latest_date]
+        fallback_lookup = build_signal_fallback_lookup(latest_date)
+        items = []
+        for row in rows:
+            if (to_iso_date(row.get("date")) or "") != latest_date:
+                continue
+            normalized = normalize_rule_signal_row(row)
+            fallback_item = fallback_lookup.get(str(normalized.get("code") or ""), {})
+            if not normalized.get("name"):
+                normalized["name"] = fallback_item.get("name")
+            if not normalized.get("sector"):
+                normalized["sector"] = fallback_item.get("sector")
+            if not normalized.get("market"):
+                normalized["market"] = fallback_item.get("market")
+            items.append(normalized)
 
     strength_rank = {"strong_entry": 2, "entry": 1, "none": 0}
     items.sort(
