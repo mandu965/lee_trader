@@ -404,8 +404,8 @@ function renderExecution(results) {
     } else if (item.order_block_reason && item.order_block_reason !== "none" && item.order_block_reason !== "-") {
       blockDisplay = esc(item.order_block_reason);
     } else if (item.order_status === "simulated_unfilled" || item.order_status === "unfilled") {
-      // 주문은 허용됐지만 시가 검증에서 체결 조건 불일치 (실제 시가 > 예상 체결가 등)
-      blockDisplay = `<span class="chip warn">시가 검증 미충족 — 실제 시가 체결 조건 불일치</span>`;
+      // 차단 사유 없이 미체결 = 시가 체결가(exec_price) 미확정 (KIS 스냅샷 open_price 없음 또는 next_open 없음)
+      blockDisplay = `<span class="chip warn">체결가 미확정 — KIS 시가 스냅샷 누락 또는 next_open 없음</span>`;
     } else {
       blockDisplay = "-";
     }
