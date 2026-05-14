@@ -116,6 +116,16 @@ The US module still does not include:
    - manual-approval delivery policy
    - severity and redaction policy
    - no real external delivery implementation
+5. Phase 8-14:
+   - dry-run notification adapter implementation
+   - file / console / email-dry-run / slack-dry-run rendering
+   - manual-approval pending artifact persistence
+   - optional scheduler hook after notification payload generation
+6. Phase 8-15:
+   - Paper Trading quality-gate design
+   - Go-Live pre-check design
+   - review-only gate evaluation layer
+   - no automatic LIVE promotion
 
 ## Phase 8-4 Integration Point
 
@@ -332,3 +342,27 @@ Adapter scope:
 - must not alter orchestration or dashboard decisions
 - must not submit any broker order
 - must not call SMTP, Slack webhook, or other external APIs in this phase
+
+## Phase 8-15 Quality Gate Boundary
+
+The quality-gate layer sits after orchestration, dashboard, and notification dry-run artifacts already exist.
+
+Recommended future order:
+
+1. orchestration scheduler job
+2. integrated report
+3. dashboard report
+4. dashboard-aware health check
+5. notification payload generation
+6. notification adapter dry-run
+7. quality-gate evaluation
+8. scheduler final result persistence
+
+Quality-gate scope:
+
+- evaluates Paper-only operating quality
+- compares reports and artifacts for consistency
+- evaluates LIVE safety boundaries
+- may produce a review report only
+- must not enable LIVE automatically
+- must not modify trading decisions retrospectively

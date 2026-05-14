@@ -1071,3 +1071,15 @@ Current limitation:
 
 - Phase 8-13 is still design-only
 - no actual email or Slack delivery is implemented
+
+Phase 8-14 follow-up:
+
+- notification adapter dry-run can consume the Phase 8-12 payload artifacts
+- dashboard payload remains the source summary
+- adapter output remains file/console/dry-run only
+
+Phase 8-15 relationship:
+
+- dashboard artifacts become one of the core inputs to the future quality-gate evaluator
+- dashboard section consistency should be checked against integrated report and notification payloads
+- dashboard PASS alone is insufficient for Go-Live review without scheduler, safety, and performance gates

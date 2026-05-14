@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 
 from python.us.dashboard.config import DashboardConfig
@@ -63,10 +64,13 @@ def build_dashboard_notification_json_payload(
     payload = {
         "message_type": "US_PAPER_TRADING_DASHBOARD_SUMMARY",
         "trade_date": (dashboard_payload.get("meta") or {}).get("trade_date"),
+        "generated_at": (dashboard_payload.get("meta") or {}).get("generated_at") or datetime.now(timezone.utc).isoformat(),
         "mode": (dashboard_payload.get("meta") or {}).get("mode"),
         "status": _status_from_dashboard(dashboard_payload),
+        "severity": _status_from_dashboard(dashboard_payload),
         "paper_trading_only": True,
         "live_orders_executed": False,
+        "live_trading_enabled": False,
         "buy": {
             "candidates": daily.get("buy_candidates"),
             "final_allowed": daily.get("final_buy_allowed"),
@@ -85,6 +89,10 @@ def build_dashboard_notification_json_payload(
         "health": {
             "scheduler_status": scheduler.get("health_check_status") or scheduler.get("status"),
             "dashboard_status": health_status,
+        },
+        "links": {
+            "dashboard_json": (dashboard_payload.get("meta") or {}).get("json_report_path"),
+            "dashboard_markdown": (dashboard_payload.get("meta") or {}).get("markdown_report_path"),
         },
         "notice": "Paper Trading only. No live orders were executed.",
     }

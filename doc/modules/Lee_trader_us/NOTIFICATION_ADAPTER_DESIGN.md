@@ -782,3 +782,76 @@ Related modules:
 - no DB persistence is required in this phase
 - severity assignment is policy-driven and may need later tuning
 - future channel adapters must re-validate redaction rules before any external send path is opened
+
+## Phase 8-14 Implementation Notes
+
+Implemented modules in this repository:
+
+- `python/us/notification/config.py`
+- `python/us/notification/notification_payload_loader.py`
+- `python/us/notification/severity_policy.py`
+- `python/us/notification/channel_router.py`
+- `python/us/notification/console_adapter.py`
+- `python/us/notification/file_adapter.py`
+- `python/us/notification/email_dry_run_adapter.py`
+- `python/us/notification/slack_dry_run_adapter.py`
+- `python/us/notification/manual_approval.py`
+- `python/us/notification/notification_logger.py`
+- `python/us/notification/run_us_notification_adapter.py`
+- `python/us/run_us_notification_adapter.py`
+- `scripts/run_us_notification_adapter.py`
+
+Supported channels:
+
+- `FILE`
+- `CONSOLE`
+- `EMAIL_DRY_RUN`
+- `SLACK_DRY_RUN`
+
+Blocked channels:
+
+- `EMAIL_LIVE`
+- `SLACK_LIVE`
+
+Execution examples:
+
+```powershell
+python -m python.us.notification.run_us_notification_adapter --force
+python -m python.us.notification.run_us_notification_adapter --trade-date 2026-05-15 --force
+python scripts/run_us_notification_adapter.py --channels FILE,CONSOLE --force
+```
+
+Primary output files:
+
+- `reports/lee_trader_us/notification/YYYY-MM-DD_notification_adapter.txt`
+- `reports/lee_trader_us/notification/YYYY-MM-DD_notification_adapter.json`
+- `reports/lee_trader_us/notification/latest_notification_adapter.txt`
+- `reports/lee_trader_us/notification/latest_notification_adapter.json`
+
+Manual approval storage:
+
+- `reports/lee_trader_us/notification/approvals/YYYY-MM-DD_approval_pending.json`
+- `reports/lee_trader_us/notification/approvals/latest_approval_pending.json`
+
+Implementation boundary:
+
+- no external delivery is performed
+- dry-run rendering and file persistence only
+- notification failure does not change trading decisions
+
+## Phase 8-15 Quality Gate Relationship
+
+In the future quality-gate layer, notification artifacts should be treated as one of the review inputs, not as the source of trading truth.
+
+The notification-related gate should verify:
+
+- `paper_trading_only=true`
+- `live_orders_executed=false`
+- sensitive-field redaction
+- live-channel blocking integrity
+- manual-approval pending artifact presence when required
+
+Even if the notification-safety gate passes:
+
+- LIVE notification delivery must remain unimplemented
+- LIVE trading approval must remain separate from notification approval

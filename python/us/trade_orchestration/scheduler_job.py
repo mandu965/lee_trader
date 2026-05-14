@@ -195,6 +195,12 @@ def run_trade_scheduler_job(*, trade_date: str | None = None, emit_console: bool
             result["warnings"].extend(dashboard_result.get("warnings") or [])
             if dashboard_result.get("errors"):
                 result["errors"].extend(str(item) for item in dashboard_result.get("errors") or [])
+            if isinstance(dashboard_result.get("payload"), dict):
+                dashboard_result["payload"].setdefault("meta", {})
+                dashboard_result["payload"]["meta"]["json_report_path"] = dashboard_result.get("json_report_path")
+                dashboard_result["payload"]["meta"]["markdown_report_path"] = dashboard_result.get("markdown_report_path")
+                dashboard_result["payload"]["meta"]["latest_json_path"] = dashboard_result.get("latest_json_path")
+                dashboard_result["payload"]["meta"]["latest_markdown_path"] = dashboard_result.get("latest_markdown_path")
             orchestration_result["dashboard_payload"] = dashboard_result.get("payload")
             orchestration_result["dashboard_json_report_path"] = dashboard_result.get("json_report_path")
             orchestration_result["dashboard_markdown_report_path"] = dashboard_result.get("markdown_report_path")

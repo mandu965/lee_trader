@@ -585,6 +585,60 @@ Phase 8-13 is design-only.
 5. confirm `LIVE` notification mode stays blocked until a future implementation phase
 6. confirm no sensitive fields appear in dry-run text or JSON
 
+## Phase 8-14 Notification Adapter Commands
+
+```powershell
+python -m python.us.notification.run_us_notification_adapter --force
+python -m python.us.notification.run_us_notification_adapter --trade-date 2026-05-15 --force
+python -m python.us.notification.run_us_notification_adapter --channels FILE,CONSOLE --force
+python scripts/run_us_notification_adapter.py --force
+```
+
+### Phase 8-14 Output
+
+- `reports/lee_trader_us/notification/YYYY-MM-DD_notification_adapter.txt`
+- `reports/lee_trader_us/notification/YYYY-MM-DD_notification_adapter.json`
+- `reports/lee_trader_us/notification/latest_notification_adapter.txt`
+- `reports/lee_trader_us/notification/latest_notification_adapter.json`
+- `reports/lee_trader_us/notification/approvals/YYYY-MM-DD_approval_pending.json`
+- `reports/lee_trader_us/notification/approvals/latest_approval_pending.json`
+
+### Phase 8-14 Safety Notes
+
+- all channels are dry-run only
+- no SMTP send
+- no Slack webhook send
+- no external API call
+- `EMAIL_LIVE` and `SLACK_LIVE` are explicitly blocked
+- approval pending is for notification delivery review only, not for trading approval
+
+## Phase 8-15 Quality Gate Design Notes
+
+Phase 8-15 is design-only.
+
+- no quality-gate evaluator is implemented yet
+- no Go-Live approval automation is implemented
+- no LIVE enablement is allowed
+- no broker or real-account integration is added
+
+### Phase 8-15 Intended Future Execution Order
+
+1. trade orchestration
+2. dashboard report
+3. notification adapter dry-run
+4. quality-gate evaluation
+5. scheduler final result logging
+
+### Phase 8-15 Operator Review Checklist
+
+1. confirm data-quality gate inputs are complete
+2. confirm BUY / SELL / conflict reasons remain explainable
+3. confirm integrated report, dashboard, and notification counts agree
+4. confirm scheduler success and health-check pass rates are stable
+5. confirm notification artifacts remain Paper-only and non-sensitive
+6. confirm LIVE safety signals remain fully blocked
+7. confirm Go-Live checklist is treated as review-only, not approval
+
 ## Backfill Method
 
 - use `US_STOCK_PRICE_BACKFILL_YEARS` as the default historical range

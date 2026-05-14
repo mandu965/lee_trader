@@ -590,6 +590,7 @@ Phase 8-1 is design only. The variables below are proposed for later implementat
 | `US_TRADE_SCHEDULER_ENABLED` | `0` | Reserved orchestration scheduler switch | orchestration scheduler | Disabled by default |
 | `US_TRADE_SCHEDULER_RUN_ORCHESTRATION` | `1` | Reserved orchestration scheduler stage flag | orchestration scheduler | Used for conflict detection |
 | `US_TRADE_SCHEDULER_RUN_DASHBOARD` | `0` | Run dashboard generation after orchestration | orchestration scheduler | Disabled by default |
+| `US_TRADE_SCHEDULER_RUN_NOTIFICATION_ADAPTER` | `0` | Run notification adapter dry-run after dashboard notification payload generation | orchestration scheduler | Disabled by default |
 | `US_TRADE_SCHEDULER_FAIL_PIPELINE_ON_ERROR` | `0` | Optional fail-fast behavior for orchestration scheduler | orchestration scheduler | Safe default is isolated |
 
 ### Phase 8-8 Notes
@@ -703,3 +704,36 @@ Phase 8-1 is design only. The variables below are proposed for later implementat
 - manual approval applies to notification delivery only, not to trading approval
 - FILE and CONSOLE are the only safe-default channels in this phase
 - email/slack dry-run may render message format but must not call SMTP, webhook, or any external API
+
+### Phase 8-14 Notes
+
+- `US_NOTIFICATION_ADAPTER_ENABLED=0` keeps the adapter skipped by default, but manual CLI execution may still use `--force`
+- supported dry-run channels are `FILE`, `CONSOLE`, `EMAIL_DRY_RUN`, and `SLACK_DRY_RUN`
+- `EMAIL_LIVE` and `SLACK_LIVE` remain blocked as `LIVE_NOTIFICATION_NOT_IMPLEMENTED`
+- `US_TRADE_SCHEDULER_RUN_NOTIFICATION_ADAPTER=1` adds the adapter after dashboard notification payload generation
+
+## Phase 8-15 Quality Gate Variables
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_QUALITY_GATE_ENABLED` | `0` | Master switch for future Paper Trading quality-gate evaluation | quality gate | Disabled by default |
+| `US_QUALITY_GATE_LOOKBACK_DAYS` | `60` | Default lookback window for gate evaluation | quality gate | Review window only |
+| `US_QUALITY_GATE_OUTPUT_DIR` | `reports/lee_trader_us/quality_gate` | Output directory for future quality-gate reports | quality gate reporting | Auto-created by future implementation |
+| `US_QUALITY_GATE_MIN_PAPER_DAYS` | `60` | Minimum Paper days before Go-Live review discussion | quality gate performance | Conservative baseline |
+| `US_QUALITY_GATE_MIN_PAPER_ORDERS` | `20` | Minimum Paper order count | quality gate performance | Sample-size threshold |
+| `US_QUALITY_GATE_MIN_SELL_ORDERS` | `5` | Minimum completed Paper SELL count | quality gate performance | Exit-sample threshold |
+| `US_QUALITY_GATE_MAX_DATA_MISSING_RATE_PCT` | `5` | Max acceptable missing-rate threshold for gate PASS | quality gate data quality | Conservative baseline |
+| `US_QUALITY_GATE_MIN_SCHEDULER_SUCCESS_RATE_PCT` | `95` | Minimum scheduler success rate for PASS | quality gate scheduler | Conservative baseline |
+| `US_QUALITY_GATE_MAX_DRAWDOWN_PCT` | `15` | Maximum drawdown threshold for PASS | quality gate performance | Same policy family as readiness review |
+| `US_QUALITY_GATE_REQUIRE_POSITIVE_EXCESS_RETURN` | `1` | Require non-negative excess return for PASS | quality gate performance | Review gate only |
+| `US_QUALITY_GATE_FAIL_ON_LIVE_SAFETY_ERROR` | `1` | Treat LIVE safety violation as hard gate fail | quality gate safety | Must stay conservative |
+| `US_QUALITY_GATE_REQUIRE_MANUAL_REVIEW` | `1` | Require manual review even after automatic scoring | quality gate review | Recommended required |
+| `US_QUALITY_GATE_ALLOW_GO_LIVE_REVIEW` | `0` | Allow future Go-Live review scheduling | quality gate governance | Default disallowed |
+| `US_TRADE_SCHEDULER_RUN_QUALITY_GATE` | `0` | Future scheduler hook for quality-gate evaluation | orchestration scheduler | Disabled by default |
+
+### Phase 8-15 Notes
+
+- quality gate is review-only and must not enable LIVE automatically
+- `US_QUALITY_GATE_ALLOW_GO_LIVE_REVIEW=0` should remain the default until a later explicit review phase
+- `US_QUALITY_GATE_FAIL_ON_LIVE_SAFETY_ERROR=1` makes LIVE-safety violations the highest-priority gate failure
+- quality-gate PASS means only that manual Go-Live review may be considered, not approved

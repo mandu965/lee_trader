@@ -1145,3 +1145,85 @@ Notes:
 - manual approval here is for notification delivery only
 - it must not be confused with LIVE trading approval
 - no migration or runtime writer is added in this phase
+
+## Phase 8-14 Notification Adapter Dry-Run DDL
+
+- reference file: [phase8_14_notification_adapter_tables.sql](/d:/ai/lee_trader/sql/lee_trader_us/phase8_14_notification_adapter_tables.sql)
+- current implementation keeps file-based logs as the primary artifact
+- DB migration remains manual and is not auto-applied
+
+## Phase 8-15 Quality Gate Tables
+
+Phase 8-15 is design-only. The following tables describe future Paper Trading quality-gate persistence.
+
+### `trade.us_quality_gate_report`
+
+Purpose:
+
+- store one assembled quality-gate report per evaluation date
+
+Suggested fields:
+
+- `quality_gate_report_id`
+- `evaluation_date`
+- `lookback_days`
+- `overall_status`
+- `go_live_review_allowed`
+- `manual_review_required`
+- `paper_trading_only`
+- `live_orders_executed`
+- `report_json`
+- `created_at`
+- `updated_at`
+
+Suggested uniqueness:
+
+- `(evaluation_date, lookback_days)`
+
+### `trade.us_quality_gate_result`
+
+Purpose:
+
+- store one row per gate result for detailed review and trend queries
+
+Suggested fields:
+
+- `gate_result_id`
+- `evaluation_date`
+- `gate_name`
+- `status`
+- `score`
+- `warnings JSONB`
+- `errors JSONB`
+- `detail_json`
+- `created_at`
+- `updated_at`
+
+Suggested uniqueness:
+
+- `(evaluation_date, gate_name)`
+
+### `trade.us_go_live_precheck_log`
+
+Purpose:
+
+- store manual Go-Live pre-check review outcomes and unresolved blockers
+
+Suggested fields:
+
+- `precheck_log_id`
+- `evaluation_date`
+- `checklist_version`
+- `review_status`
+- `reviewed_by`
+- `reviewed_at`
+- `comment`
+- `blocking_reasons JSONB`
+- `next_actions JSONB`
+- `created_at`
+- `updated_at`
+
+Notes:
+
+- these tables are review-only and must not trigger LIVE transition
+- migration remains manual and is not auto-applied in this phase
