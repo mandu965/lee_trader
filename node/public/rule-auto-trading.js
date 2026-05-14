@@ -440,11 +440,11 @@ function renderPaperState(paperState) {
   const summaryEl = document.getElementById("accountSummary");
   if (summaryEl) {
     const stats = [
-      { label: "총 자산",     val: fmtWon(totalEquity), cls: "" },
-      { label: "현금",        val: fmtWon(cash),         cls: "" },
-      { label: "주식 평가",   val: fmtWon(totalMktVal),  cls: "" },
-      { label: "매수금액",    val: fmtWon(totalCost),    cls: "" },
-      { label: "평가손익",    val: fmtWon(totalPnl),     cls: signedClass(totalPnl) },
+      { label: "총 자산",     val: fmtNum(totalEquity) + "원", cls: "" },
+      { label: "현금",        val: fmtNum(cash)         + "원", cls: "" },
+      { label: "주식 평가",   val: fmtNum(totalMktVal)  + "원", cls: "" },
+      { label: "매수금액",    val: fmtNum(totalCost)    + "원", cls: "" },
+      { label: "평가손익",    val: fmtNum(totalPnl)     + "원", cls: signedClass(totalPnl) },
       { label: "수익률",      val: totalRet !== null ? fmtPct(totalRet) : "-", cls: totalRet !== null ? signedClass(totalRet) : "" },
     ];
     summaryEl.innerHTML = `
@@ -473,11 +473,11 @@ function renderPaperState(paperState) {
           <td>${esc(item.name)}</td>
           <td class="right">${fmtNum(item.qty)}</td>
           <td class="right">${fmtNum(item.entry_price)}</td>
-          <td class="right">${fmtWon(costBasis)}</td>
+          <td class="right">${fmtNum(costBasis)}</td>
           <td class="right">${fmtNum(item.last_price)}</td>
-          <td class="right">${fmtWon(item.market_value)}</td>
+          <td class="right">${fmtNum(item.market_value)}</td>
           <td class="right ${ret !== null ? signedClass(ret) : ""}">${ret !== null ? fmtPct(ret) : "-"}</td>
-          <td class="right ${signedClass(pnl)}">${fmtWon(pnl)}</td>
+          <td class="right ${signedClass(pnl)}">${fmtNum(pnl)}</td>
           <td class="right">${fmtPct(item.weight)}</td>
         </tr>
       `;
