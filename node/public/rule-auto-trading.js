@@ -6,7 +6,6 @@ const fmtNum = (v, digits = 0) => {
 };
 
 const fmtPct = (v, digits = 2) => {
-  if (v === null || v === undefined) return "-";
   const n = Number(v);
   if (!Number.isFinite(n)) return "-";
   return `${(n * 100).toFixed(digits)}%`;
@@ -46,14 +45,14 @@ const actionChip = (v) => {
 
 const orderStatusChip = (row) => {
   const s = row.order_status;
-  if (s === "simulated_filled" || s === "filled")     return `<span class="chip ok">체결</span>`;
+  if (s === "simulated_filled" || s === "filled") return `<span class="chip ok">체결</span>`;
   if (s === "simulated_unfilled" || s === "unfilled") return `<span class="chip warn">미체결</span>`;
-  if (s === "submitted")    return `<span class="chip ok">제출</span>`;
+  if (s === "submitted") return `<span class="chip ok">제출</span>`;
   if (s === "partial_filled") return `<span class="chip info">부분체결</span>`;
-  if (s === "canceled")     return `<span class="chip warn">취소</span>`;
-  if (s === "failed")       return `<span class="chip bad">실패</span>`;
-  if (s === "blocked")      return `<span class="chip bad">차단</span>`;
-  if (row.order_allowed)    return `<span class="chip ok">허용</span>`;
+  if (s === "canceled") return `<span class="chip warn">취소</span>`;
+  if (s === "failed") return `<span class="chip bad">실패</span>`;
+  if (s === "blocked") return `<span class="chip bad">차단</span>`;
+  if (row.order_allowed) return `<span class="chip ok">허용</span>`;
   if (row.side === "BUY" || row.side === "SELL") return `<span class="chip info">미리보기</span>`;
   return `<span class="chip bad">차단</span>`;
 };
@@ -71,7 +70,7 @@ async function fetchJson(url) {
   return res.json();
 }
 
-/* ── 주 탭 전환 ── */
+/* ── 탭 전환 ── */
 function initTabs() {
   document.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -80,37 +79,7 @@ function initTabs() {
       document.querySelectorAll(".tab-pane").forEach((p) => p.classList.remove("active"));
       btn.classList.add("active");
       document.getElementById(`tab-${tab}`)?.classList.add("active");
-      // 주문 탭 진입 시 토글 버튼 보임/숨김
-      document.getElementById("buyOnlyToggle").style.display = tab === "orders" ? "" : "none";
     });
-  });
-}
-
-/* ── 서브 탭 전환 ── */
-function initSubTabs() {
-  document.querySelectorAll(".sub-tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const sub = btn.dataset.sub;
-      document.querySelectorAll(".sub-tab-btn").forEach((b) => b.classList.remove("active"));
-      document.querySelectorAll(".sub-tab-pane").forEach((p) => p.classList.remove("active"));
-      btn.classList.add("active");
-      document.getElementById(`sub-${sub}`)?.classList.add("active");
-    });
-  });
-}
-
-/* ── BUY only 토글 ── */
-let _portfolioAllItems = [];
-let _buyOnly = true;
-
-function initBuyOnlyToggle() {
-  const btn = document.getElementById("buyOnlyToggle");
-  btn.style.display = "none"; // 주문 탭 외에는 숨김
-  btn.addEventListener("click", () => {
-    _buyOnly = !_buyOnly;
-    btn.classList.toggle("active", _buyOnly);
-    btn.textContent = _buyOnly ? "BUY/SELL만 보기" : "전체 보기";
-    renderPortfolio(_portfolioAllItems);
   });
 }
 
@@ -124,10 +93,10 @@ function renderSafety(summary, diagnostics) {
   const controls = ops.controls || {};
   const diag     = diagnostics?.summary || {};
 
-  const killActive  = controls.global_kill_switch || controls.rule_kill_switch;
+  const killActive = controls.global_kill_switch || controls.rule_kill_switch;
   const weeklyBlocked = diag.weekly_blocked;
-  const liveReady   = diag.live_trade_ready;
-  const runMode     = esc(diag.run_mode || summary.run_mode || "-");
+  const liveReady  = diag.live_trade_ready;
+  const runMode    = esc(diag.run_mode || summary.run_mode || "-");
 
   const flags = [
     `GLOBAL ${flagText(controls.global_kill_switch)}`,
@@ -189,7 +158,7 @@ function renderHero(summary) {
 }
 
 /* ── 탭 뱃지 업데이트 ── */
-function updateBadges(summary, signals, preview, execResults) {
+function updateBadges(summary, signals, preview) {
   const counts = summary.counts || {};
   document.getElementById("badgeSignals").textContent =
     fmtNum((counts.entry_signal_count || 0) + (counts.strong_entry_count || 0));
@@ -197,40 +166,6 @@ function updateBadges(summary, signals, preview, execResults) {
     fmtNum(counts.preview_request_count || 0);
   document.getElementById("badgeAccount").textContent =
     fmtNum(counts.account_position_count || counts.paper_position_count || 0);
-
-  // 서브탭 뱃지
-  const portfolioCount = counts.total_candidates || 0;
-  const draftCount     = (preview?.items || []).length;
-  const execCount      = (execResults?.items || []).length;
-  document.getElementById("badgePortfolio").textContent = portfolioCount || "-";
-  document.getElementById("badgeDraft").textContent     = draftCount     || "-";
-  document.getElementById("badgeExecution").textContent = execCount      || "-";
-}
-
-/* ── 개요 — Top 3 Strong 카드 ── */
-function renderSignalCards(strongItems) {
-  const el = document.getElementById("signalCardsGrid");
-  if (!strongItems.length) {
-    el.innerHTML = `<div class="empty" style="grid-column:1/-1">오늘 Strong 시그널이 없습니다.</div>`;
-    return;
-  }
-  el.innerHTML = strongItems.slice(0, 3).map((item, idx) => {
-    const rankLabel = ["1위", "2위", "3위"][idx] || `${idx+1}위`;
-    return `
-      <div class="signal-card">
-        <div class="signal-card-top">
-          <span class="chip ok" style="font-size:10px">${rankLabel}</span>
-          <span class="signal-card-code">${esc(item.code)}</span>
-          ${actionChip(item.portfolio_action || "hold")}
-        </div>
-        <div class="signal-card-name">${esc(item.name)}</div>
-        <div class="signal-card-score ${signedClass(item.rule_score)}">${fmtNum(item.rule_score, 1)}</div>
-        <div class="signal-card-meta">
-          예상 갭 ${fmtPct(item.expected_gap)} &nbsp;·&nbsp; ${esc(item.sector || "-")}
-        </div>
-      </div>
-    `;
-  }).join("");
 }
 
 /* ── 시스템 안전 상태 ── */
@@ -258,8 +193,8 @@ function renderWhyNoTrade(diagnostics) {
     <div class="kv-row"><span>주요 원인</span><strong>${esc(main?.user_message_ko || main?.message_ko || "차단 사유 없음")}</strong></div>
     <div class="kv-row"><span>원문 코드</span><strong>${esc(main?.raw_reason || s.main_block_reason || "-")}</strong></div>
     <div class="kv-row"><span>제출 가능 주문</span><strong>${fmtNum(s.submit_allowed_count)}건</strong></div>
-    <div class="kv-row"><span>실행 정책 차단</span><strong>${fmtNum(s.policy_blocked_count)}건</strong></div>
-    <div class="kv-row"><span>실행 API 실패</span><strong>${fmtNum(s.api_error_count)}건</strong></div>
+    <div class="kv-row"><span>정책 차단</span><strong>${fmtNum(s.policy_blocked_count)}건</strong></div>
+    <div class="kv-row"><span>API 실패</span><strong>${fmtNum(s.api_error_count)}건</strong></div>
     <div class="kv-row"><span>재생성 경고</span><strong class="${s.replay_warning ? "neg" : ""}">${s.replay_warning ? "있음" : "없음"}</strong></div>
   `;
 
@@ -271,11 +206,11 @@ function renderWhyNoTrade(diagnostics) {
 
 /* ── 차단 사유 분포 ── */
 function renderBlockReasons(summary) {
-  const dist  = summary.distributions || {};
-  const order = dist.order_block_reason || [];
-  const value = dist.trading_value_block_reason || [];
-  const gap   = dist.gap_risk_reason || [];
-  const rows  = [];
+  const dist   = summary.distributions || {};
+  const order  = dist.order_block_reason || [];
+  const value  = dist.trading_value_block_reason || [];
+  const gap    = dist.gap_risk_reason || [];
+  const rows   = [];
 
   order.slice(0, 5).forEach((i) =>
     rows.push(`<div class="kv-row"><span>주문 차단 · ${esc(i.name)}</span><strong>${fmtNum(i.count)}건</strong></div>`));
@@ -326,17 +261,18 @@ function renderStrongSignals(items) {
   }
   tbody.innerHTML = items.map((item, idx) => {
     const rank = idx + 1;
+    const rankCls = rank <= 3 ? "top" : "";
     return `
       <tr>
-        <td><span class="rank-badge ${rank <= 3 ? "top" : ""}">${rank}</span></td>
+        <td><span class="rank-badge ${rankCls}">${rank}</span></td>
         <td class="mono">${esc(item.code)}</td>
         <td>${esc(item.name)}</td>
-        <td title="${esc(item.sector || "")}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.sector || "-")}</td>
+        <td title="${esc(item.sector || "")}">${esc(item.sector || "-")}</td>
         <td class="right ${scoreClass(item.rule_score)}">${fmtNum(item.rule_score, 2)}</td>
         <td class="right ${scoreClass(item.rule_score_v2)}">${fmtNum(item.rule_score_v2, 2)}</td>
         <td class="right">${fmtNum(item.expected_entry_price)}</td>
         <td class="right ${signedClass(item.expected_gap)}">${fmtPct(item.expected_gap)}</td>
-        <td class="center">${actionChip(item.portfolio_action || "hold")}</td>
+        <td>${actionChip(item.portfolio_action || "hold")}</td>
       </tr>
     `;
   }).join("");
@@ -354,10 +290,10 @@ function renderEntrySignals(items) {
       : (!item.trading_value_pass ? item.trading_value_block_reason : "없음");
     return `
       <tr>
-        <td class="center">${signalChip(item.signal_strength)}</td>
+        <td>${signalChip(item.signal_strength)}</td>
         <td class="mono">${esc(item.code)}</td>
         <td>${esc(item.name)}</td>
-        <td title="${esc(item.sector || "")}" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(item.sector || "-")}</td>
+        <td title="${esc(item.sector || "")}">${esc(item.sector || "-")}</td>
         <td class="right ${scoreClass(item.rule_score)}">${fmtNum(item.rule_score, 2)}</td>
         <td class="right ${scoreClass(item.rule_score_v2)}">${fmtNum(item.rule_score_v2, 2)}</td>
         <td class="right">${fmtWon(item.trading_value_ma_20)}</td>
@@ -369,48 +305,43 @@ function renderEntrySignals(items) {
 
 /* ── 포트폴리오 계획 ── */
 function renderPortfolio(items) {
-  _portfolioAllItems = items;
-  const filtered = _buyOnly
-    ? items.filter((i) => ["buy","sell"].includes(String(i.portfolio_action || "").toLowerCase()))
-    : items;
-
-  const meta = document.getElementById("portfolioMeta");
-  const totalBuy = items.filter((i) => String(i.portfolio_action || "").toLowerCase() === "buy").length;
-  meta.textContent = `BUY ${totalBuy}건 / 전체 ${items.length}건${_buyOnly ? " (BUY/SELL만 표시)" : ""}`;
-
   const tbody = document.getElementById("portfolioTbody");
-  if (!filtered.length) {
+  if (!items.length) {
     tbody.innerHTML = `<tr><td colspan="8" class="center"><div class="empty">포트폴리오 계획이 없습니다.</div></td></tr>`;
     return;
   }
-  tbody.innerHTML = filtered.map((item) => `
+  // 매수 → 보유 → 축소 → 청산 → 스킵 순 정렬
+  const actionOrder = { buy: 0, hold: 1, reduce: 2, exit: 3 };
+  const sorted = [...items].sort((a, b) =>
+    (actionOrder[a.portfolio_action] ?? 9) - (actionOrder[b.portfolio_action] ?? 9));
+  tbody.innerHTML = sorted.slice(0, 40).map((item) => `
     <tr>
       <td>${actionChip(item.portfolio_action)}</td>
       <td class="mono">${esc(item.code)}</td>
       <td>${esc(item.name)}</td>
-      <td style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(item.sector||"")}">${esc(item.sector || "-")}</td>
+      <td>${esc(item.sector || "-")}</td>
       <td class="right">${fmtPct(item.target_weight)}</td>
       <td class="right">${fmtPct(item.current_weight)}</td>
       <td class="right">${fmtWon(item.target_amount)}</td>
       <td>${esc(item.portfolio_action_reason || "-")}</td>
     </tr>
-  `).join("");
+  `).join(""); // sorted 배열 사용
 }
 
-/* ── 주문 초안 ── */
+/* ── 주문 미리보기 ── */
 function renderPreview(items) {
   const tbody = document.getElementById("previewTbody");
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="center"><div class="empty">주문 초안이 없습니다.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="center"><div class="empty">주문 미리보기가 없습니다.</div></td></tr>`;
     return;
   }
-  tbody.innerHTML = items.slice(0, 50).map((item) => {
+  // BUY 먼저, SELL / NONE 뒤로
+  const sorted = [...items].sort((a, b) => (a.side === "BUY" ? 0 : 1) - (b.side === "BUY" ? 0 : 1));
+  tbody.innerHTML = sorted.slice(0, 50).map((item) => {
     const blockChips = (Array.isArray(item.block_reason_details) ? item.block_reason_details : [])
       .map((d) => {
         const cls = d.category === "API_ERROR" || d.severity === "ERROR" || d.severity === "BLOCKED" ? "bad" : "warn";
-        const label = d.block_reason && d.block_reason !== "UNMAPPED" ? d.block_reason : (d.raw_reason || "-");
-        const tip = d.user_message_ko ? esc(d.user_message_ko) : "";
-        return `<span class="chip ${cls}" title="${tip}">${esc(label)}</span>`;
+        return `<span class="chip ${cls}">${esc(d.block_reason || d.raw_reason || "-")}</span>`;
       }).join(" ") || esc(item.order_block_reason || "-");
     return `
       <tr>
@@ -438,14 +369,27 @@ function renderExecution(results) {
     tbody.innerHTML = `<tr><td colspan="8" class="center"><div class="empty">${msg}</div></td></tr>`;
     return;
   }
-  tbody.innerHTML = items.slice(0, 50).map((item) => {
-    const blockChips = (Array.isArray(item.block_reason_details) ? item.block_reason_details : [])
+  // BUY 먼저, 그 다음 SELL / NONE
+  const sorted = [...items].sort((a, b) => (a.side === "BUY" ? 0 : 1) - (b.side === "BUY" ? 0 : 1));
+  tbody.innerHTML = sorted.slice(0, 50).map((item) => {
+    const detailChips = (Array.isArray(item.block_reason_details) ? item.block_reason_details : [])
       .map((d) => {
         const cls = d.category === "API_ERROR" || d.severity === "ERROR" || d.severity === "BLOCKED" ? "bad" : "warn";
-        const label = d.block_reason && d.block_reason !== "UNMAPPED" ? d.block_reason : (d.raw_reason || "-");
-        const tip = d.user_message_ko ? esc(d.user_message_ko) : "";
-        return `<span class="chip ${cls}" title="${tip}">${esc(label)}</span>`;
-      }).join(" ") || esc(item.order_block_reason || "-");
+        return `<span class="chip ${cls}">${esc(d.block_reason || d.raw_reason || "-")}</span>`;
+      }).join(" ");
+
+    let blockDisplay;
+    if (detailChips) {
+      blockDisplay = detailChips;
+    } else if (item.order_block_reason && item.order_block_reason !== "none" && item.order_block_reason !== "-") {
+      blockDisplay = esc(item.order_block_reason);
+    } else if (item.order_status === "simulated_unfilled" || item.order_status === "unfilled") {
+      // 주문은 허용됐지만 시가 검증에서 체결 조건 불일치 (실제 시가 > 예상 체결가 등)
+      blockDisplay = `<span class="chip warn">시가 검증 미충족 — 실제 시가 체결 조건 불일치</span>`;
+    } else {
+      blockDisplay = "-";
+    }
+
     return `
       <tr>
         <td>${orderStatusChip(item)}</td>
@@ -455,32 +399,61 @@ function renderExecution(results) {
         <td class="right">${fmtNum(item.filled_qty)}</td>
         <td class="right">${fmtNum(item.avg_fill_price)}</td>
         <td class="right ${signedClass(item.actual_open_gap)}">${fmtPct(item.actual_open_gap)}</td>
-        <td>${blockChips}</td>
+        <td>${blockDisplay}</td>
       </tr>
     `;
   }).join("");
 }
 
-/* ── Paper 계좌 보유 종목 ── */
+/* ── Paper / Live 계좌 보유 종목 ── */
 function renderPaperState(paperState) {
   const positions = Array.isArray(paperState.positions) ? paperState.positions : [];
-  const tbody = document.getElementById("positionsTbody");
 
+  // 계좌 요약 계산
+  const totalCost   = positions.reduce((s, p) => s + (p.qty || 0) * (p.entry_price || 0), 0);
+  const totalMktVal = positions.reduce((s, p) => s + (Number(p.market_value) || 0), 0);
+  const totalPnl    = totalMktVal - totalCost;
+  const totalRet    = totalCost > 0 ? totalPnl / totalCost : null;
+  const cash        = Number(paperState.cash) || 0;
+  const totalEquity = Number(paperState.total_equity) || (cash + totalMktVal);
+
+  const summaryEl = document.getElementById("accountSummary");
+  if (summaryEl) {
+    summaryEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;">
+        <div class="kv-row"><span>총 자산</span><strong>${fmtWon(totalEquity)}</strong></div>
+        <div class="kv-row"><span>현금</span><strong>${fmtWon(cash)}</strong></div>
+        <div class="kv-row"><span>주식 평가금액</span><strong>${fmtWon(totalMktVal)}</strong></div>
+        <div class="kv-row"><span>총 매수금액</span><strong>${fmtWon(totalCost)}</strong></div>
+        <div class="kv-row"><span>평가손익</span><strong class="${signedClass(totalPnl)}">${fmtWon(totalPnl)}</strong></div>
+        <div class="kv-row"><span>수익률</span><strong class="${totalRet !== null ? signedClass(totalRet) : ""}">${totalRet !== null ? fmtPct(totalRet) : "-"}</strong></div>
+      </div>
+    `;
+  }
+
+  const tbody = document.getElementById("positionsTbody");
   if (!positions.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="center"><div class="empty">보유 종목이 없습니다.</div></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="center"><div class="empty">보유 종목이 없습니다.</div></td></tr>`;
   } else {
-    tbody.innerHTML = positions.map((item) => `
-      <tr>
-        <td class="mono">${esc(item.code)}</td>
-        <td>${esc(item.name)}</td>
-        <td>${esc(item.sector || "-")}</td>
-        <td class="right">${fmtNum(item.qty)}</td>
-        <td class="right">${fmtNum(item.entry_price)}</td>
-        <td class="right">${fmtNum(item.last_price)}</td>
-        <td class="right">${fmtWon(item.market_value)}</td>
-        <td class="right">${fmtPct(item.weight)}</td>
-      </tr>
-    `).join("");
+    tbody.innerHTML = positions.map((item) => {
+      const costBasis = (item.qty || 0) * (item.entry_price || 0);
+      const pnl       = (Number(item.market_value) || 0) - costBasis;
+      const ret       = costBasis > 0 ? pnl / costBasis : null;
+      return `
+        <tr>
+          <td class="mono">${esc(item.code)}</td>
+          <td>${esc(item.name)}</td>
+          <td class="right">${fmtNum(item.qty)}</td>
+          <td class="right">${fmtNum(item.entry_price)}</td>
+          <td class="right">${fmtWon(costBasis)}</td>
+          <td class="right">${fmtNum(item.last_price)}</td>
+          <td class="right">${fmtWon(item.market_value)}</td>
+          <td class="right ${ret !== null ? signedClass(ret) : ""}">${ret !== null ? fmtPct(ret) : "-"}</td>
+          <td class="right ${signedClass(pnl)}">${fmtWon(pnl)}</td>
+          <td class="right">${fmtPct(item.weight)}</td>
+        </tr>
+      `;
+    }).join("");
   }
 
   const trades = Array.isArray(paperState.recent_trades) ? paperState.recent_trades : [];
@@ -509,9 +482,12 @@ async function loadRuleDashboard() {
 
     renderSafety(summary, diagnostics);
     renderHero(summary);
-    updateBadges(summary, signals, preview, executionResults);
+    updateBadges(summary, signals, preview);
+    renderSystemStatus(diagnostics);
+    renderWhyNoTrade(diagnostics);
+    renderBlockReasons(summary);
+    renderBacktest(summary);
 
-    // 개요 탭
     const strongItems = (signals.items || [])
       .filter((i) => i.strong_entry_signal)
       .slice(0, 10)
@@ -519,22 +495,11 @@ async function loadRuleDashboard() {
         const plan = (portfolio.items || []).find((r) => r.code === i.code);
         return { ...i, portfolio_action: plan?.portfolio_action || "hold" };
       });
-    renderSignalCards(strongItems);
-    renderSystemStatus(diagnostics);
-    renderWhyNoTrade(diagnostics);
-    renderBlockReasons(summary);
-    renderBacktest(summary);
-
-    // 시그널 탭
     renderStrongSignals(strongItems);
     renderEntrySignals((signals.items || []).filter((i) => i.entry_signal).slice(0, 20));
-
-    // 주문 탭 (서브탭 3개)
     renderPortfolio(portfolio.items || []);
     renderPreview(preview.items || []);
     renderExecution(executionResults);
-
-    // 계좌 탭
     renderPaperState(paperState);
 
     const counts = summary.counts || {};
@@ -558,7 +523,7 @@ async function loadRuleDashboard() {
 
 document.addEventListener("DOMContentLoaded", () => {
   initTabs();
-  initSubTabs();
-  initBuyOnlyToggle();
+  document.getElementById("refreshBtn")?.addEventListener("click", () =>
+    loadRuleDashboard().catch(console.error));
   loadRuleDashboard().catch(console.error);
 });
