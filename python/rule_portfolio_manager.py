@@ -181,8 +181,8 @@ def evaluate_position_risk(
     max_holding_profit_buffer = cfg_float("RULE_MAX_HOLDING_DAYS_PROFIT_BUFFER", 0.02)
     profit_target_pct = cfg_float("RULE_PROFIT_TARGET_PCT", 0.0)
     stop_loss_pct = cfg_float("RULE_STOP_LOSS_PCT", 0.05)
-    trailing_stop_pct = cfg_float("RULE_TRAILING_STOP_PCT", 0.04)
-    trailing_stop_min_profit_pct = cfg_float("RULE_TRAILING_STOP_MIN_PROFIT_PCT", 0.03)
+    trailing_stop_pct = cfg_float("RULE_TRAILING_STOP_PCT", 0.025)
+    trailing_stop_min_profit_pct = cfg_float("RULE_TRAILING_STOP_MIN_PROFIT_PCT", 0.05)
 
     reasons: list[str] = []
     entry_price = _float(row.get("entry_price"))

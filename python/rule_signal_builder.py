@@ -319,7 +319,7 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
         & (numeric(out.get("ma_20")) >= numeric(out.get("ma_60")))
         & (numeric(out.get("ret_5d")) > 0)
         & (numeric(out.get("mom_20")) > 0)
-        & (rsi.between(45, 75))
+        & (rsi.between(45, 80))
         & (numeric(out.get("volume_ratio_20d")) >= 1.2)
         & (out["trading_value_ratio_20d"] >= 1.1)
         & out["trading_value_pass"]
