@@ -54,9 +54,9 @@ def percentile_by_date(df: pd.DataFrame, col: str, ascending: bool = True) -> pd
 def get_min_trading_value(run_mode: str) -> float:
     mode = str(run_mode or "paper").strip().lower()
     defaults = {
-        "paper": 500_000_000.0,
+        "paper": 1_000_000_000.0,
         "pilot": 1_000_000_000.0,
-        "live": 2_000_000_000.0,
+        "live": 3_000_000_000.0,
     }
     env_name = f"RULE_MIN_TRADING_VALUE_MA20_{mode.upper()}"
     return float(os.getenv(env_name, defaults.get(mode, defaults["paper"])))
@@ -238,11 +238,11 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
     trend_points = (
         (out["close"] > numeric(out.get("ma_20"))).fillna(False).astype(float) * 30.0
         + (numeric(out.get("ma_20")) >= numeric(out.get("ma_60"))).fillna(False).astype(float) * 20.0
-        + percentile_by_date(out, "mom_20").fillna(50.0) * 0.15
-        + percentile_by_date(out, "ret_5d").fillna(50.0) * 0.10
+        + percentile_by_date(out, "mom_20").fillna(50.0) * 0.20
+        + percentile_by_date(out, "ret_5d").fillna(50.0) * 0.15
     )
+    # volume_ratio_20d 제거: base_conditions(≥1.2)에서 이미 이진 필터링되므로 점수에서도 사용하면 이중 카운팅
     volume_col = "trading_value_ratio_20d" if "trading_value_ratio_20d" in out.columns else "value_ratio_20d"
-    trend_points += percentile_by_date(out, "volume_ratio_20d").fillna(50.0) * 0.10
     trend_points += percentile_by_date(out, volume_col).fillna(50.0) * 0.10
     rsi = numeric(out.get("rsi_14"))
     rsi_score = (100.0 - (rsi - 60.0).abs() * 2.0).clip(0, 100).fillna(50.0)
@@ -302,14 +302,14 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
         _flow_raw = pd.Series(0.5, index=out.index)
     out["flow_component"] = _flow_raw
 
-    # rule_score_v3: flow 반영 공식 (shadow — entry_signal은 v2 기반 유지)
+    # rule_score_v3: flow 반영 공식 (flow 25% — 수급 실질 반영 강화)
     out["rule_score_v3"] = (
         (
-            0.30 * out["trend_component"]
-            + 0.25 * out["liquidity_component"]
+            0.25 * out["trend_component"]
+            + 0.20 * out["liquidity_component"]
             + 0.15 * out["stability_component"]
             + 0.15 * out["regime_component"]
-            + 0.15 * out["flow_component"]
+            + 0.25 * out["flow_component"]
         )
         * 100.0
     ).clip(0, 100)
@@ -334,10 +334,10 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
     ).fillna(False)
     entry_rule_score_min = get_float_env("RULE_ENTRY_RULE_SCORE_MIN", 70.0)
     entry_rule_score_v2_min = get_float_env("RULE_ENTRY_RULE_SCORE_V2_MIN", 65.0)
-    strong_rule_score_min = get_float_env("RULE_STRONG_RULE_SCORE_MIN", 70.0)
+    strong_rule_score_min = get_float_env("RULE_STRONG_RULE_SCORE_MIN", 75.0)
     strong_rule_score_v2_min = get_float_env("RULE_STRONG_RULE_SCORE_V2_MIN", 60.0)
     entry_rule_score_v3_min = get_float_env("RULE_ENTRY_RULE_SCORE_V3_MIN", 65.0)
-    strong_rule_score_v3_min = get_float_env("RULE_STRONG_RULE_SCORE_V3_MIN", 60.0)
+    strong_rule_score_v3_min = get_float_env("RULE_STRONG_RULE_SCORE_V3_MIN", 70.0)
     out["entry_rule_score_min"] = entry_rule_score_min
     out["entry_rule_score_v2_min"] = entry_rule_score_v2_min
     out["entry_rule_score_v3_min"] = entry_rule_score_v3_min

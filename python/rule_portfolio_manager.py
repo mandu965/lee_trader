@@ -176,8 +176,8 @@ def evaluate_position_risk(
     current_weight: float,
     latest_date: pd.Timestamp,
 ) -> tuple[str | None, str | None, float | None, int | None, float | None, float | None, list[str]]:
-    max_holding_days = cfg_int("RULE_MAX_HOLDING_DAYS", 10)
-    max_holding_days_defensive = cfg_int("RULE_MAX_HOLDING_DAYS_DEFENSIVE", 7)
+    max_holding_days = cfg_int("RULE_MAX_HOLDING_DAYS", 20)
+    max_holding_days_defensive = cfg_int("RULE_MAX_HOLDING_DAYS_DEFENSIVE", 14)
     max_holding_profit_buffer = cfg_float("RULE_MAX_HOLDING_DAYS_PROFIT_BUFFER", 0.02)
     profit_target_pct = cfg_float("RULE_PROFIT_TARGET_PCT", 0.0)
     stop_loss_pct = cfg_float("RULE_STOP_LOSS_PCT", 0.05)
@@ -293,6 +293,8 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
     topup_codes: set[str] = _load_partial_fill_queue() if _flag("RULE_PARTIAL_FILL_TOPUP_ENABLED", "0") else set()
     current_cash_weight = cash / total_equity if total_equity else 0.0
     market_defensive_mode = bool(latest.get("market_defensive_mode", pd.Series([False])).fillna(False).any())
+    # defensive 모드: 완전 차단 대신 max_positions를 3으로 줄여 dampening 처리
+    effective_max_positions = cfg_int("RULE_MAX_POSITIONS_DEFENSIVE", 3) if market_defensive_mode else max_positions
 
     sector_exposure: dict[str, float] = {}
     if not positions.empty:
@@ -300,7 +302,13 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
             sector_exposure[sector] = float(pd.to_numeric(group.get("weight"), errors="coerce").fillna(0).sum())
 
     rows: list[dict[str, Any]] = []
-    for _, row in latest.sort_values(["rule_score_v2", "rule_score", "liquidity_score", "vol_20"], ascending=[False, False, False, True]).iterrows():
+    # rule_score_v3(flow 반영)가 있으면 우선 정렬, 없으면 rule_score_v2 fallback
+    _has_v3 = "rule_score_v3" in latest.columns and latest["rule_score_v3"].notna().any()
+    _sort_key = latest["rule_score_v3"].fillna(latest["rule_score_v2"]) if _has_v3 else latest["rule_score_v2"]
+    _sorted = latest.assign(_sort_v3=_sort_key).sort_values(
+        ["_sort_v3", "rule_score", "liquidity_score", "vol_20"], ascending=[False, False, False, True]
+    )
+    for _, row in _sorted.iterrows():
         code = str(row.get("code") or "").zfill(6)
         sector = str(row.get("sector") or "(none)")
         held = code in held_codes
@@ -372,13 +380,14 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
                         action = "buy"
                         reason = "partial_fill_topup"
                         target_weight = current_weight + topup_weight
-        elif market_defensive_mode:
-            reason = "market_defensive_mode_buy_blocked"
         elif not bool(row.get("strong_entry_signal")) and not (allow_entry_signal and bool(row.get("entry_signal"))):
             reason = "not_strong_entry_signal"
-        elif len(held_codes) + sum(1 for item in rows if item.get("portfolio_action") == "buy") >= max_positions:
+        elif market_defensive_mode and not bool(row.get("strong_entry_signal")):
+            # defensive 모드에서 entry_signal(strong 미충족)은 차단
+            reason = "market_defensive_mode_entry_only_blocked"
+        elif len(held_codes) + sum(1 for item in rows if item.get("portfolio_action") == "buy") >= effective_max_positions:
             reason = "max_positions_reached"
-        elif not bool(row.get("strong_entry_signal")) and len(held_codes) + sum(1 for item in rows if item.get("portfolio_action") == "buy") >= int(max_positions * entry_allow_ratio):
+        elif not bool(row.get("strong_entry_signal")) and len(held_codes) + sum(1 for item in rows if item.get("portfolio_action") == "buy") >= int(effective_max_positions * entry_allow_ratio):
             reason = "entry_allow_ratio_positions_reached"
         elif not sector_limit_pass:
             reason = "sector_limit_failed"
@@ -390,12 +399,18 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
             reason = "position_limit_failed"
         else:
             action = "buy"
+            score_v3 = float(row.get("rule_score_v3") or 0.0)
+            # RULE_NEW_ENTRY_WEIGHT 기준으로 범위 파생 (env 미설정 시 0.85x ~ 1.25x)
+            w_min = cfg_float("RULE_NEW_ENTRY_WEIGHT_MIN", round(new_entry_weight * 0.85, 4))
+            w_max = cfg_float("RULE_NEW_ENTRY_WEIGHT_MAX", min(round(new_entry_weight * 1.25, 4), max_position_weight))
             if bool(row.get("strong_entry_signal")):
                 reason = "strong_entry_selected"
-                target_weight = new_entry_weight
+                # rule_score_v3 70~100점을 w_min~w_max에 선형 맵핑
+                t = max(0.0, min(1.0, (score_v3 - 70.0) / 30.0))
+                target_weight = w_min + t * (w_max - w_min)
             else:
                 reason = "entry_signal_relaxed_selected"
-                target_weight = new_entry_weight * 0.7
+                target_weight = round(new_entry_weight * 0.75, 4)  # entry only: ~12%
             sector_exposure[sector] = sector_exposure.get(sector, 0.0) + (target_weight if not held else 0.0)
 
         # ── US Macro Overlay gate (Phase 5) ─────────────────────────────────
@@ -449,6 +464,7 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
                 "cash_limit_pass": bool(cash_limit_pass),
                 "rule_score": _float(row.get("rule_score")),
                 "rule_score_v2": _float(row.get("rule_score_v2")),
+                "rule_score_v3": _float(row.get("rule_score_v3")),
                 "liquidity_score": _float(row.get("liquidity_score")),
                 "vol_20": _float(row.get("vol_20")),
                 "signal_strength": row.get("signal_strength"),
@@ -477,8 +493,12 @@ def build_rule_portfolio_plan(signals: pd.DataFrame, account_state: dict[str, An
         "run_mode": run_mode,
         "config": {
             "max_positions": max_positions,
+            "effective_max_positions": effective_max_positions,
+            "market_defensive_mode": market_defensive_mode,
             "max_position_weight": max_position_weight,
             "new_entry_weight": new_entry_weight,
+            "new_entry_weight_min": cfg_float("RULE_NEW_ENTRY_WEIGHT_MIN", 0.04),
+            "new_entry_weight_max": cfg_float("RULE_NEW_ENTRY_WEIGHT_MAX", 0.07),
             "min_cash_weight": min_cash_weight,
             "max_sector_weight": max_sector_weight,
             "cooldown_days": cooldown_days,

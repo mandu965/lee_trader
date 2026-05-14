@@ -15,6 +15,8 @@ from python.us.build_us_features import FeatureBuildResult, build_us_features
 from python.us.buy_automation.scheduler_job import run_buy_scheduler_job
 from python.us.download_us_prices import PriceCollectResult, collect_us_prices
 from python.us.load_us_universe import UniverseLoadResult, load_universe
+from python.us.trade_orchestration.config import load_trade_orchestration_config
+from python.us.trade_orchestration.scheduler_job import run_trade_scheduler_job
 from python.us.us_config import load_us_stock_config, parse_iso_date, resolve_universe_csv_path
 from python.us.validate_us_price_data import ValidationResult, validate_and_save_quality_report
 
@@ -30,6 +32,7 @@ class PipelineResult:
     quality_result: ValidationResult | None
     feature_result: FeatureBuildResult | None
     buy_scheduler_result: dict[str, object] | None
+    trade_scheduler_result: dict[str, object] | None
     elapsed_sec: float
     mode: str
 
@@ -97,6 +100,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
             quality_result=None,
             feature_result=None,
             buy_scheduler_result=None,
+            trade_scheduler_result=None,
             elapsed_sec=elapsed,
             mode=mode,
         )
@@ -110,6 +114,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     quality_result: ValidationResult | None = None
     feature_result: FeatureBuildResult | None = None
     buy_scheduler_result: dict[str, object] | None = None
+    trade_scheduler_result: dict[str, object] | None = None
     final_status = "SUCCESS"
 
     as_of_date = parse_iso_date(args.end_date, field_name="end_date") or date.today()
@@ -204,36 +209,73 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         if feature_result.failed_count > 0 and final_status != "FAILED":
             final_status = "WARN"
 
-    # US BUY Automation must run after ranking/score generation.
-    # This stage is SHADOW/PAPER only. Live order execution is prohibited.
-    LOGGER.info("[US_PIPELINE] Step 5/5 US BUY Scheduler Job started")
-    buy_scheduler_result = run_buy_scheduler_job(
-        trade_date=args.end_date or str(as_of_date),
-        emit_console=False,
+    trade_cfg = load_trade_orchestration_config()
+    should_run_trade_scheduler = trade_cfg.scheduler_enabled
+    disable_buy_scheduler = (
+        should_run_trade_scheduler
+        and trade_cfg.disable_buy_only_scheduler_when_orchestration
     )
-    if not buy_scheduler_result.get("enabled"):
-        LOGGER.info(
-            "[US_PIPELINE] Step 5/5 US BUY Scheduler Job skipped error=%s",
-            buy_scheduler_result.get("error"),
+
+    # US Trade Orchestration must run after ranking/score generation.
+    # This stage is SHADOW/PAPER only. Live order execution is prohibited.
+    if should_run_trade_scheduler:
+        LOGGER.info("[US_PIPELINE] Step 5/6 US Trade Scheduler Job started")
+        trade_scheduler_result = run_trade_scheduler_job(
+            trade_date=args.end_date or str(as_of_date),
+            emit_console=False,
         )
-    elif buy_scheduler_result.get("success"):
-        LOGGER.info(
-            "[US_PIPELINE] Step 5/5 US BUY Scheduler Job completed candidates=%s allowed=%s blocked=%s paper_orders=%s",
-            (buy_scheduler_result.get("summary") or {}).get("loaded_candidates", 0),
-            (buy_scheduler_result.get("summary") or {}).get("allowed_candidates", 0),
-            (buy_scheduler_result.get("summary") or {}).get("blocked_candidates", 0),
-            (buy_scheduler_result.get("summary") or {}).get("paper_orders", 0),
-        )
+        if trade_scheduler_result.get("success"):
+            LOGGER.info(
+                "[US_PIPELINE] Step 5/6 US Trade Scheduler Job completed sell=%s buy_candidates=%s conflict_blocked=%s final_buy=%s",
+                (trade_scheduler_result.get("summary") or {}).get("sell_signals", 0),
+                (trade_scheduler_result.get("summary") or {}).get("buy_candidates", 0),
+                (trade_scheduler_result.get("summary") or {}).get("conflict_blocked", 0),
+                (trade_scheduler_result.get("summary") or {}).get("final_buy_candidates", 0),
+            )
+        else:
+            LOGGER.info(
+                "[US_PIPELINE] Step 5/6 US Trade Scheduler Job completed with errors=%s pipeline_should_fail=%s",
+                ",".join(trade_scheduler_result.get("errors") or []),
+                trade_scheduler_result.get("pipeline_should_fail"),
+            )
+            if trade_scheduler_result.get("pipeline_should_fail"):
+                final_status = "FAILED"
+            elif final_status == "SUCCESS":
+                final_status = "WARN"
     else:
-        LOGGER.info(
-            "[US_PIPELINE] Step 5/5 US BUY Scheduler Job completed with error=%s pipeline_should_fail=%s",
-            buy_scheduler_result.get("error"),
-            buy_scheduler_result.get("pipeline_should_fail"),
+        LOGGER.info("[US_PIPELINE] Step 5/6 US Trade Scheduler Job skipped")
+
+    if disable_buy_scheduler:
+        LOGGER.info("[US_PIPELINE] Step 6/6 US BUY Scheduler Job skipped reason=ORCHESTRATION_ENABLED")
+    else:
+        LOGGER.info("[US_PIPELINE] Step 6/6 US BUY Scheduler Job started")
+        buy_scheduler_result = run_buy_scheduler_job(
+            trade_date=args.end_date or str(as_of_date),
+            emit_console=False,
         )
-        if buy_scheduler_result.get("pipeline_should_fail"):
-            final_status = "FAILED"
-        elif final_status == "SUCCESS":
-            final_status = "WARN"
+        if not buy_scheduler_result.get("enabled"):
+            LOGGER.info(
+                "[US_PIPELINE] Step 6/6 US BUY Scheduler Job skipped error=%s",
+                buy_scheduler_result.get("error"),
+            )
+        elif buy_scheduler_result.get("success"):
+            LOGGER.info(
+                "[US_PIPELINE] Step 6/6 US BUY Scheduler Job completed candidates=%s allowed=%s blocked=%s paper_orders=%s",
+                (buy_scheduler_result.get("summary") or {}).get("loaded_candidates", 0),
+                (buy_scheduler_result.get("summary") or {}).get("allowed_candidates", 0),
+                (buy_scheduler_result.get("summary") or {}).get("blocked_candidates", 0),
+                (buy_scheduler_result.get("summary") or {}).get("paper_orders", 0),
+            )
+        else:
+            LOGGER.info(
+                "[US_PIPELINE] Step 6/6 US BUY Scheduler Job completed with error=%s pipeline_should_fail=%s",
+                buy_scheduler_result.get("error"),
+                buy_scheduler_result.get("pipeline_should_fail"),
+            )
+            if buy_scheduler_result.get("pipeline_should_fail"):
+                final_status = "FAILED"
+            elif final_status == "SUCCESS":
+                final_status = "WARN"
 
     if price_result is not None and price_result.failed_count > 0 and final_status == "SUCCESS":
         final_status = "WARN"
@@ -271,6 +313,17 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         ),
     )
     LOGGER.info(
+        "[US_PIPELINE] Summary trade_scheduler=%s",
+        "not_run"
+        if trade_scheduler_result is None
+        else (
+            f"success={trade_scheduler_result.get('success')} "
+            f"errors={','.join(trade_scheduler_result.get('errors') or [])} "
+            f"buy_candidates={(trade_scheduler_result.get('summary') or {}).get('buy_candidates', 0)} "
+            f"conflict_blocked={(trade_scheduler_result.get('summary') or {}).get('conflict_blocked', 0)}"
+        ),
+    )
+    LOGGER.info(
         "[US_PIPELINE] Summary buy_scheduler=%s",
         "not_run"
         if buy_scheduler_result is None
@@ -293,6 +346,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         quality_result=quality_result,
         feature_result=feature_result,
         buy_scheduler_result=buy_scheduler_result,
+        trade_scheduler_result=trade_scheduler_result,
         elapsed_sec=elapsed,
         mode=mode,
     )

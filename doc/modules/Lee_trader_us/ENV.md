@@ -561,3 +561,145 @@ Phase 8-1 is design only. The variables below are proposed for later implementat
 - SELL design in this phase is Paper-position oriented only.
 - fail-safe does not automatically mean real SELL; it can mean `REVIEW_REQUIRED`.
 - SELL design must stay separate from BUY readiness and must not activate live execution.
+
+## Phase 8-7 SELL Skeleton Notes
+
+- `US_SELL_AUTOMATION_MODE` now drives a real SHADOW/PAPER/LIVE-compatible skeleton under `python/us/sell_automation/`
+- `US_SELL_AUTOMATION_ENABLED=0` still runs evaluation and logging, but operational action is left in disabled state
+- `US_SELL_AUTOMATION_MODE=LIVE` is parsed but blocked with `LIVE_NOT_IMPLEMENTED`
+- `US_SELL_STOP_LOSS_PCT`, `US_SELL_TAKE_PROFIT_PCT`, `US_SELL_TRAILING_STOP_PCT`, `US_SELL_BENCHMARK_UNDERPERFORM_PCT`, and `US_SELL_MARKET_DRAWDOWN_EXIT_PCT` accept either decimal or percent-style input
+- `US_SELL_PARTIAL_TAKE_PROFIT_ENABLED=0` keeps take-profit as full SELL in the current default skeleton
+- `US_SELL_FAILSAFE_ON_DATA_ERROR=1` means missing/weak data should become `REVIEW_REQUIRED` or blocked decision, not blind SELL
+
+## Phase 8-8 Trade Orchestration Variables
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_TRADE_ORCHESTRATION_ENABLED` | `0` | Master switch for integrated BUY / SELL orchestration | orchestration | Disabled by default |
+| `US_TRADE_ORCHESTRATION_MODE` | `SHADOW` | Orchestration operating mode | orchestration | `SHADOW`, `PAPER`, `LIVE` |
+| `US_TRADE_BLOCK_BUY_IF_POSITION_EXISTS` | `1` | Block BUY when an open Paper position already exists | conflict guard | Conservative default |
+| `US_TRADE_BLOCK_BUY_IF_SELL_SIGNAL_EXISTS` | `1` | Block BUY when a SELL signal exists for the symbol | conflict guard | Conservative default |
+| `US_TRADE_BLOCK_BUY_AFTER_FULL_EXIT_DAYS` | `10` | Cooldown days after full Paper exit | conflict guard | Prevent churn |
+| `US_TRADE_BLOCK_BUY_ON_REVIEW_REQUIRED` | `1` | Block BUY when REVIEW_REQUIRED exists for the symbol | conflict guard | Conservative default |
+| `US_TRADE_SELL_PRIORITY_OVER_BUY` | `1` | Add explicit SELL-priority block reason | conflict guard | Informational + defensive |
+| `US_TRADE_CONFLICT_FAILSAFE` | `1` | Block BUY on portfolio-state inconsistency | conflict guard | Conservative default |
+| `US_TRADE_REPORT_ENABLED` | `1` | Enable integrated report generation | orchestration reporting | File/report only |
+| `US_TRADE_REPORT_OUTPUT_DIR` | `reports/lee_trader_us/trade_orchestration` | Integrated report output directory | orchestration reporting | Auto-created |
+| `US_TRADE_REPORT_FORMAT` | `json,markdown` | Integrated report output formats | orchestration reporting | Console summary is separate |
+| `US_TRADE_FAIL_PIPELINE_ON_ERROR` | `0` | Optional fail-fast behavior for orchestration errors | orchestration safety | Safe default is isolated |
+| `US_TRADE_SCHEDULER_ENABLED` | `0` | Reserved orchestration scheduler switch | orchestration scheduler | Disabled by default |
+| `US_TRADE_SCHEDULER_RUN_ORCHESTRATION` | `1` | Reserved orchestration scheduler stage flag | orchestration scheduler | Used for conflict detection |
+| `US_TRADE_SCHEDULER_RUN_DASHBOARD` | `0` | Run dashboard generation after orchestration | orchestration scheduler | Disabled by default |
+| `US_TRADE_SCHEDULER_FAIL_PIPELINE_ON_ERROR` | `0` | Optional fail-fast behavior for orchestration scheduler | orchestration scheduler | Safe default is isolated |
+
+### Phase 8-8 Notes
+
+- orchestration is disabled by default
+- open position, SELL signal, REVIEW_REQUIRED, cooldown, and duplicate BUY all block new BUY by default
+- `LIVE` remains a reserved mode string only and does not activate real trading
+- if BUY-only scheduler and orchestration scheduler are both enabled, configuration should be treated as a conflict
+
+## Phase 8-9 Scheduler Stability Variables
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_TRADE_SCHEDULER_RUN_HEALTH_CHECK` | `1` | Run post-orchestration health validation | scheduler stability | Conservative default |
+| `US_TRADE_SCHEDULER_RUN_REPORT` | `1` | Run operations checklist/report follow-up | scheduler stability | Conservative default |
+| `US_TRADE_SCHEDULER_ALLOW_LIVE` | `0` | Allow LIVE in scheduler | scheduler safety | Must remain off |
+| `US_TRADE_SCHEDULER_PREVENT_DUPLICATE_RUN` | `1` | Enable run-lock duplicate prevention | scheduler safety | Conservative default |
+| `US_TRADE_SCHEDULER_LOCK_TTL_SECONDS` | `1800` | Lock TTL for stale-lock cleanup | scheduler safety | 30 minutes default |
+| `US_TRADE_SCHEDULER_MAX_RUNTIME_SECONDS` | `600` | Soft scheduler runtime threshold | scheduler stability | 10 minutes default |
+| `US_TRADE_DISABLE_BUY_ONLY_SCHEDULER_WHEN_ORCHESTRATION` | `1` | Skip BUY-only scheduler when orchestration is enabled | scheduler conflict policy | Conservative default |
+| `US_TRADE_WARN_IF_BUY_ONLY_SCHEDULER_ENABLED` | `1` | Emit warning when legacy BUY-only scheduler is also enabled | scheduler conflict policy | Visibility aid |
+| `US_TRADE_HEALTH_CHECK_ENABLED` | `1` | Enable orchestration health check | health | Conservative default |
+| `US_TRADE_HEALTH_CHECK_FAIL_ON_MISSING_REPORT` | `0` | Fail-fast on missing report artifact | health | Safe default is warn |
+| `US_TRADE_HEALTH_CHECK_FAIL_ON_INVALID_LOG` | `0` | Fail-fast on invalid decision log | health | Safe default is warn |
+| `US_TRADE_HEALTH_CHECK_MAX_DATA_MISSING_RATE_PCT` | `20` | Warning threshold for data-missing rate | health | Percent-style threshold |
+| `US_TRADE_LOCK_DIR` | `tmp/lee_trader_us/trade_orchestration` | File-lock directory | scheduler lock | Auto-created |
+| `US_TRADE_CHECKLIST_OUTPUT_DIR` | `reports/lee_trader_us/trade_orchestration` | Daily checklist output directory | operations | Auto-created |
+
+### Phase 8-9 Notes
+
+- default policy isolates scheduler failures from the main data pipeline
+- `pipeline_should_fail` becomes true only when explicit fail-fast ENV is enabled
+- health check failure is visible by default but non-fatal by default
+
+## Phase 8-10 Dashboard Variables
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_DASHBOARD_ENABLED` | `0` | Master switch for future dashboard artifact generation | dashboard | Disabled by default |
+| `US_DASHBOARD_OUTPUT_DIR` | `reports/lee_trader_us/dashboard` | Output directory for dashboard JSON/Markdown artifacts | dashboard reporting | Auto-created by future implementation |
+| `US_DASHBOARD_FORMAT` | `json,markdown` | Preferred dashboard output formats | dashboard reporting | Console can remain optional later |
+| `US_DASHBOARD_INCLUDE_BUY_MONITOR` | `1` | Include BUY decision monitor section | dashboard content | Read-only section flag |
+| `US_DASHBOARD_INCLUDE_SELL_MONITOR` | `1` | Include SELL decision monitor section | dashboard content | Read-only section flag |
+| `US_DASHBOARD_INCLUDE_CONFLICT_MONITOR` | `1` | Include conflict monitor section | dashboard content | Read-only section flag |
+| `US_DASHBOARD_INCLUDE_PERFORMANCE` | `1` | Include Paper performance section | dashboard content | Read-only section flag |
+| `US_DASHBOARD_INCLUDE_HEALTH` | `1` | Include scheduler / health section | dashboard content | Read-only section flag |
+| `US_DASHBOARD_INCLUDE_READINESS` | `1` | Include LIVE readiness review section | dashboard content | Review-only |
+| `US_DASHBOARD_DEFAULT_LOOKBACK_DAYS` | `60` | Default rolling lookback for performance views | dashboard analytics | Used for `20/60/120/ALL` style windows |
+| `US_DASHBOARD_DATA_MISSING_WARNING_PCT` | `5` | Warning threshold for dashboard data-missing rate | dashboard risk | Percent-style operator threshold |
+| `US_DASHBOARD_DATA_MISSING_CRITICAL_PCT` | `20` | Critical threshold for dashboard data-missing rate | dashboard risk | Percent-style operator threshold |
+| `US_DASHBOARD_FAIL_PIPELINE_ON_ERROR` | `0` | Allow dashboard generation failure to fail the scheduler pipeline | dashboard safety | Default stays isolated |
+| `US_DASHBOARD_REQUIRE_JSON_REPORT` | `1` | Require JSON dashboard artifact | dashboard validation | Default required |
+| `US_DASHBOARD_REQUIRE_MARKDOWN_REPORT` | `0` | Require Markdown dashboard artifact | dashboard validation | Optional by default |
+| `US_DASHBOARD_NOTIFICATION_ENABLED` | `0` | Enable notification payload generation | dashboard notification | Payload only, no sending |
+| `US_DASHBOARD_NOTIFICATION_FORMAT` | `text,json` | Notification payload formats | dashboard notification | Actual delivery remains disabled |
+| `US_DASHBOARD_NOTIFICATION_INCLUDE_WARNINGS` | `1` | Include warning summary in notification | dashboard notification | Read-only payload flag |
+| `US_DASHBOARD_NOTIFICATION_INCLUDE_TOP_SYMBOLS` | `1` | Include top symbols in notification | dashboard notification | Read-only payload flag |
+| `US_DASHBOARD_NOTIFICATION_INCLUDE_READINESS` | `1` | Include readiness summary in notification | dashboard notification | Read-only payload flag |
+| `US_DASHBOARD_NOTIFICATION_MAX_SYMBOLS` | `10` | Max symbol count in notification summary | dashboard notification | Safety cap |
+
+### Phase 8-10 Notes
+
+- dashboard ENV is for future read-only reporting only
+- enabling dashboard output must not enable any BUY or SELL execution path
+- all dashboard performance fields must be labeled as `Paper`
+- missing data should remain visible as `unknown` or `data_missing`
+- readiness display is informational only and must not activate LIVE automatically
+
+### Phase 8-11 Notes
+
+- `US_DASHBOARD_ENABLED=0` still allows manual report generation when the CLI is run with `--force`
+- default output formats remain `json,markdown`
+- latest rolling files are written together with the date-based files
+- no scheduler auto-hook is required in this phase
+
+### Phase 8-12 Notes
+
+- `US_TRADE_SCHEDULER_RUN_DASHBOARD=1` enables dashboard generation only after orchestration completes
+- dashboard failure is non-fatal by default because `US_DASHBOARD_FAIL_PIPELINE_ON_ERROR=0`
+- notification payload generation does not send email, Slack, webhook, or any external API call
+- `US_DASHBOARD_REQUIRE_JSON_REPORT=1` keeps JSON as the primary required artifact
+
+## Phase 8-13 Notification Adapter Variables
+
+| Variable | Default | Description | Scope | Note |
+| --- | --- | --- | --- | --- |
+| `US_NOTIFICATION_ADAPTER_ENABLED` | `0` | Master switch for future notification adapter routing | notification adapter | Disabled by default |
+| `US_NOTIFICATION_ADAPTER_MODE` | `DRY_RUN` | Notification adapter mode | notification adapter | `DISABLED`, `DRY_RUN`, `MANUAL_APPROVAL`, `LIVE` |
+| `US_NOTIFICATION_CHANNELS` | `FILE,CONSOLE` | Enabled notification channels | notification adapter | Safe local-only defaults |
+| `US_NOTIFICATION_REQUIRE_MANUAL_APPROVAL` | `1` | Require manual approval for delivery-capable modes | notification safety | Approval is for notification delivery only |
+| `US_NOTIFICATION_FAIL_PIPELINE_ON_ERROR` | `0` | Allow notification failure to fail the scheduler pipeline | notification safety | Safe default is isolated |
+| `US_NOTIFICATION_FILE_ENABLED` | `1` | Enable file-based notification adapter | notification channel | No external delivery |
+| `US_NOTIFICATION_CONSOLE_ENABLED` | `1` | Enable console/stdout notification adapter | notification channel | No external delivery |
+| `US_NOTIFICATION_EMAIL_DRY_RUN_ENABLED` | `0` | Enable email-format dry-run output | notification dry run | No SMTP send |
+| `US_NOTIFICATION_EMAIL_RECIPIENTS` | blank | Dry-run recipient list placeholder | notification dry run | Must not imply real delivery |
+| `US_NOTIFICATION_EMAIL_SUBJECT_PREFIX` | `[US Paper Trading]` | Email-style subject prefix | notification dry run | Paper-only label by default |
+| `US_NOTIFICATION_SLACK_DRY_RUN_ENABLED` | `0` | Enable Slack-format dry-run output | notification dry run | No webhook send |
+| `US_NOTIFICATION_SLACK_CHANNEL` | blank | Slack dry-run channel label | notification dry run | Placeholder only |
+| `US_NOTIFICATION_SLACK_USERNAME` | `LeeTraderBot` | Slack dry-run username label | notification dry run | Formatting only |
+| `US_NOTIFICATION_EMAIL_LIVE_ENABLED` | `0` | Reserved future real email-delivery flag | future live notification | Must stay off |
+| `US_NOTIFICATION_SLACK_LIVE_ENABLED` | `0` | Reserved future real Slack-delivery flag | future live notification | Must stay off |
+| `US_NOTIFICATION_INCLUDE_PAPER_TRADING_NOTICE` | `1` | Force Paper-only notice into output | notification safety | Recommended required notice |
+| `US_NOTIFICATION_INCLUDE_LIVE_DISABLED_NOTICE` | `1` | Force explicit LIVE-disabled notice into output | notification safety | Avoid approval confusion |
+| `US_NOTIFICATION_MAX_SYMBOLS` | `10` | Max symbols included in summary payloads | notification formatting | Prevent oversized summaries |
+| `US_NOTIFICATION_REDACT_SENSITIVE_FIELDS` | `1` | Redact future sensitive fields from channel output | notification safety | Conservative default |
+
+### Phase 8-13 Notes
+
+- notification adapter design is still read-only and review-oriented
+- `US_NOTIFICATION_ADAPTER_MODE=LIVE` must still be blocked in this phase as `LIVE_NOTIFICATION_NOT_IMPLEMENTED`
+- manual approval applies to notification delivery only, not to trading approval
+- FILE and CONSOLE are the only safe-default channels in this phase
+- email/slack dry-run may render message format but must not call SMTP, webhook, or any external API

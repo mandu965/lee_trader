@@ -13,6 +13,8 @@ from python.us.buy_automation.config import BuyAutomationConfig, load_buy_automa
 from python.us.buy_automation.logger import persist_buy_automation_logs
 from python.us.buy_automation.paper_order import build_paper_order
 from python.us.buy_automation.risk_guard import evaluate_candidate
+from python.us.trade_orchestration.conflict_guard import build_conflict_rule_rows, check_buy_conflict
+from python.us.trade_orchestration.config import load_trade_orchestration_config
 from python.us.us_config import parse_iso_date
 from python.us.us_db import get_us_engine, relation_exists
 from utils.us_live_kill_switch import list_active_kill_switches
@@ -156,8 +158,10 @@ def run_buy_automation(
     trade_date: str | None = None,
     account_id: str = "US_BUY_SHADOW",
     persist_logs: bool = True,
+    portfolio_state: dict[str, object] | None = None,
 ) -> dict[str, object]:
     cfg = load_buy_automation_config()
+    trade_cfg = load_trade_orchestration_config()
     requested_trade_date = parse_iso_date(trade_date, field_name="trade_date") if trade_date else None
     load_result = load_buy_candidates(cfg, requested_trade_date=requested_trade_date)
     effective_trade_date = load_result.get("trade_date")
@@ -172,6 +176,9 @@ def run_buy_automation(
     selected_amount_usd = 0.0
     paper_orders: list[dict[str, object]] = []
     final_candidates: list[dict[str, object]] = []
+    allowed_before_conflict = 0
+    allowed_after_conflict = 0
+    conflict_blocked_candidates = 0
 
     for raw_candidate in sorted(candidates, key=lambda row: (int(row.get("rank") or 999999), str(row.get("symbol") or ""))):
         candidate = _attach_ids(dict(raw_candidate))
@@ -185,6 +192,36 @@ def run_buy_automation(
             kill_switch_active=kill_switch_active,
         )
         candidate.update(guard)
+        candidate["risk_allowed"] = bool(candidate.get("allowed"))
+        if candidate["risk_allowed"]:
+            allowed_before_conflict += 1
+        candidate["conflict_checked"] = False
+        candidate["conflict_blocked"] = False
+        candidate["conflict_reasons"] = []
+        candidate["related_position_id"] = None
+        candidate["related_sell_signal"] = None
+        candidate["cooldown_until"] = None
+        candidate["buy_allowed_after_conflict_check"] = bool(candidate.get("allowed"))
+        if portfolio_state is not None:
+            conflict_result = check_buy_conflict(candidate, portfolio_state, trade_cfg)
+            candidate["conflict_checked"] = True
+            candidate["buy_allowed_after_conflict_check"] = bool(conflict_result.get("buy_allowed_after_conflict_check"))
+            candidate["conflict_reasons"] = list(conflict_result.get("conflict_reasons") or [])
+            candidate["related_position_id"] = conflict_result.get("related_position_id")
+            candidate["related_sell_signal"] = conflict_result.get("sell_signal")
+            candidate["cooldown_until"] = conflict_result.get("cooldown_until")
+            if candidate["risk_allowed"] and not candidate["buy_allowed_after_conflict_check"]:
+                candidate["allowed"] = False
+                candidate["conflict_blocked"] = True
+                conflict_blocked_candidates += 1
+                candidate["block_reasons"] = list(candidate.get("block_reasons") or []) + list(candidate["conflict_reasons"])
+                candidate["applied_rules"] = list(candidate.get("applied_rules") or []) + build_conflict_rule_rows(conflict_result)
+            elif candidate["risk_allowed"] and candidate["buy_allowed_after_conflict_check"]:
+                allowed_after_conflict += 1
+                candidate["applied_rules"] = list(candidate.get("applied_rules") or []) + build_conflict_rule_rows(conflict_result)
+        else:
+            if candidate["risk_allowed"]:
+                allowed_after_conflict += 1
         _apply_mode_overrides(candidate, cfg)
         candidate["severity"] = _severity_for_candidate(bool(candidate.get("allowed")), list(candidate.get("block_reasons") or []))
         candidate["allocated_amount_usd"] = round(float(candidate.get("proposed_amount_usd") or 0.0), 6) if candidate.get("allowed") else 0.0
@@ -230,12 +267,16 @@ def run_buy_automation(
         "config_warnings": list(cfg.warnings),
         "events": events,
         "loaded_candidates": len(candidates),
+        "allowed_before_conflict": allowed_before_conflict,
+        "allowed_after_conflict": allowed_after_conflict,
+        "conflict_blocked_candidates": conflict_blocked_candidates,
         "allowed_candidates": sum(1 for item in final_candidates if item.get("allowed")),
         "blocked_candidates": sum(1 for item in final_candidates if not item.get("allowed")),
         "paper_orders": paper_orders,
         "candidates": final_candidates,
         "block_summary": dict(sorted(block_summary.items())),
         "recent_buy_symbols": sorted(recent_buy_symbols),
+        "portfolio_state_status": (portfolio_state or {}).get("status"),
     }
     if persist_logs:
         report["log_persistence"] = persist_buy_automation_logs(cfg=cfg, report=report, account_id=account_id)

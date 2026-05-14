@@ -486,3 +486,119 @@ Phase 8-7 should focus on:
 - Paper position builder and snapshot persistence
 - sell decision log and sell report generation
 - BUY / SELL same-day conflict handling in code
+
+## Phase 8-7 Implemented Skeleton
+
+Phase 8-7 now implements a Paper-position-based SELL decision skeleton without any broker call or real SELL execution.
+
+Implemented modules in the actual project structure:
+
+- `python/us/sell_automation/config.py`
+- `python/us/sell_automation/paper_position_loader.py`
+- `python/us/sell_automation/sell_rule_engine.py`
+- `python/us/sell_automation/sell_decision_engine.py`
+- `python/us/sell_automation/paper_sell_order.py`
+- `python/us/sell_automation/sell_logger.py`
+- `python/us/sell_automation/run_us_sell_automation.py`
+- `python/us/run_us_sell_automation.py`
+- `scripts/run_us_sell_automation.py`
+
+## Phase 8-7 What Runs
+
+1. load Paper BUY/SSELL history from `paper.us_stock_paper_order` and `paper.us_stock_paper_fill`
+2. reconstruct open Paper positions by symbol
+3. load latest price, ranking, and benchmark context
+4. calculate unrealized PnL, holding days, benchmark-relative return, and high-water-mark drawdown
+5. evaluate SELL rules in priority order
+6. create final `SELL`, `PARTIAL_SELL`, `HOLD`, or `REVIEW_REQUIRED` decision
+7. create Paper SELL order artifacts only in `PAPER` mode and only when automation is enabled
+8. always write JSON output and optionally write `trade.*` logs if tables already exist
+
+## Implemented SELL Rules
+
+- `DATA_QUALITY_CHECK`
+- `RISK_OFF_MARKET_EXIT`
+- `STOP_LOSS`
+- `TRAILING_STOP`
+- `MAX_HOLDING_DAYS`
+- `RANK_SCORE_DETERIORATION`
+- `BENCHMARK_UNDERPERFORMANCE`
+- `TAKE_PROFIT`
+- `HOLD`
+
+Priority remains:
+
+1. `DATA_QUALITY_CHECK`
+2. `RISK_OFF_MARKET_EXIT`
+3. `STOP_LOSS`
+4. `TRAILING_STOP`
+5. `MAX_HOLDING_DAYS`
+6. `RANK_SCORE_DETERIORATION`
+7. `BENCHMARK_UNDERPERFORMANCE`
+8. `TAKE_PROFIT`
+9. `HOLD`
+
+## SHADOW / PAPER / LIVE In Phase 8-7
+
+- `SHADOW`: evaluate and log only. No Paper SELL order row is created.
+- `PAPER`: evaluate, log, and create internal Paper SELL artifacts only.
+- `LIVE`: accepted as a mode string for compatibility, but action is blocked with `LIVE_NOT_IMPLEMENTED`.
+
+Important boundary:
+
+- no broker API call
+- no real account position lookup
+- no real account balance lookup
+- no real SELL execution
+
+## Paper SELL Order Meaning
+
+`trade.us_paper_sell_order` is a Paper-only review artifact.
+
+- assumed fill price uses the latest available close/reference price
+- fees, taxes, FX, and slippage are excluded in this phase
+- the row must not be treated as a broker order or a real fill
+
+## BUY / SELL Conflict TODO
+
+Current Phase 8-7 leaves BUY/SELL conflict integration as follow-up work:
+
+- same-day SELL signal should block same-day new BUY on the same symbol
+- existing open Paper position should block unrestricted repeat BUY
+- full exit should start a cooldown before re-entry
+
+This remains `TODO Phase 8-8`.
+
+## Known Limitations
+
+- position reconstruction is symbol-level and based on existing paper order/fill data, not a separate lot engine
+- probability may be missing from current ranking rows and can produce `REVIEW_REQUIRED`
+- market risk-off uses available benchmark feature context and may degrade to review-required when missing
+- LIVE SELL remains disabled
+
+## Phase 8-8 SELL Priority Rule
+
+Phase 8-8 adds orchestration-level handling on top of SELL automation.
+
+Why SELL runs first:
+
+- same-day SELL signal must block same-day BUY
+- existing position truth must be known before evaluating repeat BUY
+- REVIEW_REQUIRED on an open position must not silently allow a fresh BUY on the same symbol
+
+SELL decisions themselves are not rewritten by orchestration.
+
+- orchestration consumes SELL output
+- BUY conflict guard reacts to SELL output
+- no real SELL execution path is added
+
+## Phase 8-9 Scheduler Stability Note
+
+SELL automation is now part of the orchestration scheduler path.
+
+Scheduler-level guarantees:
+
+- SELL runs before BUY
+- duplicate same-day orchestration execution is blocked by run lock
+- report and health validation happen after orchestration
+- scheduler failures are isolated by default unless fail-fast ENV is explicitly enabled

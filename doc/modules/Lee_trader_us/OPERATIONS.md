@@ -318,6 +318,273 @@ python scripts/report_us_micro_live_operations.py --trade-date 2026-05-16 --acco
 6. Which position state is authoritative for `highest_price_since_entry`?
 7. If price / rank / benchmark inputs disagree, should the system default to hold, sell, or review?
 
+## Phase 8-7 SELL Automation Commands
+
+```powershell
+python -m python.us.sell_automation.run_us_sell_automation
+python scripts/run_us_sell_automation.py
+python scripts/run_us_sell_automation.py --trade-date 2026-05-14 --account-id US_SELL_SHADOW
+python scripts/run_us_sell_automation.py --trade-date 2026-05-14 --account-id US_SELL_PAPER
+```
+
+### Phase 8-7 What The Skeleton Does
+
+1. reads Paper BUY/SSELL history only
+2. reconstructs open Paper positions
+3. loads latest price, ranking, and benchmark context
+4. evaluates SELL rules and writes a decision log
+5. creates Paper SELL artifacts only in `PAPER` mode
+6. never calls a broker API
+7. never reads real account position or balance
+
+### Phase 8-7 Output Review
+
+- inspect console summary first:
+  - `mode`
+  - `enabled`
+  - `loaded_positions`
+  - `hold_positions`
+  - `sell_signals`
+  - `partial_sell_signals`
+  - `review_required`
+  - `paper_sell_orders`
+- inspect the JSON artifact under `output/us_stock_sell_automation/` or `US_SELL_REPORT_OUTPUT_DIR`
+- if DDL was applied manually, inspect:
+  - `trade.us_sell_decision_log`
+  - `trade.us_sell_signal_log`
+  - `trade.us_paper_sell_order`
+  - `trade.us_paper_position_snapshot`
+
+### Phase 8-7 Safety Notes
+
+- `LIVE` mode remains blocked with `LIVE_NOT_IMPLEMENTED`
+- missing price, ranking, probability, or benchmark context can result in `REVIEW_REQUIRED`
+- data uncertainty must not trigger automatic real SELL
+
+## Phase 8-8 Trade Orchestration Commands
+
+```powershell
+python -m python.us.trade_orchestration.run_us_trade_orchestration
+python scripts/run_us_trade_orchestration.py
+python scripts/run_us_trade_orchestration.py --trade-date 2026-05-14
+python scripts/run_us_trade_orchestration.py --trade-date 2026-05-14 --mode SHADOW
+```
+
+### Phase 8-8 Execution Order
+
+1. run SELL automation first
+2. reconstruct Paper portfolio state
+3. run BUY automation
+4. apply conflict guard
+5. generate integrated report
+
+### Phase 8-8 Conflict Guard Meaning
+
+BUY is blocked when any of the following applies:
+
+- `OPEN_POSITION_EXISTS`
+- `SELL_SIGNAL_EXISTS`
+- `REVIEW_REQUIRED_SYMBOL`
+- `COOLDOWN_ACTIVE`
+- `DUPLICATE_BUY`
+- `PORTFOLIO_STATE_INCONSISTENT`
+
+### Phase 8-8 Output Locations
+
+- integrated report JSON / Markdown:
+  - `reports/lee_trader_us/trade_orchestration/`
+- raw orchestration JSON log:
+  - same report directory by default
+
+### Phase 8-8 Scheduler Note
+
+- BUY-only scheduler and orchestration scheduler must not be enabled together
+- current BUY scheduler records `SCHEDULER_CONFIGURATION_CONFLICT` when orchestration scheduler flags are also enabled
+
+## Phase 8-9 Trade Scheduler Commands
+
+```powershell
+python -m python.us.trade_orchestration.scheduler_job
+python scripts/run_us_trade_scheduler_job.py
+python -m python.us.trade_orchestration.run_us_trade_orchestration
+```
+
+### Phase 8-9 Scheduler Flow
+
+1. scheduler guard
+2. run lock
+3. daily trade orchestrator
+4. integrated report check
+5. health check
+6. operations checklist write
+7. lock release
+
+### Phase 8-9 Daily Operator Checklist
+
+1. confirm scheduler job executed
+2. review SELL summary
+3. review BUY final candidates
+4. review conflict block reasons
+5. review `REVIEW_REQUIRED` symbols
+6. review data-missing rate
+7. review Paper portfolio pnl
+8. confirm integrated report exists
+9. confirm duplicate run was not detected
+10. confirm `LIVE` mode remained blocked
+
+### Phase 8-9 Pipeline Integration
+
+Actual current pipeline hook:
+
+- `python/us/run_us_daily_pipeline.py`
+
+Current policy:
+
+- trade scheduler runs after upstream feature/ranking-related stages
+- if orchestration scheduler is enabled and disable-buy-only flag is on, BUY-only scheduler is skipped
+- if orchestration scheduler is off, legacy BUY-only scheduler can still run independently
+
+## Phase 8-10 Dashboard Design Commands
+
+Phase 8-10 is design-only. No dashboard builder or API server is implemented yet.
+
+Future intended command family:
+
+```powershell
+python -m python.us.dashboard.run_us_dashboard_report
+python scripts/run_us_dashboard_report.py --trade-date 2026-05-14
+python scripts/run_us_dashboard_report.py --trade-date 2026-05-14 --format markdown
+```
+
+Current operator review inputs for the future dashboard:
+
+```powershell
+python -m python.us.trade_orchestration.scheduler_job
+python -m python.us.trade_orchestration.run_us_trade_orchestration
+python scripts/run_us_buy_report.py --trade-date 2026-05-14 --format json
+python scripts/run_us_sell_automation.py --trade-date 2026-05-14
+python scripts/run_us_buy_readiness.py --days 60 --format json
+```
+
+### Phase 8-10 Intended Daily Reading Order
+
+1. confirm orchestration scheduler executed
+2. confirm integrated report exists
+3. review Daily Overview
+4. review BUY and SELL monitors
+5. review conflict summary
+6. review Paper portfolio and performance
+7. review health and readiness
+
+### Phase 8-10 Dashboard Safety Notes
+
+- dashboard is Paper-only
+- dashboard is read-only
+- dashboard output must clearly label all performance as `Paper`
+- `live_ready=true` must never be interpreted as automatic LIVE release
+
+## Phase 8-11 Dashboard Report Commands
+
+```powershell
+python -m python.us.dashboard.run_us_dashboard_report --force
+python -m python.us.dashboard.run_us_dashboard_report --trade-date 2026-05-14 --force
+python -m python.us.dashboard.run_us_dashboard_report --format json --force
+python -m python.us.dashboard.run_us_dashboard_report --format markdown --force
+python scripts/run_us_dashboard_report.py --force
+```
+
+### Phase 8-11 Output Locations
+
+- date-based dashboard files:
+  - `reports/lee_trader_us/dashboard/YYYY-MM-DD_dashboard.json`
+  - `reports/lee_trader_us/dashboard/YYYY-MM-DD_dashboard.md`
+- latest rolling files:
+  - `reports/lee_trader_us/dashboard/latest_dashboard.json`
+  - `reports/lee_trader_us/dashboard/latest_dashboard.md`
+
+### Phase 8-11 Reading Order
+
+1. review `Daily Overview`
+2. review `Paper Portfolio`
+3. review `BUY Decision Monitor`
+4. review `SELL Decision Monitor`
+5. review `Conflict Guard Monitor`
+6. review `Paper Performance`
+7. review `Risk / Data Quality`
+8. review `Scheduler / Health Check`
+9. review `LIVE Readiness`
+
+### Phase 8-11 Safety Notes
+
+- dashboard report is Paper-only
+- dashboard report is read-only
+- missing data is surfaced, not backfilled by guesswork
+- `latest_dashboard.*` is a convenience pointer only
+- no real order, broker, or real-account integration exists in this phase
+
+## Phase 8-12 Dashboard Scheduler / Notification Commands
+
+```powershell
+python -m python.us.trade_orchestration.scheduler_job
+python -m python.us.dashboard.run_us_dashboard_report --force
+```
+
+### Phase 8-12 Execution Order
+
+1. scheduler guard
+2. run lock
+3. trade orchestration
+4. integrated report
+5. dashboard report
+6. health check with dashboard validation
+7. notification payload generation
+8. operations checklist
+9. lock release
+
+### Phase 8-12 Notification Output
+
+- `reports/lee_trader_us/dashboard/notifications/YYYY-MM-DD_notification.txt`
+- `reports/lee_trader_us/dashboard/notifications/YYYY-MM-DD_notification.json`
+- `reports/lee_trader_us/dashboard/notifications/latest_notification.txt`
+- `reports/lee_trader_us/dashboard/notifications/latest_notification.json`
+
+### Phase 8-12 Safety Notes
+
+- notification payload generation is file-only
+- no SMTP send
+- no Slack webhook send
+- no external API call
+- dashboard failure is isolated by default unless explicit fail-fast ENV is enabled
+
+## Phase 8-13 Notification Adapter Design Notes
+
+Phase 8-13 is design-only.
+
+- no notification adapter runner is implemented yet
+- no actual email delivery is implemented
+- no actual Slack delivery is implemented
+- no approval UI is implemented
+- no external API call is allowed
+
+### Phase 8-13 Intended Future Execution Order
+
+1. trade orchestration
+2. integrated report
+3. dashboard report
+4. dashboard-aware health check
+5. notification payload generation
+6. notification adapter routing
+7. scheduler final result logging
+
+### Phase 8-13 Operator Review Checklist
+
+1. confirm notification payload still says `Paper Trading only`
+2. confirm `live_orders_executed=false`
+3. confirm FILE / CONSOLE remain the only default channels
+4. confirm `US_NOTIFICATION_ADAPTER_MODE` is not treated as trading approval
+5. confirm `LIVE` notification mode stays blocked until a future implementation phase
+6. confirm no sensitive fields appear in dry-run text or JSON
+
 ## Backfill Method
 
 - use `US_STOCK_PRICE_BACKFILL_YEARS` as the default historical range

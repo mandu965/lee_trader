@@ -18,12 +18,18 @@ The US module now includes:
 - backtest / forward test / paper research flows
 - live safety and Micro Live validation flows
 - limited BUY automation in SHADOW / PAPER review mode
+- limited SELL / Exit automation in SHADOW / PAPER review mode
+- BUY / SELL orchestration and integrated daily review reporting
+- Paper Trading dashboard and monitoring design
 
 The US module still does not include:
 
 - unrestricted real BUY execution
+- unrestricted real SELL execution
 - broker order submission from BUY automation
+- broker order submission from SELL automation
 - real account cash lookup for BUY automation
+- real account cash lookup for SELL automation
 - automatic SELL automation
 - automatic retry or correction orders
 
@@ -66,6 +72,50 @@ The US module still does not include:
    - cumulative PAPER performance evaluation
    - LIVE readiness scoring
    - promotion-policy review layer
+
+### Limited SELL And Trade Orchestration Layer
+
+1. Phase 8-7:
+   - Paper-position reconstruction
+   - SELL / PARTIAL_SELL / HOLD / REVIEW_REQUIRED decision pipeline
+   - Paper SELL artifact logging only
+2. Phase 8-8:
+   - SELL-first orchestration
+   - BUY / SELL conflict guard
+   - cooldown and duplicate-BUY protection
+   - integrated daily trade report
+3. Phase 8-9:
+   - orchestration scheduler guard
+   - duplicate-run lock
+   - post-run health check
+   - operations checklist
+   - daily pipeline integration
+
+### Dashboard And Monitoring Layer
+
+1. Phase 8-10:
+   - daily dashboard design
+   - Paper portfolio monitoring design
+   - BUY / SELL / conflict monitor design
+   - benchmark comparison design
+   - scheduler / health visibility design
+   - LIVE-readiness review surface design
+2. Phase 8-11:
+   - file-based JSON dashboard report
+   - file-based Markdown dashboard report
+   - `latest_dashboard.json` / `latest_dashboard.md` update
+   - DB-first, file-fallback dashboard data loading
+3. Phase 8-12:
+   - optional scheduler hook after orchestration
+   - dashboard health adapter
+   - notification text/json payload generation
+   - payload file persistence only, no actual delivery
+4. Phase 8-13:
+   - notification adapter design
+   - file / console / email-dry-run / slack-dry-run channel policy
+   - manual-approval delivery policy
+   - severity and redaction policy
+   - no real external delivery implementation
 
 ## Phase 8-4 Integration Point
 
@@ -202,3 +252,83 @@ It is a daily automated review integration for:
 - operator verification
 
 Real BUY execution remains prohibited.
+
+## Phase 8-8 Orchestration Boundary
+
+Trade orchestration is still a Paper-only operating layer.
+
+- SELL runs before BUY
+- SELL or REVIEW_REQUIRED state can block same-day BUY
+- existing Paper position can block repeat BUY
+- cooldown after full exit can block re-entry
+- no real-order path is added
+- scheduler conflict between BUY-only and orchestration mode must be treated as configuration error
+
+## Phase 8-9 Scheduler Integration Point
+
+Actual current integration point in this repository:
+
+- `python/us/run_us_daily_pipeline.py`
+
+Current order after upstream data/feature work:
+
+1. optional trade orchestration scheduler job
+2. optional BUY-only scheduler job
+
+Protection rules:
+
+- orchestration must run after ranking/score availability
+- orchestration scheduler can disable BUY-only scheduler through ENV
+- duplicate run for the same `trade_date` is blocked by file lock
+- `LIVE` mode remains blocked in scheduler guard
+
+## Phase 8-10 Dashboard Read Boundary
+
+The dashboard layer is read-only and sits after orchestration artifacts exist.
+
+Intended future order:
+
+1. upstream data / ranking stages
+2. orchestration scheduler job
+3. integrated report
+4. dashboard assembly from persisted artifacts
+5. dashboard-aware health check
+6. notification payload generation
+
+Dashboard scope:
+
+- consumes Paper-only logs, snapshots, and summaries
+- does not place orders
+- does not call broker APIs
+- does not read real account balances or positions
+
+Current implementation location:
+
+- `python/us/dashboard/`
+
+Current scheduler connection point:
+
+- `python/us/trade_orchestration/scheduler_job.py`
+
+## Phase 8-13 Notification Adapter Boundary
+
+The notification-adapter layer sits after dashboard payload generation and after dashboard-aware health checks.
+
+Recommended order:
+
+1. orchestration scheduler job
+2. integrated report
+3. dashboard report
+4. dashboard-aware health check
+5. notification payload generation
+6. notification adapter routing
+7. scheduler final result persistence
+
+Adapter scope:
+
+- consumes already-generated dashboard payloads
+- may render channel-specific dry-run messages
+- may write local file artifacts
+- must not alter orchestration or dashboard decisions
+- must not submit any broker order
+- must not call SMTP, Slack webhook, or other external APIs in this phase

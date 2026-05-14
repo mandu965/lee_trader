@@ -915,3 +915,61 @@ Key relationship rules:
 Reference document:
 
 - see [SELL_AUTOMATION_DESIGN.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/SELL_AUTOMATION_DESIGN.md)
+
+## Phase 8-7 BUY / SELL Conflict Follow-Up
+
+Phase 8-7 adds a separate SELL skeleton under `python/us/sell_automation/`.
+
+Current policy status:
+
+- BUY and SELL remain independently runnable
+- SELL decision logs now have a stable shape for later BUY exclusion checks
+- same-day BUY exclusion on SELL signal is still not enforced in BUY code
+- existing-position duplicate BUY restriction still needs tighter integration with SELL snapshots
+- cooldown after full SELL remains `TODO Phase 8-8`
+
+Until Phase 8-8:
+
+- operators should treat `SELL` or `REVIEW_REQUIRED` symbols as ineligible for discretionary same-day new BUY
+- LIVE BUY and LIVE SELL remain disabled
+
+## Phase 8-8 Conflict Guard Integration
+
+Phase 8-8 connects BUY automation to portfolio-state and SELL-state review.
+
+Current BUY decision flow:
+
+1. load BUY candidates
+2. evaluate existing BUY risk guard
+3. load Paper portfolio / SELL state through orchestration
+4. evaluate conflict guard
+5. block BUY when:
+   - open Paper position exists
+   - same-day SELL signal exists
+   - same-day REVIEW_REQUIRED exists
+   - cooldown after full exit is active
+   - same-day Paper BUY already exists
+   - portfolio state is inconsistent and fail-safe is enabled
+
+Additional BUY decision fields now include:
+
+- `conflict_checked`
+- `conflict_blocked`
+- `conflict_reasons`
+- `related_position_id`
+- `related_sell_signal`
+- `cooldown_until`
+
+Important rule:
+
+- SELL / REVIEW_REQUIRED takes precedence over new BUY
+
+## Phase 8-9 Scheduler Stability Note
+
+BUY automation remains callable by itself, but daily pipeline integration now prefers orchestration-first execution.
+
+Current scheduler protection:
+
+- if orchestration scheduler is enabled and `US_TRADE_DISABLE_BUY_ONLY_SCHEDULER_WHEN_ORCHESTRATION=1`, BUY-only scheduler is skipped in the daily pipeline
+- if BUY-only scheduler still runs while orchestration scheduler flags are active, BUY scheduler returns `SCHEDULER_CONFIGURATION_CONFLICT`
+- this is an operations safety rule, not a trading rule

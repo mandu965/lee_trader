@@ -151,6 +151,15 @@ def run_buy_scheduler_job(*, trade_date: str | None = None, emit_console: bool =
             print(_render_job_console(result))
         return result
 
+    if _flag("US_TRADE_SCHEDULER_ENABLED", "0") and _flag("US_TRADE_SCHEDULER_RUN_ORCHESTRATION", "1"):
+        result["success"] = False
+        result["error"] = "SCHEDULER_CONFIGURATION_CONFLICT"
+        result["pipeline_should_fail"] = False
+        _persist_scheduler_result(result, trade_date=effective_trade_date)
+        if emit_console:
+            print(_render_job_console(result))
+        return result
+
     if buy_cfg.mode == "LIVE":
         result["success"] = False
         result["error"] = "LIVE_DISABLED_IN_SCHEDULER"

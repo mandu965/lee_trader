@@ -761,3 +761,387 @@ Suggested columns:
 - no migration is auto-applied
 - Paper position state should become the source for stop-loss, trailing-stop, and holding-day evaluation
 - real SELL lifecycle tables should wait until Paper SELL validation is mature
+
+## Phase 8-7 SELL Skeleton Logging And Snapshot Contract
+
+Phase 8-7 keeps the same proposed `trade.*` SELL tables and adds an implemented JSON-first logger.
+
+Current behavior:
+
+- JSON output is always written under the SELL output directory
+- DB writes are attempted only if the relevant `trade.*` table already exists
+- missing tables fall back gracefully to file-only logging
+
+### `trade.us_sell_decision_log`
+
+Current persisted fields include:
+
+- `trade_date`
+- `automation_mode`
+- `paper_position_id`
+- `symbol`
+- `decision`
+- `sell_action`
+- `sell_ratio`
+- `sell_quantity`
+- `exit_reason`
+- `review_required`
+- `applied_rules`
+- `latest_price`
+- `avg_entry_price`
+- `unrealized_pnl_pct`
+- `realized_paper_pnl`
+- `error_message`
+
+### `trade.us_sell_signal_log`
+
+Current persisted fields include one row per applied rule:
+
+- `trade_date`
+- `paper_position_id`
+- `symbol`
+- `rule_name`
+- `rule_result`
+- `metric_value`
+- `threshold_value`
+- `severity`
+- `detail`
+
+### `trade.us_paper_sell_order`
+
+Phase 8-7 uses this as a Paper-only SELL artifact table.
+
+- no broker order id is created
+- `assumed_fill_status` is synthetic
+- latest close/reference price is used as the fill assumption
+
+### `trade.us_paper_position_snapshot`
+
+Phase 8-7 snapshot rows store:
+
+- latest marked price
+- remaining quantity
+- high-water mark
+- unrealized pnl
+- unrealized pnl pct
+- holding days
+- status
+- data-quality flags
+
+DDL reference:
+
+- see [phase8_7_sell_automation_tables.sql](/d:/ai/lee_trader/sql/lee_trader_us/phase8_7_sell_automation_tables.sql)
+
+## Phase 8-8 Trade Orchestration Tables
+
+### `trade.us_trade_orchestration_log`
+
+Purpose:
+
+- store one run-level orchestration summary per `trade_date + mode`
+
+Key fields:
+
+- execution time
+- sell executed flag
+- buy executed flag
+- report generated flag
+- success
+- fail-safe triggered
+- conflict summary
+- final action summary
+- error message
+
+### `trade.us_trade_conflict_log`
+
+Purpose:
+
+- store per-symbol BUY conflict guard results
+
+Key fields:
+
+- trade date
+- mode
+- symbol
+- buy allowed after conflict check
+- conflict reasons
+- related position id
+- related sell signal
+- cooldown until
+
+### `trade.us_integrated_daily_report`
+
+Purpose:
+
+- store integrated daily report metadata/body snapshot
+
+Key fields:
+
+- trade date
+- mode
+- report type
+- source json path
+- summary json
+
+### BUY Decision Log Phase 8-8 Additions
+
+Phase 8-8 extends the proposed BUY decision log shape with:
+
+- `conflict_checked`
+- `conflict_blocked`
+- `conflict_reasons JSONB`
+- `related_position_id`
+- `related_sell_signal JSONB`
+
+DDL reference:
+
+- see [phase8_8_trade_orchestration_tables.sql](/d:/ai/lee_trader/sql/lee_trader_us/phase8_8_trade_orchestration_tables.sql)
+
+## Phase 8-9 Scheduler Stability Tables
+
+### `trade.us_trade_scheduler_run_log`
+
+Purpose:
+
+- store one scheduler-run summary per `trade_date + mode + job_name`
+
+Suggested fields:
+
+- job status
+- guard result
+- health result
+- warnings
+- errors
+- pipeline should fail
+
+### `trade.us_trade_scheduler_health_check`
+
+Purpose:
+
+- persist health-check snapshots separately from the run summary
+
+### `trade.us_trade_scheduler_lock_log`
+
+Purpose:
+
+- preserve duplicate-run / stale-lock audit visibility
+
+DDL reference:
+
+- see [phase8_9_scheduler_stability_tables.sql](/d:/ai/lee_trader/sql/lee_trader_us/phase8_9_scheduler_stability_tables.sql)
+
+## Phase 8-10 Dashboard Read Model Design
+
+Phase 8-10 is dashboard-design only. No dashboard-specific migration is required in this phase.
+
+Preferred rule:
+
+- reuse existing `trade.*` logs and snapshots first
+- add dashboard-specific persistence only if file-based assembly becomes too slow or inconsistent
+
+### Existing Tables Used By The Dashboard
+
+Primary dashboard inputs:
+
+- `trade.us_buy_decision_log`
+- `trade.us_risk_guard_log`
+- `trade.us_paper_order`
+- `trade.us_sell_decision_log`
+- `trade.us_sell_signal_log`
+- `trade.us_paper_sell_order`
+- `trade.us_paper_position`
+- `trade.us_paper_position_snapshot`
+- `trade.us_trade_orchestration_log`
+- `trade.us_trade_conflict_log`
+- `trade.us_integrated_daily_report`
+- `trade.us_trade_scheduler_run_log`
+- `trade.us_trade_scheduler_health_check`
+- `trade.us_buy_readiness_report`
+- `trade.us_paper_performance_summary`
+
+### Optional Future Read Models
+
+#### `trade.us_dashboard_daily_snapshot`
+
+Purpose:
+
+- persist one assembled dashboard body per `trade_date`
+
+Suggested columns:
+
+- `snapshot_id`
+- `trade_date`
+- `mode`
+- `summary_json`
+- `created_at`
+- `updated_at`
+
+#### `trade.us_dashboard_section_status`
+
+Purpose:
+
+- persist section-level assembly health and missing-data status
+
+Suggested columns:
+
+- `status_id`
+- `trade_date`
+- `section_name`
+- `status`
+- `warning_count`
+- `error_count`
+- `detail_json`
+- `created_at`
+
+### Dashboard Schema Notes
+
+- these are optional future read models, not required for Phase 8-10
+- file-based dashboard output can be the first implementation target
+- dashboard persistence must remain read-only relative to trading decisions
+
+## Phase 8-11 Dashboard Report Table
+
+Phase 8-11 keeps file output as the primary artifact and adds an optional DDL target for later DB persistence.
+
+### `trade.us_paper_dashboard_report`
+
+Purpose:
+
+- store one assembled dashboard payload per `trade_date`
+
+Suggested fields:
+
+- `dashboard_report_id`
+- `trade_date`
+- `report_type`
+- `report_status`
+- `report_json`
+- `generated_at`
+- `created_at`
+
+DDL reference:
+
+- see [phase8_11_dashboard_tables.sql](/d:/ai/lee_trader/sql/lee_trader_us/phase8_11_dashboard_tables.sql)
+
+Current note:
+
+- Phase 8-11 implementation writes files only
+- DB migration is still manual and is not auto-applied
+
+## Phase 8-12 Dashboard Scheduler / Notification Tables
+
+### `trade.us_dashboard_scheduler_log`
+
+Purpose:
+
+- optional future persistence for dashboard scheduler step status
+
+Suggested fields:
+
+- `dashboard_scheduler_log_id`
+- `trade_date`
+- `dashboard_status`
+- `report_paths JSONB`
+- `warnings JSONB`
+- `errors JSONB`
+- `created_at`
+
+### `trade.us_dashboard_notification_payload`
+
+Purpose:
+
+- optional future persistence for generated notification payload artifacts
+
+Suggested fields:
+
+- `notification_payload_id`
+- `trade_date`
+- `notification_format`
+- `notification_payload JSONB`
+- `notification_text`
+- `created_at`
+
+DDL reference:
+
+- see [phase8_12_dashboard_scheduler_notification_tables.sql](/d:/ai/lee_trader/sql/lee_trader_us/phase8_12_dashboard_scheduler_notification_tables.sql)
+
+## Phase 8-13 Notification Adapter Tables
+
+Phase 8-13 is design-only. The following tables describe future notification-adapter auditability and approval tracking.
+
+### `trade.us_notification_event_log`
+
+Purpose:
+
+- store one normalized notification event per trade date and payload type
+
+Suggested fields:
+
+- `notification_event_id`
+- `trade_date`
+- `message_type`
+- `severity`
+- `mode`
+- `paper_trading_only`
+- `approval_required`
+- `approval_status`
+- `payload_json`
+- `message_text`
+- `error_message`
+- `created_at`
+- `updated_at`
+
+Suggested uniqueness:
+
+- `(trade_date, message_type, mode)`
+
+### `trade.us_notification_delivery_log`
+
+Purpose:
+
+- store one channel-level dry-run or future delivery result per notification event
+
+Suggested fields:
+
+- `delivery_log_id`
+- `notification_event_id`
+- `trade_date`
+- `channel`
+- `delivery_mode`
+- `delivery_status`
+- `severity`
+- `payload_json`
+- `message_text`
+- `error_message`
+- `created_at`
+- `updated_at`
+
+Suggested uniqueness:
+
+- `(notification_event_id, channel, delivery_mode)`
+
+### `trade.us_notification_approval_log`
+
+Purpose:
+
+- store manual-approval lifecycle records for notification delivery
+
+Suggested fields:
+
+- `approval_log_id`
+- `notification_event_id`
+- `trade_date`
+- `approval_required`
+- `approval_status`
+- `approver`
+- `approved_at`
+- `comment`
+- `expires_at`
+- `created_at`
+- `updated_at`
+
+Notes:
+
+- manual approval here is for notification delivery only
+- it must not be confused with LIVE trading approval
+- no migration or runtime writer is added in this phase
