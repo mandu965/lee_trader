@@ -111,6 +111,18 @@
       /* ── 하단 상태줄 ── */
       .status-bar { margin-top: 24px; font-size: 12px; color: var(--color-text-secondary); text-align: right; }
 
+      /* ── 주문 서브탭 ── */
+      .subtab-nav { display: flex; gap: 4px; margin-bottom: 16px; }
+      .subtab-btn {
+        padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: var(--radius-lg);
+        background: rgba(255,255,255,.05); border: 1px solid var(--border);
+        color: var(--color-text-secondary); cursor: pointer; transition: background .15s, color .15s;
+      }
+      .subtab-btn:hover { background: rgba(255,255,255,.08); color: var(--color-text-primary); }
+      .subtab-btn.active { background: rgba(96,165,250,.12); border-color: rgba(96,165,250,.3); color: #93c5fd; }
+      .subtab-pane { display: none; }
+      .subtab-pane.active { display: block; }
+
       /* ── 반응형 ── */
       @media (max-width: 1100px) {
         .hero-grid { grid-template-columns: repeat(2, 1fr); }
@@ -305,79 +317,97 @@
 
       <!-- ── 탭 3: 주문 ── -->
       <div class="tab-pane" id="tab-orders">
-        <div class="section">
-          <div class="section-head">
-            <div>
-              <h2 class="section-title">포트폴리오 계획</h2>
-              <div class="section-note">매수 / 보유 / 축소 / 청산 / 스킵 판단 결과입니다.</div>
+        <!-- 서브탭 -->
+        <nav class="subtab-nav">
+          <button class="subtab-btn active" data-subtab="execution">실행 결과 <span class="tab-badge" id="badgeExecution">-</span></button>
+          <button class="subtab-btn" data-subtab="preview">주문 초안 <span class="tab-badge" id="badgePreview">-</span></button>
+          <button class="subtab-btn" data-subtab="portfolio">포트폴리오 <span class="tab-badge" id="badgePortfolio">-</span></button>
+        </nav>
+
+        <!-- 서브탭: 실행 결과 -->
+        <div class="subtab-pane active" id="subtab-execution">
+          <div class="section">
+            <div class="section-head">
+              <div>
+                <h2 class="section-title">개장 전 실행 결과</h2>
+                <div class="section-note">전일 미리보기 기반으로 시가 검증 후 simulated 실행 결과입니다.</div>
+              </div>
             </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>액션</th>
-                  <th>코드</th>
-                  <th>종목명</th>
-                  <th>섹터</th>
-                  <th class="right">목표 비중</th>
-                  <th class="right">현재 비중</th>
-                  <th class="right">목표 금액</th>
-                  <th>사유</th>
-                </tr>
-              </thead>
-              <tbody id="portfolioTbody"></tbody>
-            </table>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>상태</th>
+                    <th>코드</th>
+                    <th>종목명</th>
+                    <th>방향</th>
+                    <th class="right">체결 수량</th>
+                    <th class="right">평균 체결가</th>
+                    <th class="right">실제 갭</th>
+                    <th>차단 사유</th>
+                  </tr>
+                </thead>
+                <tbody id="executionTbody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
-        <div class="section">
-          <div class="section-head">
-            <div>
-              <h2 class="section-title">주문 미리보기</h2>
-              <div class="section-note">Paper 전용입니다. 실주문은 발생하지 않습니다.</div>
+
+        <!-- 서브탭: 주문 초안 -->
+        <div class="subtab-pane" id="subtab-preview">
+          <div class="section">
+            <div class="section-head">
+              <div>
+                <h2 class="section-title">주문 미리보기</h2>
+                <div class="section-note">차단되지 않은 항목만 실제 제출 후보로 넘어갑니다.</div>
+              </div>
             </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>상태</th>
-                  <th>코드</th>
-                  <th>종목명</th>
-                  <th>방향</th>
-                  <th class="right">예상 체결가</th>
-                  <th class="right">주문 금액</th>
-                  <th class="right">수량</th>
-                  <th>차단 사유</th>
-                </tr>
-              </thead>
-              <tbody id="previewTbody"></tbody>
-            </table>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>상태</th>
+                    <th>코드</th>
+                    <th>종목명</th>
+                    <th>방향</th>
+                    <th class="right">예상 체결가</th>
+                    <th class="right">주문 금액</th>
+                    <th class="right">수량</th>
+                    <th>차단 사유</th>
+                  </tr>
+                </thead>
+                <tbody id="previewTbody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
-        <div class="section">
-          <div class="section-head">
-            <div>
-              <h2 class="section-title">개장 전 실행 결과</h2>
-              <div class="section-note">전일 미리보기 기반으로 시가 검증 후 simulated 실행 결과입니다.</div>
+
+        <!-- 서브탭: 포트폴리오 계획 -->
+        <div class="subtab-pane" id="subtab-portfolio">
+          <div class="section">
+            <div class="section-head">
+              <div>
+                <h2 class="section-title">포트폴리오 계획</h2>
+                <div class="section-note">매수 / 보유 / 축소 / 청산 / 스킵 판단 결과입니다.</div>
+              </div>
             </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>상태</th>
-                  <th>코드</th>
-                  <th>종목명</th>
-                  <th>방향</th>
-                  <th class="right">체결 수량</th>
-                  <th class="right">평균 체결가</th>
-                  <th class="right">실제 갭</th>
-                  <th>차단 사유</th>
-                </tr>
-              </thead>
-              <tbody id="executionTbody"></tbody>
-            </table>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>액션</th>
+                    <th>코드</th>
+                    <th>종목명</th>
+                    <th>섹터</th>
+                    <th class="right">목표 비중</th>
+                    <th class="right">현재 비중</th>
+                    <th class="right">목표 금액</th>
+                    <th>사유</th>
+                  </tr>
+                </thead>
+                <tbody id="portfolioTbody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

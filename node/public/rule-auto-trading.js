@@ -83,6 +83,19 @@ function initTabs() {
   });
 }
 
+/* ── 주문 서브탭 전환 ── */
+function initOrderSubTabs() {
+  document.querySelectorAll(".subtab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const pane = btn.dataset.subtab;
+      document.querySelectorAll(".subtab-btn").forEach((b) => b.classList.remove("active"));
+      document.querySelectorAll(".subtab-pane").forEach((p) => p.classList.remove("active"));
+      btn.classList.add("active");
+      document.getElementById(`subtab-${pane}`)?.classList.add("active");
+    });
+  });
+}
+
 /* ── Safety 배너 ── */
 function renderSafety(summary, diagnostics) {
   const banner = document.getElementById("safetyBanner");
@@ -158,7 +171,7 @@ function renderHero(summary) {
 }
 
 /* ── 탭 뱃지 업데이트 ── */
-function updateBadges(summary, signals, preview) {
+function updateBadges(summary, signals, preview, portfolio, executionResults) {
   const counts = summary.counts || {};
   document.getElementById("badgeSignals").textContent =
     fmtNum((counts.entry_signal_count || 0) + (counts.strong_entry_count || 0));
@@ -166,6 +179,13 @@ function updateBadges(summary, signals, preview) {
     fmtNum(counts.preview_request_count || 0);
   document.getElementById("badgeAccount").textContent =
     fmtNum(counts.account_position_count || counts.paper_position_count || 0);
+  // 주문 서브탭 배지
+  const execItems = Array.isArray(executionResults?.items) ? executionResults.items : [];
+  const previewItems = Array.isArray(preview?.items) ? preview.items : [];
+  const portfolioItems = Array.isArray(portfolio?.items) ? portfolio.items : [];
+  document.getElementById("badgeExecution").textContent = fmtNum(execItems.length);
+  document.getElementById("badgePreview").textContent   = fmtNum(previewItems.length);
+  document.getElementById("badgePortfolio").textContent = fmtNum(portfolioItems.length);
 }
 
 /* ── 시스템 안전 상태 ── */
@@ -419,14 +439,22 @@ function renderPaperState(paperState) {
 
   const summaryEl = document.getElementById("accountSummary");
   if (summaryEl) {
+    const stats = [
+      { label: "총 자산",     val: fmtWon(totalEquity), cls: "" },
+      { label: "현금",        val: fmtWon(cash),         cls: "" },
+      { label: "주식 평가",   val: fmtWon(totalMktVal),  cls: "" },
+      { label: "매수금액",    val: fmtWon(totalCost),    cls: "" },
+      { label: "평가손익",    val: fmtWon(totalPnl),     cls: signedClass(totalPnl) },
+      { label: "수익률",      val: totalRet !== null ? fmtPct(totalRet) : "-", cls: totalRet !== null ? signedClass(totalRet) : "" },
+    ];
     summaryEl.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;">
-        <div class="kv-row"><span>총 자산</span><strong>${fmtWon(totalEquity)}</strong></div>
-        <div class="kv-row"><span>현금</span><strong>${fmtWon(cash)}</strong></div>
-        <div class="kv-row"><span>주식 평가금액</span><strong>${fmtWon(totalMktVal)}</strong></div>
-        <div class="kv-row"><span>총 매수금액</span><strong>${fmtWon(totalCost)}</strong></div>
-        <div class="kv-row"><span>평가손익</span><strong class="${signedClass(totalPnl)}">${fmtWon(totalPnl)}</strong></div>
-        <div class="kv-row"><span>수익률</span><strong class="${totalRet !== null ? signedClass(totalRet) : ""}">${totalRet !== null ? fmtPct(totalRet) : "-"}</strong></div>
+      <div style="display:flex;flex-wrap:wrap;">
+        ${stats.map((s, i) => `
+          <div style="display:flex;flex-direction:column;gap:5px;padding:10px 24px;${i > 0 ? "border-left:1px solid var(--border);" : ""}min-width:90px;">
+            <span style="font-size:11px;color:var(--color-text-secondary);letter-spacing:.04em;">${s.label}</span>
+            <strong class="${s.cls}" style="font-size:17px;font-weight:800;">${s.val}</strong>
+          </div>
+        `).join("")}
       </div>
     `;
   }
@@ -482,7 +510,7 @@ async function loadRuleDashboard() {
 
     renderSafety(summary, diagnostics);
     renderHero(summary);
-    updateBadges(summary, signals, preview);
+    updateBadges(summary, signals, preview, portfolio, executionResults);
     renderSystemStatus(diagnostics);
     renderWhyNoTrade(diagnostics);
     renderBlockReasons(summary);
@@ -523,6 +551,7 @@ async function loadRuleDashboard() {
 
 document.addEventListener("DOMContentLoaded", () => {
   initTabs();
+  initOrderSubTabs();
   document.getElementById("refreshBtn")?.addEventListener("click", () =>
     loadRuleDashboard().catch(console.error));
   loadRuleDashboard().catch(console.error);
