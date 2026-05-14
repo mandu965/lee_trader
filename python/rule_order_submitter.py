@@ -533,6 +533,13 @@ def _submit_items(preview: dict[str, Any], market_snapshot: dict[str, Any]) -> t
             failed_count += 1
         results.append(row)
 
+        # KIS EGW00201 (초당 거래건수 초과) 방지: 주문 제출 시도 후 딜레이
+        # RULE_ORDER_INTERVAL_SEC 환경변수로 조정 가능 (기본 0.5초)
+        if row.get("submit_attempted"):
+            _interval = float(os.environ.get("RULE_ORDER_INTERVAL_SEC", "0.5"))
+            if _interval > 0:
+                time.sleep(_interval)
+
     return results, {
         "requested_count": len(results),
         "request_count": len(results),
