@@ -22,6 +22,23 @@ This document summarizes environment variables used by the AI pipeline and live 
 | `TOP_N` | project default | Top-N extraction size | ranking / recommendation |
 | `SCORE_FORMULA_VERSION` | blank | Optional score formula override flag | ranking |
 
+## Financial Momentum (Phase 1~8)
+
+| Variable | Default | Description | Scope | 활성화 시점 |
+| --- | --- | --- | --- | --- |
+| `FINANCIAL_FEATURE_ENABLED` | `0` | 재무 모멘텀 shadow 계산 활성화 | `ranking_builder.py` | Phase 4 완료 후 |
+| `FINANCIAL_SCORE_OVERLAY_ENABLED` | `0` | shadow → live final_score 실반영 (Phase 7) | `ranking_builder.py` | Phase 6 백테스트 통과 후 |
+| `FINANCIAL_BUY_GATE_ENABLED` | `0` | 수량 축소 / BUY 차단 활성화 (Phase 8) | `apply_execution_policy.py` | Phase 7 검증 후 |
+| `FINANCIAL_OP_MARGIN_DROP_THRESHOLD` | `-2.0` | 영업이익률 QoQ 하락 임계값 (pp) | `build_financial_momentum_features.py` | |
+| `FINANCIAL_SLOWDOWN_CONSECUTIVE_QUARTERS` | `2` | SLOWING 판정 연속 분기 수 | `build_financial_momentum_features.py` | |
+
+## C-1 공매도 잔고 (fetch_short_interest.py)
+
+| Variable | Default | Description | Scope |
+| --- | --- | --- | --- |
+| `SHORT_INTEREST_YEARS_BACK` | `2` | 백필 기간 (연) | `fetch_short_interest.py` |
+| `SHORT_INTEREST_SLEEP_SEC` | `1.5` | 날짜 간 슬립 (초) | `fetch_short_interest.py` |
+
 ## Live Auto Trading
 
 | Variable | Default | Description | Scope | Note |

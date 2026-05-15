@@ -40,10 +40,16 @@ def main() -> None:
         ocf_to_assets = float(rng.uniform(-0.02, 0.12))  # -2% ~ 12%
         net_margin = float(rng.uniform(0.00, 0.15))   # 0% ~ 15%
 
+        # stub revenue / op_income (결정론적 의사값, 실제 수집 전 호환용)
+        revenue = float(rng.uniform(500_000, 5_000_000))          # 500억 ~ 5조 (백만원 단위 가정)
+        op_income = revenue * op_margin
+
         rows.append(
             {
                 "date": d,
                 "code": code,
+                "revenue": revenue,
+                "op_income": op_income,
                 "roe": roe,
                 "op_margin": op_margin,
                 "debt_ratio": debt_ratio,

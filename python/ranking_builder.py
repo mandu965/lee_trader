@@ -135,6 +135,24 @@ QUALITY_GATE_FEATURE_CANDIDATE = True
 QUALITY_GATE_FEATURE_ENABLED = False
 QUALITY_GATE_ALLOWED_REGIMES = {"defensive"}
 QUALITY_GATE_EXPERIMENT = "v2"
+
+# Financial Momentum shadow overlay (Phase 4)
+# FINANCIAL_FEATURE_ENABLED=0: shadow 계산만 수행, 매수·live_score에 미영향
+# 설계 문서: doc/modules/Lee_trader_ai/FINANCIAL_MOMENTUM_DESIGN.md 섹션 3.2
+FIN_MOMENTUM_SHADOW_ENABLED = os.getenv("FINANCIAL_FEATURE_ENABLED", "0") == "1"
+# Phase 7: FINANCIAL_SCORE_OVERLAY_ENABLED=1 이면 shadow를 final_score에 실반영
+FIN_SCORE_OVERLAY_ENABLED = os.getenv("FINANCIAL_SCORE_OVERLAY_ENABLED", "0") == "1"
+FIN_PHASE_OVERLAY: dict[str, float] = {
+    "ACCELERATING":     5.0,
+    "GROWING":          3.0,
+    "SLOWING":         -3.0,
+    "WEAKENING":       -6.0,
+    "DECLINING":      -10.0,
+    "TURNAROUND":       0.0,
+    "SECTOR_EXCEPTION": 0.0,
+    "UNKNOWN":          0.0,
+}
+FIN_HARD_RISK_OVERLAY: float = -15.0
 DEFAULT_CONFIDENCE_VERSION = str(
     get_production_config_value(
         ["metadata", "confidence_calibration_version"],
@@ -333,6 +351,16 @@ DAILY_RANKING_STORE_COLUMNS = [
     "shadow_final_score_quality_risk_guard",
     "shadow_rank_quality_risk_guard",
     "quality_gate_experiment",
+    "fin_momentum_phase",
+    "fin_hard_risk",
+    "shadow_fin_momentum_adj",
+    "shadow_fin_final_score",
+    "shadow_fin_rank",
+    "shadow_fin_rank_diff",
+    "shadow_fin_hard_risk_triggered",
+    "fin_momentum_adj",
+    "fin_hard_risk_triggered",
+    "fin_overlay_applied",
     "technical_score",
     "valuation_score",
     "ret_score_missing",
@@ -3254,6 +3282,95 @@ def attach_quality_risk_guard_shadow(base: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def attach_fin_momentum_shadow(base: pd.DataFrame) -> pd.DataFrame:
+    """재무 모멘텀 overlay shadow 계산 (Phase 4, shadow 모드).
+
+    fin_momentum_phase / fin_hard_risk(features.csv에서 point-in-time merge됨)를 읽어
+    final_score에 가감점을 적용한 shadow 점수와 shadow 랭킹을 계산한다.
+    live_score / rank_final에는 영향 없음 (FINANCIAL_SCORE_OVERLAY_ENABLED=0 기본).
+
+    overlay 기준 (설계 문서 섹션 3.2):
+      ACCELERATING +5 / GROWING +3 / SLOWING -3 / WEAKENING -6 / DECLINING -10
+      hard_fundamental_risk 추가 -15
+    """
+    out = base.copy()
+
+    fin_phase = out["fin_momentum_phase"].astype(str) if "fin_momentum_phase" in out.columns else pd.Series("", index=out.index, dtype=str)
+    fin_hard_risk = pd.to_numeric(out.get("fin_hard_risk"), errors="coerce").fillna(0.0) if "fin_hard_risk" in out.columns else pd.Series(0.0, index=out.index)
+    final_score = pd.to_numeric(out.get("final_score"), errors="coerce").fillna(0.0)
+
+    phase_adj = fin_phase.map(FIN_PHASE_OVERLAY).fillna(0.0)
+    hard_risk_adj = pd.Series(
+        np.where(fin_hard_risk > 0, FIN_HARD_RISK_OVERLAY, 0.0),
+        index=out.index,
+    )
+
+    total_adj = phase_adj + hard_risk_adj
+    out["shadow_fin_momentum_adj"] = total_adj
+    out["shadow_fin_final_score"] = (final_score + total_adj).clip(0.0, 100.0)
+    out["shadow_fin_hard_risk_triggered"] = (fin_hard_risk > 0)
+
+    if "date" in out.columns and out["date"].notna().any():
+        out["shadow_fin_rank"] = (
+            out.groupby("date")["shadow_fin_final_score"]
+            .rank(method="first", ascending=False)
+            .astype(int)
+        )
+        rank_final = pd.to_numeric(out.get("rank_final"), errors="coerce")
+        out["shadow_fin_rank_diff"] = rank_final - out["shadow_fin_rank"]
+    else:
+        out["shadow_fin_rank"] = np.nan
+        out["shadow_fin_rank_diff"] = np.nan
+
+    # Phase 7: FINANCIAL_SCORE_OVERLAY_ENABLED=1 → shadow를 final_score에 실반영
+    if FIN_SCORE_OVERLAY_ENABLED:
+        has_data = fin_phase.ne("").any() or (fin_hard_risk > 0).any()
+        if not has_data:
+            logging.warning(
+                "attach_fin_momentum_shadow: Phase 7 활성화됐으나 재무 모멘텀 데이터 없음 "
+                "(Phase 1~2 미실행). final_score 미수정."
+            )
+            out["fin_momentum_adj"] = 0.0
+            out["fin_hard_risk_triggered"] = False
+            out["fin_overlay_applied"] = False
+        else:
+            # final_score 및 final_score_v3(테마 포함 버전) 모두 업데이트
+            out["fin_momentum_adj"] = total_adj
+            out["fin_hard_risk_triggered"] = out["shadow_fin_hard_risk_triggered"]
+            out["fin_overlay_applied"] = True
+
+            out["final_score"] = out["shadow_fin_final_score"].copy()
+            if "final_score_v3" in out.columns:
+                out["final_score_v3"] = (
+                    pd.to_numeric(out["final_score_v3"], errors="coerce").fillna(0.0)
+                    + total_adj
+                ).clip(0.0, 100.0)
+
+            applied_count = int(total_adj.ne(0.0).sum())
+            logging.info(
+                "attach_fin_momentum_shadow: Phase 7 ACTIVE — overlay applied to final_score. "
+                "adjusted=%d rows, adj_mean=%.2f, hard_risk=%d",
+                applied_count,
+                float(total_adj[total_adj.ne(0.0)].mean()) if applied_count else 0.0,
+                int((fin_hard_risk > 0).sum()),
+            )
+    else:
+        # Phase 4 shadow 모드: live_score 미영향
+        out["fin_momentum_adj"] = 0.0
+        out["fin_hard_risk_triggered"] = False
+        out["fin_overlay_applied"] = False
+
+    phase_counts = fin_phase.value_counts().to_dict()
+    hard_risk_count = int((fin_hard_risk > 0).sum())
+    logging.info(
+        "attach_fin_momentum_shadow: phase_dist=%s hard_risk=%d overlay_enabled=%s",
+        phase_counts,
+        hard_risk_count,
+        FIN_SCORE_OVERLAY_ENABLED,
+    )
+    return out
+
+
 def apply_default_ranking_scores(base: pd.DataFrame) -> pd.DataFrame:
     """
     final_score
@@ -3341,6 +3458,7 @@ def apply_default_ranking_scores(base: pd.DataFrame) -> pd.DataFrame:
     base = apply_theme_overlay_v3(base)
     base = _apply_shadow_theme_overlay_v3(base)
     base = attach_quality_risk_guard_shadow(base)
+    base = attach_fin_momentum_shadow(base)
     base["final_score_v3"] = pd.to_numeric(base["final_score_v3"], errors="coerce").clip(lower=0.0, upper=100.0)
     base["score_diff_v2"] = pd.to_numeric(base["score_diff_v2"], errors="coerce").fillna(0.0)
     base["score_diff_v3"] = pd.to_numeric(base["score_diff_v3"], errors="coerce").fillna(0.0)
@@ -3517,6 +3635,10 @@ def _merge_inputs(
         if col in feats.columns:
             feat_cols.append(col)
     for col in ["flow_foreign_net_5d", "flow_inst_net_5d", "flow_foreign_net_20d", "flow_inst_net_20d"]:
+        if col in feats.columns:
+            feat_cols.append(col)
+    for col in ["fin_momentum_phase", "fin_momentum_score", "fin_risk_score",
+                "fin_turnaround_score", "fin_hard_risk"]:
         if col in feats.columns:
             feat_cols.append(col)
 
@@ -5400,6 +5522,16 @@ def _ensure_pg_daily_ranking_columns() -> None:
         "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS shadow_final_score_quality_risk_guard DOUBLE PRECISION",
         "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS shadow_rank_quality_risk_guard INTEGER",
         "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS quality_gate_experiment TEXT",
+        "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS fin_momentum_phase TEXT",
+        "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS fin_hard_risk DOUBLE PRECISION",
+        "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS shadow_fin_momentum_adj DOUBLE PRECISION",
+        "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS shadow_fin_final_score DOUBLE PRECISION",
+        "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS shadow_fin_rank INTEGER",
+        "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS shadow_fin_rank_diff INTEGER",
+        "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS shadow_fin_hard_risk_triggered BOOLEAN",
+        "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS fin_momentum_adj DOUBLE PRECISION",
+        "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS fin_hard_risk_triggered BOOLEAN",
+        "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS fin_overlay_applied BOOLEAN",
         "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS score_explain_summary TEXT",
         "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS score_explain_strengths TEXT",
         "ALTER TABLE daily_ranking ADD COLUMN IF NOT EXISTS score_explain_risks TEXT",
@@ -5523,6 +5655,16 @@ def _ensure_sqlite_daily_ranking_columns(conn: sqlite3.Connection) -> None:
         ("shadow_final_score_quality_risk_guard", "REAL"),
         ("shadow_rank_quality_risk_guard", "INTEGER"),
         ("quality_gate_experiment", "TEXT"),
+        ("fin_momentum_phase", "TEXT"),
+        ("fin_hard_risk", "REAL"),
+        ("shadow_fin_momentum_adj", "REAL"),
+        ("shadow_fin_final_score", "REAL"),
+        ("shadow_fin_rank", "INTEGER"),
+        ("shadow_fin_rank_diff", "INTEGER"),
+        ("shadow_fin_hard_risk_triggered", "INTEGER"),
+        ("fin_momentum_adj", "REAL"),
+        ("fin_hard_risk_triggered", "INTEGER"),
+        ("fin_overlay_applied", "INTEGER"),
         ("confidence_label", "TEXT"),
         ("confidence_reason", "TEXT"),
         ("score_explain_summary", "TEXT"),

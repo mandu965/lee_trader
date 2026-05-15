@@ -40,12 +40,15 @@
   - [FILE_INDEX.md](</d:/ai/lee_trader/doc/modules/Lee_trader_ai/FILE_INDEX.md>)
   - [ENV.md](</d:/ai/lee_trader/doc/modules/Lee_trader_ai/ENV.md>)
   - [OPERATIONS.md](</d:/ai/lee_trader/doc/modules/Lee_trader_ai/OPERATIONS.md>)
+  - [FINANCIAL_MOMENTUM_DESIGN.md](</d:/ai/lee_trader/doc/modules/Lee_trader_ai/FINANCIAL_MOMENTUM_DESIGN.md>) — 재무 모멘텀 설계 (2026-05-15 확정)
 - 운영 중요도: 높음
 - 갱신 트리거:
   - ranking/selection/order preview 기준 변경
   - AI 실주문 제출 흐름 변경
   - live account/fill sync 구조 변경
   - 메인 랭킹/자동매매 화면 변경
+  - 재무 모멘텀 phase 분류 기준 변경
+  - financial_momentum_score overlay 공식 변경
 
 ### Lee_trader_backTest
 

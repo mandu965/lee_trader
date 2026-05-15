@@ -28,6 +28,8 @@ DB_PATH = DATA_DIR / "lee_trader.db"
 CLEAN_CSV = DATA_DIR / "prices_daily_clean.csv"
 ADJ_CSV = DATA_DIR / "prices_daily_adjusted.csv"
 FEATURE_CSV = DATA_DIR / "features.csv"
+FIN_MOMENTUM_CSV = DATA_DIR / "dart" / "financial_momentum_quarterly.csv"
+SHORT_INTEREST_CSV = DATA_DIR / "short_interest.csv"
 FEATURES_DB_COLUMNS = [
     "date",
     "code",
@@ -63,6 +65,18 @@ FEATURES_DB_COLUMNS = [
     "flow_foreign_net_20d",
     "flow_inst_net_5d",
     "flow_inst_net_20d",
+    "revenue_growth_yoy",
+    "op_income_growth_yoy",
+    "roe_yoy",
+    "sector_rel_momentum_20d",
+    "fin_momentum_phase",
+    "fin_momentum_score",
+    "fin_risk_score",
+    "fin_turnaround_score",
+    "fin_hard_risk",
+    "short_ratio",
+    "short_ratio_5d_chg",
+    "short_ratio_20d_avg",
 ]
 FEATURES_PK = ["date", "code"]
 
@@ -368,7 +382,15 @@ def merge_quality(feat_df: pd.DataFrame) -> pd.DataFrame:
         q = q.sort_values(["code", "date"]).reset_index(drop=True)
         quality_cols = [
             col
-            for col in ["quality_score", "quality_factor_count", "quality_missing_ratio", "quality_score_confidence"]
+            for col in [
+                "quality_score",
+                "quality_factor_count",
+                "quality_missing_ratio",
+                "quality_score_confidence",
+                "revenue_growth_yoy",
+                "op_income_growth_yoy",
+                "roe_yoy",
+            ]
             if col in q.columns
         ]
 
@@ -462,11 +484,225 @@ def merge_flow(feat_df: pd.DataFrame) -> pd.DataFrame:
     return merged
 
 
+def merge_sector_rel_momentum(feat_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    universe.csv의 sector를 이용해 섹터 상대 모멘텀을 계산한다.
+    sector_rel_momentum_20d = ret_20d - 동일 섹터 평균 ret_20d (날짜별 cross-sectional)
+
+    - sector가 없거나 같은 날 섹터 내 종목이 1개뿐이면 NaN으로 남긴다.
+    - universe.csv가 없으면 원본을 그대로 반환한다.
+    """
+    universe_path = DATA_DIR / "universe.csv"
+    if not universe_path.exists():
+        logging.info("merge_sector_rel_momentum: universe.csv not found -> skipping")
+        feat_df["sector_rel_momentum_20d"] = float("nan")
+        return feat_df
+
+    try:
+        uni = pd.read_csv(universe_path, dtype={"code": str})
+        if "code" not in uni.columns or "sector" not in uni.columns:
+            logging.warning("merge_sector_rel_momentum: universe.csv missing code/sector -> skipping")
+            feat_df["sector_rel_momentum_20d"] = float("nan")
+            return feat_df
+
+        uni = uni[["code", "sector"]].dropna(subset=["sector"])
+        uni["code"] = uni["code"].astype(str).str.zfill(6)
+        uni = uni.drop_duplicates(subset=["code"])
+
+        out = feat_df.merge(uni, on="code", how="left")
+
+        # 섹터가 없거나 같은 날 섹터 내 종목 수 < 2이면 NaN 처리
+        # mom_20 = close.pct_change(20), 즉 20일 수익률 사용
+        sector_count = out.groupby(["date", "sector"])["mom_20"].transform("count")
+        mom_20 = pd.to_numeric(out["mom_20"], errors="coerce")
+        sector_avg = out.groupby(["date", "sector"])["mom_20"].transform("mean")
+
+        rel = mom_20 - sector_avg
+        rel = rel.where(out["sector"].notna() & (sector_count >= 2), other=float("nan"))
+        out["sector_rel_momentum_20d"] = rel
+
+        out = out.drop(columns=["sector"])
+
+        nan_ratio = out["sector_rel_momentum_20d"].isna().mean()
+        logging.info(
+            "merge_sector_rel_momentum: rows=%d, NaN ratio=%.3f",
+            len(out),
+            nan_ratio,
+        )
+        return out
+
+    except Exception:
+        logging.exception("merge_sector_rel_momentum failed -> skipping")
+        feat_df["sector_rel_momentum_20d"] = float("nan")
+        return feat_df
+
+
+def merge_financial_momentum(feat_df: pd.DataFrame) -> pd.DataFrame:
+    """재무 모멘텀 feature를 point-in-time(disclosed_at 기준) merge한다.
+
+    각 (code, date)에 대해 disclosed_at <= date 인 가장 최근 분기 재무 모멘텀을 적용.
+    데이터 미존재 시 fin_* 컬럼을 NaN/None으로 채워 반환.
+
+    shadow 모드: 계산값은 features.csv에 저장되지만 매수 로직에 반영되지 않는다.
+    (FINANCIAL_SCORE_OVERLAY_ENABLED=0 환경변수로 제어, 기본 비활성)
+    """
+    FIN_COLS = [
+        "fin_momentum_phase",
+        "fin_momentum_score",
+        "fin_risk_score",
+        "fin_turnaround_score",
+        "fin_hard_risk",
+    ]
+
+    def _set_nan(df: pd.DataFrame) -> pd.DataFrame:
+        for c in FIN_COLS:
+            df[c] = np.nan if c != "fin_momentum_phase" else None
+        return df
+
+    # 데이터 로드: CSV 우선, DB fallback
+    mom = None
+    try:
+        if FIN_MOMENTUM_CSV.exists():
+            mom = pd.read_csv(FIN_MOMENTUM_CSV, dtype={"stock_code": str})
+        elif get_engine is not None:
+            eng = get_engine()
+            mom = pd.read_sql(
+                "SELECT stock_code, disclosed_at, financial_momentum_phase, "
+                "financial_momentum_score, financial_risk_score, "
+                "turnaround_score, hard_fundamental_risk "
+                "FROM financial_momentum_quarterly",
+                eng,
+                dtype={"stock_code": str},
+            )
+    except Exception as e:
+        logging.warning("merge_financial_momentum: load failed -> skipping: %s", e)
+        return _set_nan(feat_df.copy())
+
+    if mom is None or mom.empty:
+        logging.info("merge_financial_momentum: no data (Phase 2 미실행) -> skipping")
+        return _set_nan(feat_df.copy())
+
+    # 컬럼 정규화
+    mom["stock_code"] = mom["stock_code"].astype(str).str.zfill(6)
+    mom = mom.rename(columns={
+        "stock_code":                "code",
+        "financial_momentum_phase":  "fin_momentum_phase",
+        "financial_momentum_score":  "fin_momentum_score",
+        "financial_risk_score":      "fin_risk_score",
+        "turnaround_score":          "fin_turnaround_score",
+        "hard_fundamental_risk":     "fin_hard_risk",
+    })
+
+    mom["disclosed_at"] = pd.to_datetime(mom["disclosed_at"], errors="coerce")
+    mom = mom.dropna(subset=["code", "disclosed_at"])
+    mom = mom.sort_values(["code", "disclosed_at"]).drop_duplicates(
+        subset=["code", "disclosed_at"], keep="last"
+    )
+
+    keep = ["disclosed_at", "code"] + [c for c in FIN_COLS if c in mom.columns]
+    mom = mom[keep].reset_index(drop=True)
+
+    # point-in-time merge: disclosed_at <= feature date (backtesting 안전)
+    left = feat_df.sort_values("date").reset_index(drop=True)
+    merged = pd.merge_asof(
+        left,
+        mom.sort_values("disclosed_at"),
+        left_on="date",
+        right_on="disclosed_at",
+        by="code",
+        direction="backward",
+        allow_exact_matches=True,
+    )
+    merged = merged.drop(columns=["disclosed_at"], errors="ignore")
+
+    # fin_hard_risk: boolean → float (0.0 / 1.0) for numeric consistency
+    if "fin_hard_risk" in merged.columns:
+        merged["fin_hard_risk"] = pd.to_numeric(merged["fin_hard_risk"], errors="coerce")
+
+    nan_ratio = merged["fin_momentum_score"].isna().mean() if "fin_momentum_score" in merged.columns else 1.0
+    logging.info(
+        "merge_financial_momentum: rows=%d, fin_momentum_score NaN=%.3f",
+        len(merged),
+        nan_ratio,
+    )
+    return merged
+
+
+def merge_short_interest(feat_df: pd.DataFrame) -> pd.DataFrame:
+    """공매도 잔고 비율을 일별로 merge하고 rolling 피처를 생성한다.
+
+    피처:
+      - short_ratio        : 해당일 공매도 잔고 비율 (%)
+      - short_ratio_5d_chg : 5 영업일 전 대비 변화량 (pp)
+      - short_ratio_20d_avg: 20 영업일 이동 평균 (%)
+
+    데이터가 없거나 로드 실패 시 세 컬럼을 NaN으로 채워 반환한다.
+    """
+    SHORT_COLS = ["short_ratio", "short_ratio_5d_chg", "short_ratio_20d_avg"]
+
+    def _set_nan(df: pd.DataFrame) -> pd.DataFrame:
+        for c in SHORT_COLS:
+            df[c] = float("nan")
+        return df
+
+    # 데이터 로드: CSV 우선, DB fallback
+    si = None
+    try:
+        if SHORT_INTEREST_CSV.exists():
+            si = pd.read_csv(SHORT_INTEREST_CSV, dtype={"code": str})
+        elif get_engine is not None:
+            eng = get_engine()
+            si = pd.read_sql(
+                "SELECT date, code, short_ratio FROM short_interest_daily",
+                eng,
+                dtype={"code": str},
+            )
+    except Exception as e:
+        logging.warning("merge_short_interest: load failed -> skipping: %s", e)
+        return _set_nan(feat_df.copy())
+
+    if si is None or si.empty:
+        logging.info("merge_short_interest: no data (C-1 미수집) -> skipping")
+        return _set_nan(feat_df.copy())
+
+    si["code"] = si["code"].astype(str).str.zfill(6)
+    si["date"] = pd.to_datetime(si["date"], errors="coerce")
+    si["short_ratio"] = pd.to_numeric(si["short_ratio"], errors="coerce")
+    si = si.dropna(subset=["code", "date", "short_ratio"])
+    si = si.sort_values(["code", "date"]).reset_index(drop=True)
+
+    # 종목별 rolling 피처 계산
+    result_parts = []
+    for _, grp in si.groupby("code", sort=False):
+        grp = grp.sort_values("date").copy()
+        grp["short_ratio_5d_chg"] = grp["short_ratio"] - grp["short_ratio"].shift(5)
+        grp["short_ratio_20d_avg"] = grp["short_ratio"].rolling(20, min_periods=10).mean()
+        result_parts.append(grp[["date", "code", "short_ratio", "short_ratio_5d_chg", "short_ratio_20d_avg"]])
+
+    if not result_parts:
+        return _set_nan(feat_df.copy())
+
+    si_feat = pd.concat(result_parts, ignore_index=True)
+
+    # 일별 exact join (공매도 잔고는 영업일 기준 발표 — asof 불필요)
+    merged = feat_df.merge(si_feat, on=["date", "code"], how="left")
+
+    nan_ratio = merged["short_ratio"].isna().mean()
+    logging.info(
+        "merge_short_interest: rows=%d, short_ratio NaN=%.3f",
+        len(merged),
+        nan_ratio,
+    )
+    return merged
+
+
 def save_features(df_feat: pd.DataFrame):
     out = df_feat.copy()
     out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y-%m-%d")
     if "quality_factor_count" in out.columns:
         out["quality_factor_count"] = pd.to_numeric(out["quality_factor_count"], errors="coerce").round().astype("Int64")
+    if "fin_hard_risk" in out.columns:
+        out["fin_hard_risk"] = pd.to_numeric(out["fin_hard_risk"], errors="coerce")
     for col in FEATURES_DB_COLUMNS:
         if col not in out.columns:
             out[col] = pd.NA
@@ -499,6 +735,18 @@ def save_features(df_feat: pd.DataFrame):
                         conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS ret_60d DOUBLE PRECISION"))
                         conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS ret_120d DOUBLE PRECISION"))
                         conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS high_52w_ratio DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS revenue_growth_yoy DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS op_income_growth_yoy DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS roe_yoy DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS sector_rel_momentum_20d DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS fin_momentum_phase TEXT"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS fin_momentum_score DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS fin_risk_score DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS fin_turnaround_score DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS fin_hard_risk DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS short_ratio DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS short_ratio_5d_chg DOUBLE PRECISION"))
+                        conn_pg.execute(text("ALTER TABLE features ADD COLUMN IF NOT EXISTS short_ratio_20d_avg DOUBLE PRECISION"))
                 replace_table_rows_pg("features", out, columns=FEATURES_DB_COLUMNS)
                 logging.info("Replaced features rows in Postgres (rows=%d)", len(out))
                 return
@@ -545,6 +793,18 @@ def save_features(df_feat: pd.DataFrame):
                 quality_factor_count INTEGER,
                 quality_missing_ratio REAL,
                 quality_score_confidence REAL,
+                revenue_growth_yoy    REAL,
+                op_income_growth_yoy  REAL,
+                roe_yoy               REAL,
+                sector_rel_momentum_20d REAL,
+                fin_momentum_phase    TEXT,
+                fin_momentum_score    REAL,
+                fin_risk_score        REAL,
+                fin_turnaround_score  REAL,
+                fin_hard_risk         REAL,
+                short_ratio           REAL,
+                short_ratio_5d_chg    REAL,
+                short_ratio_20d_avg   REAL,
                 PRIMARY KEY (date, code)
             );
             """
@@ -567,6 +827,18 @@ def save_features(df_feat: pd.DataFrame):
             ("ret_60d", "REAL"),
             ("ret_120d", "REAL"),
             ("high_52w_ratio", "REAL"),
+            ("revenue_growth_yoy", "REAL"),
+            ("op_income_growth_yoy", "REAL"),
+            ("roe_yoy", "REAL"),
+            ("sector_rel_momentum_20d", "REAL"),
+            ("fin_momentum_phase", "TEXT"),
+            ("fin_momentum_score", "REAL"),
+            ("fin_risk_score", "REAL"),
+            ("fin_turnaround_score", "REAL"),
+            ("fin_hard_risk", "REAL"),
+            ("short_ratio", "REAL"),
+            ("short_ratio_5d_chg", "REAL"),
+            ("short_ratio_20d_avg", "REAL"),
         ]:
             if col not in existing:
                 conn.execute(f"ALTER TABLE features ADD COLUMN {col} {col_type}")
@@ -603,6 +875,9 @@ def main():
     )
 
     feat_df = merge_flow(feat_df)
+    feat_df = merge_sector_rel_momentum(feat_df)
+    feat_df = merge_financial_momentum(feat_df)
+    feat_df = merge_short_interest(feat_df)
 
     save_features(feat_df)
 

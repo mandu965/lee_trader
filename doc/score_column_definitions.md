@@ -63,7 +63,45 @@
 
 ---
 
-## 4. Theme Overlay 컬럼 (현재 비활성 — 향후 전환 가능)
+## 4. Financial Momentum Overlay 컬럼
+
+### Shadow 컬럼 (Phase 4 — 항상 계산, live_score 미반영)
+
+> `FINANCIAL_SCORE_OVERLAY_ENABLED=0` (기본) 상태에서는 아래 shadow 컬럼만 생성됩니다.
+
+| 컬럼명 | 역할 |
+|---|---|
+| `fin_momentum_phase` | 매출·영업이익 추세 구간 (ACCELERATING~DECLINING 등) |
+| `fin_hard_risk` | 실적 훼손 위험 flag (0.0 / 1.0) |
+| `shadow_fin_momentum_adj` | 재무 모멘텀 가감점 (ACCELERATING +5 ~ DECLINING -10, hard_risk -15) |
+| `shadow_fin_final_score` | overlay 반영 가상 점수 (`final_score + shadow_fin_momentum_adj`) |
+| `shadow_fin_rank` | 가상 점수 기준 순위 |
+| `shadow_fin_rank_diff` | `rank_final - shadow_fin_rank` (양수 = 재무 반영 시 순위 상승) |
+| `shadow_fin_hard_risk_triggered` | hard_fundamental_risk 발동 여부 |
+
+### 운영 컬럼 (Phase 7 활성화 시 — `FINANCIAL_SCORE_OVERLAY_ENABLED=1`)
+
+> Phase 6 백테스트 통과 후 활성화. `final_score`와 `live_score`에 실반영됩니다.
+
+| 컬럼명 | 역할 |
+|---|---|
+| `fin_momentum_adj` | 실제 적용된 가감점 (shadow와 동일 계산, Phase 7 전에는 0.0) |
+| `fin_hard_risk_triggered` | hard_risk 발동 여부 (live 버전) |
+| `fin_overlay_applied` | Phase 7 overlay 적용 여부 flag |
+
+### BUY gate 규칙 (Phase 8 — `FINANCIAL_BUY_GATE_ENABLED=1`)
+
+| fin_momentum_phase | qty_scale | 효과 |
+|---|---|---|
+| ACCELERATING / GROWING / UNKNOWN | 1.0 | 정상 |
+| SLOWING | 0.7 | 목표수량 70% |
+| WEAKENING | 0.5 | 목표수량 50% |
+| DECLINING | 0.3 | 목표수량 30% |
+| hard_fundamental_risk=1 | 0.0 | BUY 완전 차단 |
+
+---
+
+## 6. Theme Overlay 컬럼 (현재 비활성 — 향후 전환 가능)
 
 > `ENABLE_THEME_OVERLAY=0` / `production_v1.yaml: theme_overlay.enabled: false` 상태.
 > theme overlay가 켜지면 `final_score_v3`가 `live_score`의 실질 기준으로 승격됩니다.
@@ -79,7 +117,7 @@
 
 ---
 
-## 5. 진단·내부 계산 컬럼
+## 7. 진단·내부 계산 컬럼
 
 | 컬럼명 | 역할 |
 |---|---|
@@ -93,7 +131,7 @@
 
 ---
 
-## 6. 운영 판단 요약
+## 8. 운영 판단 요약
 
 ```
 실주문 종목 선택 순서
@@ -109,7 +147,7 @@
 
 ---
 
-## 7. 관련 문서
+## 9. 관련 문서
 
 - `doc/modules/Lee_trader_score/RUNTIME_SORTING.md` — theme flag 기준 live_rank 분기 상세
 - `doc/shadow_promotion_criteria.md` — `SCORE_FORMULA_VERSION` 전환 조건
@@ -118,4 +156,4 @@
 
 ---
 
-*2026-05-13 작성 | 과제 2-C final_score 버전 정리*
+*2026-05-13 작성 | 2026-05-15 업데이트 — Financial Momentum Phase 4~8, C-1 공매도 잔고 추가*

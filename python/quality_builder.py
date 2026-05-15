@@ -52,10 +52,12 @@ QUALITY_FACTOR_SPECS = {
     },
 }
 FACTOR_COLUMNS = list(QUALITY_FACTOR_SPECS.keys())
+YOY_GROWTH_COLUMNS = ["revenue_growth_yoy", "op_income_growth_yoy", "roe_yoy"]
 QUALITY_OUTPUT_COLUMNS = [
     "date",
     "code",
     *FACTOR_COLUMNS,
+    *YOY_GROWTH_COLUMNS,
     "quality_raw_score",
     "quality_score",
     "quality_factor_count",
@@ -154,12 +156,36 @@ def _percentile_rank_by_date(series: pd.Series, dates: pd.Series) -> pd.Series:
     return frame.groupby("date")["value"].transform(_rank)
 
 
+def build_yoy_growth_features(df: pd.DataFrame) -> pd.DataFrame:
+    """코드별 연간 YoY 성장률 계산. fundamentals는 연 1행(date=연말)이 전제."""
+    out = df.sort_values(["code", "date"]).copy()
+
+    yoy_map = [
+        ("revenue",   "revenue_growth_yoy"),
+        ("op_income", "op_income_growth_yoy"),
+        ("roe",       "roe_yoy"),
+    ]
+    for src_col, new_col in yoy_map:
+        if src_col in out.columns:
+            raw = out.groupby("code", group_keys=False)[src_col].pct_change(1)
+            # 분모 0 또는 부호 역전 시 inf/-inf 발생 → 극단값 clip
+            out[new_col] = raw.replace([np.inf, -np.inf], np.nan).clip(lower=-10.0, upper=10.0)
+        else:
+            out[new_col] = np.nan
+
+    return out
+
+
 def load_fundamentals() -> tuple[pd.DataFrame, dict[str, str], list[str]]:
     if not FUND_CSV.exists():
         logging.warning("fundamentals.csv not found (%s) -> skipping quality build", FUND_CSV.resolve())
         return pd.DataFrame(columns=["date", "code"]), {}, FACTOR_COLUMNS.copy()
 
     df = pd.read_csv(FUND_CSV, dtype={"code": str})
+    # revenue / op_income 컬럼이 없는 구버전 fundamentals.csv 호환
+    for col in ("revenue", "op_income"):
+        if col not in df.columns:
+            df[col] = np.nan
     for col in ["date", "code"]:
         if col not in df.columns:
             raise ValueError(f"fundamentals.csv missing required '{col}' column")
@@ -174,7 +200,8 @@ def load_fundamentals() -> tuple[pd.DataFrame, dict[str, str], list[str]]:
             continue
         mapped[factor] = source_col
 
-    keep_cols = ["date", "code", *mapped.values()]
+    extra_cols = [c for c in ("revenue", "op_income") if c in df.columns]
+    keep_cols = ["date", "code", *mapped.values(), *extra_cols]
     work = df[keep_cols].copy()
     rename_map = {source: factor for factor, source in mapped.items()}
     work = work.rename(columns=rename_map)
@@ -260,6 +287,13 @@ def build_quality(df: pd.DataFrame, mapped: dict[str, str]) -> pd.DataFrame:
         if factor not in out.columns:
             out[factor] = np.nan
 
+    # YoY 성장률: build_yoy_growth_features()가 먼저 실행된 df에서 전달됨
+    for yoy_col in YOY_GROWTH_COLUMNS:
+        if yoy_col in df.columns:
+            out[yoy_col] = df[yoy_col].values
+        else:
+            out[yoy_col] = np.nan
+
     logging.info(
         "Built quality score: rows=%d active_factors=%s score_mean=%.4f confidence_mean=%.4f",
         len(out),
@@ -320,6 +354,9 @@ def _ensure_pg_quality_columns() -> None:
         "net_margin": "DOUBLE PRECISION",
         "debt_ratio": "DOUBLE PRECISION",
         "ocf_to_assets": "DOUBLE PRECISION",
+        "revenue_growth_yoy": "DOUBLE PRECISION",
+        "op_income_growth_yoy": "DOUBLE PRECISION",
+        "roe_yoy": "DOUBLE PRECISION",
         "quality_raw_score": "DOUBLE PRECISION",
         "quality_factor_count": "INTEGER",
         "quality_missing_ratio": "DOUBLE PRECISION",
@@ -339,6 +376,9 @@ def _ensure_sqlite_quality_columns(conn: sqlite3.Connection) -> None:
         "net_margin": "REAL",
         "debt_ratio": "REAL",
         "ocf_to_assets": "REAL",
+        "revenue_growth_yoy": "REAL",
+        "op_income_growth_yoy": "REAL",
+        "roe_yoy": "REAL",
         "quality_raw_score": "REAL",
         "quality_factor_count": "INTEGER",
         "quality_missing_ratio": "REAL",
@@ -392,6 +432,9 @@ def save_quality(df: pd.DataFrame) -> None:
                 net_margin               REAL,
                 debt_ratio               REAL,
                 ocf_to_assets            REAL,
+                revenue_growth_yoy       REAL,
+                op_income_growth_yoy     REAL,
+                roe_yoy                  REAL,
                 quality_raw_score        REAL,
                 quality_score            REAL,
                 quality_factor_count     INTEGER,
@@ -426,6 +469,7 @@ def main() -> None:
         logging.warning("No fundamentals data -> quality.csv will be empty with headers only")
         qual = pd.DataFrame(columns=QUALITY_OUTPUT_COLUMNS)
     else:
+        fund = build_yoy_growth_features(fund)
         qual = build_quality(fund, mapped)
     save_quality(qual)
 

@@ -28,6 +28,24 @@ AI 쪽은 배치, DB, 웹이 강하게 연결되어 있으므로 단일 파일�
 | `node/public/live-auto-trading.js` | AI 자동매매 운영 화면 렌더링 | 높음 | `node/index.js`, `outputs/order_requests_preview.json` |
 | `node/public/manual-trading.js` | 수동 주문 요청/검토 UI | 중간 | `node/index.js`, `submit_live_orders.py` |
 
+## 데이터 수집 파일
+
+| 파일 | 역할 | 비고 |
+| --- | --- | --- |
+| `python/fetch_fundamentals_dart.py` | DART 연간 재무 수집 | `data/fundamentals.csv` 출력 |
+| `python/fetch_financials_dart_quarterly.py` | DART 분기 누적 재무 수집 (Phase 1) | `data/dart/financial_quarterly.csv` |
+| `python/fetch_short_interest.py` | 공매도 잔고 비율 수집 — pykrx (C-1) | `data/short_interest.csv` |
+
+## 재무 모멘텀 파이프라인 (Phase 1~8)
+
+| 파일 | Phase | 역할 | 비고 |
+| --- | --- | --- | --- |
+| `python/fetch_financials_dart_quarterly.py` | 1 | DART 분기 수집 | 서버 실행 필요 |
+| `python/build_financial_momentum_features.py` | 2 | true quarterly 역산·YoY/QoQ·구간 분류·점수 계산 | 서버 실행 필요 |
+| `python/feature_builder.py` `merge_financial_momentum()` | 3 | point-in-time merge → features.csv | Phase 2 완료 후 자동 반영 |
+| `python/ranking_builder.py` `attach_fin_momentum_shadow()` | 4/7 | shadow overlay (4) + live 반영 (7: `FINANCIAL_SCORE_OVERLAY_ENABLED=1`) | |
+| `python/apply_execution_policy.py` `resolve_fin_momentum_gate()` | 8 | 수량 축소·BUY 차단 (`FINANCIAL_BUY_GATE_ENABLED=1`) | |
+
 ## 보조 파일
 
 | 파일 | 역할 | 비고 |

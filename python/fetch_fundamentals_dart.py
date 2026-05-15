@@ -36,7 +36,7 @@ UNIVERSE_CSV = DATA_DIR / "universe.csv"
 FEATURES_CSV = DATA_DIR / "features.csv"
 DB_PATH = DATA_DIR / "lee_trader.db"
 FUNDAMENTALS_PK = ["date", "code"]
-FUNDAMENTALS_DB_COLUMNS = ["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"]
+FUNDAMENTALS_DB_COLUMNS = ["date", "code", "revenue", "op_income", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"]
 
 DART_CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 DART_FNLTT_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json"
@@ -255,20 +255,19 @@ def fetch_annual_financials(
 
 def load_existing_fundamentals() -> pd.DataFrame:
     if not FUND_OUT.exists():
-        return pd.DataFrame(columns=["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"])
+        return pd.DataFrame(columns=FUNDAMENTALS_DB_COLUMNS)
     try:
         existing = pd.read_csv(FUND_OUT, dtype={"code": str})
     except Exception:
         logging.warning("Failed to read existing fundamentals cache: %s", FUND_OUT.resolve())
-        return pd.DataFrame(columns=["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"])
+        return pd.DataFrame(columns=FUNDAMENTALS_DB_COLUMNS)
     if existing.empty or "code" not in existing.columns or "date" not in existing.columns:
-        return pd.DataFrame(columns=["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"])
+        return pd.DataFrame(columns=FUNDAMENTALS_DB_COLUMNS)
     existing = existing.copy()
     existing["code"] = existing["code"].astype(str).str.zfill(6)
     existing["date"] = pd.to_datetime(existing["date"], errors="coerce")
     existing = existing.dropna(subset=["date", "code"])
-    keep_cols = ["date", "code", "roe", "op_margin", "debt_ratio", "ocf_to_assets", "net_margin"]
-    return existing.loc[:, [c for c in keep_cols if c in existing.columns]].copy()
+    return existing.loc[:, [c for c in FUNDAMENTALS_DB_COLUMNS if c in existing.columns]].copy()
 
 
 def finalize_fundamentals_rows(rows: List[Dict[str, object]]) -> pd.DataFrame:
@@ -559,6 +558,8 @@ def save_fundamentals(df: pd.DataFrame) -> None:
             CREATE TABLE IF NOT EXISTS fundamentals (
                 date           DATE NOT NULL,
                 code           TEXT NOT NULL,
+                revenue        REAL,
+                op_income      REAL,
                 roe            REAL,
                 op_margin      REAL,
                 debt_ratio     REAL,
@@ -568,13 +569,16 @@ def save_fundamentals(df: pd.DataFrame) -> None:
             );
             """
         )
+        # 기존 테이블에 컬럼이 없으면 추가 (마이그레이션)
+        existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(fundamentals)").fetchall()}
+        for col in ("revenue", "op_income"):
+            if col not in existing_cols:
+                conn.execute(f"ALTER TABLE fundamentals ADD COLUMN {col} REAL")
         records = out.to_dict(orient="records")
+        placeholders = ", ".join(f":{c}" for c in FUNDAMENTALS_DB_COLUMNS)
+        col_names = ", ".join(FUNDAMENTALS_DB_COLUMNS)
         conn.executemany(
-            """
-            INSERT OR REPLACE INTO fundamentals
-            (date, code, roe, op_margin, debt_ratio, ocf_to_assets, net_margin)
-            VALUES (:date, :code, :roe, :op_margin, :debt_ratio, :ocf_to_assets, :net_margin)
-            """,
+            f"INSERT OR REPLACE INTO fundamentals ({col_names}) VALUES ({placeholders})",
             records,
         )
         conn.commit()

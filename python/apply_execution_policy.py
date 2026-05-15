@@ -50,6 +50,37 @@ STATUS_WATCH = "WATCH"
 STATUS_HOLD = "HOLD"
 STATUS_BLOCK = "BLOCK"
 
+# Phase 8: FINANCIAL_BUY_GATE_ENABLED=1 이면 재무 모멘텀 구간별 수량 축소 / BUY 차단
+FIN_BUY_GATE_ENABLED = os.getenv("FINANCIAL_BUY_GATE_ENABLED", "0") == "1"
+FIN_BUY_GATE_QTY_SCALE: dict[str, float] = {
+    "SLOWING":   0.7,
+    "WEAKENING": 0.5,
+    "DECLINING": 0.3,
+}
+
+
+def resolve_fin_momentum_gate(row: pd.Series) -> tuple[float, str]:
+    """재무 모멘텀 BUY gate — (qty_scale, gate_reason) 반환.
+
+    qty_scale: 1.0 = 정상, 0.0 = 완전 차단, 0.3~0.7 = 수량 축소
+    gate_reason: 빈 문자열이면 gate 미적용
+    FINANCIAL_BUY_GATE_ENABLED=0이면 항상 (1.0, "") 반환.
+    """
+    if not FIN_BUY_GATE_ENABLED:
+        return 1.0, ""
+
+    phase = str(row.get("fin_momentum_phase") or "").strip()
+    hard_risk = float(pd.to_numeric(row.get("fin_hard_risk"), errors="coerce") or 0.0)
+
+    if hard_risk > 0:
+        return 0.0, f"fin_hard_risk 감지: BUY 완전 차단 (실적 훼손 위험)"
+
+    scale = FIN_BUY_GATE_QTY_SCALE.get(phase, 1.0)
+    if scale < 1.0:
+        return scale, f"fin_momentum_phase={phase}: 목표수량 {int(scale * 100)}%로 축소"
+
+    return 1.0, ""
+
 
 @dataclass
 class HoldingsContext:
@@ -828,6 +859,12 @@ def candidate_eligibility_notes(row: pd.Series, cooldown_map: dict[str, dict[str
     if cooldown and bool(cooldown.get("active")):
         eligible = False
         notes.append(f"re-entry cooldown {int(cooldown['cooldown_remaining'])}d remaining")
+    qty_scale, fin_gate_reason = resolve_fin_momentum_gate(row)
+    if qty_scale <= 0.0:
+        eligible = False
+        notes.append(fin_gate_reason)
+    elif fin_gate_reason:
+        notes.append(fin_gate_reason)
     return eligible, notes
 
 
@@ -954,6 +991,16 @@ def classify_holdings(
                 action = "REPLACE_CANDIDATE"
                 reasons.append("missing from official recommendation set")
 
+        # Phase 8: 보유 종목 재무 모멘텀 BUY gate — hard_risk 시 TRIM 강제
+        fin_qty_scale, fin_gate_reason = resolve_fin_momentum_gate(
+            candidate_lookup.loc[code] if code in candidate_lookup.index else row
+        )
+        if FIN_BUY_GATE_ENABLED and fin_qty_scale <= 0.0 and action in {"HOLD", "HOLD_REVIEW"}:
+            action = "TRIM"
+            reasons.append(fin_gate_reason)
+        elif FIN_BUY_GATE_ENABLED and fin_gate_reason:
+            reasons.append(fin_gate_reason)
+
         if gate["status"] in {STATUS_HOLD, STATUS_BLOCK} and action == "REPLACE_CANDIDATE":
             action = "HOLD_REVIEW"
             reasons.append(f"gate {gate['status']} blocks score-driven replacement")
@@ -997,6 +1044,7 @@ def select_buy_ready_queue(
         code = str(row["code"]).zfill(6)
         eligible, notes = candidate_eligibility_notes(row, cooldown_map, args)
         confidence_policy = resolve_confidence_policy(row.get("confidence_score"), args, row.get("live_confidence_grade"))
+        qty_scale, _ = resolve_fin_momentum_gate(row)
         rows.append(
             {
                 "code": code,
@@ -1017,6 +1065,8 @@ def select_buy_ready_queue(
                 "held_now": code in held_codes,
                 "entry_eligible": eligible,
                 "entry_note": "; ".join(notes) if notes else "meets entry criteria",
+                "fin_momentum_phase": str(row.get("fin_momentum_phase") or ""),
+                "fin_qty_scale": qty_scale,
             }
         )
     queue = pd.DataFrame(rows)
@@ -1031,6 +1081,13 @@ def select_buy_ready_queue(
     weight_source = review_universe.loc[review_universe["code"].isin(selectable["code"])].copy()
     weights = compute_target_weights(weight_source, args)[["code", "target_weight", "confidence_guidance", "confidence_position_cap"]]
     queue = queue.merge(weights, on="code", how="left")
+
+    # Phase 8: fin_momentum BUY gate — target_weight에 qty_scale 적용
+    if FIN_BUY_GATE_ENABLED and "fin_qty_scale" in queue.columns:
+        qty_scale_series = pd.to_numeric(queue["fin_qty_scale"], errors="coerce").fillna(1.0)
+        base_weight = pd.to_numeric(queue["target_weight"], errors="coerce")
+        queue["target_weight"] = (base_weight * qty_scale_series).where(base_weight.notna(), other=pd.NA)
+
     return queue.sort_values(["buy_rank", "code"]).reset_index(drop=True)
 
 
@@ -1401,6 +1458,10 @@ def main() -> None:
         operator_notes.append("all current top5 candidates have dominant_theme=(none); theme cap is not binding and sector cap is the active concentration control.")
     if not bool(live_grade_map.get("available")):
         operator_notes.append("live confidence grade map missing, fallback C/watch-only policy was applied.")
+    if FIN_BUY_GATE_ENABLED:
+        operator_notes.append("FINANCIAL_BUY_GATE_ENABLED=1: 재무 모멘텀 수량 축소/BUY 차단 활성 (SLOWING 70%·WEAKENING 50%·DECLINING 30%·hard_risk 차단)")
+    else:
+        operator_notes.append("FINANCIAL_BUY_GATE_ENABLED=0: 재무 모멘텀 BUY gate 비활성 (shadow 관찰 중)")
 
     queue_display = buy_ready_queue.copy()
     if not queue_display.empty:
@@ -1426,6 +1487,14 @@ def main() -> None:
     if not actions_display.empty:
         actions_display["target_weight"] = actions_display["target_weight"].map(_fmt_pct)
 
+    # Phase 8: fin gate 적용 종목 집계
+    fin_gate_affected: list[str] = []
+    if FIN_BUY_GATE_ENABLED and not buy_ready_queue.empty and "fin_momentum_phase" in buy_ready_queue.columns:
+        for _, qrow in buy_ready_queue.iterrows():
+            scale, reason = resolve_fin_momentum_gate(qrow)
+            if scale < 1.0:
+                fin_gate_affected.append(f"{qrow['code']}({qrow.get('fin_momentum_phase','?')}, {int(scale*100)}%)")
+
     report_lines = [
         "# Operational Execution Policy Simulation Report",
         "",
@@ -1437,6 +1506,8 @@ def main() -> None:
         f"- portfolio_version: {PORTFOLIO_VERSION}",
         f"- holdings_source: {holdings_context.source}",
         f"- live_grade_map_available: {'Y' if live_grade_map.get('available') else 'N'}",
+        f"- fin_buy_gate_enabled: {'Y' if FIN_BUY_GATE_ENABLED else 'N (shadow)'}",
+        f"- fin_gate_affected_candidates: {', '.join(fin_gate_affected) if fin_gate_affected else 'none'}",
         "",
         "## Gate Context",
         "",
