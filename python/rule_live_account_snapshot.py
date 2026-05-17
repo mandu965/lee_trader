@@ -37,7 +37,7 @@ def _float(value: Any) -> float | None:
     return None if pd.isna(numeric) else float(numeric)
 
 
-def _load_recent_trades(path: Path) -> list[dict[str, Any]]:
+def _load_recent_trades_from_results(path: Path) -> list[dict[str, Any]]:
     resolved = resolve(path)
     if not resolved.exists():
         return []
@@ -51,6 +51,7 @@ def _load_recent_trades(path: Path) -> list[dict[str, Any]]:
         trades.append(
             {
                 "date": str(item.get("filled_at") or item.get("submitted_at") or payload.get("as_of_date") or "")[:10],
+                "exit_date": str(item.get("filled_at") or item.get("submitted_at") or payload.get("as_of_date") or "")[:10],
                 "side": str(item.get("side") or "").upper(),
                 "code": str(item.get("code") or "").zfill(6),
                 "qty": filled_qty,
@@ -59,10 +60,38 @@ def _load_recent_trades(path: Path) -> list[dict[str, Any]]:
                 "broker_order_id": item.get("broker_order_id"),
             }
         )
-    return trades[-200:]
+    return trades
 
 
-def build_rule_live_account_state(*, as_of_date: str, execution_results_json: Path) -> tuple[dict[str, Any], pd.DataFrame]:
+def _merge_recent_trades(
+    existing: list[dict[str, Any]],
+    new_trades: list[dict[str, Any]],
+    keep: int = 200,
+) -> list[dict[str, Any]]:
+    seen_ids: set[str] = set()
+    merged: list[dict[str, Any]] = []
+    for trade in existing:
+        oid = str(trade.get("order_id") or "")
+        key = oid or f"{trade.get('date')}:{trade.get('code')}:{trade.get('side')}:{trade.get('qty')}"
+        if key not in seen_ids:
+            seen_ids.add(key)
+            merged.append(trade)
+    for trade in new_trades:
+        oid = str(trade.get("order_id") or "")
+        key = oid or f"{trade.get('date')}:{trade.get('code')}:{trade.get('side')}:{trade.get('qty')}"
+        if key not in seen_ids:
+            seen_ids.add(key)
+            merged.append(trade)
+    merged.sort(key=lambda r: str(r.get("date") or ""))
+    return merged[-keep:]
+
+
+def build_rule_live_account_state(
+    *,
+    as_of_date: str,
+    execution_results_json: Path,
+    out_state_json: Path | None = None,
+) -> tuple[dict[str, Any], pd.DataFrame]:
     client = KISClient.from_rule_env()
     client.issue_access_token()
     account = resolve_rule_account_env()
@@ -89,6 +118,20 @@ def build_rule_live_account_state(*, as_of_date: str, execution_results_json: Pa
     total_equity = _float(cash_summary.get("tot_evlu_amt")) or (
         (_float(cash_summary.get("dnca_tot_amt")) or 0.0) + sum(float(row.get("market_value") or 0.0) for row in positions)
     )
+
+    # Accumulate recent_trades across days: merge existing state + today's new fills
+    existing_trades: list[dict[str, Any]] = []
+    if out_state_json is not None:
+        existing_path = resolve(out_state_json)
+        if existing_path.exists():
+            try:
+                existing_state = json.loads(existing_path.read_text(encoding="utf-8-sig"))
+                existing_trades = list(existing_state.get("recent_trades") or [])
+            except Exception:
+                existing_trades = []
+    new_trades = _load_recent_trades_from_results(execution_results_json)
+    recent_trades = _merge_recent_trades(existing_trades, new_trades)
+
     state = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "as_of_date": as_of_date or datetime.now().strftime("%Y-%m-%d"),
@@ -96,7 +139,7 @@ def build_rule_live_account_state(*, as_of_date: str, execution_results_json: Pa
         "total_equity": total_equity,
         "cash": _float(cash_summary.get("dnca_tot_amt")) or 0.0,
         "positions": positions,
-        "recent_trades": _load_recent_trades(execution_results_json),
+        "recent_trades": recent_trades,
         "cooldown_codes": [],
         "last_applied_order_ids": [],
         "cash_summary": cash_summary,
@@ -109,6 +152,7 @@ def main() -> None:
     state, holdings = build_rule_live_account_state(
         as_of_date=str(args.as_of_date or datetime.now().strftime("%Y-%m-%d")),
         execution_results_json=args.execution_results_json,
+        out_state_json=args.out_state_json,
     )
     out_state = resolve(args.out_state_json)
     out_holdings = resolve(args.out_holdings_csv)

@@ -424,6 +424,7 @@ def main() -> None:
     live_state, _ = build_rule_live_account_state(
         as_of_date=str(updated_results.get("as_of_date") or ""),
         execution_results_json=out_results,
+        out_state_json=out_live_state,
     )
     out_recon.write_text(render_reconciliation(updated_results, state), encoding="utf-8")
     out_fill_sync.write_text(json.dumps(fill_sync_payload, ensure_ascii=False, indent=2), encoding="utf-8")
