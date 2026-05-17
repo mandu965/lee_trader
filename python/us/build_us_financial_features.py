@@ -14,6 +14,9 @@ from sqlalchemy import text
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from python.us.us_config import USFinancialFeatureConfig, load_us_financial_feature_config
 from python.us.us_db import (
     fetch_active_tickers,
@@ -39,6 +42,7 @@ BASE_NUMERIC_COLUMNS = [
     "net_income",
     "ebitda",
     "eps",
+    "forward_eps",
     "total_assets",
     "total_liabilities",
     "total_equity",
@@ -51,10 +55,15 @@ BASE_NUMERIC_COLUMNS = [
     "debt_to_equity",
     "current_ratio",
     "per",
+    "forward_pe",
+    "peg_ratio",
     "pbr",
     "psr",
     "ev_ebitda",
     "dividend_yield",
+    "analyst_target_price",
+    "analyst_recommendation",
+    "analyst_count",
 ]
 FEATURE_COLUMNS = [
     "revenue_growth_yoy",
@@ -74,6 +83,15 @@ FEATURE_COLUMNS = [
     "debt_to_equity",
     "current_ratio",
     "free_cash_flow_margin",
+    "fcf_yield",
+    "asset_turnover",
+    "gross_margin_trend",
+    "revenue_growth_accel",
+    "roic_approx",
+    "analyst_target_price",
+    "analyst_recommendation",
+    "analyst_count",
+    "analyst_target_upside",
     "financial_quality_score",
     "financial_growth_score",
     "financial_value_score",
@@ -175,6 +193,17 @@ def _quality_score(row: pd.Series) -> float | None:
 
 
 def _growth_score(row: pd.Series) -> float | None:
+    period_type = str(row.get("period_type") or "")
+    if period_type == "quarterly":
+        # yfinance provides only ~4-5 quarters, making quarterly YoY (4-period shift) unreliable.
+        # QoQ (1-period shift) has adequate coverage.
+        return _average_flags(
+            [
+                (_safe_numeric(row.get("revenue_growth_qoq")) or -9.0) > 0 if row.get("revenue_growth_qoq") is not None else None,
+                (_safe_numeric(row.get("net_income_growth_qoq")) or -9.0) > 0 if row.get("net_income_growth_qoq") is not None else None,
+                (_safe_numeric(row.get("eps_growth_qoq")) or -9.0) > 0 if row.get("eps_growth_qoq") is not None else None,
+            ]
+        )
     return _average_flags(
         [
             (_safe_numeric(row.get("revenue_growth_yoy")) or -9.0) > 0 if row.get("revenue_growth_yoy") is not None else None,
@@ -187,13 +216,17 @@ def _growth_score(row: pd.Series) -> float | None:
 
 
 def _value_score(row: pd.Series) -> float | None:
-    return _average_flags(
-        [
-            0 < (_safe_numeric(row.get("per")) or -1.0) <= 30 if row.get("per") is not None else None,
-            0 < (_safe_numeric(row.get("pbr")) or -1.0) <= 5 if row.get("pbr") is not None else None,
-            0 < (_safe_numeric(row.get("psr")) or -1.0) <= 10 if row.get("psr") is not None else None,
-        ]
-    )
+    # Prefer forward PE (analyst consensus) over trailing PE when available
+    pe = _safe_numeric(row.get("forward_pe")) or _safe_numeric(row.get("per"))
+    pe_flag = (0 < (pe or -1.0) <= 35) if pe is not None else None
+    peg = _safe_numeric(row.get("peg_ratio"))
+    peg_flag = (0 < (peg or -1.0) <= 2.0) if peg is not None else None
+    pbr_flag = (0 < (_safe_numeric(row.get("pbr")) or -1.0) <= 5) if row.get("pbr") is not None else None
+    psr_flag = (0 < (_safe_numeric(row.get("psr")) or -1.0) <= 10) if row.get("psr") is not None else None
+    # PEG available: use pe + peg + pbr; otherwise: pe + pbr + psr (original set)
+    if peg_flag is not None:
+        return _average_flags([pe_flag, peg_flag, pbr_flag])
+    return _average_flags([pe_flag, pbr_flag, psr_flag])
 
 
 def _prepare_financial_raw_frame(
@@ -325,6 +358,54 @@ def build_financial_feature_frame(raw_df: pd.DataFrame) -> pd.DataFrame:
             )
         ]
 
+        # FCF yield: free cash flow / market cap (positive = cash generative, low = expensive)
+        ordered["fcf_yield"] = [
+            _safe_ratio(a, b) for a, b in zip(ordered["free_cash_flow"], ordered["market_cap"], strict=False)
+        ]
+
+        # Asset turnover: revenue / total assets (efficiency of asset utilization)
+        ordered["asset_turnover"] = [
+            _safe_ratio(a, b) for a, b in zip(ordered["revenue"], ordered["total_assets"], strict=False)
+        ]
+
+        # ROIC approximation: operating_income / total_assets (operating return on total assets)
+        ordered["roic_approx"] = [
+            _safe_ratio(a, b) for a, b in zip(ordered["operating_income"], ordered["total_assets"], strict=False)
+        ]
+
+        # Gross margin trend: QoQ change in gross margin (momentum of margin expansion)
+        gm = ordered["gross_margin"]
+        ordered["gross_margin_trend"] = [
+            _safe_numeric(cur) - _safe_numeric(prev)
+            if _safe_numeric(cur) is not None and _safe_numeric(prev) is not None
+            else None
+            for cur, prev in zip(gm, gm.shift(1), strict=False)
+        ]
+
+        # Revenue growth acceleration: QoQ change in revenue_growth_qoq (is growth speeding up?)
+        rg = ordered["revenue_growth_qoq"]
+        ordered["revenue_growth_accel"] = [
+            _safe_numeric(cur) - _safe_numeric(prev)
+            if _safe_numeric(cur) is not None and _safe_numeric(prev) is not None
+            else None
+            for cur, prev in zip(rg, rg.shift(1), strict=False)
+        ]
+
+        # Analyst target upside: (target_price / current_price) - 1
+        # Current price = market_cap / shares_outstanding
+        def _analyst_upside(row: pd.Series) -> float | None:
+            target = _safe_numeric(row.get("analyst_target_price"))
+            mktcap = _safe_numeric(row.get("market_cap"))
+            shares = _safe_numeric(row.get("shares_outstanding"))
+            if target is None or mktcap is None or shares in {None, 0.0}:
+                return None
+            current_price = mktcap / shares
+            if current_price <= 0:
+                return None
+            return target / current_price - 1.0
+
+        ordered["analyst_target_upside"] = ordered.apply(_analyst_upside, axis=1)
+
         ordered["financial_quality_score"] = ordered.apply(_quality_score, axis=1)
         ordered["financial_growth_score"] = ordered.apply(_growth_score, axis=1)
         ordered["financial_value_score"] = ordered.apply(_value_score, axis=1)
@@ -354,6 +435,7 @@ def _frame_to_feature_rows(frame: pd.DataFrame) -> list[dict[str, object]]:
         "net_income",
         "ebitda",
         "eps",
+        "forward_eps",
         "total_assets",
         "total_liabilities",
         "total_equity",
@@ -380,7 +462,18 @@ def _frame_to_feature_rows(frame: pd.DataFrame) -> list[dict[str, object]]:
         "equity_ratio",
         "current_ratio",
         "free_cash_flow_margin",
+        "fcf_yield",
+        "asset_turnover",
+        "gross_margin_trend",
+        "revenue_growth_accel",
+        "roic_approx",
+        "analyst_target_price",
+        "analyst_recommendation",
+        "analyst_count",
+        "analyst_target_upside",
         "per",
+        "forward_pe",
+        "peg_ratio",
         "pbr",
         "psr",
         "ev_ebitda",

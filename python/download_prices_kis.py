@@ -336,6 +336,11 @@ def try_pykrx_download(universe_summary: dict[str, Any]) -> Optional[pd.DataFram
         start_ymd = start.strftime("%Y%m%d")
         end_ymd = end.strftime("%Y%m%d")
 
+        import socket as _socket
+        _pykrx_timeout = int(os.environ.get("PYKRX_PER_STOCK_TIMEOUT", "30"))
+        _prev_timeout = _socket.getdefaulttimeout()
+        _socket.setdefaulttimeout(_pykrx_timeout)
+
         frames: list[pd.DataFrame] = []
         success_codes: list[str] = []
         failed_codes: list[str] = []
@@ -376,6 +381,7 @@ def try_pykrx_download(universe_summary: dict[str, Any]) -> Optional[pd.DataFram
                 failed_codes.append(code)
                 continue
 
+        _socket.setdefaulttimeout(_prev_timeout)
         _summarize_download_results(
             success_codes,
             failed_codes,
@@ -470,6 +476,14 @@ def main() -> None:
     ensure_data_dir()
     args = parse_args()
 
+    # Skip download if env flag set and existing CSV is fresh enough
+    skip_flag = os.environ.get("RUN_PIPELINE_SKIP_PRICE_DOWNLOAD", "0").strip()
+    if skip_flag in ("1", "true", "yes"):
+        if RAW_CSV.exists():
+            logging.info("RUN_PIPELINE_SKIP_PRICE_DOWNLOAD=1 and %s exists -> skip download", RAW_CSV)
+            return
+        logging.warning("RUN_PIPELINE_SKIP_PRICE_DOWNLOAD=1 but %s missing -> proceed with download", RAW_CSV)
+
     base_codes = _env_symbols()
     theme_etf_codes = load_theme_etf_codes(args.theme_etf_master_path) if args.include_theme_etf_codes else []
     universe_summary = merge_price_universe(base_codes, theme_etf_codes, args.include_theme_etf_codes)
@@ -482,6 +496,12 @@ def main() -> None:
 
     demo_mode = False
     if df is None:
+        # If real price data already exists, preserve it rather than overwriting with demo prices
+        if RAW_CSV.exists():
+            logging.warning(
+                "KIS and pykrx both unavailable, but %s already exists -> skip overwrite with demo prices", RAW_CSV
+            )
+            return
         logging.info("Generating demo prices...")
         df = generate_demo_prices(universe_summary["merged_code_list"])
         demo_mode = True

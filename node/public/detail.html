@@ -81,6 +81,34 @@
     .chip.warn { color: var(--warning); border-color: rgba(250,204,21,.3); background: rgba(250,204,21,.1); }
     .chip.bad { color: var(--danger); border-color: rgba(239,68,68,.3); background: rgba(239,68,68,.12); }
     .explain, .warnbox, .confidence-note { color: var(--ts); font-size: 13px; line-height: 1.6; }
+    .explain-structured { display: grid; gap: 10px; }
+    .explain-line {
+      display: grid;
+      gap: 6px;
+      padding: 10px 12px;
+      border: 1px solid rgba(255,255,255,.05);
+      border-radius: 10px;
+      background: rgba(255,255,255,.02);
+    }
+    .explain-line__label { color: var(--t); font-weight: 700; }
+    .explain-line__items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .explain-line__item {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.08);
+      background: rgba(255,255,255,.03);
+      color: var(--ts);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .explain-line__text { color: var(--ts); line-height: 1.65; }
     .reason-box.positive { border-color: rgba(34,197,94,.2); background: rgba(34,197,94,.06); }
     .reason-box.caution { border-color: rgba(239,68,68,.2); background: rgba(239,68,68,.06); }
     .reason-box.neutral { border-color: rgba(96,165,250,.18); background: rgba(96,165,250,.06); }
@@ -307,8 +335,6 @@
           </div>
         </details>
         <div class="top-trade-actions">
-          <button id="detailBuyBtn" class="action-btn buy" type="button">매수</button>
-          <button id="detailSellBtn" class="action-btn sell" type="button">매도</button>
           <div id="titleBadge" class="badge">종목코드: -</div>
         </div>
       </div>
@@ -500,6 +526,7 @@
                 <div class="sl">현재가</div>
                 <div id="closePriceQuick" class="quick-tech__value">-</div>
                 <div id="closeMetaQuick" class="quick-tech__meta">가격 기준 정보 없음</div>
+                <div id="change1dQuick" class="quick-tech__meta" style="margin-top:2px;">전일대비 -</div>
               </div>
               <div class="quick-tech">
                 <div class="sl">이동평균 정렬</div>
@@ -532,6 +559,16 @@
               <span id="maSummary"></span>
               <span id="rsiValue"></span><span id="rsiExplain"></span>
               <span id="volValue"></span><span id="volExplain"></span>
+            </div>
+          </div>
+        </article>
+
+        <!-- 수급 추이 패널 -->
+        <article class="panel">
+          <div class="body">
+            <h2 class="pt">외국인·기관 수급 추이 (최근 20일)</h2>
+            <div id="flowHistoryDetailPanel">
+              <div style="color:var(--ts);font-size:13px;">수급 데이터를 불러오는 중...</div>
             </div>
           </div>
         </article>
@@ -596,7 +633,7 @@
   </div>
 
   <script src="./ui-components.js"></script>
-  <script src="./ops-unified-nav.js?v=20260513a"></script>
+<script src="./ops-unified-nav.js?v=20260518-nav-fix"></script>
   <script>
     const $ = (s) => document.querySelector(s);
     const q = (n) => new URLSearchParams(location.search).get(n);
@@ -629,7 +666,7 @@
     }
     function applyOperatorUi() {
       const showOperator = !operatorAuth.enabled || operatorAuth.authorized;
-      ["detailOpsBtn", "detailBuyBtn", "detailSellBtn"].forEach((id) => {
+      ["detailOpsBtn"].forEach((id) => {
         const el = document.getElementById(id);
         if (el) el.style.display = showOperator ? "" : "none";
       });
@@ -745,6 +782,47 @@
       return sourceMode || "정보 없음";
     }
 
+    function formatExplainText(raw) {
+      const text = String(raw || "").trim();
+      if (!text) {
+        return "ranking_final explain_text가 현재 API 응답에 없어 원문 해석 문장을 보여주지 못합니다. 지금은 점수, 리스크, 예측값 기반 보조 문구만 표시합니다.";
+      }
+      const lines = text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (!lines.length) return escapeHtml(text);
+
+      return `<div class="explain-structured">${lines.map((line) => {
+        const match = line.match(/^([^:]+):\s*(.*)$/);
+        if (!match) {
+          return `<div class="explain-line"><div class="explain-line__text">${escapeHtml(line)}</div></div>`;
+        }
+        const label = escapeHtml(match[1].trim());
+        const body = match[2].trim();
+        const segments = body
+          .split(/\s*\|\s*/)
+          .map((part) => part.trim())
+          .filter(Boolean);
+        if (segments.length > 1) {
+          return `
+            <div class="explain-line">
+              <div class="explain-line__label">${label}</div>
+              <div class="explain-line__items">
+                ${segments.map((part) => `<span class="explain-line__item">${escapeHtml(part)}</span>`).join("")}
+              </div>
+            </div>
+          `;
+        }
+        return `
+          <div class="explain-line">
+            <div class="explain-line__label">${label}</div>
+            <div class="explain-line__text">${escapeHtml(body)}</div>
+          </div>
+        `;
+      }).join("")}</div>`;
+    }
+
     function formatKpiValue(metric) {
       if (!metric) return "-";
       const raw = Number(metric.value);
@@ -759,9 +837,36 @@
 
     function getRegimeMeta(regimeRaw) {
       const regime = String(regimeRaw || "").toLowerCase();
+      if (!regime) {
+        return {
+          key: "neutral",
+          label: "시장 상태 미산출",
+          guide: "최신 추천 스냅샷에 market regime 필드가 없어 중립 가정 대신 미산출 상태로 봐야 합니다.",
+          missing: true,
+        };
+      }
       if (regime === "bull") return { key: "bull", label: "강세 장세", guide: "상방 후보를 더 적극적으로 볼 수 있는 구간입니다." };
       if (regime === "defensive") return { key: "defensive", label: "방어 장세", guide: "추격보다 선별과 방어를 우선하는 구간입니다." };
       return { key: "neutral", label: "중립 장세", guide: "공격과 방어를 균형 있게 보는 구간입니다." };
+    }
+
+    function hasRecommendationSnapshot(d) {
+      if (!d || typeof d !== "object") return false;
+      if (String(d.buy_eligibility_status || "").trim()) return true;
+      if (String(d.buyability_status || "").trim()) return true;
+      if (Array.isArray(d.buy_eligibility_hard_block_reasons) && d.buy_eligibility_hard_block_reasons.length) return true;
+      if (Array.isArray(d.buy_eligibility_caution_reasons) && d.buy_eligibility_caution_reasons.length) return true;
+      if (Array.isArray(d.buyability_blocking_reasons) && d.buyability_blocking_reasons.length) return true;
+      if (Array.isArray(d.buyability_supporting_reasons) && d.buyability_supporting_reasons.length) return true;
+      return false;
+    }
+
+    function hasUsableCalibration() {
+      const summary = confidenceCalibration?.summary || {};
+      const usableBucketCount = Number(summary.usable_bucket_count);
+      const sourceItemCount = Number(summary.source_item_count);
+      return Number.isFinite(usableBucketCount) && usableBucketCount > 0
+        && Number.isFinite(sourceItemCount) && sourceItemCount > 0;
     }
 
     function getActionState(d) {
@@ -1232,6 +1337,10 @@
       const mdd60 = Number(d.pred_mdd_60d);
       const buyEligibility = buildBuyEligibilityView(d);
       const shadowGuard = buildShadowGuardView(d);
+      const recommendationSnapshotAvailable = hasRecommendationSnapshot(d);
+      const calibrationUsable = hasUsableCalibration();
+      const explainText = String(d.explain_text || "").trim();
+      const hasExplainText = explainText.length > 0;
 
       $("#titleBadge").textContent = `종목코드: ${d.code}`;
       $("#stockName").textContent = d.name || d.code || "-";
@@ -1243,15 +1352,21 @@
       $("#finalScoreKpi").textContent = fmt1(d.final_score_rank);
       $("#confidenceKpi").textContent = fmt1(d.confidence_score);
       $("#confidenceKpiMeta").textContent = calibration?.isProvisional
-        ? `${confidenceText} 임시 보정 해석을 함께 봅니다.`
+        ? calibrationUsable
+          ? `${confidenceText} 임시 보정 해석을 함께 봅니다.`
+          : `${confidenceText} / 보정 표본 부족`
         : confidenceText;
       $("#rewardRiskKpi").textContent = `${fmtPct(ret60)} / ${fmtPct(mdd60)}`;
       $("#rewardRiskKpiMeta").textContent = "기대수익과 하락 부담";
       $("#confidenceStatusText").textContent = calibration?.isProvisional
-        ? `${confidenceText} / ${calibrationBandText(calibration)}`
+        ? calibrationUsable
+          ? `${confidenceText} / ${calibrationBandText(calibration)}`
+          : `${confidenceText} / 보정 참고 불가`
         : confidenceText;
       $("#confidenceCalibrationNote").innerHTML = calibration?.isProvisional
-        ? `<strong>WF 임시 보정</strong> 기준 ${calibration.bucketLabel} 구간, 보정 점수 ${fmt1(calibration.calibratedScore)}, 해석은 ${calibrationBandText(calibration)}입니다. 정식 운영 보정이 아니라 참고용입니다.`
+        ? calibrationUsable
+          ? `<strong>WF 임시 보정</strong> 기준 ${calibration.bucketLabel} 구간, 보정 점수 ${fmt1(calibration.calibratedScore)}, 해석은 ${calibrationBandText(calibration)}입니다. 정식 운영 보정이 아니라 참고용입니다.`
+          : "<strong>WF 임시 보정 표본 부족</strong> source_item_count=0 또는 usable_bucket_count=0 상태라 보정 해석은 현재 참고 불가입니다. 원 신뢰도 숫자만 제한적으로 보세요."
         : "정식 일일 스냅샷 보정 표본이 아직 부족해 원래 신뢰도를 먼저 봅니다.";
       $("#finalScoreKpi").className = `decision-kpi__value ${action.cls === "review" ? "good" : action.cls === "watch" ? "warn" : action.cls === "hold" ? "bad" : "soft"}`;
       $("#confidenceKpi").className = `decision-kpi__value ${confidenceTone(conf)}`;
@@ -1262,12 +1377,17 @@
       $("#decisionDetail").textContent = Number.isFinite(conf) && conf < 50
         ? "수익 기대는 보여도 신뢰도 축적이 약해 선별적으로 보는 편이 맞습니다."
         : "점수와 리스크를 함께 본 오늘 기준 한 줄 판단입니다.";
-      $("#marketGuideBox").className = `callout ${regimeMeta.key === "bull" ? "good" : regimeMeta.key === "defensive" ? "warn" : "warn"}`;
+      $("#marketGuideBox").className = `callout ${regimeMeta.missing ? "info" : regimeMeta.key === "bull" ? "good" : regimeMeta.key === "defensive" ? "warn" : "warn"}`;
       $("#marketGuideBox").textContent = `${regimeMeta.label}: ${regimeMeta.guide}`;
       $("#riskGuideBox").className = `callout ${ws.some((x) => x.cls === "bad") ? "bad" : ws.some((x) => x.cls === "warn") ? "warn" : "good"}`;
       $("#riskGuideBox").textContent = ws[0]?.text || "현재 확인된 리스크는 제한적입니다.";
-      $("#buyEligibilityBox").className = `callout ${buyEligibility.tone}`;
-      $("#buyEligibilityBox").innerHTML = `<strong>절대 매수 판단 ${buyEligibility.label}</strong> · score ${buyEligibility.scoreText}<br>추천 점수는 상대순위이고, 절대 매수 판단은 실제 진입 기준입니다.<br>${escapeHtml(buyEligibility.summary)}<br>${escapeHtml(buyEligibility.detail)}`;
+      if (recommendationSnapshotAvailable) {
+        $("#buyEligibilityBox").className = `callout ${buyEligibility.tone}`;
+        $("#buyEligibilityBox").innerHTML = `<strong>절대 매수 판단 ${buyEligibility.label}</strong> · score ${buyEligibility.scoreText}<br>추천 점수는 상대순위이고, 절대 매수 판단은 실제 진입 기준입니다.<br>${escapeHtml(buyEligibility.summary)}<br>${escapeHtml(buyEligibility.detail)}`;
+      } else {
+        $("#buyEligibilityBox").className = "callout info";
+        $("#buyEligibilityBox").innerHTML = "<strong>절대 매수 판단 미산출</strong><br>이 종목은 최신 <code>daily_recommendations</code> 후보 스냅샷에 포함되지 않아 buy eligibility / buyability 필드가 비어 있습니다.<br>상세페이지에서는 상대 랭킹과 리스크만 참고하고, 실제 진입 여부는 추천 후보 화면에서 다시 확인해야 합니다.";
+      }
       $("#shadowGuardBox").className = `callout ${shadowGuard.tone}`;
       $("#shadowGuardBox").innerHTML = `<strong>${escapeHtml(shadowGuard.title)}</strong><br>현재 production 점수는 그대로 유지하고 shadow 기준만 비교합니다.<br>${escapeHtml(shadowGuard.summary)}<br>${escapeHtml(shadowGuard.detail)}`;
       const opsSummary = scoreKpiMonitor?.summary;
@@ -1291,7 +1411,11 @@
         : '<span class="chip">추천 근거 데이터 없음</span>';
 
       renderReasonSystem(d);
-      $("#scoreExplain").textContent = d.explain_text || "종합 해석 문장이 아직 없어 점수와 리스크를 중심으로 읽어야 합니다.";
+      $("#scoreExplain").innerHTML = formatExplainText(
+        hasExplainText
+          ? explainText
+          : "ranking_final explain_text가 현재 API 응답에 없어 원문 해석 문장을 보여주지 못합니다. 지금은 점수, 리스크, 예측값 기반 보조 문구만 표시합니다."
+      );
 
       const warningBox = $("#warningBox");
       const warningList = $("#warningList");
@@ -1340,7 +1464,9 @@
         ? `높을수록 바로 진입보다 관찰이 우선입니다.`
         : "리스크 패널티 필드가 없습니다.";
       $("#confidenceExplain").textContent = calibration?.isProvisional
-        ? `${confidenceText} 현재 보조 해석은 ${calibrationBandText(calibration)}이며 소스는 WF 임시 보정입니다.`
+        ? calibrationUsable
+          ? `${confidenceText} 현재 보조 해석은 ${calibrationBandText(calibration)}이며 소스는 WF 임시 보정입니다.`
+          : `${confidenceText} 현재 WF 임시 보정 표본이 부족해 원 신뢰도 숫자만 제한적으로 해석해야 합니다.`
         : confidenceText;
       $("#confidenceExplainScore").textContent = fmt1(d.confidence_score);
 
@@ -1353,6 +1479,12 @@
       $("#volExplain").textContent = `변동성 수준: ${volBand(Number(lat?.vol_20))}`;
       $("#closePriceQuick").textContent = fmtNum(lat?.close);
       $("#closeMetaQuick").textContent = lat?.date ? `${fmtDateLabel(lat.date)} 종가 기준` : "가격 기준 정보 없음";
+      const change1dVal = Number.isFinite(Number(d.change_1d)) ? Number(d.change_1d) : null;
+      const change1dEl = $("#change1dQuick");
+      if (change1dEl) {
+        change1dEl.textContent = change1dVal !== null ? `전일대비 ${(change1dVal * 100).toFixed(2)}%` : "전일대비 -";
+        change1dEl.style.color = change1dVal === null ? "" : change1dVal >= 0 ? "#4ade80" : "#f87171";
+      }
       $("#maSummaryQuick").textContent = maAlignmentText(lat);
       $("#maExplainQuick").textContent = techExplain(lat);
       $("#rsiQuick").textContent = fmt2(lat?.rsi_14);
@@ -1381,12 +1513,60 @@
         }
         location.href = operatorLoginUrl();
       });
-      $("#detailBuyBtn")?.addEventListener("click", () => openTradeModal("BUY", code, $("#stockName")?.textContent || code));
-      $("#detailSellBtn")?.addEventListener("click", () => openTradeModal("SELL", code, $("#stockName")?.textContent || code));
       await fetchConfidenceCalibration();
       await fetchScoreKpiMonitor();
       renderDetail(await fetchDetail(code));
+      // 수급 추이 (비동기, 별도 로드)
+      fetch(`/api/flow-history?codes=${encodeURIComponent(code)}&days=20`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => renderFlowHistoryDetail(code, data))
+        .catch(() => renderFlowHistoryDetail(code, null));
     })();
+
+    function renderFlowHistoryDetail(code, data) {
+      const root = document.getElementById("flowHistoryDetailPanel");
+      if (!root) return;
+      const rows = data?.items?.[code] || [];
+      if (!rows.length) {
+        root.innerHTML = `<div style="color:var(--ts);font-size:13px;">수급 데이터가 없습니다 (flow_daily 테이블 기준, KIS API 수집 필요).</div>`;
+        return;
+      }
+      const maxAbs = Math.max(...rows.flatMap((r) => [Math.abs(r.foreign_net), Math.abs(r.inst_net)]), 1);
+      const summaryForeign = rows.slice(0, 5).reduce((s, r) => s + r.foreign_net, 0);
+      const summaryInst = rows.slice(0, 5).reduce((s, r) => s + r.inst_net, 0);
+      const fmtAmt = (v) => {
+        const abs = Math.abs(v); const sign = v >= 0 ? "+" : "-";
+        return `${sign}${Math.round(abs).toLocaleString()}`;
+      };
+      const barHtml = rows.map((r) => {
+        const fBar = Math.round(Math.abs(r.foreign_net) / maxAbs * 80);
+        const iBar = Math.round(Math.abs(r.inst_net) / maxAbs * 80);
+        const fColor = r.foreign_net >= 0 ? "rgba(134,239,172,0.65)" : "rgba(248,113,113,0.55)";
+        const iColor = r.inst_net >= 0 ? "rgba(96,165,250,0.65)" : "rgba(251,191,36,0.55)";
+        return `
+          <div style="display:grid;grid-template-columns:64px 1fr 1fr;gap:6px;align-items:center;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(255,255,255,.04);">
+            <span style="color:var(--ts);">${r.date.slice(5)}</span>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <span style="width:28px;color:var(--ts);text-align:right;font-size:10px;flex-shrink:0;">외국인</span>
+              <div style="width:${fBar}px;height:9px;background:${fColor};border-radius:2px;" title="${fmtAmt(r.foreign_net)}"></div>
+              <span style="font-size:10px;color:${r.foreign_net >= 0 ? '#86efac' : '#fca5a5'};">${fmtAmt(r.foreign_net)}</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <span style="width:28px;color:var(--ts);text-align:right;font-size:10px;flex-shrink:0;">기관</span>
+              <div style="width:${iBar}px;height:9px;background:${iColor};border-radius:2px;" title="${fmtAmt(r.inst_net)}"></div>
+              <span style="font-size:10px;color:${r.inst_net >= 0 ? '#93c5fd' : '#fde68a'};">${fmtAmt(r.inst_net)}</span>
+            </div>
+          </div>`;
+      }).join("");
+      root.innerHTML = `
+        <div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px;">
+          <span>5일 외국인 누적: <strong style="color:${summaryForeign>=0?'#86efac':'#fca5a5'};">${fmtAmt(summaryForeign)}</strong></span>
+          <span>5일 기관 누적: <strong style="color:${summaryInst>=0?'#93c5fd':'#fde68a'};">${fmtAmt(summaryInst)}</strong></span>
+        </div>
+        <div style="overflow-x:auto;">${barHtml}</div>
+        <div style="font-size:11px;color:var(--ts);margin-top:8px;">단위: 주(株) · 막대 길이는 기간 내 최대값 기준 상대 크기</div>
+      `;
+    }
   </script>
 </body>
 </html>

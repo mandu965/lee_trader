@@ -1,33 +1,57 @@
 (() => {
   const ITEMS = [
-    { key: "main",              label: "메인",          href: "/app" },
-    { key: "manual-trading",    label: "수동매매",        href: "/manual-trading.html" },
-    { key: "live-auto-trading", label: "AI 실자동매매",    href: "/live-auto-trading.html" },
-    { key: "rule-auto-trading", label: "RULE 자동매매",   href: "/rule-auto-trading.html" },
-    { key: "paper-trading",     label: "모의투자",        href: "/paper-trading.html" },
-    { key: "ranking",           label: "리서치 랭킹",     href: "/ranking.html" },
-    { key: "meaningfulness",    label: "리서치 리뷰",     href: "/meaningfulness.html" },
+    { key: "main", label: "\uBA54\uC778", href: "/app" },
+    { key: "manual-trading", label: "\uC218\uB3D9\uB9E4\uB9E4", href: "/manual-trading.html" },
+    { key: "live-auto-trading", label: "AI \uC2E4\uC790\uB3D9\uB9E4\uB9E4", href: "/live-auto-trading.html" },
+    { key: "rule-auto-trading", label: "RULE \uC790\uB3D9\uB9E4\uB9E4", href: "/rule-auto-trading.html" },
+    { key: "paper-trading", label: "\uBAA8\uC758\uD22C\uC790", href: "/paper-trading.html" },
+    { key: "ranking", label: "\uB9AC\uC11C\uCE58 \uB7AD\uD0B9", href: "/ranking.html" },
+    { key: "us-ranking", label: "US \uB7AD\uD0B9", href: "/us-ranking" },
+    { key: "meaningfulness", label: "\uB9AC\uC11C\uCE58 \uB9AC\uBDF0", href: "/meaningfulness.html" },
   ];
 
   function detectActive() {
-    const p = location.pathname;
-    if (p === "/app") return "main";
-    if (p.includes("manual-trading"))    return "manual-trading";
-    if (p.includes("live-auto-trading")) return "live-auto-trading";
-    if (p.includes("rule-auto-trading")) return "rule-auto-trading";
-    if (p.includes("paper-trading"))     return "paper-trading";
-    if (p.includes("ranking"))           return "ranking";
-    if (p.includes("meaningfulness"))    return "meaningfulness";
+    const pathname = location.pathname;
+    if (pathname === "/app") return "main";
+    if (pathname.includes("manual-trading")) return "manual-trading";
+    if (pathname.includes("live-auto-trading")) return "live-auto-trading";
+    if (pathname.includes("rule-auto-trading")) return "rule-auto-trading";
+    if (pathname.includes("paper-trading")) return "paper-trading";
+    if (pathname.includes("us-ranking")) return "us-ranking";
+    if (pathname.includes("ranking")) return "ranking";
+    if (pathname.includes("meaningfulness")) return "meaningfulness";
     return null;
   }
 
   function renderInto(container) {
     if (!container) return;
     const active = container.dataset.navActive || detectActive() || "";
-    container.className = "snav";
-    container.innerHTML = ITEMS.map((item) =>
-      `<a class="snav__item${item.key === active ? " is-active" : ""}" href="${item.href}" aria-current="${item.key === active ? "page" : "false"}">${item.label}</a>`
-    ).join("");
+    const tagName = (container.dataset.navElement || "a").toLowerCase();
+    const baseClass = container.dataset.navClass || "snav__item";
+    const activeClass = container.dataset.navActiveClass || "is-active";
+    const secondaryClass = container.dataset.navSecondaryClass || "";
+    const secondaryKeys = new Set(
+      String(container.dataset.navSecondaryKeys || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    );
+
+    if (!container.dataset.navClass) {
+      container.className = "snav";
+    }
+
+    container.innerHTML = ITEMS.map((item) => {
+      const classes = [baseClass];
+      if (item.key === active && activeClass) classes.push(activeClass);
+      if (secondaryClass && secondaryKeys.has(item.key)) classes.push(secondaryClass);
+      const attrs = [
+        `class="${classes.join(" ")}"`,
+        `href="${item.href}"`,
+        `aria-current="${item.key === active ? "page" : "false"}"`,
+      ];
+      return `<${tagName} ${attrs.join(" ")}>${item.label}</${tagName}>`;
+    }).join("");
   }
 
   function init() {

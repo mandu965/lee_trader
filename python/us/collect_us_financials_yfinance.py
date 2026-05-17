@@ -15,6 +15,9 @@ from sqlalchemy import text
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from python.us.us_config import USFinancialCollectorConfig, load_us_financial_collector_config
 from python.us.us_db import (
     fetch_active_tickers,
@@ -59,17 +62,23 @@ YF_FINANCIAL_METRIC_FRAME_MAP = {
 
 YF_INFO_MAP = {
     "trailingEps": "eps",
+    "forwardEps": "forward_eps",
     "returnOnEquity": "roe",
     "returnOnAssets": "roa",
     "sharesOutstanding": "shares_outstanding",
     "marketCap": "market_cap",
     "trailingPE": "per",
+    "forwardPE": "forward_pe",
+    "pegRatio": "peg_ratio",
     "priceToBook": "pbr",
     "priceToSalesTrailing12Months": "psr",
     "enterpriseToEbitda": "ev_ebitda",
     "debtToEquity": "debt_to_equity",
     "currentRatio": "current_ratio",
     "dividendYield": "dividend_yield",
+    "targetMeanPrice": "analyst_target_price",
+    "recommendationMean": "analyst_recommendation",
+    "numberOfAnalystOpinions": "analyst_count",
 }
 
 
@@ -238,17 +247,23 @@ def _build_rows_for_period(
                 metric_row[internal_name] = _frame_value(financials, yf_name, fiscal_date, ticker=ticker)
         for field_name in [
             "eps",
+            "forward_eps",
             "roe",
             "roa",
             "shares_outstanding",
             "market_cap",
             "per",
+            "forward_pe",
+            "peg_ratio",
             "pbr",
             "psr",
             "ev_ebitda",
             "debt_to_equity",
             "current_ratio",
             "dividend_yield",
+            "analyst_target_price",
+            "analyst_recommendation",
+            "analyst_count",
         ]:
             if metric_row.get(field_name) is None:
                 metric_row[field_name] = info_metrics.get(field_name)

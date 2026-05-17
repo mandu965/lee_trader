@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
@@ -214,9 +214,9 @@
         </button>
       </nav>
 
-      <!-- ════════════════════════════════════════
+      <!-- ????????????????????????????????????????
            TAB 1 : 개요
-      ════════════════════════════════════════ -->
+      ???????????????????????????????????????? -->
       <div id="tabOverview" class="tab-panel is-active">
 
         <!-- 오늘 결론 배너 -->
@@ -227,17 +227,6 @@
         <!-- 히어로 카드 4개 -->
         <div class="section-block">
           <div class="hero-grid" id="heroGrid"></div>
-        </div>
-
-        <!-- AI 계좌 잔고 상세 (4-grid) -->
-        <div class="section-block">
-          <div class="section-head">
-            <div>
-              <h2 class="section-title">AI 계좌 잔고</h2>
-              <div class="section-note">예수금·평가손익·총자산·현금비중을 실계좌 기준으로 표시합니다.</div>
-            </div>
-          </div>
-          <div class="account-grid" id="accountDetailGrid"></div>
         </div>
 
         <!-- 실행상태 + 운영메모 -->
@@ -271,9 +260,9 @@
 
       </div><!-- /tabOverview -->
 
-      <!-- ════════════════════════════════════════
+      <!-- ????????????????????????????????????????
            TAB 2 : 주문
-      ════════════════════════════════════════ -->
+      ???????????????????????????????????????? -->
       <div id="tabOrders" class="tab-panel">
 
         <!-- 진단 요약 + 왜 거래없음 -->
@@ -289,7 +278,7 @@
           <div class="section-head">
             <div>
               <h2 class="section-title">Trade Intents</h2>
-              <div class="section-note">전략 판단 결과 — 실행 후보와 설명용 판단을 구분해서 봅니다.</div>
+              <div class="section-note">전략 판단 결과 ? 실행 후보와 설명용 판단을 구분해서 봅니다.</div>
             </div>
           </div>
           <div class="table-wrap" id="intentsWrap">
@@ -347,7 +336,7 @@
           <div class="section-head">
             <div>
               <h2 class="section-title">주문 실행 결과</h2>
-              <div class="section-note">가장 최근 실제 제출 결과 — 주문 시도 성공/실패와 차단 사유를 확인합니다.</div>
+              <div class="section-note">가장 최근 실제 제출 결과 ? 주문 시도 성공/실패와 차단 사유를 확인합니다.</div>
             </div>
           </div>
           <div class="table-wrap" id="executionWrap">
@@ -385,9 +374,9 @@
 
       </div><!-- /tabOrders -->
 
-      <!-- ════════════════════════════════════════
+      <!-- ????????????????????????????????????????
            TAB 3 : 분석
-      ════════════════════════════════════════ -->
+      ???????????????????????????????????????? -->
       <div id="tabAnalysis" class="tab-panel">
 
         <!-- Live KPI + Quality Guard -->
@@ -398,12 +387,45 @@
           </div>
         </div>
 
+        <!-- 매수 선택 근거 -->
+        <div class="section-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">매수 선택 근거 ? 모델 피처 중요도</h2>
+              <div class="section-note">LightGBM D+60 분류 모델 기준. 값이 클수록 순위 결정에 영향이 큽니다.</div>
+            </div>
+          </div>
+          <div class="panel-card" id="featureImportancePanel"></div>
+        </div>
+
+        <!-- 보유 종목 수급 추이 -->
+        <div class="section-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">보유 종목 수급 추이 (최근 20일)</h2>
+              <div class="section-note">외국인·기관 일별 순매수 방향. 막대 우향→순매수, 좌향→순매도.</div>
+            </div>
+          </div>
+          <div class="panel-card" id="flowHistoryPanel"></div>
+        </div>
+
+        <!-- 레짐 히스토리 -->
+        <div class="section-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">US Macro 레짐 히스토리</h2>
+              <div class="section-note">kr_apply_date 기준. RISK_ON → 점수 상향 / RISK_OFF → 점수 하향 / NEUTRAL → 무조정.</div>
+            </div>
+          </div>
+          <div class="panel-card" id="regimeHistoryPanel"></div>
+        </div>
+
         <!-- Trade Review -->
         <div class="section-block">
           <div class="section-head">
             <div>
               <h2 class="section-title">Live Trade Review</h2>
-              <div class="section-note">체결 후 자동 리뷰 — D0/D+1/D+3/D+5 성과가 가능한 시점부터 누적됩니다.</div>
+              <div class="section-note">체결 후 자동 리뷰 ? D0/D+1/D+3/D+5 성과가 가능한 시점부터 누적됩니다.</div>
             </div>
           </div>
           <div class="panel-card" id="reviewPanel"></div>
@@ -422,16 +444,27 @@
 
       </div><!-- /tabAnalysis -->
 
-      <!-- ════════════════════════════════════════
+      <!-- ????????????????????????????????????????
            TAB 4 : 계좌
-      ════════════════════════════════════════ -->
+      ???????????????????????????????????????? -->
       <div id="tabAccount" class="tab-panel">
+
+        <!-- AI 계좌 잔고 상세 -->
+        <div class="section-block">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">AI 계좌 잔고</h2>
+              <div class="section-note">예수금·평가손익·총자산·현금비중을 실계좌 기준으로 표시합니다.</div>
+            </div>
+          </div>
+          <div class="account-grid" id="accountDetailGrid"></div>
+        </div>
 
         <div class="section-block">
           <div class="section-head">
             <div>
               <h2 class="section-title">실계좌 보유 종목 <span class="page-label">AI 계좌</span></h2>
-              <div class="section-note">실계좌 보유 CSV 기준 — RULE 계좌(44469102)와 완전히 분리된 AI 계좌(43510321) 데이터입니다.</div>
+              <div class="section-note">실계좌 보유 CSV 기준 ? RULE 계좌(44469102)와 완전히 분리된 AI 계좌(43510321) 데이터입니다.</div>
             </div>
           </div>
           <div class="table-wrap" id="holdingsWrap">
@@ -460,7 +493,7 @@
       <div class="state-line" id="pageState"></div>
     </div><!-- /live-page -->
 
-    <script src="./ops-unified-nav.js?v=20260513a"></script>
-    <script src="./live-auto-trading.js?v=20260508"></script>
+    <script src="./ops-unified-nav.js?v=20260518-nav-fix"></script>
+    <script src="./live-auto-trading.js?v=20260518-review-order"></script>
   </body>
 </html>

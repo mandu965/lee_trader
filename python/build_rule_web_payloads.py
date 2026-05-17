@@ -144,6 +144,7 @@ def normalize_rule_signal_row(row: dict[str, Any]) -> dict[str, Any]:
         "market_entry_allowed": to_bool(row.get("market_entry_allowed")),
         "rule_score": to_num(row.get("rule_score")),
         "rule_score_v2": to_num(row.get("rule_score_v2")),
+        "rule_score_v3": to_num(row.get("rule_score_v3")),
         "liquidity_score": to_num(row.get("liquidity_score")),
         "vol_20": to_num(row.get("vol_20")),
         "entry_signal": to_bool(row.get("entry_signal")),
@@ -215,11 +216,14 @@ def load_latest_rule_signals() -> tuple[str | None, list[dict[str, Any]]]:
                     "market_entry_allowed": not bool(item.get("market_defensive_mode")),
                     "rule_score": to_num(item.get("rule_score")),
                     "rule_score_v2": to_num(item.get("rule_score_v2")),
+                    "rule_score_v3": to_num(item.get("rule_score_v3")),
                     "liquidity_score": to_num(item.get("liquidity_score")),
                     "vol_20": to_num(item.get("vol_20")),
                     "entry_signal": bool(item.get("entry_signal")),
                     "strong_entry_signal": bool(item.get("strong_entry_signal")),
                     "signal_strength": item.get("signal_strength") or preview_item.get("signal_strength") or "none",
+                    "portfolio_action": item.get("portfolio_action"),
+                    "portfolio_action_reason": item.get("portfolio_action_reason"),
                     "strategy_id": portfolio.get("strategy_id") or preview.get("strategy_id"),
                     "engine_type": portfolio.get("engine_type") or preview.get("engine_type"),
                     "run_mode": portfolio.get("run_mode") or preview.get("run_mode"),
@@ -249,7 +253,7 @@ def load_latest_rule_signals() -> tuple[str | None, list[dict[str, Any]]]:
     items.sort(
         key=lambda item: (
             -(strength_rank.get(str(item.get("signal_strength") or "none"), 0)),
-            -(float(item.get("rule_score_v2") or 0)),
+            -(float(item.get("rule_score_v3") or item.get("rule_score_v2") or 0)),
             -(float(item.get("rule_score") or 0)),
         )
     )

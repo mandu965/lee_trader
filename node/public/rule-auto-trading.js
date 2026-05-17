@@ -14,9 +14,9 @@ const fmtPct = (v, digits = 2) => {
 const fmtWon = (v) => {
   const n = Number(v);
   if (!Number.isFinite(n)) return "-";
-  if (Math.abs(n) >= 1e8) return `${(n / 1e8).toFixed(1)}억`;
-  if (Math.abs(n) >= 1e4) return `${(n / 1e4).toFixed(0)}만`;
-  return n.toLocaleString("ko-KR");
+  const abs = Math.abs(n);
+  const sign = n < 0 ? "-" : n > 0 ? "+" : "";
+  return `${sign}${Math.round(abs).toLocaleString("ko-KR")}원`;
 };
 
 const esc = (v) =>
@@ -272,6 +272,34 @@ const scoreClass = (v) => {
   return "";
 };
 
+/* ── 포트폴리오 판단 사유 한국어 맵 ── */
+const portfolioReasonKo = {
+  strong_entry_selected:         "V3 최고점 선정",
+  entry_selected:                "Entry 선정",
+  max_positions_reached:         "포지션 한도",
+  cooldown_active:               "쿨다운",
+  cooldown:                      "쿨다운",
+  sector_limit:                  "섹터 한도",
+  cash_insufficient:             "현금 부족",
+  not_strong_entry_signal:       "강한 신호 미달",
+  held_and_hold_conditions_pass: "보유 유지",
+  held_and_exit_conditions_pass: "청산 예정",
+  stop_loss_exit:                "손절",
+  max_holding_days_exit:         "보유기간 초과",
+  trailing_stop_exit:            "트레일링 스탑",
+  profit_exit:                   "목표 수익",
+  order_qty_zero:                "주문수량 0",
+};
+
+function portfolioActionCell(action, reason) {
+  const chip = action ? actionChip(action) : `<span class="chip warn">미평가</span>`;
+  const reasonKo = portfolioReasonKo[reason] || reason || "";
+  const sub = reasonKo
+    ? `<div style="font-size:10px;color:var(--color-text-secondary);margin-top:3px;line-height:1.3;">${esc(reasonKo)}</div>`
+    : "";
+  return `${chip}${sub}`;
+}
+
 /* ── Strong / Entry 시그널 테이블 ── */
 function renderStrongSignals(items) {
   const tbody = document.getElementById("strongSignalsTbody");
@@ -289,10 +317,10 @@ function renderStrongSignals(items) {
         <td>${esc(item.name)}</td>
         <td title="${esc(item.sector || "")}">${esc(item.sector || "-")}</td>
         <td class="right ${scoreClass(item.rule_score)}">${fmtNum(item.rule_score, 2)}</td>
-        <td class="right ${scoreClass(item.rule_score_v2)}">${fmtNum(item.rule_score_v2, 2)}</td>
+        <td class="right ${scoreClass(item.rule_score_v3 ?? item.rule_score_v2)}">${fmtNum(item.rule_score_v3 ?? item.rule_score_v2, 2)}</td>
         <td class="right">${fmtNum(item.expected_entry_price)}</td>
         <td class="right ${signedClass(item.expected_gap)}">${fmtPct(item.expected_gap)}</td>
-        <td>${actionChip(item.portfolio_action || "hold")}</td>
+        <td>${portfolioActionCell(item.portfolio_action, item.portfolio_action_reason)}</td>
       </tr>
     `;
   }).join("");
@@ -315,7 +343,7 @@ function renderEntrySignals(items) {
         <td>${esc(item.name)}</td>
         <td title="${esc(item.sector || "")}">${esc(item.sector || "-")}</td>
         <td class="right ${scoreClass(item.rule_score)}">${fmtNum(item.rule_score, 2)}</td>
-        <td class="right ${scoreClass(item.rule_score_v2)}">${fmtNum(item.rule_score_v2, 2)}</td>
+        <td class="right ${scoreClass(item.rule_score_v3 ?? item.rule_score_v2)}">${fmtNum(item.rule_score_v3 ?? item.rule_score_v2, 2)}</td>
         <td class="right">${fmtWon(item.trading_value_ma_20)}</td>
         <td>${esc(blockText || "없음")}</td>
       </tr>
@@ -492,6 +520,153 @@ function renderPaperState(paperState) {
     : `<div class="empty">최근 거래 내역이 없습니다.</div>`;
 }
 
+/* ── 분석 탭: 점수 분포 ── */
+function renderScoreDistribution(signals) {
+  const el = document.getElementById("scoreDistPanel");
+  if (!el) return;
+  const items = Array.isArray(signals?.items) ? signals.items : [];
+  if (!items.length) {
+    el.innerHTML = `<div class="empty">시그널 데이터가 없습니다.</div>`;
+    return;
+  }
+  const sorted = [...items]
+    .filter((i) => i.rule_score_v3 != null || i.rule_score_v2 != null)
+    .sort((a, b) => (b.rule_score_v3 ?? b.rule_score_v2 ?? 0) - (a.rule_score_v3 ?? a.rule_score_v2 ?? 0))
+    .slice(0, 30);
+  if (!sorted.length) {
+    el.innerHTML = `<div class="empty">점수 데이터가 없습니다.</div>`;
+    return;
+  }
+  const max = Math.max(...sorted.map((i) => i.rule_score_v3 ?? i.rule_score_v2 ?? 0));
+  const rows = sorted.map((i) => {
+    const v3 = i.rule_score_v3 ?? i.rule_score_v2 ?? 0;
+    const sig = i.strong_entry_signal ? "Strong" : i.entry_signal ? "Entry" : "-";
+    const sigCls = i.strong_entry_signal ? "ok" : i.entry_signal ? "info" : "warn";
+    const barW = max > 0 ? Math.round((v3 / max) * 100) : 0;
+    const barColor = v3 >= 70 ? "#4ade80" : v3 >= 65 ? "#60a5fa" : "#94a3b8";
+    return `
+      <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(30,41,59,.5);">
+        <span style="width:70px;font-size:12px;font-family:monospace;">${esc(i.code)}</span>
+        <span style="width:80px;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(i.name || "")}</span>
+        <span class="chip ${sigCls}" style="width:52px;text-align:center;font-size:11px;">${sig}</span>
+        <div style="flex:1;background:rgba(255,255,255,.05);border-radius:3px;height:14px;overflow:hidden;">
+          <div style="width:${barW}%;height:100%;background:${barColor};border-radius:3px;"></div>
+        </div>
+        <span style="width:44px;text-align:right;font-size:13px;font-weight:700;">${fmtNum(v3, 1)}</span>
+      </div>`;
+  }).join("");
+  const legend = `<div style="display:flex;gap:16px;margin-bottom:12px;font-size:11px;color:var(--color-text-secondary);">
+    <span><span style="display:inline-block;width:10px;height:10px;background:#4ade80;border-radius:2px;margin-right:4px;"></span>Strong (≥70)</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:#60a5fa;border-radius:2px;margin-right:4px;"></span>Entry (65~70)</span>
+    <span><span style="display:inline-block;width:10px;height:10px;background:#94a3b8;border-radius:2px;margin-right:4px;"></span>미달 (&lt;65)</span>
+  </div>`;
+  el.innerHTML = legend + rows;
+}
+
+/* ── 분석 탭: 수급 추이 ── */
+function renderRuleFlowHistory(flowData, paperState) {
+  const el = document.getElementById("ruleFlowHistoryPanel");
+  if (!el) return;
+  const positions = Array.isArray(paperState?.positions) ? paperState.positions : [];
+  if (!positions.length) {
+    el.innerHTML = `<div class="empty">보유 종목이 없어 수급 데이터를 표시할 수 없습니다.</div>`;
+    return;
+  }
+  const byCode = flowData?.items || {};
+  const panels = positions.map((pos) => {
+    const rows = (byCode[pos.code] || []).slice(0, 10);
+    if (!rows.length) {
+      return `<div style="margin-bottom:16px;"><strong style="font-size:13px;">${esc(pos.code)} ${esc(pos.name || "")}</strong>
+        <div style="font-size:12px;color:var(--color-text-secondary);margin-top:4px;">수급 데이터 없음</div></div>`;
+    }
+    const maxAbs = Math.max(...rows.map((r) => Math.max(Math.abs(r.foreign_net || 0), Math.abs(r.inst_net || 0))), 1);
+    const fNet5 = rows.slice(0, 5).reduce((s, r) => s + (r.foreign_net || 0), 0);
+    const iNet5 = rows.slice(0, 5).reduce((s, r) => s + (r.inst_net || 0), 0);
+    const fmtShares = (v) => {
+      const n = Math.round(v || 0);
+      return (n >= 0 ? "+" : "") + n.toLocaleString("ko-KR");
+    };
+    const rowsHtml = rows.map((r) => {
+      const fW = Math.round((Math.abs(r.foreign_net || 0) / maxAbs) * 60);
+      const iW = Math.round((Math.abs(r.inst_net || 0) / maxAbs) * 60);
+      const fCol = (r.foreign_net || 0) >= 0 ? "#4ade80" : "#f87171";
+      const iCol = (r.inst_net || 0) >= 0 ? "#60a5fa" : "#fbbf24";
+      return `<div style="display:flex;align-items:center;gap:6px;padding:2px 0;font-size:11px;">
+        <span style="width:64px;color:var(--color-text-secondary);">${esc(r.date || "")}</span>
+        <span style="width:68px;text-align:right;">${fmtShares(r.foreign_net)}주</span>
+        <div style="width:${fW}px;height:8px;background:${fCol};border-radius:2px;"></div>
+        <span style="width:68px;text-align:right;">${fmtShares(r.inst_net)}주</span>
+        <div style="width:${iW}px;height:8px;background:${iCol};border-radius:2px;"></div>
+      </div>`;
+    }).join("");
+    return `<div style="margin-bottom:20px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+        <strong style="font-size:13px;">${esc(pos.code)} ${esc(pos.name || "")}</strong>
+        <span style="font-size:11px;color:var(--color-text-secondary);">
+          5일 외국인 <span style="${fNet5 >= 0 ? "color:#4ade80" : "color:#f87171"}">${fmtShares(fNet5)}주</span>
+          · 기관 <span style="${iNet5 >= 0 ? "color:#60a5fa" : "color:#fbbf24"}">${fmtShares(iNet5)}주</span>
+        </span>
+      </div>
+      <div style="font-size:10px;color:var(--color-text-secondary);margin-bottom:4px;">날짜 / 외국인(초록=매수·빨강=매도) / 기관(파랑=매수·노랑=매도) · 단위: 주(株)</div>
+      ${rowsHtml}
+    </div>`;
+  }).join("");
+  el.innerHTML = panels || `<div class="empty">수급 데이터가 없습니다.</div>`;
+}
+
+/* ── 분석 탭: 레짐 히스토리 ── */
+function renderRuleRegimeHistory(regimeData) {
+  const el = document.getElementById("ruleRegimeHistoryPanel");
+  if (!el) return;
+  const items = Array.isArray(regimeData?.items) ? regimeData.items : Array.isArray(regimeData) ? regimeData : [];
+  if (!items.length) {
+    el.innerHTML = `<div class="empty">레짐 히스토리 데이터가 없습니다.</div>`;
+    return;
+  }
+  const regimeColor = (r) => r === "RISK_ON" ? "#4ade80" : r === "RISK_OFF" ? "#f87171" : "#94a3b8";
+  const rows = items.slice(0, 30).map((r) => {
+    const col = regimeColor(r.macro_status);
+    return `<div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px solid rgba(30,41,59,.5);font-size:13px;">
+      <span style="width:90px;color:var(--color-text-secondary);">${esc(r.date)}</span>
+      <span style="font-weight:700;color:${col};">${esc(r.macro_status)}</span>
+      <span style="color:var(--color-text-secondary);font-size:11px;">${fmtNum(r.stock_count)}종목 적용</span>
+    </div>`;
+  }).join("");
+  el.innerHTML = rows;
+}
+
+/* ── 분석 탭: 백테스트 상세 ── */
+function renderBacktestDetail(summary) {
+  const el = document.getElementById("ruleBacktestDetailPanel");
+  if (!el) return;
+  const strong = summary?.backtest?.summary?.strong_entry_signal || {};
+  const entry  = summary?.backtest?.summary?.entry_signal || {};
+  const curve  = summary?.backtest?.portfolio_equity_curve?.strong_entry_signal || {};
+  const entryCurve = summary?.backtest?.portfolio_equity_curve?.entry_signal || {};
+
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;">
+      <div style="padding:12px 20px;border-right:1px solid var(--border);">
+        <div style="font-size:12px;font-weight:700;color:var(--color-text-secondary);margin-bottom:10px;letter-spacing:.05em;">ENTRY 신호</div>
+        <div class="kv-row"><span>D+20 평균수익</span><strong class="${signedClass(entry.avg_return_d20)}">${fmtPct(entry.avg_return_d20)}</strong></div>
+        <div class="kv-row"><span>D+20 승률</span><strong>${fmtPct(entry.win_rate_d20)}</strong></div>
+        <div class="kv-row"><span>거래건수</span><strong>${fmtNum(entry.trade_count)}</strong></div>
+        <div class="kv-row"><span>포트폴리오 최종수익</span><strong class="${signedClass(entryCurve.final_return_d20_portfolio_equity)}">${fmtPct(entryCurve.final_return_d20_portfolio_equity)}</strong></div>
+        <div class="kv-row"><span>포트폴리오 MDD</span><strong class="${signedClass(entryCurve.mdd_d20_portfolio_equity)}">${fmtPct(entryCurve.mdd_d20_portfolio_equity)}</strong></div>
+      </div>
+      <div style="padding:12px 20px;">
+        <div style="font-size:12px;font-weight:700;color:var(--color-text-secondary);margin-bottom:10px;letter-spacing:.05em;">STRONG 신호</div>
+        <div class="kv-row"><span>D+20 평균수익</span><strong class="${signedClass(strong.avg_return_d20)}">${fmtPct(strong.avg_return_d20)}</strong></div>
+        <div class="kv-row"><span>D+60 평균수익</span><strong class="${signedClass(strong.avg_return_d60)}">${fmtPct(strong.avg_return_d60)}</strong></div>
+        <div class="kv-row"><span>D+20 승률</span><strong>${fmtPct(strong.win_rate_d20)}</strong></div>
+        <div class="kv-row"><span>거래건수</span><strong>${fmtNum(strong.trade_count)}</strong></div>
+        <div class="kv-row"><span>포트폴리오 최종수익</span><strong class="${signedClass(curve.final_return_d20_portfolio_equity)}">${fmtPct(curve.final_return_d20_portfolio_equity)}</strong></div>
+        <div class="kv-row"><span>포트폴리오 MDD</span><strong class="${signedClass(curve.mdd_d20_portfolio_equity)}">${fmtPct(curve.mdd_d20_portfolio_equity)}</strong></div>
+      </div>
+    </div>
+  `;
+}
+
 /* ── 메인 로드 ── */
 async function loadRuleDashboard() {
   const bar = document.getElementById("statusBar");
@@ -521,7 +696,11 @@ async function loadRuleDashboard() {
       .slice(0, 10)
       .map((i) => {
         const plan = (portfolio.items || []).find((r) => r.code === i.code);
-        return { ...i, portfolio_action: plan?.portfolio_action || "hold" };
+        return {
+          ...i,
+          portfolio_action: plan?.portfolio_action ?? null,
+          portfolio_action_reason: plan?.portfolio_action_reason ?? null,
+        };
       });
     renderStrongSignals(strongItems);
     renderEntrySignals((signals.items || []).filter((i) => i.entry_signal).slice(0, 20));
@@ -529,6 +708,22 @@ async function loadRuleDashboard() {
     renderPreview(preview.items || []);
     renderExecution(executionResults);
     renderPaperState(paperState);
+
+    // 분석 탭
+    renderScoreDistribution(signals);
+    renderBacktestDetail(summary);
+
+    const holdingCodes = (paperState.positions || []).map((p) => p.code).join(",");
+    if (holdingCodes) {
+      fetchJson(`/api/flow-history?codes=${holdingCodes}&days=20`)
+        .then((flowData) => renderRuleFlowHistory(flowData, paperState))
+        .catch(() => renderRuleFlowHistory(null, paperState));
+    } else {
+      renderRuleFlowHistory(null, paperState);
+    }
+    fetchJson("/api/regime-history?days=30")
+      .then((regimeData) => renderRuleRegimeHistory(regimeData))
+      .catch(() => renderRuleRegimeHistory(null));
 
     const counts = summary.counts || {};
     const aborted = executionResults.order_run_aborted

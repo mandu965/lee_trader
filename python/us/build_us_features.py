@@ -13,6 +13,9 @@ from sqlalchemy import text
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from python.us.us_config import load_us_stock_config, parse_iso_date
 from python.us.us_db import fetch_active_tickers, fetch_price_history, get_us_engine, upsert_feature_rows
 
@@ -53,6 +56,27 @@ def _safe_flag(price: float | None, moving_average: float | None) -> str | None:
     return "Y" if float(price) > float(moving_average) else "N"
 
 
+def _compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0.0, float("nan"))
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
+def _compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
+    high = df["high_price"]
+    low = df["low_price"]
+    prev_close = df["base_price"].shift(1)
+    tr = pd.concat(
+        [(high - low), (high - prev_close).abs(), (low - prev_close).abs()],
+        axis=1,
+    ).max(axis=1)
+    return tr.rolling(window=period, min_periods=period).mean()
+
+
 def _compute_features(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["feature_date"] = pd.to_datetime(out["trade_date"]).dt.date
@@ -63,23 +87,66 @@ def _compute_features(df: pd.DataFrame) -> pd.DataFrame:
     out["volume_clean"] = pd.to_numeric(out["volume"], errors="coerce")
     out.loc[out["volume_clean"] < 0, "volume_clean"] = pd.NA
 
+    # Returns at multiple windows
+    out["ret_1d"] = out["base_price"].pct_change()
+    out["ret_3d"] = out["base_price"] / out["base_price"].shift(3) - 1.0
     out["ret_5d"] = out["base_price"] / out["base_price"].shift(5) - 1.0
     out["ret_10d"] = out["base_price"] / out["base_price"].shift(10) - 1.0
     out["ret_20d"] = out["base_price"] / out["base_price"].shift(20) - 1.0
     out["ret_60d"] = out["base_price"] / out["base_price"].shift(60) - 1.0
+    out["ret_252d"] = out["base_price"] / out["base_price"].shift(252) - 1.0
 
+    # Volume
     out["volume_avg_20d"] = out["volume_clean"].rolling(window=20, min_periods=20).mean()
-    out["daily_ret_1d"] = out["base_price"].pct_change()
+    out["volume_ratio_20d"] = out["volume_clean"] / out["volume_avg_20d"]
+
+    # Volatility
+    out["daily_ret_1d"] = out["ret_1d"]
     out["volatility_20d"] = out["daily_ret_1d"].rolling(window=20, min_periods=20).std()
+
+    # Moving averages
     out["ma_20"] = out["base_price"].rolling(window=20, min_periods=20).mean()
     out["ma_60"] = out["base_price"].rolling(window=60, min_periods=60).mean()
+    out["ma_200"] = out["base_price"].rolling(window=200, min_periods=120).mean()
+    out["price_vs_ma200"] = out["base_price"] / out["ma_200"]
+
+    # MA flags
     out["price_above_ma20_flag"] = [
         _safe_flag(price, ma) for price, ma in zip(out["base_price"], out["ma_20"], strict=False)
     ]
     out["price_above_ma60_flag"] = [
         _safe_flag(price, ma) for price, ma in zip(out["base_price"], out["ma_60"], strict=False)
     ]
+
+    # RSI (Wilder smoothing)
+    out["rsi_14"] = _compute_rsi(out["base_price"], period=14)
+
+    # ATR normalized by price
+    atr_14 = _compute_atr(out, period=14)
+    out["atr_14_norm"] = atr_14 / out["base_price"]
+
+    # Bollinger Band %B position (0 = lower band, 1 = upper band)
+    std_20 = out["base_price"].rolling(window=20, min_periods=20).std()
+    bb_upper = out["ma_20"] + 2.0 * std_20
+    bb_lower = out["ma_20"] - 2.0 * std_20
+    bb_range = (bb_upper - bb_lower).where((bb_upper - bb_lower) > 0)
+    out["bb_position"] = (out["base_price"] - bb_lower) / bb_range
+
+    # 52-week high ratio (where is price relative to 1-year high)
+    out["high_52w"] = out["base_price"].rolling(window=252, min_periods=60).max()
+    out["high_52w_ratio"] = out["base_price"] / out["high_52w"]
+
     return out
+
+
+def _safe_float(val: object) -> float | None:
+    if val is None:
+        return None
+    try:
+        f = float(val)  # type: ignore[arg-type]
+        return None if pd.isna(f) else f
+    except (TypeError, ValueError):
+        return None
 
 
 def _frame_to_feature_rows(df: pd.DataFrame, *, ticker: str, start_date: date | None, end_date: date | None) -> list[dict[str, object]]:
@@ -98,16 +165,33 @@ def _frame_to_feature_rows(df: pd.DataFrame, *, ticker: str, start_date: date | 
             {
                 "feature_date": row.feature_date,
                 "ticker": ticker,
-                "ret_5d": None if pd.isna(row.ret_5d) else float(row.ret_5d),
-                "ret_10d": None if pd.isna(row.ret_10d) else float(row.ret_10d),
-                "ret_20d": None if pd.isna(row.ret_20d) else float(row.ret_20d),
-                "ret_60d": None if pd.isna(row.ret_60d) else float(row.ret_60d),
-                "volume_avg_20d": None if pd.isna(row.volume_avg_20d) else float(row.volume_avg_20d),
-                "volatility_20d": None if pd.isna(row.volatility_20d) else float(row.volatility_20d),
-                "ma_20": None if pd.isna(row.ma_20) else float(row.ma_20),
-                "ma_60": None if pd.isna(row.ma_60) else float(row.ma_60),
+                # Returns
+                "ret_1d": _safe_float(row.ret_1d),
+                "ret_3d": _safe_float(row.ret_3d),
+                "ret_5d": _safe_float(row.ret_5d),
+                "ret_10d": _safe_float(row.ret_10d),
+                "ret_20d": _safe_float(row.ret_20d),
+                "ret_60d": _safe_float(row.ret_60d),
+                "ret_252d": _safe_float(row.ret_252d),
+                # Volume
+                "volume_avg_20d": _safe_float(row.volume_avg_20d),
+                "volume_ratio_20d": _safe_float(row.volume_ratio_20d),
+                # Volatility
+                "volatility_20d": _safe_float(row.volatility_20d),
+                # Moving averages
+                "ma_20": _safe_float(row.ma_20),
+                "ma_60": _safe_float(row.ma_60),
+                "ma_200": _safe_float(row.ma_200),
+                "price_vs_ma200": _safe_float(row.price_vs_ma200),
+                # MA flags
                 "price_above_ma20_flag": row.price_above_ma20_flag,
                 "price_above_ma60_flag": row.price_above_ma60_flag,
+                # Oscillators
+                "rsi_14": _safe_float(row.rsi_14),
+                "atr_14_norm": _safe_float(row.atr_14_norm),
+                "bb_position": _safe_float(row.bb_position),
+                # 52-week
+                "high_52w_ratio": _safe_float(row.high_52w_ratio),
             }
         )
     return rows

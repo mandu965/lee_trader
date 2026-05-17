@@ -4,7 +4,10 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 require("dotenv").config();
-const { Pool } = require("pg");
+const { Pool, types: pgTypes } = require("pg");
+// pg converts DATE columns to JS Date objects using local timezone, causing off-by-one in KST.
+// Returning raw date strings preserves the correct calendar date.
+pgTypes.setTypeParser(1082, (val) => val);
 const operatorAccess = require("./operatorAccess");
 
 const app = express();
@@ -491,7 +494,7 @@ function injectBodySnippet(html, snippet) {
   return html.replace("</body>", `${snippet}\n</body>`);
 }
 
-function renderOpsUnifiedNavSnippet(fileName) {
+function renderOpsUnifiedNavSnippet(fileName, html = "") {
   const targets = new Set([
     "index.html",
     "ranking.html",
@@ -507,7 +510,20 @@ function renderOpsUnifiedNavSnippet(fileName) {
     "rule-auto-trading.html",
     "detail.html",
   ]);
+  const selfManagedTargets = new Set([
+    "index.html",
+    "ranking.html",
+    "meaningfulness.html",
+    "ops-readiness.html",
+    "manual-trading.html",
+    "paper-trading.html",
+    "live-auto-trading.html",
+    "rule-auto-trading.html",
+    "detail.html",
+  ]);
   if (!targets.has(fileName)) return "";
+  if (selfManagedTargets.has(fileName)) return "";
+  if (String(html).includes("ops-unified-nav.js")) return "";
   return '<script src="/ops-unified-nav.js?v=20260505-operator-nav-v2"></script>';
 }
 
@@ -3209,7 +3225,7 @@ async function readAutoTradingOpsStatusPayload() {
 }
 
 async function readAllSchedulerStatuses() {
-  const [close, intraday, autoBuy, liveSync, ruleBefore, ruleAfter, ruleAfterClose, usMacro, usMacroShadow] = await Promise.all([
+  const [close, intraday, autoBuy, liveSync, ruleBefore, ruleAfter, ruleAfterClose, usMacro, usMacroShadow, usPipeline] = await Promise.all([
     readJsonPayloadDbFirst("auto_ops_scheduler_status",                [path.join(OUTPUTS_DIR, "auto_ops_scheduler_status.json")]),
     readJsonPayloadDbFirst("auto_ops_recovery_scheduler_status",        [path.join(OUTPUTS_DIR, "auto_ops_recovery_scheduler_status.json")]),
     readJsonPayloadDbFirst("auto_ops_auto_buy_scheduler_status",        [path.join(OUTPUTS_DIR, "auto_ops_auto_buy_scheduler_status.json")]),
@@ -3219,6 +3235,7 @@ async function readAllSchedulerStatuses() {
     readJsonPayloadDbFirst("rule_after_close_scheduler_status",         [path.join(OUTPUTS_DIR, "rule_after_close_scheduler_status.json")]),
     readJsonPayloadDbFirst("us_macro_scheduler_status",                 [path.join(OUTPUTS_DIR, "us_macro_scheduler_status.json")]),
     readJsonPayloadDbFirst("us_macro_shadow_scheduler_status",          [path.join(OUTPUTS_DIR, "us_macro_shadow_scheduler_status.json")]),
+    readJsonPayloadDbFirst("us_pipeline_scheduler_status",              [path.join(OUTPUTS_DIR, "us_pipeline_scheduler_status.json")]),
   ]);
   return {
     close_scheduler:              close,
@@ -3230,6 +3247,7 @@ async function readAllSchedulerStatuses() {
     rule_after_close_scheduler:   ruleAfterClose,
     us_macro_scheduler:           usMacro,
     us_macro_shadow_scheduler:    usMacroShadow,
+    us_pipeline_scheduler:        usPipeline,
   };
 }
 
@@ -3842,6 +3860,8 @@ async function getFeatureStatsForCodes(codes) {
   if (!codes || !codes.length) {
     return {
       latestClose: new Map(),
+      prevClose: new Map(),
+      change1d: new Map(),
       ret3m: new Map(),
       ret5d: new Map(),
       ret10d: new Map(),
@@ -3850,6 +3870,8 @@ async function getFeatureStatsForCodes(codes) {
     };
   }
   const latestClose = new Map();
+  const prevClose = new Map();
+  const change1d = new Map();
   const ret3m = new Map();
   const ret5d = new Map();
   const ret10d = new Map();
@@ -3874,13 +3896,14 @@ async function getFeatureStatsForCodes(codes) {
       SELECT
         code,
         MAX(CASE WHEN rn = 1 THEN close END) AS latest_close,
+        MAX(CASE WHEN rn = 2 THEN close END) AS prev_day_close,
         MAX(CASE WHEN rn = 60 THEN close END) AS close_60,
         MAX(CASE WHEN rn = 1 THEN ret_5d END) AS ret_5d,
         MAX(CASE WHEN rn = 1 THEN ret_10d END) AS ret_10d,
         MAX(CASE WHEN rn = 1 THEN mom_20 END) AS mom_20,
         MAX(CASE WHEN rn = 1 THEN rsi_14 END) AS rsi_14
       FROM ranked
-      WHERE rn IN (1, 60)
+      WHERE rn IN (1, 2, 60)
       GROUP BY code
       `,
       [codes]
@@ -3889,19 +3912,27 @@ async function getFeatureStatsForCodes(codes) {
     for (const row of rows) {
       const code = row.code;
       const lastClose = toNum(row.latest_close);
-      const prevClose = toNum(row.close_60);
+      const prevDayClose = toNum(row.prev_day_close);
+      const close60 = toNum(row.close_60);
       if (code) latestClose.set(code, lastClose);
       if (code) ret5d.set(code, toNum(row.ret_5d));
       if (code) ret10d.set(code, toNum(row.ret_10d));
       if (code) mom20.set(code, toNum(row.mom_20));
       if (code) rsi14.set(code, toNum(row.rsi_14));
-      if (Number.isFinite(prevClose) && Number.isFinite(lastClose) && prevClose !== 0) {
-        ret3m.set(code, lastClose / prevClose - 1);
+      if (Number.isFinite(prevDayClose) && Number.isFinite(lastClose) && prevDayClose !== 0) {
+        prevClose.set(code, prevDayClose);
+        change1d.set(code, lastClose / prevDayClose - 1);
+      } else {
+        prevClose.set(code, null);
+        change1d.set(code, null);
+      }
+      if (Number.isFinite(close60) && Number.isFinite(lastClose) && close60 !== 0) {
+        ret3m.set(code, lastClose / close60 - 1);
       } else if (code) {
         ret3m.set(code, null);
       }
     }
-    return { latestClose, ret3m, ret5d, ret10d, mom20, rsi14 };
+    return { latestClose, prevClose, change1d, ret3m, ret5d, ret10d, mom20, rsi14 };
   } catch (e) {
     console.warn("[feature-stats] DB load fail:", e.message);
   }
@@ -4589,7 +4620,7 @@ function sendPublicPage(res, fileName) {
     const html = applyPublicPageMeta(fs.readFileSync(filePath, "utf-8"), res.req?.path || "/");
     const withHead = injectHeadSnippet(html, renderAnalyticsHeadSnippet());
     res.set("Cache-Control", "no-cache");
-    return res.type("html").send(injectBodySnippet(withHead, renderOpsUnifiedNavSnippet(fileName)));
+    return res.type("html").send(injectBodySnippet(withHead, renderOpsUnifiedNavSnippet(fileName, withHead)));
   } catch (e) {
     console.error("sendPublicPage error", fileName, e);
     return res.sendFile(filePath);
@@ -5208,6 +5239,11 @@ app.get("/api/stocks/:code", async (req, res) => {
       volume: toNum(r.volume),
     }));
     const latest = rows[rows.length - 1];
+    const prevDay = rows.length >= 2 ? rows[rows.length - 2] : null;
+    const change1dDetail =
+      prevDay && Number.isFinite(latest?.close) && Number.isFinite(prevDay?.close) && prevDay.close !== 0
+        ? latest.close / prevDay.close - 1
+        : null;
 
     const pred = (
       await queryRows(
@@ -5221,6 +5257,11 @@ app.get("/api/stocks/:code", async (req, res) => {
         [code]
       )
     )[0];
+    const rankingCsvRows = readCsv(path.join(DATA_DIR, "ranking_final.csv")) || [];
+    const rankFallback = rankingCsvRows
+      .filter((row) => String(row?.code || "").trim() === code)
+      .sort((a, b) => String(a?.date || "").localeCompare(String(b?.date || "")))
+      .slice(-1)[0] || null;
     const stockRow = (
       await queryRows(
         "SELECT code, name, market, sector FROM stocks WHERE code = $1 LIMIT 1",
@@ -5246,9 +5287,26 @@ app.get("/api/stocks/:code", async (req, res) => {
       null;
     const resolvedSector =
       (typeof rank?.sector === "string" && rank.sector.trim()) ||
+      (typeof rankFallback?.sector === "string" && rankFallback.sector.trim()) ||
       (typeof stockRow?.sector === "string" && stockRow.sector.trim()) ||
       (typeof dailySecurity.sector === "string" && dailySecurity.sector.trim()) ||
       (typeof getSector(code) === "string" && getSector(code).trim()) ||
+      null;
+    const resolvedRegime =
+      (typeof rank?.regime === "string" && rank.regime.trim()) ||
+      (typeof rankFallback?.regime === "string" && rankFallback.regime.trim()) ||
+      null;
+    const resolvedExplainText =
+      (typeof rank?.explain_text === "string" && rank.explain_text.trim()) ||
+      (typeof rankFallback?.explain_text === "string" && rankFallback.explain_text.trim()) ||
+      null;
+    const resolvedTopPositiveFactor =
+      (typeof rank?.top_positive_factor === "string" && rank.top_positive_factor.trim()) ||
+      (typeof rankFallback?.top_positive_factor === "string" && rankFallback.top_positive_factor.trim()) ||
+      null;
+    const resolvedTopNegativeFactor =
+      (typeof rank?.top_negative_factor === "string" && rank.top_negative_factor.trim()) ||
+      (typeof rankFallback?.top_negative_factor === "string" && rankFallback.top_negative_factor.trim()) ||
       null;
 
     res.json({
@@ -5258,6 +5316,7 @@ app.get("/api/stocks/:code", async (req, res) => {
       sector: resolvedSector,
       count: rows.length,
       latest,
+      change_1d: change1dDetail,
       volatility_20: latest ? toNum(latest.vol_20) : null,
       pred_return_60d: pred ? toNum(pred.pred_return_60d) : null,
       pred_return_90d: pred ? toNum(pred.pred_return_90d) : null,
@@ -5272,7 +5331,7 @@ app.get("/api/stocks/:code", async (req, res) => {
       pred_mdd_mix: rank ? toNum(rank.pred_mdd_mix) : null,
       prob_top20_60d: rank ? toNum(rank.prob_top20_60d) : null,
       prob_top20_90d: rank ? toNum(rank.prob_top20_90d) : null,
-      regime: rank ? (rank.regime || null) : null,
+      regime: resolvedRegime,
       live_rank: rank ? getLiveRank(rank) : null,
       live_score: rank ? getLiveScore(rank) : null,
       live_score_source: rank ? getLiveScoreSource(rank) : null,
@@ -5287,7 +5346,7 @@ app.get("/api/stocks/:code", async (req, res) => {
           : null,
       confidence_score: rank ? getConfidenceScore(rank) : null,
       confidence_grade: rank ? getConfidenceLabel(rank) : null,
-      explain_text: rank ? (rank.explain_text || null) : null,
+      explain_text: resolvedExplainText,
       confidence_explain_text: rank ? getConfidenceExplainText(rank) : null,
       flow_score: rank ? toNum(rank.flow_score) : null,
       contrib_flow: rank ? toNum(rank.contrib_flow) : null,
@@ -5301,9 +5360,9 @@ app.get("/api/stocks/:code", async (req, res) => {
       contrib_safety: rank ? toNum(rank.contrib_safety) : null,
       contrib_liquidity: rank ? toNum(rank.contrib_liquidity) : null,
       contrib_penalty: rank ? toNum(rank.contrib_penalty) : null,
-      top_positive_factor: rank ? (rank.top_positive_factor || null) : null,
+      top_positive_factor: resolvedTopPositiveFactor,
       top_positive_value: rank ? toNum(rank.top_positive_value) : null,
-      top_negative_factor: rank ? (rank.top_negative_factor || null) : null,
+      top_negative_factor: resolvedTopNegativeFactor,
       top_negative_value: rank ? toNum(rank.top_negative_value) : null,
       buy_eligibility_status: buyEligibility.status || null,
       buy_eligibility_score: toNum(buyEligibility.score),
@@ -5331,7 +5390,7 @@ app.get("/api/ranking", async (req, res) => {
     const { date, rows } = rankingRes;
 
     const codes = rows.map((r) => r.code);
-    const { latestClose, ret3m, ret5d, ret10d, mom20, rsi14 } = await getFeatureStatsForCodes(codes);
+    const { latestClose, prevClose, change1d, ret3m, ret5d, ret10d, mom20, rsi14 } = await getFeatureStatsForCodes(codes);
 
     let marketUp = true;
     if (rows.length && rows[0].market_up !== undefined) {
@@ -5358,6 +5417,7 @@ app.get("/api/ranking", async (req, res) => {
         market: ((r.market && r.market.trim()) || getMarket(code) || "").toUpperCase(),
         sector: (r.sector && r.sector.trim()) || getSector(code) || null,
         close: latestClose.get(code) ?? toNum(r.close),
+        change_1d: change1d.get(code) ?? null,
         ret_3m: ret3m.get(code) ?? null,
         pred_return_60d: toNum(r.pred_return_60d),
         pred_return_90d: toNum(r.pred_return_90d),
@@ -6825,6 +6885,34 @@ app.get("/api/trade-intents", async (req, res) => {
     if (!payload) {
       return res.status(404).json({ error: "trade intents not found" });
     }
+    if (String(payload.gate_status || "").toUpperCase() === "BLOCK") {
+      try {
+        const raw = fs.readFileSync(path.join(SERVING_DIR, "buy_gate_status.json"), "utf-8");
+        const gateJson = JSON.parse(raw.replace(/\bNaN\b/g, "null").replace(/\bInfinity\b/g, "null").replace(/-null\b/g, "null"));
+        const dec = Array.isArray(gateJson?.decisions) ? gateJson.decisions[0] : null;
+        if (dec) {
+          const bmd = dec.benchmark_diagnostics || {};
+          const wfd = dec.walkforward_acceptance_diagnostics || {};
+          const mrd = dec.market_regime_diagnostics || {};
+          const reasons = [];
+          if (bmd.avg_excess_return_kospi != null) {
+            const excessPct = (bmd.avg_excess_return_kospi * 100).toFixed(1);
+            const direction = bmd.avg_excess_return_kospi >= 0 ? "상회" : "하회";
+            const absPct = Math.abs(bmd.avg_excess_return_kospi * 100).toFixed(1);
+            reasons.push(`AI 종목 수익률이 KOSPI를 ${absPct}%p ${direction} (${bmd.matured_dates_max ?? "-"}일 기준)`);
+          }
+          if (wfd.status === "REJECTED") {
+            reasons.push("워크포워드 REJECTED — 실거래 검증 데이터 부족 (5/28 이후 개선 예상)");
+          }
+          if (mrd.regime) {
+            const breadthStr = mrd.breadth_20d != null ? ` breadth ${(mrd.breadth_20d * 100).toFixed(0)}%` : "";
+            const volStr = mrd.volatility_risk_flag ? " · 변동성 플래그" : "";
+            reasons.push(`레짐 ${mrd.regime}${breadthStr}${volStr}`);
+          }
+          if (reasons.length) payload.gate_block_reasons_ko = reasons;
+        }
+      } catch {}
+    }
     res.json(payload);
   } catch (e) {
     console.error("GET /api/trade-intents error", e);
@@ -7026,7 +7114,7 @@ app.get("/api/auto-trading/runtime-status", async (req, res) => {
         generated_at: policyPayload.generated_at || null,
       } : envPolicy),
     };
-    if (!payload.close_scheduler && !payload.intraday_scheduler && !payload.auto_buy_scheduler && !payload.live_account_sync_scheduler && !payload.rule_before_open_scheduler && !payload.us_macro_scheduler && !Object.keys(payload.operations || {}).length) {
+    if (!payload.close_scheduler && !payload.intraday_scheduler && !payload.auto_buy_scheduler && !payload.live_account_sync_scheduler && !payload.rule_before_open_scheduler && !payload.us_macro_scheduler && !payload.us_pipeline_scheduler && !Object.keys(payload.operations || {}).length) {
       return res.status(404).json({ error: "auto trading runtime status not found" });
     }
     res.json(payload);
@@ -7056,6 +7144,86 @@ app.get("/api/trading-policy", async (req, res) => {
   }
 });
 
+// ── Analysis tab APIs ────────────────────────────────────────────
+app.get("/api/model-feature-importance", async (req, res) => {
+  try {
+    const payload = await readJsonPayloadDbFirst("model_feature_importance", [
+      path.join(DATA_DIR, "model_feature_importance.json"),
+    ]);
+    if (!payload) return res.status(404).json({ error: "feature importance not found" });
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/model-feature-importance error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/flow-history", async (req, res) => {
+  try {
+    const codesParam = String(req.query.codes || "");
+    const days = Math.min(Math.max(parseInt(req.query.days || "20", 10), 5), 60);
+    const codes = codesParam ? codesParam.split(",").map((c) => c.trim()).filter(Boolean) : [];
+    if (!codes.length) return res.json({ items: {} });
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days * 2);
+    const startDateStr = startDate.toISOString().slice(0, 10);
+    const sql = `
+      SELECT code, date,
+        SUM(CASE WHEN investor_type = 'foreign' THEN net_buy_amount ELSE 0 END) AS foreign_net,
+        SUM(CASE WHEN investor_type = 'institution' THEN net_buy_amount ELSE 0 END) AS inst_net
+      FROM public.flow_daily
+      WHERE date >= $1
+        AND code = ANY($2::text[])
+      GROUP BY code, date
+      ORDER BY code, date DESC
+    `;
+    const result = await pool.query(sql, [startDateStr, codes]);
+    const byCode = {};
+    for (const row of result.rows) {
+      const code = row.code;
+      if (!byCode[code]) byCode[code] = [];
+      if (byCode[code].length < days) {
+        byCode[code].push({
+          date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date),
+          foreign_net: Number(row.foreign_net ?? 0),
+          inst_net: Number(row.inst_net ?? 0),
+        });
+      }
+    }
+    res.json({ items: byCode });
+  } catch (e) {
+    console.error("GET /api/flow-history error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/regime-history", async (req, res) => {
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days || "30", 10), 5), 90);
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startDateStr = startDate.toISOString().slice(0, 10);
+    const sql = `
+      SELECT TO_CHAR(kr_apply_date, 'YYYY-MM-DD') AS date, macro_status, COUNT(*) AS stock_count
+      FROM signal.kr_macro_overlay_log
+      WHERE kr_apply_date >= $1::date
+      GROUP BY kr_apply_date, macro_status
+      ORDER BY kr_apply_date DESC
+    `;
+    const result = await pool.query(sql, [startDateStr]);
+    const items = result.rows.map((row) => ({
+      date: String(row.date),
+      macro_status: row.macro_status,
+      stock_count: Number(row.stock_count),
+    }));
+    res.json({ items });
+  } catch (e) {
+    console.error("GET /api/regime-history error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 app.get("/api/ops-readiness", operatorAccess.apiGuard, async (req, res) => {
   try {
     const payload = await buildOpsReadinessSummary();
@@ -7079,6 +7247,352 @@ app.get("/api/analytics/summary", operatorAccess.apiGuard, async (req, res) => {
 // Debug data dir
 app.get("/api/debug/data-dir", (req, res) => {
   res.json({ DATA_DIR });
+});
+
+// =============================================================================
+// US Stock Module APIs
+// =============================================================================
+
+app.get("/us-ranking", (req, res) => sendPublicPage(res, "us-ranking.html"));
+
+app.get("/api/us/ranking", async (req, res) => {
+  try {
+    const dateParam = (req.query.date || "").trim() || null;
+    const gradeParam = (req.query.grade || "").trim().toUpperCase() || null;
+    const sectorParam = (req.query.sector || "").trim() || null;
+    const topN = Math.min(Math.max(parseInt(req.query.top_n || "50", 10), 1), 200);
+
+    let tradeDateSql;
+    let params;
+    if (dateParam) {
+      tradeDateSql = "$1::date";
+      params = [dateParam];
+    } else {
+      tradeDateSql = "(SELECT MAX(trade_date) FROM recommend.us_stock_rank_daily)";
+      params = [];
+    }
+
+    const gradeClause = gradeParam ? ` AND recommend_grade = $${params.length + 1}` : "";
+    if (gradeParam) params.push(gradeParam);
+
+    const sectorClause = sectorParam ? ` AND sector = $${params.length + 1}` : "";
+    if (sectorParam) params.push(sectorParam);
+
+    const sql = `
+      SELECT
+        TO_CHAR(trade_date, 'YYYY-MM-DD') AS trade_date,
+        symbol,
+        rank_no,
+        recommend_grade,
+        total_score,
+        momentum_score,
+        relative_strength_score,
+        fundamental_score,
+        growth_score,
+        valuation_score,
+        risk_score,
+        feature_quality_score,
+        universe_group,
+        company_name,
+        sector,
+        industry,
+        market_cap,
+        avg_volume,
+        COALESCE(is_etf, false) AS is_etf,
+        data_status,
+        exclude_reason,
+        reason_summary,
+        score_detail_json,
+        source
+      FROM recommend.us_stock_rank_daily
+      WHERE trade_date = ${tradeDateSql}
+        AND COALESCE(is_etf, false) = false
+        ${gradeClause}
+        ${sectorClause}
+      ORDER BY rank_no ASC NULLS LAST, total_score DESC NULLS LAST
+      LIMIT $${params.length + 1}
+    `;
+    params.push(topN);
+
+    const result = await pool.query(sql, params);
+    if (!result.rows.length) {
+      return res.status(404).json({ error: "US ranking data not found. Run calculate_us_stock_rule_scores.py first." });
+    }
+
+    const tradeDate = result.rows[0].trade_date;
+    const rows = result.rows.map((r) => ({
+      trade_date: r.trade_date,
+      symbol: r.symbol,
+      rank_no: r.rank_no,
+      grade: r.recommend_grade,
+      total_score: r.total_score != null ? Number(r.total_score) : null,
+      momentum_score: r.momentum_score != null ? Number(r.momentum_score) : null,
+      rs_score: r.relative_strength_score != null ? Number(r.relative_strength_score) : null,
+      fundamental_score: r.fundamental_score != null ? Number(r.fundamental_score) : null,
+      growth_score: r.growth_score != null ? Number(r.growth_score) : null,
+      valuation_score: r.valuation_score != null ? Number(r.valuation_score) : null,
+      risk_score: r.risk_score != null ? Number(r.risk_score) : null,
+      feature_quality_score: r.feature_quality_score != null ? Number(r.feature_quality_score) : null,
+      company_name: r.company_name || r.symbol,
+      sector: r.sector || null,
+      industry: r.industry || null,
+      market_cap: r.market_cap != null ? Number(r.market_cap) : null,
+      avg_volume: r.avg_volume != null ? Number(r.avg_volume) : null,
+      data_status: r.data_status || null,
+      exclude_reason: r.exclude_reason || null,
+      reason_summary: r.reason_summary || null,
+      score_detail: r.score_detail_json || null,
+    }));
+
+    const gradeCounts = {};
+    rows.forEach((r) => { gradeCounts[r.grade] = (gradeCounts[r.grade] || 0) + 1; });
+    const totalCountResult = await pool.query(
+      `SELECT COUNT(*) FROM recommend.us_stock_rank_daily WHERE trade_date = $1 AND COALESCE(is_etf, false) = false`,
+      [tradeDate]
+    );
+    const totalCount = Number(totalCountResult.rows[0].count);
+
+    res.json({
+      trade_date: tradeDate,
+      total_count: totalCount,
+      returned_count: rows.length,
+      grade_counts: gradeCounts,
+      rows,
+    });
+  } catch (e) {
+    console.error("GET /api/us/ranking error", e);
+    res.status(500).json({ error: "internal error", detail: String(e) });
+  }
+});
+
+app.get("/api/us/ranking/dates", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT TO_CHAR(trade_date, 'YYYY-MM-DD') AS trade_date
+       FROM recommend.us_stock_rank_daily
+       ORDER BY trade_date DESC LIMIT 30`
+    );
+    res.json({ dates: result.rows.map((r) => r.trade_date) });
+  } catch (e) {
+    console.error("GET /api/us/ranking/dates error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/us/ranking/sectors", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT sector FROM recommend.us_stock_rank_daily
+       WHERE sector IS NOT NULL AND sector <> ''
+       ORDER BY sector`
+    );
+    res.json({ sectors: result.rows.map((r) => r.sector) });
+  } catch (e) {
+    console.error("GET /api/us/ranking/sectors error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+// =============================================================================
+// US Trading (Paper) — 자동매매 현황
+// =============================================================================
+
+app.get("/us-trading", (req, res) => sendPublicPage(res, "us-trading.html"));
+
+// 요약: 오늘 결론, 모드, 포지션 수, 최근 손익
+app.get("/api/us/trading/summary", async (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const dateParam = (req.query.date || "").trim() || null;
+
+    // 최신 buy decision 날짜
+    const latestDateRow = await pool.query(
+      `SELECT MAX(trade_date)::text AS trade_date FROM trade.us_buy_decision_log`
+    ).catch(() => ({ rows: [{ trade_date: null }] }));
+    const tradeDate = dateParam || latestDateRow.rows[0]?.trade_date || null;
+
+    // 오늘 결론 집계
+    const decisionRow = await pool.query(
+      `SELECT
+        COUNT(*) FILTER (WHERE decision IN ('ALLOW', 'ALLOWED'))  AS allowed,
+        COUNT(*) FILTER (WHERE decision IN ('BLOCK', 'BLOCKED'))  AS blocked,
+        COUNT(*) AS total,
+        automation_mode
+       FROM trade.us_buy_decision_log
+       WHERE trade_date = $1
+       GROUP BY automation_mode
+       ORDER BY COUNT(*) DESC LIMIT 1`,
+      [tradeDate]
+    ).catch(() => ({ rows: [] }));
+
+    const sellRow = await pool.query(
+      `SELECT
+        COUNT(*) FILTER (WHERE decision IN ('FULL_SELL','PARTIAL_SELL')) AS sell_count,
+        COUNT(*) FILTER (WHERE decision = 'HOLD') AS hold_count
+       FROM trade.us_sell_decision_log
+       WHERE trade_date = $1`,
+      [tradeDate]
+    ).catch(() => ({ rows: [{ sell_count: 0, hold_count: 0 }] }));
+
+    // 현재 오픈 포지션
+    const posRow = await pool.query(
+      `SELECT COUNT(*) AS open_positions,
+        SUM(unrealized_pnl) AS total_unrealized_pnl
+       FROM trade.us_paper_position_snapshot
+       WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM trade.us_paper_position_snapshot)
+         AND status = 'OPEN'`
+    ).catch(() => ({ rows: [{ open_positions: 0, total_unrealized_pnl: 0 }] }));
+
+    // 최근 7일 실현 손익
+    const weekPnlRow = await pool.query(
+      `SELECT COALESCE(SUM(realized_paper_pnl), 0) AS week_pnl
+       FROM trade.us_sell_decision_log
+       WHERE trade_date >= (CURRENT_DATE - INTERVAL '7 days')
+         AND decision IN ('FULL_SELL','PARTIAL_SELL')`,
+    ).catch(() => ({ rows: [{ week_pnl: 0 }] }));
+
+    const dec = decisionRow.rows[0] || {};
+    const sell = sellRow.rows[0] || {};
+    const pos = posRow.rows[0] || {};
+    const mode = dec.automation_mode || "PAPER";
+
+    res.json({
+      trade_date: tradeDate,
+      mode,
+      allowed_count: Number(dec.allowed || 0),
+      blocked_count: Number(dec.blocked || 0),
+      total_decisions: Number(dec.total || 0),
+      sell_count: Number(sell.sell_count || 0),
+      hold_count: Number(sell.hold_count || 0),
+      open_positions: Number(pos.open_positions || 0),
+      total_unrealized_pnl_usd: Number(pos.total_unrealized_pnl || 0),
+      week_pnl_usd: Number(weekPnlRow.rows[0]?.week_pnl || 0),
+      generated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.error("GET /api/us/trading/summary error", e);
+    res.status(500).json({ error: "internal error", detail: String(e) });
+  }
+});
+
+// 매수 결정 목록
+app.get("/api/us/trading/decisions/buy", async (req, res) => {
+  try {
+    const dateParam = (req.query.date || "").trim() || null;
+    const tradeDate = dateParam || (await pool.query(
+      `SELECT MAX(trade_date)::text AS d FROM trade.us_buy_decision_log`
+    ).then(r => r.rows[0]?.d).catch(() => null));
+
+    if (!tradeDate) {
+      return res.json({ trade_date: null, rows: [] });
+    }
+
+    const result = await pool.query(
+      `SELECT
+        d.symbol,
+        COALESCE(r.company_name, d.symbol) AS company_name,
+        r.sector,
+        d.rank_no, d.recommend_grade,
+        d.total_score, d.decision, d.decision_reason_code, d.decision_reason_detail,
+        d.planned_order_amount_usd, d.price_ref, d.automation_mode,
+        d.requires_manual_review, d.block_reasons,
+        o.paper_order_amount, o.assumed_fill_status
+       FROM trade.us_buy_decision_log d
+       LEFT JOIN recommend.us_stock_rank_daily r
+         ON r.trade_date = d.trade_date AND r.symbol = d.symbol
+       LEFT JOIN trade.us_paper_order o
+         ON o.trade_date = d.trade_date AND o.symbol = d.symbol AND o.automation_mode = d.automation_mode
+       WHERE d.trade_date = $1
+       ORDER BY d.rank_no ASC NULLS LAST`,
+      [tradeDate]
+    );
+    res.json({ trade_date: tradeDate, rows: result.rows });
+  } catch (e) {
+    console.error("GET /api/us/trading/decisions/buy error", e);
+    res.status(500).json({ error: "internal error", detail: String(e) });
+  }
+});
+
+// 매도 결정 목록
+app.get("/api/us/trading/decisions/sell", async (req, res) => {
+  try {
+    const dateParam = (req.query.date || "").trim() || null;
+    const tradeDate = dateParam || (await pool.query(
+      `SELECT MAX(trade_date)::text AS d FROM trade.us_sell_decision_log`
+    ).then(r => r.rows[0]?.d).catch(() => null));
+
+    const result = await pool.query(
+      `SELECT
+        d.symbol, d.decision, d.sell_action, d.exit_reason,
+        d.latest_price, d.avg_entry_price, d.unrealized_pnl_pct,
+        d.realized_paper_pnl, d.sell_ratio, d.sell_quantity,
+        d.review_required, d.automation_mode
+       FROM trade.us_sell_decision_log d
+       WHERE d.trade_date = $1
+       ORDER BY d.decision ASC`,
+      [tradeDate]
+    );
+    res.json({ trade_date: tradeDate, rows: result.rows });
+  } catch (e) {
+    console.error("GET /api/us/trading/decisions/sell error", e);
+    res.status(500).json({ error: "internal error", detail: String(e) });
+  }
+});
+
+// 현재 오픈 포지션 (최신 스냅샷)
+app.get("/api/us/trading/positions", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT
+        ps.symbol, ps.latest_price, ps.remaining_quantity,
+        ps.unrealized_pnl, ps.unrealized_pnl_pct, ps.holding_days,
+        ps.highest_price_since_entry, ps.status, ps.snapshot_date,
+        u.name AS company_name, u.sector
+       FROM trade.us_paper_position_snapshot ps
+       LEFT JOIN market.us_stock_universe u ON u.ticker = ps.symbol AND u.universe_tag = 'NASDAQ100'
+       WHERE ps.snapshot_date = (
+         SELECT MAX(snapshot_date) FROM trade.us_paper_position_snapshot
+       )
+         AND ps.status = 'OPEN'
+       ORDER BY ps.unrealized_pnl_pct DESC NULLS LAST`
+    );
+    const snapshotDate = result.rows[0]?.snapshot_date || null;
+    res.json({ snapshot_date: snapshotDate ? String(snapshotDate).slice(0, 10) : null, rows: result.rows });
+  } catch (e) {
+    console.error("GET /api/us/trading/positions error", e);
+    res.status(500).json({ error: "internal error", detail: String(e) });
+  }
+});
+
+// 리스크 가드 현황 (최신 날짜)
+app.get("/api/us/trading/guards", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT guard_name, guard_scope, guard_status, severity,
+        metric_value, threshold_value, reason_code, reason_detail, trade_date
+       FROM trade.us_risk_guard_log
+       WHERE trade_date = (SELECT MAX(trade_date) FROM trade.us_risk_guard_log)
+       ORDER BY severity DESC, guard_name ASC`
+    );
+    res.json({ rows: result.rows });
+  } catch (e) {
+    console.error("GET /api/us/trading/guards error", e);
+    res.status(500).json({ error: "internal error", detail: String(e) });
+  }
+});
+
+// 날짜 목록
+app.get("/api/us/trading/dates", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT trade_date::text AS trade_date
+       FROM trade.us_buy_decision_log
+       ORDER BY trade_date DESC LIMIT 30`
+    );
+    res.json({ dates: result.rows.map((r) => r.trade_date) });
+  } catch (e) {
+    res.status(500).json({ error: "internal error" });
+  }
 });
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

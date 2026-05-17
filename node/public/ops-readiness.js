@@ -784,6 +784,7 @@ function renderSchedulerRuntime(runtime) {
     ["rule_after_close (18:00)", runtime?.rule_after_close_scheduler],
     ["us_macro (07:30)", runtime?.us_macro_scheduler],
     ["us_macro_shadow (08:50)", runtime?.us_macro_shadow_scheduler],
+    ["us_pipeline (06:30)", runtime?.us_pipeline_scheduler],
   ].filter(([, payload]) => payload);
 
   if (!rows.length) {
@@ -1039,28 +1040,34 @@ async function loadUsMacroOverlay() {
     ]);
     document.getElementById("usMacroSummary").textContent = latest.macro_summary || "";
 
-    // Overlay summary (today = first entry in overlay_summary)
-    const todayOverlay = (data.overlay_summary || []).slice(0, 2);
+    // Overlay summary (prefer the latest run_date group; flag if it lags macro apply date)
+    const overlaySummary = data.overlay_summary || [];
+    const latestOverlayRunDate = overlaySummary[0]?.run_date || null;
+    const todayOverlay = latestOverlayRunDate
+      ? overlaySummary.filter((row) => row.run_date === latestOverlayRunDate)
+      : [];
     const totalRows = todayOverlay.reduce((s, r) => s + (r.total || 0), 0);
     const blockedRows = todayOverlay.reduce((s, r) => s + (r.blocked || 0), 0);
     const penalizedRows = todayOverlay.reduce((s, r) => s + (r.penalized || 0), 0);
     const boostedRows = todayOverlay.reduce((s, r) => s + (r.boosted || 0), 0);
+    const overlayStale = isIsoDate(latestOverlayRunDate) && isIsoDate(latest.kr_apply_date) && latestOverlayRunDate < latest.kr_apply_date;
     const overKind = blockedRows > 0 ? "bad" : penalizedRows > 0 ? "watch" : "good";
     renderChipRow("usMacroOverlayChips", [
       { label: `후보 ${totalRows}개`, kind: "info" },
       { label: blockedRows > 0 ? `차단 ${blockedRows}` : "차단 없음", kind: blockedRows > 0 ? "bad" : "good" },
       { label: penalizedRows > 0 ? `감점 ${penalizedRows}` : "감점 없음", kind: penalizedRows > 0 ? "watch" : "good" },
+      ...(overlayStale ? [{ label: "overlay stale", kind: "WATCH" }] : []),
     ]);
     renderKv("usMacroOverlayKv", [
       ["총 후보", `AI ${todayOverlay.find(r => r.engine_type === "ai")?.total || 0} + RULE ${todayOverlay.find(r => r.engine_type === "rule")?.total || 0}`],
       ["차단 (buy_blocked)", `${blockedRows}개`],
       ["감점 (score -)", `${penalizedRows}개`],
       ["가산 (score +)", `${boostedRows}개`],
-      ["run_date", todayOverlay[0]?.run_date || "-"],
+      ["run_date", overlayStale ? `${latestOverlayRunDate} (stale)` : (latestOverlayRunDate || "-")],
     ]);
 
     // Affected list
-    const affected = data.top_affected || [];
+    const affected = overlayStale ? [] : (data.top_affected || []);
     const affectedEl = document.getElementById("usMacroAffectedList");
     if (!affected.length) {
       affectedEl.innerHTML = '<li>영향받은 종목 없음</li>';
@@ -1301,8 +1308,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   loadOpsReadiness().catch((error) => console.error(error));
 });
-
-
 
 
 

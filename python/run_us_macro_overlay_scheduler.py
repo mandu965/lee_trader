@@ -30,6 +30,10 @@ import os
 import sys
 from datetime import date, timedelta
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from db import get_engine
 
 LOGGER = logging.getLogger("run_us_macro_overlay_scheduler")

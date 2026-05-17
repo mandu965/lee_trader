@@ -109,20 +109,27 @@ def main() -> None:
     LOGGER.info("[SHADOW] 실제 주문/랭킹/점수에는 영향을 주지 않습니다.")
     LOGGER.info("=" * 60)
 
-    kr_apply_date = (
-        date.fromisoformat(args.kr_apply_date)
-        if args.kr_apply_date
-        else date.today()
+    from compute_us_macro_overlay_shadow import (
+        DEFAULT_RULE_SIGNALS_CSV,
+        fetch_latest_macro_apply_date,
+        run,
     )
-
-    from compute_us_macro_overlay_shadow import run, DEFAULT_RULE_SIGNALS_CSV
 
     rule_signals_csv = args.rule_signals_csv or DEFAULT_RULE_SIGNALS_CSV
     engine = get_engine()
+    requested_kr_apply_date = (
+        date.fromisoformat(args.kr_apply_date)
+        if args.kr_apply_date
+        else fetch_latest_macro_apply_date(engine)
+    )
+    if requested_kr_apply_date is None:
+        LOGGER.error("signal.us_macro_feature_daily has no rows; run Phase 1~2 first.")
+        sys.exit(1)
+    LOGGER.info("Resolved kr_apply_date=%s", requested_kr_apply_date.isoformat())
 
     try:
         result = run(
-            kr_apply_date=kr_apply_date,
+            kr_apply_date=requested_kr_apply_date,
             engine=engine,
             rule_signals_csv=rule_signals_csv,
             dry_run=args.dry_run,

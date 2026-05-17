@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>US 자동매매</title>
+    <link rel="stylesheet" href="./styles.css?v=20260516" />
+    <style>
+      .live-page { max-width: 1480px; margin: 0 auto; padding: 24px 20px 48px; }
+      .page-header { display: block; margin-bottom: 16px; }
+      .page-title { display: block; margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+      .page-subtitle { margin: 6px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.6; }
+      .page-label {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 2px 10px; border-radius: 999px;
+        font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+        background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.30);
+        color: #fde68a; margin-left: 10px; vertical-align: middle;
+      }
+
+      /* ── Safety banner ── */
+      .safety-banner {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 16px; border-radius: var(--radius-md);
+        font-size: 13px; font-weight: 700; margin-bottom: 16px;
+        transition: background 0.3s;
+      }
+      .safety-banner.ok   { background: rgba(34,197,94,0.10);  border: 1px solid rgba(34,197,94,0.30);  color: #86efac; }
+      .safety-banner.warn { background: rgba(250,204,21,0.10); border: 1px solid rgba(250,204,21,0.28); color: #fde68a; }
+      .safety-banner.bad  { background: rgba(248,113,113,0.12);border: 1px solid rgba(248,113,113,0.30);color: #fca5a5; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+      .ok   .dot { background: #86efac; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+      .warn .dot { background: #fde68a; }
+      .bad  .dot { background: #fca5a5; }
+
+      /* ── Tab navigation ── */
+      .panel-block { margin-bottom: 16px; padding: 16px; }
+      .tab-nav {
+        display: flex; gap: 2px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 20px;
+      }
+      .tab-btn {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 10px 18px; border: none; background: none;
+        color: var(--color-text-secondary); font-size: 13px; font-weight: 700;
+        cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px;
+        transition: color 0.15s;
+      }
+      .tab-btn:hover { color: var(--color-text); }
+      .tab-btn.is-active { color: var(--color-text); border-bottom-color: #fde68a; }
+      .tab-badge {
+        display: inline-flex; align-items: center; justify-content: center;
+        min-width: 20px; height: 18px; padding: 0 5px; border-radius: 999px;
+        background: rgba(255,255,255,0.12); font-size: 10px; font-weight: 800;
+      }
+      .tab-badge.active { background: rgba(251,191,36,0.25); color: #fde68a; }
+      .tab-panel { display: none; }
+      .tab-panel.is-active { display: block; }
+
+      /* ── Decision banner ── */
+      .decision-banner { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+      .decision-card {
+        border: 1px solid var(--border); border-radius: var(--radius-lg);
+        background: linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.02));
+        padding: 16px;
+      }
+      .decision-card.primary { background: linear-gradient(180deg,rgba(34,197,94,0.12),rgba(255,255,255,0.03)); }
+      .decision-card.warn    { background: linear-gradient(180deg,rgba(250,204,21,0.10),rgba(255,255,255,0.03)); }
+      .decision-card.bad     { background: linear-gradient(180deg,rgba(248,113,113,0.12),rgba(255,255,255,0.03)); }
+      .decision-title  { margin: 0; font-size: 12px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+      .decision-value  { margin-top: 8px; font-size: 22px; font-weight: 800; line-height: 1.25; }
+      .decision-detail { margin-top: 8px; font-size: 12px; line-height: 1.6; color: var(--color-text-secondary); }
+
+      /* ── Hero stat grid ── */
+      .hero-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 16px; }
+      .hero-card {
+        border: 1px solid var(--border); border-radius: var(--radius-lg);
+        background: rgba(255,255,255,0.03); padding: 14px; min-height: 100px;
+      }
+      .card-label { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.06em; }
+      .card-value { margin-top: 6px; font-size: 24px; font-weight: 800; }
+      .card-value.pos { color: #86efac; }
+      .card-value.neg { color: #fca5a5; }
+      .card-detail { margin-top: 6px; font-size: 12px; line-height: 1.55; color: var(--color-text-secondary); }
+
+      /* ── Tables ── */
+      .section-block { margin-bottom: 24px; }
+      .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+      .section-title { margin: 0; font-size: 17px; }
+      .section-note  { color: var(--color-text-secondary); font-size: 12px; }
+      .table-wrap { overflow-x: auto; }
+      .table-wrap table { min-width: 800px; }
+      .empty-state {
+        padding: 18px; border: 1px dashed var(--border); border-radius: var(--radius-lg);
+        color: var(--color-text-secondary); text-align: center; font-size: 13px;
+      }
+
+      /* ── Decision chips ── */
+      .chip {
+        display: inline-flex; align-items: center;
+        padding: 2px 8px; border-radius: 999px;
+        font-size: 11px; font-weight: 700;
+        border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04);
+        white-space: nowrap;
+      }
+      .chip.allowed { color: #86efac; border-color: rgba(34,197,94,0.30); background: rgba(34,197,94,0.10); }
+      .chip.blocked { color: #fca5a5; border-color: rgba(248,113,113,0.28); background: rgba(248,113,113,0.10); }
+      .chip.sell    { color: #fde68a; border-color: rgba(250,204,21,0.28); background: rgba(250,204,21,0.10); }
+      .chip.hold    { color: var(--color-text-secondary); }
+      .chip.review  { color: #93c5fd; border-color: rgba(96,165,250,0.28); background: rgba(96,165,250,0.10); }
+      .chip.pass    { color: #86efac; border-color: rgba(34,197,94,0.28); background: rgba(34,197,94,0.08); }
+      .chip.fail    { color: #fca5a5; border-color: rgba(248,113,113,0.24); background: rgba(248,113,113,0.08); }
+      .chip.warn    { color: #fde68a; border-color: rgba(250,204,21,0.24); background: rgba(250,204,21,0.08); }
+
+      .pos { color: #86efac; }
+      .neg { color: #fca5a5; }
+      .muted { color: var(--color-text-secondary); }
+      .right { text-align: right; }
+
+      /* ── Risk guards ── */
+      .guard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+      .guard-card {
+        border: 1px solid var(--border); border-radius: var(--radius-md);
+        background: rgba(255,255,255,0.03); padding: 12px;
+      }
+      .guard-card.fail { background: rgba(248,113,113,0.07); border-color: rgba(248,113,113,0.24); }
+      .guard-card.warn { background: rgba(250,204,21,0.07); border-color: rgba(250,204,21,0.22); }
+      .guard-card.pass { background: rgba(34,197,94,0.06); border-color: rgba(34,197,94,0.20); }
+      .guard-name { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
+      .guard-status { font-size: 11px; color: var(--color-text-secondary); }
+
+      @media (max-width: 1100px) {
+        .decision-banner, .hero-grid { grid-template-columns: 1fr 1fr; }
+      }
+      @media (max-width: 640px) {
+        .live-page { padding: 18px 12px 36px; }
+        .decision-banner, .hero-grid { grid-template-columns: 1fr; }
+        .page-title { font-size: 24px; }
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="top-nav">
+      <div class="nav-brand">Lee Trader</div>
+      <div class="nav-strip">
+        <a class="snav__item" href="/ranking.html">국내 랭킹</a>
+        <a class="snav__item" href="/us-ranking">US 랭킹</a>
+        <a class="snav__item" href="/holdings.html">보유종목</a>
+        <a class="snav__item is-active" href="/us-trading">US 자동매매</a>
+        <a class="snav__item" href="/rule-auto-trading.html">RULE</a>
+        <a class="snav__item" href="/live-auto-trading.html">AI</a>
+      </div>
+    </nav>
+    <div class="live-page">
+
+      <!-- 페이지 헤더 -->
+      <header class="page-header">
+        <h1 class="page-title">US 자동매매<span class="page-label">Paper</span></h1>
+        <p class="page-subtitle">06:30 파이프라인 (가격·피처·점수 갱신) → 매도·매수 의사결정 순서로 운영됩니다. 이 화면은 Paper Trading 결정·포지션·리스크 가드 현황을 한 곳에서 확인하는 운영 보드입니다.</p>
+      </header>
+
+      <!-- Safety banner -->
+      <div class="safety-banner warn" id="safetyBanner">
+        <span class="dot"></span>
+        <span id="safetyText">데이터 불러오는 중...</span>
+      </div>
+
+      <!-- 탭 네비게이션 -->
+      <nav class="tab-nav">
+        <button class="tab-btn is-active" data-tab="overview">개요</button>
+        <button class="tab-btn" data-tab="orders">
+          주문 <span class="tab-badge" id="badgeOrders">—</span>
+        </button>
+        <button class="tab-btn" data-tab="positions">
+          포지션 <span class="tab-badge" id="badgePositions">—</span>
+        </button>
+        <button class="tab-btn" data-tab="guards">리스크 가드</button>
+      </nav>
+
+      <!-- ======================================================= -->
+      <!-- 개요 탭 -->
+      <!-- ======================================================= -->
+      <div class="tab-panel is-active" id="tab-overview">
+
+        <!-- 결론 카드 3개 -->
+        <div class="decision-banner">
+          <div class="decision-card" id="decCardConclusion">
+            <p class="decision-title">오늘 결론</p>
+            <div class="decision-value" id="decConclusion">—</div>
+            <div class="decision-detail" id="decConclusionDetail">데이터 로딩 중</div>
+          </div>
+          <div class="decision-card" id="decCardMode">
+            <p class="decision-title">운영 모드</p>
+            <div class="decision-value" id="decMode">—</div>
+            <div class="decision-detail" id="decModeDetail">—</div>
+          </div>
+          <div class="decision-card" id="decCardUpdated">
+            <p class="decision-title">최근 갱신</p>
+            <div class="decision-value" id="decUpdated">—</div>
+            <div class="decision-detail" id="decUpdatedDetail">—</div>
+          </div>
+        </div>
+
+        <!-- 히어로 4개 -->
+        <div class="hero-grid">
+          <div class="hero-card">
+            <div class="card-label">기준일</div>
+            <div class="card-value" id="heroDate">—</div>
+            <div class="card-detail" id="heroDateDetail"></div>
+          </div>
+          <div class="hero-card">
+            <div class="card-label">보유 포지션</div>
+            <div class="card-value" id="heroPositions">—</div>
+            <div class="card-detail" id="heroPositionsDetail"></div>
+          </div>
+          <div class="hero-card">
+            <div class="card-label">미실현 손익 (USD)</div>
+            <div class="card-value" id="heroPnl">—</div>
+            <div class="card-detail" id="heroPnlDetail"></div>
+          </div>
+          <div class="hero-card">
+            <div class="card-label">7일 실현 손익 (USD)</div>
+            <div class="card-value" id="heroWeek">—</div>
+            <div class="card-detail" id="heroWeekDetail"></div>
+          </div>
+        </div>
+
+        <!-- 포지션 미리보기 (최대 5개) -->
+        <div class="section-block" id="positionPreviewSection">
+          <div class="section-head">
+            <h3 class="section-title">보유 포지션 현황</h3>
+            <span class="section-note" id="posSnapshotDate"></span>
+          </div>
+          <div id="positionPreviewBody"></div>
+        </div>
+
+      </div><!-- /tab-overview -->
+
+      <!-- ======================================================= -->
+      <!-- 주문 탭 -->
+      <!-- ======================================================= -->
+      <div class="tab-panel" id="tab-orders">
+
+        <!-- 날짜 필터 -->
+        <div style="margin-bottom:16px;display:flex;gap:10px;align-items:center;">
+          <label style="font-size:13px;color:var(--color-text-secondary);">기준일</label>
+          <select id="filterOrderDate" style="min-width:140px;">
+            <option value="">최신</option>
+          </select>
+          <button id="btnRefreshOrders" class="btn-outline" style="padding:5px 12px;font-size:12px;">새로고침</button>
+        </div>
+
+        <!-- 매수 결정 -->
+        <div class="section-block">
+          <div class="section-head">
+            <h3 class="section-title">매수 의사결정</h3>
+            <span class="section-note" id="buyDecisionDate"></span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>심볼</th><th>종목명</th><th>섹터</th><th>순위</th><th>등급</th>
+                  <th class="right">점수</th><th>결정</th><th>차단 이유</th>
+                  <th class="right">예정 금액(USD)</th><th>체결 상태</th>
+                </tr>
+              </thead>
+              <tbody id="buyDecisionBody">
+                <tr><td colspan="10" class="muted" style="text-align:center;padding:16px;">로딩 중…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 매도 결정 -->
+        <div class="section-block">
+          <div class="section-head">
+            <h3 class="section-title">매도 의사결정</h3>
+            <span class="section-note" id="sellDecisionDate"></span>
+          </div>
+          <div id="sellDecisionBody">
+            <div class="empty-state">로딩 중…</div>
+          </div>
+        </div>
+
+      </div><!-- /tab-orders -->
+
+      <!-- ======================================================= -->
+      <!-- 포지션 탭 -->
+      <!-- ======================================================= -->
+      <div class="tab-panel" id="tab-positions">
+        <div class="section-block">
+          <div class="section-head">
+            <h3 class="section-title">오픈 포지션</h3>
+            <span class="section-note" id="positionsSnapshotDate"></span>
+          </div>
+          <div id="positionsBody">
+            <div class="empty-state">로딩 중…</div>
+          </div>
+        </div>
+      </div><!-- /tab-positions -->
+
+      <!-- ======================================================= -->
+      <!-- 리스크 가드 탭 -->
+      <!-- ======================================================= -->
+      <div class="tab-panel" id="tab-guards">
+        <div class="section-block">
+          <div class="section-head">
+            <h3 class="section-title">리스크 가드 현황</h3>
+            <span class="section-note" id="guardsDate"></span>
+          </div>
+          <div class="guard-grid" id="guardGrid">
+            <div class="empty-state" style="grid-column:1/-1;">로딩 중…</div>
+          </div>
+        </div>
+      </div><!-- /tab-guards -->
+
+    </div><!-- /live-page -->
+
+    <script src="./us-trading.js?v=20260518-orders-fix"></script>
+  </body>
+</html>

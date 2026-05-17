@@ -649,9 +649,17 @@ def bucket_decision(
             reasons.append(
                 f"sector concentration {_fmt_pct(static['sector_top_share'])} exceeds {_fmt_pct(args.max_sector_top_share)}"
             )
-        if bench["negative_excess_block"]:
+        _min_matured_for_block = int(get_production_config_value(["buy_gate", "min_matured_dates_for_block"], 40))
+        if bench["negative_excess_block"] and bench["matured_dates_max"] >= _min_matured_for_block:
             status = STATUS_BLOCK
             reasons.append("benchmark excess return is materially negative on available matured evidence")
+        elif bench["negative_excess_block"]:
+            if status == STATUS_BUY_ALLOWED:
+                status = STATUS_HOLD
+            reasons.append(
+                f"benchmark excess return negative but matured_dates ({bench['matured_dates_max']}) "
+                f"< {_min_matured_for_block}: using HOLD, not BLOCK (insufficient data for hard block)"
+            )
 
         if status != STATUS_BLOCK:
             matured_ok = bench["matured_dates_max"] >= args.min_matured_benchmark_dates

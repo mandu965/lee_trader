@@ -11,7 +11,12 @@ import time
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from python.us.build_us_features import FeatureBuildResult, build_us_features
+from python.us.build_us_macro_features import build_us_macro_features
+from python.us.build_us_sector_features import build_us_sector_features
 from python.us.buy_automation.scheduler_job import run_buy_scheduler_job
 from python.us.download_us_prices import PriceCollectResult, collect_us_prices
 from python.us.load_us_universe import UniverseLoadResult, load_universe
@@ -208,6 +213,29 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         )
         if feature_result.failed_count > 0 and final_status != "FAILED":
             final_status = "WARN"
+
+    # Macro features (VIX/SPY/QQQ regime context) — lightweight, always runs after feature build
+    if should_run_features and not args.skip_features:
+        LOGGER.info("[US_PIPELINE] Step 4b/4 Build Macro Features started")
+        try:
+            macro_rows = build_us_macro_features(
+                end_date=parse_iso_date(args.end_date, field_name="end_date"),
+            )
+            LOGGER.info("[US_PIPELINE] Step 4b/4 Build Macro Features completed rows=%s", macro_rows)
+        except Exception as exc:
+            LOGGER.warning("[US_PIPELINE] Step 4b/4 Build Macro Features failed (non-fatal): %s", exc)
+
+    # Sector relative strength — runs after feature build, batch across all tickers
+    if should_run_features and not args.skip_features:
+        LOGGER.info("[US_PIPELINE] Step 4c/4 Build Sector Features started")
+        try:
+            sector_rows = build_us_sector_features(
+                universe_tag=universe_tag,
+                end_date=parse_iso_date(args.end_date, field_name="end_date"),
+            )
+            LOGGER.info("[US_PIPELINE] Step 4c/4 Build Sector Features completed rows=%s", sector_rows)
+        except Exception as exc:
+            LOGGER.warning("[US_PIPELINE] Step 4c/4 Build Sector Features failed (non-fatal): %s", exc)
 
     trade_cfg = load_trade_orchestration_config()
     should_run_trade_scheduler = trade_cfg.scheduler_enabled

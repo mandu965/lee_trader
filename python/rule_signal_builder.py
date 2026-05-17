@@ -235,6 +235,46 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
     out["gap_risk_blocked"] = out["expected_gap"].abs() > 0.03
     out["gap_risk_reason"] = np.where(out["gap_risk_blocked"], "expected_gap_abs_gt_3pct", "none")
 
+    # ── 52주 신고가 근접도 컴포넌트 ──────────────────────────────────────────
+    # George & Hwang (2004): 52주 고점에 근접한 종목이 향후 수익률 우수.
+    # 0.80~0.98 구간(신고가 도달 직전)이 가장 강한 모멘텀 가속 구간.
+    if "high_52w_ratio" in out.columns:
+        h52 = numeric(out["high_52w_ratio"]).clip(0.0, 1.2)
+        _h52_s = np.where(
+            h52.isna(), 50.0,
+            np.where(h52 < 0.65, 20.0,
+            np.where(h52 < 0.80, 20.0 + (h52 - 0.65) / 0.15 * 30.0,
+            np.where(h52 < 0.95, 50.0 + (h52 - 0.80) / 0.15 * 50.0,
+            np.where(h52 <= 1.05, 95.0, 80.0))))
+        )
+        out["high52w_component"] = (pd.Series(_h52_s, index=out.index) / 100.0).clip(0.0, 1.0)
+    else:
+        out["high52w_component"] = pd.Series(0.5, index=out.index)
+
+    # ── 거래량-가격 정합성 ────────────────────────────────────────────────────
+    # 가격이 오르는데 거래량이 감소하면 추세가 약하다는 신호 (다이버전스).
+    vol_price_aligned = ~(
+        (numeric(out.get("ret_5d")) > 0.01)
+        & (out["trading_value_ratio_20d"] < 0.90)
+    )
+    out["vol_price_aligned"] = vol_price_aligned.fillna(True)
+
+    # ── 공매도 잔고 신호 ──────────────────────────────────────────────────────
+    # short_ratio      : 공매도잔고/상장주식수 × 100 (%)
+    # short_ratio_5d_chg: 5일 전 대비 변화량 (pp)
+    #
+    # 차단 조건: 잔고 3% 초과 + 5일간 0.5pp 이상 상승 → 기관 하방 베팅 지속
+    # 보너스 조건: 잔고 1.0pp 이상 급감 → 숏커버링 매수 수요 발생
+    _has_short = "short_ratio" in out.columns and out["short_ratio"].notna().any()
+    if _has_short:
+        _sr = numeric(out["short_ratio"]).fillna(0.0)
+        _sr_chg = numeric(out.get("short_ratio_5d_chg", pd.Series(0.0, index=out.index))).fillna(0.0)
+        out["short_ratio_block"] = (_sr > 3.0) & (_sr_chg > 0.5)
+        out["short_cover_signal"] = _sr_chg < -1.0
+    else:
+        out["short_ratio_block"] = pd.Series(False, index=out.index)
+        out["short_cover_signal"] = pd.Series(False, index=out.index)
+
     trend_points = (
         (out["close"] > numeric(out.get("ma_20"))).fillna(False).astype(float) * 30.0
         + (numeric(out.get("ma_20")) >= numeric(out.get("ma_60"))).fillna(False).astype(float) * 20.0
@@ -256,10 +296,11 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
     out["rule_score"] = (trend_points - risk_deduction).clip(0, 100)
 
     trend_component = (
-        0.35 * (out["close"] > numeric(out.get("ma_20"))).fillna(False).astype(float)
-        + 0.25 * (numeric(out.get("ma_20")) >= numeric(out.get("ma_60"))).fillna(False).astype(float)
+        0.30 * (out["close"] > numeric(out.get("ma_20"))).fillna(False).astype(float)
+        + 0.20 * (numeric(out.get("ma_20")) >= numeric(out.get("ma_60"))).fillna(False).astype(float)
         + 0.20 * (percentile_by_date(out, "mom_20").fillna(50.0) / 100.0)
-        + 0.20 * (percentile_by_date(out, "ret_5d").fillna(50.0) / 100.0)
+        + 0.15 * (percentile_by_date(out, "ret_5d").fillna(50.0) / 100.0)
+        + 0.15 * out["high52w_component"]  # 52주 신고가 근접도
     )
     liquidity_component = (
         0.45 * (percentile_by_date(out, "trading_value_ma_20").fillna(50.0) / 100.0)
@@ -267,9 +308,11 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
         + 0.20 * (numeric(out.get("liquidity_score")).fillna(50.0) / 100.0)
     )
     stability_component = (
-        0.50 * (percentile_by_date(out, "vol_20", ascending=False).fillna(50.0) / 100.0)
-        + 0.30 * (rsi_score / 100.0)
-        + 0.20 * (1.0 - numeric(out.get("close_over_ma20")).abs().clip(0, 0.25).fillna(0.1) / 0.25)
+        0.40 * (percentile_by_date(out, "vol_20", ascending=False).fillna(50.0) / 100.0)
+        + 0.25 * (rsi_score / 100.0)
+        + 0.15 * (1.0 - numeric(out.get("close_over_ma20")).abs().clip(0, 0.25).fillna(0.1) / 0.25)
+        + 0.15 * out["vol_price_aligned"].astype(float)  # 거래량-가격 정합성
+        + 0.05 * out["short_cover_signal"].astype(float)  # 숏커버링 수요 보너스
     )
     regime_component = np.where(out["market_entry_allowed"].fillna(True), 1.0, 0.35)
     out["trend_component"] = trend_component.clip(0, 1)
@@ -302,14 +345,30 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
         _flow_raw = pd.Series(0.5, index=out.index)
     out["flow_component"] = _flow_raw
 
-    # rule_score_v3: flow 반영 공식 (flow 25% — 수급 실질 반영 강화)
+    # ── 섹터 상대 모멘텀 컴포넌트 ────────────────────────────────────────────
+    # 종목 모멘텀에서 동일 섹터 평균 모멘텀을 뺀 상대 강도.
+    # 섹터 전체가 약세인데 개별 종목만 강세이면 신뢰도 낮음.
+    if "sector" in out.columns and "mom_20" in out.columns:
+        _sector_avg = out.groupby(["date", "sector"])["mom_20"].transform(
+            lambda s: pd.to_numeric(s, errors="coerce").mean()
+        )
+        out["sector_rel_momentum"] = numeric(out["mom_20"]) - numeric(_sector_avg)
+        _sector_pct = (percentile_by_date(out, "sector_rel_momentum").fillna(50.0) / 100.0).clip(0.0, 1.0)
+    else:
+        out["sector_rel_momentum"] = np.nan
+        _sector_pct = pd.Series(0.5, index=out.index)
+    out["sector_component"] = _sector_pct
+
+    # rule_score_v3: flow(25%) + sector(10%) 반영, 6개 컴포넌트
+    # trend=0.22, liquidity=0.18, stability=0.13, regime=0.12, flow=0.25, sector=0.10
     out["rule_score_v3"] = (
         (
-            0.25 * out["trend_component"]
-            + 0.20 * out["liquidity_component"]
-            + 0.15 * out["stability_component"]
-            + 0.15 * out["regime_component"]
+            0.22 * out["trend_component"]
+            + 0.18 * out["liquidity_component"]
+            + 0.13 * out["stability_component"]
+            + 0.12 * out["regime_component"]
             + 0.25 * out["flow_component"]
+            + 0.10 * out["sector_component"]
         )
         * 100.0
     ).clip(0, 100)
@@ -331,6 +390,7 @@ def build_rule_scores(df: pd.DataFrame, run_mode: str) -> pd.DataFrame:
         | (numeric(out.get("close_over_ma20")) > 0.20)
         | (numeric(out.get("ret_5d")) > 0.25)
         | (percentile_by_date(out, "vol_20") > 90)
+        | out["short_ratio_block"].fillna(False)  # 공매도 잔고 급증 차단
     ).fillna(False)
     entry_rule_score_min = get_float_env("RULE_ENTRY_RULE_SCORE_MIN", 70.0)
     entry_rule_score_v2_min = get_float_env("RULE_ENTRY_RULE_SCORE_V2_MIN", 65.0)

@@ -166,11 +166,16 @@ def execution_summary(path: Path) -> dict[str, object]:
     if df.empty:
         return {"available": False, "fill_ratio": None, "median_abs_slippage": None}
     entry_status = df.get("actual_entry_status", pd.Series(index=df.index)).fillna("").astype(str).str.upper()
+    resolved = ~entry_status.isin(["PENDING", ""])
+    if resolved.sum() == 0:
+        return {"available": False, "fill_ratio": None, "median_abs_slippage": None}
     filled = entry_status.isin(["FILLED", "PARTIAL", "ENTERED"])
-    fill_ratio = float(filled.mean()) if len(df) else None
+    fill_ratio = float(filled[resolved].mean()) if resolved.sum() > 0 else None
     slippage = pd.to_numeric(df.get("entry_slippage"), errors="coerce")
+    slippage = slippage if isinstance(slippage, pd.Series) else pd.Series([slippage])
     if slippage.isna().all():
         slippage = pd.to_numeric(df.get("entry_price_vs_ref_return"), errors="coerce")
+        slippage = slippage if isinstance(slippage, pd.Series) else pd.Series([slippage])
     return {
         "available": True,
         "fill_ratio": fill_ratio,

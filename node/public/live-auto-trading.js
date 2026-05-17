@@ -22,9 +22,7 @@ const fmtWon = (v) => {
   if (!Number.isFinite(n)) return "-";
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : n > 0 ? "+" : "";
-  if (abs >= 1e8) return `${sign}${(abs / 1e8).toFixed(1)}억`;
-  if (abs >= 1e4) return `${sign}${Math.round(abs / 1e4)}만`;
-  return `${sign}${Math.round(abs).toLocaleString()}원`;
+  return `${sign}${Math.round(abs).toLocaleString("ko-KR")}원`;
 };
 
 const signedClass = (value) => {
@@ -218,7 +216,8 @@ function renderSafety(summary, runtime, intents, preview) {
     text = "매수 차단 — AUTO_TRADE_ALLOW_BUY=0";
   } else if (gate === "BLOCK") {
     cls = "bad";
-    text = "신규 진입 차단 — Gate BLOCK";
+    const blockReasons = Array.isArray(intents?.gate_block_reasons_ko) ? intents.gate_block_reasons_ko : [];
+    text = "신규 진입 차단 — Gate BLOCK" + (blockReasons.length ? "  ·  " + blockReasons.slice(0, 2).join("  ·  ") : "");
   } else if (gate === "WATCH") {
     cls = "warn";
     text = "제한 진입 구간 — Gate WATCH";
@@ -301,7 +300,8 @@ function renderDecisionBanner(summary, intents, preview, execution, runtime, con
   } else if (gate === "BLOCK") {
     headline = "신규 진입 차단";
     headlineTone = "bad";
-    headlineDetail = "Gate BLOCK — 신규 BUY는 차단되고 기존 보유 정리 중심으로 운영됩니다.";
+    const blockReasons = Array.isArray(intents?.gate_block_reasons_ko) ? intents.gate_block_reasons_ko : [];
+    headlineDetail = "Gate BLOCK — 신규 BUY 차단" + (blockReasons.length ? ": " + blockReasons.join(" / ") : " (기존 보유 정리 중심으로 운영)");
   } else if (gate === "WATCH") {
     headline = "WATCH 제한 진입 구간";
     headlineTone = "warn";
@@ -371,19 +371,19 @@ function renderHero(summary, intents, preview, holdings, execution) {
       <div class="card-detail">판단 생성: ${escapeHtml(intents?.generated_at || "-")}</div>
     </article>
     <article class="hero-card">
-      <div class="card-label">진입 모드</div>
-      <div class="card-value">${escapeHtml(gateChipText(gate))}</div>
-      <div class="card-detail">제출가능 ${fmtNum(executableCount)}건 · BUY 제출 ${fmtNum(submittedBuyCount)}건</div>
+      <div class="card-label">총자산 (AI 계좌)</div>
+      <div class="card-value">${escapeHtml(fmtWon(totalAssets))}</div>
+      <div class="card-detail">현금비중 ${escapeHtml(fmtPct(cashRatio, 1))} · 보유 ${fmtNum(holdings?.count ?? summary?.holding_count)}종목</div>
     </article>
     <article class="hero-card">
-      <div class="card-label">AI 계좌 현황</div>
-      <div class="card-value">${escapeHtml(fmtWon(totalAssets))}</div>
-      <div class="card-detail">현금비중 ${escapeHtml(fmtPct(cashRatio, 1))} · 보유손익 ${escapeHtml(fmtNum(evalPnl))}</div>
+      <div class="card-label">평가손익</div>
+      <div class="card-value ${signedClass(evalPnl)}">${escapeHtml(fmtWon(evalPnl))}</div>
+      <div class="card-detail">제출가능 ${fmtNum(executableCount)}건 · BUY 제출 ${fmtNum(submittedBuyCount)}건</div>
     </article>
     <article class="hero-card">
       <div class="card-label">주간 손익 (AI 계좌)</div>
       <div class="card-value ${signedClass(weeklyPnl)}">${escapeHtml(fmtWon(weeklyPnl))}</div>
-      <div class="card-detail">손실률 ${escapeHtml(fmtPct(weeklyPct, 2))} · 보유 ${fmtNum(holdings?.count ?? summary?.holding_count)}종목</div>
+      <div class="card-detail">손실률 ${escapeHtml(fmtPct(weeklyPct, 2))}</div>
     </article>
   `;
 }
@@ -674,11 +674,48 @@ function buildPreviewBlockDetail(row) {
   const gapPct = Number(row.entry_price_gap_pct);
   if (Number.isFinite(gapPct))
     parts.push(`갭: ${gapPct >= 0 ? "+" : ""}${(gapPct * 100).toFixed(1)}%`);
+  if (row.reference_price_source)
+    parts.push(`갭 기준가 출처: ${translateReferenceSource(row.reference_price_source)}`);
+  if (row.ranking_close != null)
+    parts.push(`DB 종가: ${fmtNum(row.ranking_close)}`);
+  if (row.live_previous_close != null)
+    parts.push(`KIS 전일종가: ${fmtNum(row.live_previous_close)}`);
+  if (row.live_price != null)
+    parts.push(`실시간가: ${fmtNum(row.live_price)}`);
+  if (row.quote_checked_at)
+    parts.push(`시세 확인: ${fmtRuntimeDateTime(row.quote_checked_at)}`);
+  const referenceNote = translateEntryReferenceNote(row.entry_reference_note);
+  if (referenceNote)
+    parts.push(referenceNote);
   const hold = String(row.expected_hold_reason || "");
   if (hold && !hold.startsWith("No expected"))
     parts.push(hold);
   if (!parts.length) return row.raw_reason || row.blocked_reason || "-";
   return parts.join(" | ");
+}
+
+function translateReferenceSource(source) {
+  const key = String(source || "").trim().toLowerCase();
+  if (key === "ranking_close") return "DB 종가";
+  if (key === "kis_previous_close") return "KIS 전일종가";
+  return key || "-";
+}
+
+function translateEntryReferenceNote(note) {
+  const key = String(note || "").trim().toLowerCase();
+  if (!key) return "";
+  if (key.startsWith("ignored_kis_previous_close_during_")) {
+    const marketStatus = key.replace("ignored_kis_previous_close_during_", "").toUpperCase();
+    return `${marketStatus} 시간대라 KIS 전일종가 대신 DB 종가를 갭 기준가로 사용`;
+  }
+  return key;
+}
+
+function formatPreviewBlockedMessage(row, runtime) {
+  if (row?.blocked_reason === "buy_qty_zero_budget_below_one_share") {
+    return "남은 목표 비중 없음 - 배정 예산이 1주 가격 미만";
+  }
+  return translateBlockedReason(row) || describePreviewExecutionRisk(row, runtime);
 }
 
 function renderPreview(preview, runtime) {
@@ -691,7 +728,7 @@ function renderPreview(preview, runtime) {
   tbody.innerHTML = rows.map((row) => {
     const isPolicyAllow = String(row.policy_status || "").toUpperCase() === "ALLOW";
     const blockMsg = row.blocked_reason && isPolicyAllow
-      ? translateBlockedReason(row)
+      ? formatPreviewBlockedMessage(row, runtime)
       : row.user_message_ko;
     return `
     <tr>
@@ -994,6 +1031,14 @@ function renderReviewSummaryRows(title, rows, keyName) {
   `;
 }
 
+function reviewItemSortKey(item) {
+  const requestId = String(item?.request_id || "");
+  const basisDate = requestId.split(":")[0] || "";
+  const fillDate = String(item?.fill_date || "");
+  const filledAt = String(item?.filled_at || "");
+  return [basisDate, fillDate, filledAt, requestId].join("|");
+}
+
 function renderTradeReview(review, summary) {
   const root = document.getElementById("reviewPanel");
   if (!root) return;
@@ -1004,7 +1049,10 @@ function renderTradeReview(review, summary) {
   const items = Array.isArray(review.items) ? review.items : [];
   const outcomeCounts = Array.isArray(review.outcome_counts) ? review.outcome_counts : [];
   const overview = summary?.overview || {};
-  const rows = items.slice(0, 10);
+  const rows = items
+    .slice()
+    .sort((a, b) => reviewItemSortKey(b).localeCompare(reviewItemSortKey(a)))
+    .slice(0, 10);
   const countsHtml = outcomeCounts.length
     ? outcomeCounts.map((r) => `<span class="chip ${reviewOutcomeChip(r.outcome_label)}">${escapeHtml(r.outcome_label || "-")} ${fmtNum(r.count)}</span>`).join("")
     : `<span class="chip warn">성과 요약 없음</span>`;
@@ -1129,6 +1177,129 @@ function renderHoldings(holdings) {
   `).join("");
 }
 
+// ── Analysis: feature importance ──────────────
+const FEATURE_LABELS = {
+  quality_score: "퀄리티 종합점수", ma_60: "이동평균 60일", vol_60: "거래량 60일",
+  vol_ma_20: "거래량MA 20일", ret_120d: "수익률 120일", ma_20: "이동평균 20일",
+  high_52w_ratio: "52주 고점 근접도", close: "현재가", ma_5: "이동평균 5일",
+  vol_20: "거래량 20일", ret_60d: "수익률 60일", flow_inst_net_20d: "기관 순매수 20일",
+  flow_foreign_net_20d: "외국인 순매수 20일", quality_factor_count: "퀄리티 충족 팩터 수",
+  mom_20: "모멘텀 20일", ret_5d: "수익률 5일", rsi_14: "RSI 14일",
+  flow_foreign_net_5d: "외국인 순매수 5일", flow_inst_net_5d: "기관 순매수 5일",
+  atr_14: "변동성 ATR 14일", macd_hist: "MACD 히스토그램",
+};
+
+function renderFeatureImportance(data) {
+  const root = document.getElementById("featureImportancePanel");
+  if (!root) return;
+  if (!data || !Array.isArray(data.features) || !data.features.length) {
+    root.innerHTML = `<div class="empty-state">피처 중요도 데이터가 없습니다.</div>`;
+    return;
+  }
+  const rows = data.features.slice(0, 15);
+  const isFlow = (name) => name.startsWith("flow_");
+  root.innerHTML = `
+    <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px;">
+      모델 버전: ${escapeHtml(data.model_version || "-")} · 학습일시: ${escapeHtml(String(data.trained_at || "-").slice(0, 16))}
+    </p>
+    <div style="display:flex;flex-direction:column;gap:6px;">
+      ${rows.map((f) => {
+        const label = FEATURE_LABELS[f.name] || f.name;
+        const pct = Math.max(1, f.pct || 0);
+        const isFlowFeature = isFlow(f.name);
+        const barColor = isFlowFeature ? "rgba(96,165,250,0.6)" : "rgba(134,239,172,0.5)";
+        return `
+          <div style="display:grid;grid-template-columns:160px 1fr 48px;align-items:center;gap:8px;font-size:12px;">
+            <span style="color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(f.name)}">
+              ${isFlowFeature ? "🔵 " : ""}${escapeHtml(label)}
+            </span>
+            <div style="background:var(--color-bg-tertiary);border-radius:3px;height:10px;overflow:hidden;">
+              <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px;"></div>
+            </div>
+            <span style="color:var(--color-text-secondary);text-align:right;">${f.importance.toLocaleString()}</span>
+          </div>`;
+      }).join("")}
+    </div>
+    <div style="font-size:11px;color:var(--color-text-secondary);margin-top:10px;">🔵 = 수급 피처 (flow)</div>
+  `;
+}
+
+// ── Analysis: flow history chart ───────────────
+function renderFlowHistory(data, holdings) {
+  const root = document.getElementById("flowHistoryPanel");
+  if (!root) return;
+  const items = data?.items || {};
+  const holdingCodes = (holdings?.items || []).map((h) => h.code);
+  if (!holdingCodes.length) {
+    root.innerHTML = `<div class="empty-state">보유 종목이 없습니다.</div>`;
+    return;
+  }
+  const holdingMap = Object.fromEntries((holdings?.items || []).map((h) => [h.code, h.name || h.code]));
+
+  const sections = holdingCodes.map((code) => {
+    const rows = items[code] || [];
+    if (!rows.length) return `<div style="margin-bottom:16px;"><strong>${escapeHtml(holdingMap[code])}</strong> — 수급 데이터 없음</div>`;
+    const maxAbs = Math.max(...rows.flatMap((r) => [Math.abs(r.foreign_net), Math.abs(r.inst_net)]), 1);
+    const barHtml = rows.slice(0, 15).map((r) => {
+      const fBar = Math.round(Math.abs(r.foreign_net) / maxAbs * 60);
+      const iBar = Math.round(Math.abs(r.inst_net) / maxAbs * 60);
+      const fDir = r.foreign_net >= 0 ? "pos" : "neg";
+      const iDir = r.inst_net >= 0 ? "pos" : "neg";
+      const fColor = r.foreign_net >= 0 ? "rgba(134,239,172,0.6)" : "rgba(248,113,113,0.5)";
+      const iColor = r.inst_net >= 0 ? "rgba(96,165,250,0.6)" : "rgba(251,191,36,0.5)";
+      return `
+        <div style="display:grid;grid-template-columns:72px 1fr 1fr;gap:4px;align-items:center;font-size:11px;padding:2px 0;">
+          <span style="color:var(--color-text-secondary);">${escapeHtml(r.date.slice(5))}</span>
+          <div style="display:flex;align-items:center;gap:2px;">
+            <span style="width:24px;color:var(--color-text-secondary);text-align:right;font-size:10px;">외국인</span>
+            <div style="width:${fBar}px;height:8px;background:${fColor};border-radius:2px;" title="${r.foreign_net > 0 ? "+" : ""}${Math.round(r.foreign_net).toLocaleString("ko-KR")}주"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:2px;">
+            <span style="width:24px;color:var(--color-text-secondary);text-align:right;font-size:10px;">기관</span>
+            <div style="width:${iBar}px;height:8px;background:${iColor};border-radius:2px;" title="${r.inst_net > 0 ? "+" : ""}${Math.round(r.inst_net).toLocaleString("ko-KR")}주"></div>
+          </div>
+        </div>`;
+    }).join("");
+    return `
+      <div style="margin-bottom:20px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">${escapeHtml(holdingMap[code])} <span class="mono" style="font-weight:400;font-size:11px;color:var(--color-text-secondary);">${escapeHtml(code)}</span></div>
+        ${barHtml}
+      </div>`;
+  });
+  root.innerHTML = `
+    <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:10px;">초록=순매수 / 빨강·노랑=순매도 · 단위: 주(株) · 막대 위에 마우스 올리면 수치 확인</div>
+    ${sections.join("")}
+  `;
+}
+
+// ── Analysis: regime history ───────────────────
+function renderRegimeHistory(data) {
+  const root = document.getElementById("regimeHistoryPanel");
+  if (!root) return;
+  const items = Array.isArray(data?.items) ? data.items : [];
+  if (!items.length) {
+    root.innerHTML = `<div class="empty-state">레짐 히스토리 데이터가 없습니다.</div>`;
+    return;
+  }
+  const statusColor = { RISK_ON: "good", NEUTRAL: "watch", RISK_OFF: "bad" };
+  const statusLabel = { RISK_ON: "Risk-On ↑", NEUTRAL: "Neutral", RISK_OFF: "Risk-Off ↓" };
+  root.innerHTML = `
+    <div class="table-wrap">
+      <table class="status-table">
+        <thead><tr><th>KR 적용일</th><th>US Macro 상태</th></tr></thead>
+        <tbody>
+          ${items.slice(0, 20).map((r) => `
+            <tr>
+              <td>${escapeHtml(r.date)}</td>
+              <td><span class="chip ${statusColor[r.macro_status] || "warn"}">${escapeHtml(statusLabel[r.macro_status] || r.macro_status)}</span></td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 // ── Main ──────────────────────────────────────
 async function main() {
   initTabs();
@@ -1142,6 +1313,7 @@ async function main() {
       consistency, tradeReview, tradeReviewSummary,
       liveKpiDaily, qualityGuardReview, closedTradeReport,
       qualityGuardOutputCheck, diagnostics,
+      featureImportance, regimeHistory,
     ] = await Promise.all([
       fetchJsonMaybe("/api/live-account/summary").catch(() => null),
       fetchJsonMaybe("/api/trade-intents").catch(() => null),
@@ -1157,6 +1329,8 @@ async function main() {
       fetchJsonMaybe("/api/live-closed-trade-report").catch(() => null),
       fetchJsonMaybe("/api/live-quality-guard-output-check").catch(() => null),
       fetchJsonMaybe("/api/live-auto-trading-diagnostics").catch(() => null),
+      fetchJsonMaybe("/api/model-feature-importance").catch(() => null),
+      fetchJsonMaybe("/api/regime-history?days=30").catch(() => null),
     ]);
 
     // ── 개요 탭 ──
@@ -1177,10 +1351,22 @@ async function main() {
     renderConsistency(consistency);
 
     // ── 분석 탭 ──
+    renderFeatureImportance(featureImportance);
+    renderRegimeHistory(regimeHistory);
     renderLiveKpiDaily(liveKpiDaily);
     renderQualityGuardReview(qualityGuardReview, qualityGuardOutputCheck);
     renderTradeReview(tradeReview, tradeReviewSummary);
     renderClosedTradeReport(closedTradeReport);
+
+    // flow history는 holdings 로드 후 별도 호출 (보유 종목 코드 필요)
+    const holdingCodes = (holdings?.items || []).map((h) => h.code).join(",");
+    if (holdingCodes) {
+      fetchJsonMaybe(`/api/flow-history?codes=${holdingCodes}&days=20`)
+        .then((flowData) => renderFlowHistory(flowData, holdings))
+        .catch(() => renderFlowHistory(null, holdings));
+    } else {
+      renderFlowHistory(null, holdings);
+    }
 
     // ── 계좌 탭 ──
     renderHoldings(holdings);

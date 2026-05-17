@@ -38,6 +38,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-live-account", action="store_true", help="Skip read-only live-account sync and preview during operational refresh.")
     parser.add_argument("--web-sync-reset-first", action="store_true", help="Pass --reset-first to sync_web_display_data.py.")
     parser.add_argument("--refresh-arg", action="append", default=[], help="Extra arg forwarded to run_operational_refresh.py.")
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Run pipeline directly via local .venv Python (skip docker). Implies --skip-build and --skip-node-api.",
+    )
     return parser.parse_args()
 
 
@@ -116,7 +121,12 @@ def verify_serving_outputs(expected_asof_date: str) -> None:
 def main() -> int:
     args = parse_args()
 
-    has_docker = docker_available()
+    # --local implies skip-build and skip-node-api (no docker involvement)
+    if args.local:
+        args.skip_build = True
+        args.skip_node_api = True
+
+    has_docker = docker_available() and not args.local
     pipeline_env = {
         "RUN_PIPELINE_SKIP_FLOW_INGESTION": os.environ.get("RUN_PIPELINE_SKIP_FLOW_INGESTION", "0"),
     }
@@ -135,7 +145,7 @@ def main() -> int:
         if has_docker
         else [sys.executable, str(ROOT / "python" / "run_pipeline.py")]
     )
-    pipeline_name = "docker compose run --rm python-pipeline" if has_docker else "run_pipeline.py"
+    pipeline_name = "docker compose run --rm python-pipeline" if has_docker else "run_pipeline.py (local)"
     run_step(pipeline_name, pipeline_command, extra_env=pipeline_env)
 
     market_date = verify_pipeline_outputs()
@@ -160,7 +170,7 @@ def main() -> int:
         run_step("sync_web_display_data", sync_command, extra_env={"MARKET_DATE": market_date})
 
     if not args.skip_node_api:
-        if not has_docker:
+        if not docker_available():
             raise RuntimeError("docker is required to restart node-api, but the docker CLI is not available")
         run_step(
             "docker compose up -d --build node-api",

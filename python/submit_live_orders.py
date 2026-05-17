@@ -331,6 +331,7 @@ def build_order_requests(
     cash_summary: dict[str, Any] = {}
     available_cash = None
     total_assets = None
+    market_context = build_market_context()
     entry_gate_config = _entry_price_gate_config()
     if has_buy_intents:
         client = KISClient.from_env()
@@ -369,10 +370,15 @@ def build_order_requests(
         )
         side = "BUY" if intent_type == "BUY" else "SELL" if intent_type in {"TRIM", "EXIT"} else "HOLD"
         reference_price = pd.to_numeric(ranking_row.get("close"), errors="coerce")
-        order_price = int(reference_price) if pd.notna(reference_price) and reference_price > 0 else 0
-        previous_close = int(reference_price) if pd.notna(reference_price) and reference_price > 0 else None
+        ranking_close = int(reference_price) if pd.notna(reference_price) and reference_price > 0 else None
+        order_price = ranking_close or 0
+        previous_close = ranking_close
         live_price = None
         live_price_source = None
+        live_previous_close = None
+        quote_checked_at = None
+        reference_price_source = "ranking_close" if ranking_close is not None else None
+        entry_reference_note = None
         entry_price_gap_pct = None
         entry_price_gate_status = None
         entry_price_gate_reason = None
@@ -401,9 +407,14 @@ def build_order_requests(
                         "intent_type": intent_type,
                         "ord_dvsn": ord_dvsn,
                         "reference_price": order_price if order_price else None,
+                        "ranking_close": ranking_close,
                         "previous_close": previous_close,
+                        "live_previous_close": live_previous_close,
                         "live_price": live_price,
                         "live_price_source": live_price_source,
+                        "quote_checked_at": quote_checked_at,
+                        "reference_price_source": reference_price_source,
+                        "entry_reference_note": entry_reference_note,
                         "entry_price_gap_pct": entry_price_gap_pct,
                         "entry_price_gate_status": entry_price_gate_status,
                         "entry_price_gate_reason": entry_price_gate_reason,
@@ -437,10 +448,14 @@ def build_order_requests(
             live_snapshot = _fetch_live_price_snapshot(client, code)
             live_price = _int_or_none(live_snapshot.get("live_price"))
             live_price_source = str(live_snapshot.get("live_price_source") or "").strip() or None
+            quote_checked_at = str(live_snapshot.get("checked_at") or "").strip() or None
             live_previous_close = _int_or_none(live_snapshot.get("previous_close"))
-            if live_previous_close is not None:
+            if live_previous_close is not None and _use_kis_previous_close_for_entry_gate(market_context):
                 previous_close = live_previous_close
                 order_price = live_previous_close
+                reference_price_source = "kis_previous_close"
+            elif live_previous_close is not None:
+                entry_reference_note = f"ignored_kis_previous_close_during_{str(market_context.get('market_status') or '').lower()}"
             gate_result = _evaluate_entry_price_gate(
                 previous_close=previous_close,
                 live_price=live_price,
@@ -543,9 +558,14 @@ def build_order_requests(
                 "intent_type": intent_type,
                 "ord_dvsn": ord_dvsn,
                 "reference_price": order_price if order_price else None,
+                "ranking_close": ranking_close,
                 "previous_close": previous_close,
+                "live_previous_close": live_previous_close,
                 "live_price": live_price,
                 "live_price_source": live_price_source,
+                "quote_checked_at": quote_checked_at,
+                "reference_price_source": reference_price_source,
+                "entry_reference_note": entry_reference_note,
                 "entry_price_gap_pct": entry_price_gap_pct,
                 "entry_price_gate_status": entry_price_gate_status,
                 "entry_price_gate_reason": entry_price_gate_reason,
@@ -633,11 +653,17 @@ def _entry_price_gate_config() -> dict[str, object]:
     }
 
 
+def _use_kis_previous_close_for_entry_gate(market_context: dict[str, Any] | None) -> bool:
+    status = str((market_context or {}).get("market_status") or "").upper()
+    return status == "OPEN"
+
+
 def _fetch_live_price_snapshot(client: KISClient, code: str) -> dict[str, object]:
     payload = {
         "previous_close": None,
         "live_price": None,
         "live_price_source": "unavailable",
+        "checked_at": datetime.now().astimezone().isoformat(timespec="seconds"),
     }
     try:
         response = client.get(
@@ -838,15 +864,29 @@ def execute_order_requests(
                 live_snapshot = _fetch_live_price_snapshot(client, str(item.get("code") or "").zfill(6))
                 live_price = _int_or_none(live_snapshot.get("live_price"))
                 live_price_source = str(live_snapshot.get("live_price_source") or "").strip() or None
-                previous_close = _int_or_none(live_snapshot.get("previous_close")) or _int_or_none(item.get("previous_close"))
+                quote_checked_at = str(live_snapshot.get("checked_at") or "").strip() or None
+                live_previous_close = _int_or_none(live_snapshot.get("previous_close"))
+                previous_close = _int_or_none(item.get("ranking_close")) or _int_or_none(item.get("previous_close"))
+                reference_price_source = "ranking_close" if previous_close is not None else None
+                entry_reference_note = None
+                if live_previous_close is not None and _use_kis_previous_close_for_entry_gate(market_context):
+                    previous_close = live_previous_close
+                    reference_price_source = "kis_previous_close"
+                elif live_previous_close is not None:
+                    entry_reference_note = f"ignored_kis_previous_close_during_{str(market_context.get('market_status') or '').lower()}"
                 gate_result = _evaluate_entry_price_gate(
                     previous_close=previous_close,
                     live_price=live_price,
                     config=entry_gate_config,
                 )
+                result["ranking_close"] = _int_or_none(item.get("ranking_close"))
                 result["previous_close"] = previous_close
+                result["live_previous_close"] = live_previous_close
                 result["live_price"] = live_price
                 result["live_price_source"] = live_price_source
+                result["quote_checked_at"] = quote_checked_at
+                result["reference_price_source"] = reference_price_source
+                result["entry_reference_note"] = entry_reference_note
                 result["entry_price_gap_pct"] = _num_or_none(gate_result.get("entry_price_gap_pct"))
                 result["entry_price_gate_status"] = gate_result.get("entry_price_gate_status")
                 result["entry_price_gate_reason"] = gate_result.get("entry_price_gate_reason")

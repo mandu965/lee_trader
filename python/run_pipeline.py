@@ -61,6 +61,8 @@ STEPS: List[Tuple[str, str]] = [
     # Model training/prediction produces the inputs consumed by ranking_builder.
     ("model_train", "python/model_train.py"),
     ("model_predict", "python/model_predict.py"),
+    # Archive today's predictions for future accuracy evaluation (60d/90d later).
+    ("archive_predictions", "python/archive_predictions.py"),
     # Final single scoring/ranking step.
     ("ranking_builder", "python/ranking_builder.py"),
 ]
@@ -591,6 +593,33 @@ def _flow_window() -> tuple[str, str]:
     lookback = int(os.environ.get("FLOW_LOOKBACK_DAYS", "7"))
     start = end - timedelta(days=lookback)
     return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
+
+
+def maybe_run_short_interest_ingestion(run_id: str) -> None:
+    """공매도 잔고 일별 수집 (pykrx). feature_builder.merge_short_interest()의 입력."""
+    if _env_flag("RUN_PIPELINE_SKIP_SHORT_INTEREST", "0"):
+        _log_run_id_event(run_id, "RUN_PIPELINE_SKIP_SHORT_INTEREST enabled -> skip short interest ingestion")
+        return
+
+    short_script = Path("python") / "fetch_short_interest.py"
+    if not short_script.exists():
+        logging.info("fetch_short_interest.py not found -> skip short interest ingestion")
+        return
+
+    # 최근 7일 수집 — short_interest.csv 캐시가 이미 존재하면 미수집 날짜만 API 호출
+    end_date = datetime.now(ZoneInfo(DEFAULT_MARKET_TIMEZONE)).strftime("%Y%m%d")
+    start_date = (datetime.now(ZoneInfo(DEFAULT_MARKET_TIMEZONE)) - timedelta(days=7)).strftime("%Y%m%d")
+
+    run_optional_command_step(
+        "fetch_short_interest",
+        [
+            sys.executable,
+            str(short_script),
+            "--start", start_date,
+            "--end", end_date,
+        ],
+        run_id=run_id,
+    )
 
 
 def maybe_run_flow_ingestion(run_id: str) -> None:
@@ -1292,6 +1321,7 @@ def main() -> None:
 
             walkforward_sample = profile_begin()
             maybe_run_flow_ingestion(run_id)
+            maybe_run_short_interest_ingestion(run_id)
             maybe_run_theme_validation(run_id, theme_cfg)
             maybe_sync_csv_db_parity(run_id)
 

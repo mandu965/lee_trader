@@ -72,6 +72,25 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out-trades-csv", type=Path, default=OUTPUT_DIR / "rule_portfolio_backtest_trades.csv")
     p.add_argument("--out-report-json", type=Path, default=OUTPUT_DIR / "rule_portfolio_backtest_report.json")
     p.add_argument("--out-report-md", type=Path, default=OUTPUT_DIR / "rule_portfolio_backtest_report.md")
+    # ── 거래비용 / 슬리피지 ───────────────────────────────────────────────
+    p.add_argument("--buy-commission", type=float, default=0.00015,
+                   help="매수 수수료 (default 0.015%%)")
+    p.add_argument("--sell-commission", type=float, default=0.00015,
+                   help="매도 수수료 (default 0.015%%)")
+    p.add_argument("--sell-tax", type=float, default=0.0018,
+                   help="증권거래세 (default 0.18%%)")
+    p.add_argument("--buy-slippage", type=float, default=0.001,
+                   help="매수 슬리피지 (default 0.1%%)")
+    p.add_argument("--sell-slippage", type=float, default=0.001,
+                   help="매도 슬리피지 (default 0.1%%)")
+    p.add_argument("--no-cost", action="store_true",
+                   help="비용/슬리피지 미반영 (기존 방식 — 비교용)")
+    # ── 벤치마크 ─────────────────────────────────────────────────────────
+    p.add_argument("--market-csv", type=Path, default=DATA_DIR / "market_status.csv",
+                   help="KOSPI 벤치마크 소스 (market_status.csv)")
+    # ── IS / OOS 분리 ────────────────────────────────────────────────────
+    p.add_argument("--is-end-date", type=str, default=None,
+                   help="IS 종료일 YYYY-MM-DD. 지정 시 IS/OOS 성과 분리 출력.")
     return p.parse_args()
 
 
@@ -116,8 +135,9 @@ class Position:
     name: str
     sector: str
     entry_date: pd.Timestamp
-    entry_price: float
+    entry_price: float          # 체결 시가 (stop-loss 기준)
     qty: int
+    effective_entry_price: float = 0.0  # 수수료·슬리피지 반영 실질 매수가 (PnL 기준)
     highest_price: float = 0.0
     highest_return: float = 0.0
     is_reduced: bool = False  # reduce 1회 후 플래그 → 이후 전량 청산만 허용
@@ -158,17 +178,29 @@ class CompletedTrade:
     name: str
     sector: str
     entry_date: pd.Timestamp
-    entry_price: float
+    entry_price: float           # 체결 시가 (raw)
     exit_date: pd.Timestamp
-    exit_price: float
+    exit_price: float            # 청산 시가 (raw)
     qty: int
     exit_reason: str
+    effective_entry_price: float = 0.0  # 매수 수수료·슬리피지 반영
+    effective_exit_price: float = 0.0   # 매도 수수료·세금·슬리피지 반영
 
     @property
-    def realized_return(self) -> float:
+    def gross_return(self) -> float:
+        """비용 미반영 수익률 (raw prices)."""
         if self.entry_price <= 0:
             return 0.0
         return self.exit_price / self.entry_price - 1.0
+
+    @property
+    def realized_return(self) -> float:
+        """비용 반영 실질 수익률 (effective prices)."""
+        ep = self.effective_entry_price if self.effective_entry_price > 0 else self.entry_price
+        xp = self.effective_exit_price if self.effective_exit_price > 0 else self.exit_price
+        if ep <= 0:
+            return 0.0
+        return xp / ep - 1.0
 
     @property
     def holding_days(self) -> int:
@@ -176,7 +208,9 @@ class CompletedTrade:
 
     @property
     def pnl(self) -> float:
-        return (self.exit_price - self.entry_price) * self.qty
+        ep = self.effective_entry_price if self.effective_entry_price > 0 else self.entry_price
+        xp = self.effective_exit_price if self.effective_exit_price > 0 else self.exit_price
+        return (xp - ep) * self.qty
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -189,6 +223,7 @@ class CompletedTrade:
             "entry_price": round(self.entry_price, 2),
             "exit_price": round(self.exit_price, 2),
             "qty": self.qty,
+            "gross_return": round(self.gross_return, 6),
             "realized_return": round(self.realized_return, 6),
             "pnl": round(self.pnl, 2),
             "exit_reason": self.exit_reason,
@@ -232,11 +267,41 @@ def _float(val: Any, default: float = 0.0) -> float:
         return default
 
 
+def _load_benchmark(market_csv: Path) -> dict[pd.Timestamp, float]:
+    """market_status.csv에서 KOSPI 종가를 {date: close} 딕셔너리로 반환."""
+    if not market_csv.exists():
+        return {}
+    try:
+        mkt = pd.read_csv(market_csv, low_memory=False)
+        if "date" not in mkt.columns or "kospi_close" not in mkt.columns:
+            return {}
+        mkt["date"] = pd.to_datetime(mkt["date"], errors="coerce")
+        mkt = mkt.dropna(subset=["date", "kospi_close"])
+        return {pd.Timestamp(r.date): float(r.kospi_close) for r in mkt.itertuples()}
+    except Exception:
+        return {}
+
+
 def run_simulation(
     signals: pd.DataFrame,
     prices: pd.DataFrame,
     cfg: argparse.Namespace,
 ) -> PortfolioState:
+    # 비용 계수 (no-cost 모드이면 0)
+    buy_cost_rate = 0.0 if getattr(cfg, "no_cost", False) else (
+        getattr(cfg, "buy_slippage", 0.001) + getattr(cfg, "buy_commission", 0.00015)
+    )
+    sell_cost_rate = 0.0 if getattr(cfg, "no_cost", False) else (
+        getattr(cfg, "sell_slippage", 0.001)
+        + getattr(cfg, "sell_commission", 0.00015)
+        + getattr(cfg, "sell_tax", 0.0018)
+    )
+
+    # KOSPI 벤치마크 데이터 로드
+    benchmark_idx: dict[pd.Timestamp, float] = {}
+    if hasattr(cfg, "market_csv") and cfg.market_csv:
+        benchmark_idx = _load_benchmark(Path(cfg.market_csv))
+
     # 가격 인덱스: {date -> {code -> {open, high, close}}}
     price_idx: dict[pd.Timestamp, dict[str, dict[str, float]]] = {}
     for row in prices.itertuples(index=False):
@@ -287,7 +352,8 @@ def run_simulation(
                 exit_price = pos.entry_price
 
             sell_qty = min(sell.qty, pos.qty)
-            state.cash += exit_price * sell_qty
+            effective_exit_price = exit_price * (1.0 - sell_cost_rate)
+            state.cash += effective_exit_price * sell_qty
             trade = CompletedTrade(
                 code=pos.code,
                 name=pos.name,
@@ -298,6 +364,8 @@ def run_simulation(
                 exit_price=exit_price,
                 qty=sell_qty,
                 exit_reason=sell.reason,
+                effective_entry_price=pos.effective_entry_price,
+                effective_exit_price=effective_exit_price,
             )
             state.trade_log.append(trade)
 
@@ -326,13 +394,14 @@ def run_simulation(
             buy_price = px.get("open", 0.0)
             if buy_price <= 0:
                 continue
-            qty = int(order.target_amount // buy_price)
+            effective_buy_price = buy_price * (1.0 + buy_cost_rate)
+            qty = int(order.target_amount // effective_buy_price)
             if qty <= 0:
                 continue
-            actual_cost = buy_price * qty
+            actual_cost = effective_buy_price * qty
             if actual_cost > state.cash + 1:  # 1원 오차 허용
-                qty = int(state.cash // buy_price)
-                actual_cost = buy_price * qty
+                qty = int(state.cash // effective_buy_price)
+                actual_cost = effective_buy_price * qty
             if qty <= 0:
                 continue
             state.cash -= actual_cost
@@ -342,6 +411,7 @@ def run_simulation(
                 sector=order.sector,
                 entry_date=today,
                 entry_price=buy_price,
+                effective_entry_price=effective_buy_price,
                 qty=qty,
                 highest_price=buy_price,
                 highest_return=0.0,
@@ -502,6 +572,7 @@ def run_simulation(
             "position_value": round(position_value_eod, 2),
             "n_positions": len(state.positions),
             "n_pending_buys": len(state.pending_buys),
+            "kospi_close": benchmark_idx.get(today),
         })
 
     return state
@@ -511,57 +582,66 @@ def run_simulation(
 # 성과 지표 계산
 # ---------------------------------------------------------------------------
 
-def compute_metrics(state: PortfolioState, initial_capital: float) -> dict[str, Any]:
-    equity_df = pd.DataFrame(state.equity_curve)
-    if equity_df.empty:
+def _period_metrics(
+    equity_df: pd.DataFrame,
+    trades: list,
+    initial_equity: float,
+) -> dict[str, Any]:
+    """주어진 equity_df / trades 구간의 성과 지표를 계산한다."""
+    if equity_df.empty or initial_equity <= 0:
         return {}
 
-    equity_df["date"] = pd.to_datetime(equity_df["date"])
-    equity_df = equity_df.set_index("date").sort_index()
+    eq = equity_df["equity"]
+    final_equity = float(eq.iloc[-1])
+    total_return = final_equity / initial_equity - 1.0
 
-    final_equity = float(equity_df["equity"].iloc[-1])
-    total_return = final_equity / initial_capital - 1.0
-
-    # 기간 (연)
     n_days = (equity_df.index[-1] - equity_df.index[0]).days
     years = max(n_days / 365.25, 1 / 365.25)
-    cagr = (final_equity / initial_capital) ** (1.0 / years) - 1.0
+    cagr = (final_equity / initial_equity) ** (1.0 / years) - 1.0
 
-    # MDD
-    eq = equity_df["equity"]
     rolling_max = eq.cummax()
     drawdown = eq / rolling_max - 1.0
     mdd = float(drawdown.min())
 
-    # 일간 수익률 → Sharpe (연환산, 무위험 2%)
     daily_ret = eq.pct_change().dropna()
     rf_daily = 0.02 / 252
     excess = daily_ret - rf_daily
     sharpe = float(excess.mean() / excess.std() * math.sqrt(252)) if excess.std() > 0 else 0.0
 
+    # KOSPI 벤치마크 수익률
+    kospi_col = equity_df.get("kospi_close") if isinstance(equity_df, pd.DataFrame) else None
+    if kospi_col is not None:
+        kospi_valid = kospi_col.dropna()
+    else:
+        kospi_valid = pd.Series(dtype=float)
+    if len(kospi_valid) >= 2:
+        kospi_return = float(kospi_valid.iloc[-1] / kospi_valid.iloc[0] - 1.0)
+        alpha = total_return - kospi_return
+    else:
+        kospi_return = None
+        alpha = None
+
     # 거래 통계
-    trades = state.trade_log
     n_trades = len(trades)
     if n_trades > 0:
         returns = [t.realized_return for t in trades]
+        gross_returns = [t.gross_return for t in trades]
         wins = [r for r in returns if r > 0]
         losses = [r for r in returns if r < 0]
         win_rate = len(wins) / n_trades
         avg_return = float(np.mean(returns))
+        avg_gross = float(np.mean(gross_returns))
         avg_win = float(np.mean(wins)) if wins else 0.0
         avg_loss = float(np.mean(losses)) if losses else 0.0
         payoff = abs(avg_win / avg_loss) if avg_loss != 0 else None
         avg_holding = float(np.mean([t.holding_days for t in trades]))
-
-        # 청산 사유별 건수
         exit_reasons: dict[str, int] = {}
         for t in trades:
             exit_reasons[t.exit_reason] = exit_reasons.get(t.exit_reason, 0) + 1
     else:
-        win_rate = avg_return = avg_win = avg_loss = payoff = avg_holding = 0.0
+        win_rate = avg_return = avg_gross = avg_win = avg_loss = payoff = avg_holding = 0.0
         exit_reasons = {}
 
-    # 연도별 수익률
     yearly: dict[str, float] = {}
     for year, grp in equity_df.groupby(equity_df.index.year):
         y_start = float(grp["equity"].iloc[0])
@@ -576,7 +656,7 @@ def compute_metrics(state: PortfolioState, initial_capital: float) -> dict[str, 
             "years": round(years, 2),
         },
         "capital": {
-            "initial": initial_capital,
+            "initial": round(initial_equity, 2),
             "final": round(final_equity, 2),
         },
         "returns": {
@@ -584,11 +664,14 @@ def compute_metrics(state: PortfolioState, initial_capital: float) -> dict[str, 
             "cagr": round(cagr, 6),
             "mdd": round(mdd, 6),
             "sharpe": round(sharpe, 4),
+            "kospi_return": round(kospi_return, 6) if kospi_return is not None else None,
+            "alpha": round(alpha, 6) if alpha is not None else None,
         },
         "trades": {
             "total": n_trades,
             "win_rate": round(win_rate, 4) if n_trades else None,
-            "avg_return": round(avg_return, 6) if n_trades else None,
+            "avg_return_net": round(avg_return, 6) if n_trades else None,
+            "avg_return_gross": round(avg_gross, 6) if n_trades else None,
             "avg_win": round(avg_win, 6) if n_trades else None,
             "avg_loss": round(avg_loss, 6) if n_trades else None,
             "payoff_ratio": round(payoff, 4) if payoff is not None else None,
@@ -597,6 +680,38 @@ def compute_metrics(state: PortfolioState, initial_capital: float) -> dict[str, 
         },
         "yearly_returns": yearly,
     }
+
+
+def compute_metrics(
+    state: PortfolioState,
+    initial_capital: float,
+    is_end_date: str | None = None,
+) -> dict[str, Any]:
+    equity_df = pd.DataFrame(state.equity_curve)
+    if equity_df.empty:
+        return {}
+
+    equity_df["date"] = pd.to_datetime(equity_df["date"])
+    equity_df = equity_df.set_index("date").sort_index()
+
+    full = _period_metrics(equity_df, state.trade_log, initial_capital)
+
+    result: dict[str, Any] = {"full": full}
+
+    if is_end_date:
+        is_cut = pd.Timestamp(is_end_date)
+        eq_is = equity_df[equity_df.index <= is_cut]
+        eq_oos = equity_df[equity_df.index > is_cut]
+        trades_is = [t for t in state.trade_log if t.exit_date <= is_cut]
+        trades_oos = [t for t in state.trade_log if t.exit_date > is_cut]
+
+        if not eq_is.empty:
+            result["IS"] = _period_metrics(eq_is, trades_is, initial_capital)
+        if not eq_oos.empty:
+            oos_initial = float(eq_oos["equity"].iloc[0])
+            result["OOS"] = _period_metrics(eq_oos, trades_oos, oos_initial)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -621,12 +736,64 @@ def fmt_num(v: Any, decimals: int = 2) -> str:
         return "NA"
 
 
+def _render_period_section(title: str, m: dict) -> list[str]:
+    p = m.get("period", {})
+    c = m.get("capital", {})
+    r = m.get("returns", {})
+    t = m.get("trades", {})
+    yr = m.get("yearly_returns", {})
+
+    no_cost = r.get("kospi_return") is None  # 벤치마크 없으면 비용도 없을 수 있음
+
+    lines = [
+        f"## {title}",
+        "",
+        f"| 항목 | 값 |",
+        f"| --- | --- |",
+        f"| 기간 | {p.get('start')} ~ {p.get('end')} ({p.get('days')}일, {p.get('years')}년) |",
+        f"| 초기 자산 | {fmt_num(c.get('initial'))} 원 |",
+        f"| 최종 자산 | {fmt_num(c.get('final'))} 원 |",
+        f"| 총 수익률 (net) | {fmt_pct(r.get('total_return'))} |",
+        f"| CAGR | {fmt_pct(r.get('cagr'))} |",
+        f"| MDD | {fmt_pct(r.get('mdd'))} |",
+        f"| Sharpe (rf=2%) | {fmt_num(r.get('sharpe'), 3)} |",
+    ]
+    if r.get("kospi_return") is not None:
+        lines.append(f"| KOSPI 수익률 | {fmt_pct(r.get('kospi_return'))} |")
+        lines.append(f"| **Alpha** | **{fmt_pct(r.get('alpha'))}** |")
+
+    lines += [
+        "",
+        f"| 거래 항목 | 값 |",
+        f"| --- | --- |",
+        f"| 총 거래 수 | {t.get('total', 0)} |",
+        f"| 승률 | {fmt_pct(t.get('win_rate'))} |",
+        f"| 평균 수익률 (net) | {fmt_pct(t.get('avg_return_net'))} |",
+        f"| 평균 수익률 (gross) | {fmt_pct(t.get('avg_return_gross'))} |",
+        f"| 평균 수익 (win) | {fmt_pct(t.get('avg_win'))} |",
+        f"| 평균 손실 (loss) | {fmt_pct(t.get('avg_loss'))} |",
+        f"| Payoff ratio | {fmt_num(t.get('payoff_ratio'), 3)} |",
+        f"| 평균 보유기간 | {fmt_num(t.get('avg_holding_days'), 1)}일 |",
+        "",
+        "| 청산 사유 | 건수 |",
+        "| --- | ---: |",
+    ]
+    for reason, cnt in sorted((t.get("exit_reasons") or {}).items(), key=lambda x: -x[1]):
+        lines.append(f"| {reason} | {cnt} |")
+
+    if yr:
+        lines += ["", "| 연도 | 수익률 |", "| --- | ---: |"]
+        for y, ret in sorted(yr.items()):
+            lines.append(f"| {y} | {fmt_pct(ret)} |")
+
+    lines.append("")
+    return lines
+
+
 def render_md(metrics: dict, cfg: argparse.Namespace) -> str:
-    p = metrics.get("period", {})
-    c = metrics.get("capital", {})
-    r = metrics.get("returns", {})
-    t = metrics.get("trades", {})
-    yr = metrics.get("yearly_returns", {})
+    no_cost = getattr(cfg, "no_cost", False)
+    buy_total = (getattr(cfg, "buy_slippage", 0.001) + getattr(cfg, "buy_commission", 0.00015)) if not no_cost else 0.0
+    sell_total = (getattr(cfg, "sell_slippage", 0.001) + getattr(cfg, "sell_commission", 0.00015) + getattr(cfg, "sell_tax", 0.0018)) if not no_cost else 0.0
 
     lines = [
         "# Rule Portfolio Backtest Report",
@@ -635,9 +802,9 @@ def render_md(metrics: dict, cfg: argparse.Namespace) -> str:
         "",
         "## 파라미터",
         "",
-        f"| 항목 | 값 |",
-        f"| --- | --- |",
-        f"| 초기 자본 | {fmt_num(c.get('initial'))} 원 |",
+        "| 항목 | 값 |",
+        "| --- | --- |",
+        f"| 초기 자본 | {fmt_num(cfg.initial_capital)} 원 |",
         f"| 최대 보유 종목 수 | {cfg.max_positions} |",
         f"| 신규 진입 비중 | {fmt_pct(cfg.new_entry_weight)} |",
         f"| 최소 현금 비중 | {fmt_pct(cfg.min_cash_weight)} |",
@@ -646,49 +813,18 @@ def render_md(metrics: dict, cfg: argparse.Namespace) -> str:
         f"| 쿨다운 | {cfg.cooldown_days}일 |",
         f"| Stop-loss | {fmt_pct(cfg.stop_loss_pct)} |",
         f"| Trailing stop | {fmt_pct(cfg.trailing_stop_pct)} (최소 수익 {fmt_pct(cfg.trailing_stop_min_profit_pct)} 이상 시) |",
+        f"| 비용 모드 | {'미반영 (no-cost)' if no_cost else f'매수 {fmt_pct(buy_total)} / 매도 {fmt_pct(sell_total)}'} |",
+        f"| IS 종료일 | {getattr(cfg, 'is_end_date', None) or '미설정'} |",
         "",
-        "## 전체 성과",
-        "",
-        f"| 항목 | 값 |",
-        f"| --- | --- |",
-        f"| 기간 | {p.get('start')} ~ {p.get('end')} ({p.get('days')}일, {p.get('years')}년) |",
-        f"| 최종 자산 | {fmt_num(c.get('final'))} 원 |",
-        f"| 총 수익률 | {fmt_pct(r.get('total_return'))} |",
-        f"| CAGR | {fmt_pct(r.get('cagr'))} |",
-        f"| MDD | {fmt_pct(r.get('mdd'))} |",
-        f"| Sharpe (rf=2%) | {fmt_num(r.get('sharpe'), 3)} |",
-        "",
-        "## 거래 통계",
-        "",
-        f"| 항목 | 값 |",
-        f"| --- | --- |",
-        f"| 총 거래 수 | {t.get('total', 0)} |",
-        f"| 승률 | {fmt_pct(t.get('win_rate'))} |",
-        f"| 평균 수익률 | {fmt_pct(t.get('avg_return'))} |",
-        f"| 평균 수익 (win) | {fmt_pct(t.get('avg_win'))} |",
-        f"| 평균 손실 (loss) | {fmt_pct(t.get('avg_loss'))} |",
-        f"| Payoff ratio | {fmt_num(t.get('payoff_ratio'), 3)} |",
-        f"| 평균 보유기간 | {fmt_num(t.get('avg_holding_days'), 1)}일 |",
-        "",
-        "## 청산 사유",
-        "",
-        "| 사유 | 건수 |",
-        "| --- | ---: |",
     ]
-    for reason, cnt in sorted((t.get("exit_reasons") or {}).items(), key=lambda x: -x[1]):
-        lines.append(f"| {reason} | {cnt} |")
 
-    lines += [
-        "",
-        "## 연도별 수익률",
-        "",
-        "| 연도 | 수익률 |",
-        "| --- | ---: |",
-    ]
-    for y, ret in sorted(yr.items()):
-        lines.append(f"| {y} | {fmt_pct(ret)} |")
+    if "full" in metrics:
+        lines += _render_period_section("전체 구간 성과", metrics["full"])
+    if "IS" in metrics:
+        lines += _render_period_section("IS (In-Sample) 성과", metrics["IS"])
+    if "OOS" in metrics:
+        lines += _render_period_section("OOS (Out-of-Sample) 성과", metrics["OOS"])
 
-    lines.append("")
     return "\n".join(lines)
 
 
@@ -714,7 +850,7 @@ def main() -> None:
 
     print(f"시뮬레이션 완료: {len(state.trade_log)}건 거래, {len(state.equity_curve)}일 기록")
 
-    metrics = compute_metrics(state, cfg.initial_capital)
+    metrics = compute_metrics(state, cfg.initial_capital, getattr(cfg, "is_end_date", None))
 
     # 출력 저장
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -747,16 +883,23 @@ def main() -> None:
     print(f"report MD    → {cfg.out_report_md}")
 
     # 콘솔 요약
-    r = metrics.get("returns", {})
-    t = metrics.get("trades", {})
-    print("\n" + "=" * 50)
-    print(f"총 수익률 : {fmt_pct(r.get('total_return'))}")
-    print(f"CAGR      : {fmt_pct(r.get('cagr'))}")
-    print(f"MDD       : {fmt_pct(r.get('mdd'))}")
-    print(f"Sharpe    : {fmt_num(r.get('sharpe'), 3)}")
-    print(f"총 거래   : {t.get('total', 0)}건")
-    print(f"승률      : {fmt_pct(t.get('win_rate'))}")
-    print("=" * 50)
+    full = metrics.get("full", {})
+    r = full.get("returns", {})
+    t = full.get("trades", {})
+    print("\n" + "=" * 55)
+    print(f"총 수익률 (net) : {fmt_pct(r.get('total_return'))}")
+    print(f"KOSPI 수익률    : {fmt_pct(r.get('kospi_return'))}")
+    print(f"Alpha           : {fmt_pct(r.get('alpha'))}")
+    print(f"CAGR            : {fmt_pct(r.get('cagr'))}")
+    print(f"MDD             : {fmt_pct(r.get('mdd'))}")
+    print(f"Sharpe          : {fmt_num(r.get('sharpe'), 3)}")
+    print(f"총 거래         : {t.get('total', 0)}건")
+    print(f"승률            : {fmt_pct(t.get('win_rate'))}")
+    if "OOS" in metrics:
+        oos = metrics["OOS"].get("returns", {})
+        print(f"OOS 수익률      : {fmt_pct(oos.get('total_return'))}")
+        print(f"OOS Alpha       : {fmt_pct(oos.get('alpha'))}")
+    print("=" * 55)
 
 
 if __name__ == "__main__":

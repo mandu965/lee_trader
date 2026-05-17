@@ -67,15 +67,17 @@ buy_gate:
   min_confidence_score: 82.0
   pilot_min_confidence_score: 80.0
   min_quality_delta_vs_raw: 0.0
-  pilot_min_quality_delta_vs_raw: -1.0
+  pilot_min_quality_delta_vs_raw: -5.0
   pilot_min_trusted_ratio_top20: 0.35
   pilot_max_blocked_ratio: 1.00
-  block_negative_excess_return: -0.01
+  block_negative_excess_return: -0.05
+  min_matured_dates_for_block: 40
 
 confidence_calibration:
   min_bucket_rows_snapshot: 20
   min_bucket_rows_operational: 20
   provisional_map_horizon_days: 60
+  calibration_start_date: "2026-05-18"
 
 execution_policy:
   candidate_universe_top_n: 20

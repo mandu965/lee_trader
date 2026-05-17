@@ -27,8 +27,12 @@ MODEL_PKL = DATA_DIR / "model.pkl"
 MODELS_DIR = Path("models")
 LGBM_REG_PARAMS_JSON = MODELS_DIR / "lgbm_reg_params.json"
 
-# 기본 horizon: 60d/90d (필요 시 30d 포함)
+# 회귀 horizon: log-return + MDD 예측 (60d/90d 유지)
 DEFAULT_HORIZONS = [60, 90]
+
+# 분류 horizon: Top20 확률 예측
+# prob_top20_90d 는 final_score.py 에서 점수에 반영되지 않으므로 60d만 학습
+DEFAULT_CLS_HORIZONS = [60]
 
 N_SPLITS = 3  # TimeSeriesSplit fold 수 (너무 크지 않게)
 
@@ -52,7 +56,19 @@ def parse_args() -> argparse.Namespace:
         type=int,
         nargs="+",
         default=DEFAULT_HORIZONS,
-        help="Horizons to train (e.g., 30 60 90). Defaults to 60 90.",
+        help="Regression horizons for log-return + MDD (e.g., 60 90). Defaults to 60 90.",
+    )
+    p.add_argument(
+        "--cls-horizons",
+        type=int,
+        nargs="+",
+        default=None,
+        dest="cls_horizons",
+        help=(
+            "Classification horizons for Top20 classifiers. "
+            "Defaults to DEFAULT_CLS_HORIZONS=[60]. "
+            "Pass '60 90' to restore both classifiers."
+        ),
     )
     p.add_argument(
         "--output-pkl",
@@ -129,17 +145,21 @@ def load_labels(path: Path) -> pd.DataFrame:
     return df
 
 
-def build_targets(horizons: List[int]) -> Tuple[List[str], List[str]]:
+def build_targets(reg_horizons: List[int], cls_horizons: List[int] | None = None) -> Tuple[List[str], List[str]]:
     """
-    horizons: list like [30, 60, 90]
+    reg_horizons: horizons for log-return + MDD regressors (e.g., [60, 90])
+    cls_horizons: horizons for Top20 classifiers (e.g., [60])
+                  defaults to reg_horizons when None
     returns: (reg_targets, cls_targets)
     """
-    uniq = sorted({int(h) for h in horizons})
+    if cls_horizons is None:
+        cls_horizons = reg_horizons
     reg_targets = []
     cls_targets = []
-    for h in uniq:
+    for h in sorted({int(h) for h in reg_horizons}):
         reg_targets.append(f"target_log_{h}d")
         reg_targets.append(f"target_mdd_{h}d")
+    for h in sorted({int(h) for h in cls_horizons}):
         cls_targets.append(f"target_{h}d_top20")
     return reg_targets, cls_targets
 
@@ -169,7 +189,11 @@ def make_merged(reg_targets: List[str], cls_targets: List[str], features_path: P
         and not c.endswith("_top20")
         and not c.startswith("target_")
         and not c.startswith("realized_return_")  # exclude label-derived realized returns
+        and pd.api.types.is_numeric_dtype(merged[c])  # LightGBM: int/float/bool only
     ]
+    non_numeric = [c for c in merged.columns if c not in exclude_cols and not c.endswith("_top20") and not c.startswith("target_") and not c.startswith("realized_return_") and not pd.api.types.is_numeric_dtype(merged[c])]
+    if non_numeric:
+        logging.info("Excluded non-numeric feature columns: %s", non_numeric)
 
     logging.info("Using %d feature columns: %s", len(feature_cols), feature_cols)
     return merged, feature_cols
@@ -412,7 +436,8 @@ def train_classifiers(df: pd.DataFrame, feature_cols: List[str], cls_targets: Li
 def main() -> None:
     setup_logging()
     args = parse_args()
-    reg_targets, cls_targets = build_targets(args.horizons)
+    cls_horizons = args.cls_horizons if args.cls_horizons is not None else DEFAULT_CLS_HORIZONS
+    reg_targets, cls_targets = build_targets(args.horizons, cls_horizons)
 
     logging.info("Training horizons: %s", reg_targets)
     df, feature_cols = make_merged(reg_targets, cls_targets, args.features_csv, args.labels_csv)

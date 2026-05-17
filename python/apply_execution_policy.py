@@ -9,10 +9,12 @@ from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
+from dotenv import load_dotenv
 
 from ai_position_risk import evaluate_ai_position_risk, load_ai_position_state
 from production_config import get_production_config_value
 
+load_dotenv()
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"

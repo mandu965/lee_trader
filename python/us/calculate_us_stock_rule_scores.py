@@ -15,11 +15,15 @@ from sqlalchemy import text
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from python.us.us_config import load_us_rule_ranking_config, parse_iso_date
 from python.us.us_db import (
     delete_us_rank_rows,
     fetch_latest_daily_feature_snapshots,
     fetch_latest_financial_feature_snapshots,
+    fetch_latest_macro_snapshot,
     fetch_latest_relative_strength_snapshots,
     fetch_meta_us_universe_rows,
     fetch_price_history_for_tickers,
@@ -218,6 +222,7 @@ def _build_joined_row(
     financial: dict[str, object] | None,
     price_snapshot: dict[str, object] | None,
     benchmark_snapshot: dict[str, dict[str, object]],
+    macro_snapshot: dict[str, object] | None,
 ) -> dict[str, object]:
     price = price_snapshot or {}
     row: dict[str, object] = {
@@ -268,19 +273,43 @@ def _build_joined_row(
     if row["rs_qqq_60d"] is None and row.get("ret_60d") is not None and qqq.get("ret_60d") is not None:
         row["rs_qqq_60d"] = float(row["ret_60d"]) - float(qqq["ret_60d"])
 
+    # Technical features — new signals
+    row["rsi_14"] = _safe_float((daily_feature or {}).get("rsi_14")) if daily_feature else None
+    row["high_52w_ratio"] = _safe_float((daily_feature or {}).get("high_52w_ratio")) if daily_feature else None
+    row["bb_position"] = _safe_float((daily_feature or {}).get("bb_position")) if daily_feature else None
+    row["price_vs_ma200"] = _safe_float((daily_feature or {}).get("price_vs_ma200")) if daily_feature else None
+    row["ret_252d"] = _safe_float((daily_feature or {}).get("ret_252d")) if daily_feature else None
+    row["sector_rank_pct"] = _safe_float((daily_feature or {}).get("sector_rank_pct")) if daily_feature else None
+    row["volume_ratio_20d"] = _safe_float((daily_feature or {}).get("volume_ratio_20d")) if daily_feature else None
+
     row["roe"] = _normalize_ratio((financial or {}).get("roe")) if financial else None
     row["operating_margin"] = _normalize_ratio((financial or {}).get("operating_margin")) if financial else None
     row["profit_margin"] = _normalize_ratio((financial or {}).get("net_margin")) if financial else None
     row["debt_to_equity"] = _normalize_debt_to_equity((financial or {}).get("debt_to_equity")) if financial else None
-    row["revenue_growth"] = _normalize_ratio((financial or {}).get("revenue_growth_yoy")) if financial else None
+    rev_growth_yoy = (financial or {}).get("revenue_growth_yoy") if financial else None
+    rev_growth_qoq = (financial or {}).get("revenue_growth_qoq") if financial else None
+    # Quarterly records often lack YoY (needs 4 prior quarters); fall back to QoQ
+    row["revenue_growth"] = _normalize_ratio(rev_growth_yoy if rev_growth_yoy is not None else rev_growth_qoq) if financial else None
     earnings_growth = (financial or {}).get("net_income_growth_yoy") if financial else None
     if earnings_growth is None and financial:
         earnings_growth = financial.get("eps_growth_yoy")
+    if earnings_growth is None and financial:
+        earnings_growth = financial.get("net_income_growth_qoq") or financial.get("eps_growth_qoq")
     row["earnings_growth"] = _normalize_ratio(earnings_growth) if financial else None
     row["trailing_pe"] = _safe_float((financial or {}).get("per")) if financial else None
-    row["forward_pe"] = None
+    row["forward_pe"] = _safe_float((financial or {}).get("forward_pe")) if financial else None
     row["price_to_book"] = _safe_float((financial or {}).get("pbr")) if financial else None
     row["market_cap"] = _safe_float((financial or {}).get("market_cap")) if financial else _safe_float(universe_row.get("market_cap"))
+
+    # Fundamental features — new signals
+    row["fcf_yield"] = _safe_float((financial or {}).get("fcf_yield")) if financial else None
+    row["roic_approx"] = _safe_float((financial or {}).get("roic_approx")) if financial else None
+    row["analyst_recommendation"] = _safe_float((financial or {}).get("analyst_recommendation")) if financial else None
+    row["analyst_target_upside"] = _safe_float((financial or {}).get("analyst_target_upside")) if financial else None
+
+    # Macro context — market regime and VIX
+    row["market_regime"] = str((macro_snapshot or {}).get("market_regime") or "neutral").lower()
+    row["vix_close"] = _safe_float((macro_snapshot or {}).get("vix_close")) if macro_snapshot else None
 
     row["feature_quality_score"] = _derive_feature_quality_score(
         daily_feature=daily_feature,
@@ -300,9 +329,14 @@ def calculate_momentum_score(row: dict[str, object]) -> tuple[float, dict[str, o
         "return_20d": _safe_float(row.get("ret_20d")),
         "return_60d": _safe_float(row.get("ret_60d")),
         "return_120d": _safe_float(row.get("ret_120d")),
+        "return_252d": _safe_float(row.get("ret_252d")),
         "close": _safe_float(row.get("close")),
         "ma20": _safe_float(row.get("ma_20")),
         "ma60": _safe_float(row.get("ma_60")),
+        "rsi_14": _safe_float(row.get("rsi_14")),
+        "high_52w_ratio": _safe_float(row.get("high_52w_ratio")),
+        "price_vs_ma200": _safe_float(row.get("price_vs_ma200")),
+        "sector_rank_pct": _safe_float(row.get("sector_rank_pct")),
     }
 
     for key in ["return_20d", "return_60d", "return_120d", "close", "ma20", "ma60"]:
@@ -337,14 +371,31 @@ def calculate_momentum_score(row: dict[str, object]) -> tuple[float, dict[str, o
         score += 3
         reasons.append("20d moving average above 60d moving average")
 
+    # Extended signals — additional paths to reach max_score
+    if inputs["rsi_14"] is not None and 40.0 <= inputs["rsi_14"] <= 75.0:
+        score += 2
+        reasons.append("RSI in healthy momentum zone 40-75")
+    if inputs["high_52w_ratio"] is not None and inputs["high_52w_ratio"] >= 0.85:
+        score += 2
+        reasons.append("price near 52-week high (>=85%)")
+    if inputs["price_vs_ma200"] is not None and inputs["price_vs_ma200"] > 1.0:
+        score += 2
+        reasons.append("price above 200d moving average")
+    if inputs["sector_rank_pct"] is not None and inputs["sector_rank_pct"] >= 0.60:
+        score += 2
+        reasons.append("top 40% within sector by 20d momentum")
+    if inputs["return_252d"] is not None and inputs["return_252d"] > 0:
+        score += 2
+        reasons.append("1-year return positive")
+
     detail = {
-        "score": float(score),
+        "score": float(min(score, 25.0)),
         "max_score": 25,
         "inputs": inputs,
         "missing_fields": missing_fields,
         "reasons": reasons,
     }
-    return float(score), detail
+    return float(min(score, 25.0)), detail
 
 
 def calculate_relative_strength_score(row: dict[str, object]) -> tuple[float, dict[str, object]]:
@@ -393,9 +444,13 @@ def calculate_fundamental_score(row: dict[str, object]) -> tuple[float, dict[str
         "profit_margin": _safe_float(row.get("profit_margin")),
         "debt_to_equity": _safe_float(row.get("debt_to_equity")),
         "feature_quality_score": _safe_float(row.get("feature_quality_score")),
+        "fcf_yield": _safe_float(row.get("fcf_yield")),
+        "roic_approx": _safe_float(row.get("roic_approx")),
+        "analyst_recommendation": _safe_float(row.get("analyst_recommendation")),
+        "analyst_target_upside": _safe_float(row.get("analyst_target_upside")),
     }
-    for key, value in inputs.items():
-        if value is None:
+    for key in ["return_on_equity", "operating_margin", "profit_margin", "debt_to_equity", "feature_quality_score"]:
+        if inputs[key] is None:
             missing_fields.append(key)
 
     if inputs["return_on_equity"] is not None and inputs["return_on_equity"] > 0.15:
@@ -424,15 +479,29 @@ def calculate_fundamental_score(row: dict[str, object]) -> tuple[float, dict[str
         score += 3
         reasons.append("feature quality at or above 60")
 
+    # Extended signals — quality depth
+    if inputs["fcf_yield"] is not None and inputs["fcf_yield"] > 0:
+        score += 2
+        reasons.append("free cash flow yield positive")
+    if inputs["roic_approx"] is not None and inputs["roic_approx"] > 0.15:
+        score += 2
+        reasons.append("ROIC above 15%")
+    if inputs["analyst_recommendation"] is not None and inputs["analyst_recommendation"] <= 2.0:
+        score += 2
+        reasons.append("analyst consensus buy or strong buy")
+    if inputs["analyst_target_upside"] is not None and inputs["analyst_target_upside"] > 0.10:
+        score += 1
+        reasons.append("analyst target upside above 10%")
+
     detail = {
-        "score": float(score),
+        "score": float(min(score, 20.0)),
         "max_score": 20,
         "inputs": inputs,
         "missing_fields": missing_fields,
         "reasons": reasons,
         "notes": ["debt_to_equity values above 10 are normalized as percentages"],
     }
-    return float(score), detail
+    return float(min(score, 20.0)), detail
 
 
 def calculate_growth_score(row: dict[str, object]) -> tuple[float, dict[str, object]]:
@@ -532,6 +601,10 @@ def calculate_risk_score(row: dict[str, object], *, cfg) -> tuple[float, dict[st
         "return_20d": _safe_float(row.get("ret_20d")),
         "feature_quality_score": _safe_float(row.get("feature_quality_score")),
         "price_row_count": row.get("price_row_count"),
+        "rsi_14": _safe_float(row.get("rsi_14")),
+        "bb_position": _safe_float(row.get("bb_position")),
+        "market_regime": str(row.get("market_regime") or "neutral").lower(),
+        "vix_close": _safe_float(row.get("vix_close")),
     }
 
     if inputs["volatility_20d"] is not None and inputs["volatility_20d"] > cfg.volatility_20d_threshold:
@@ -550,6 +623,22 @@ def calculate_risk_score(row: dict[str, object], *, cfg) -> tuple[float, dict[st
         score -= 5
         reasons.append("insufficient price history")
 
+    # Technical overbought penalties
+    if inputs["rsi_14"] is not None and inputs["rsi_14"] > 82.0:
+        score -= 2
+        reasons.append("RSI overbought above 82")
+    if inputs["bb_position"] is not None and inputs["bb_position"] > 0.95:
+        score -= 1
+        reasons.append("price at Bollinger Band upper extreme")
+
+    # Macro regime penalties
+    if inputs["market_regime"] == "bear":
+        score -= 2
+        reasons.append("market regime is bear (SPY below MA200 and declining)")
+    if inputs["vix_close"] is not None and inputs["vix_close"] > 35.0:
+        score -= 1
+        reasons.append("VIX elevated above 35 (extreme fear)")
+
     score = _cap(score, lower=-10.0, upper=0.0)
     detail = {
         "score": float(score),
@@ -561,6 +650,9 @@ def calculate_risk_score(row: dict[str, object], *, cfg) -> tuple[float, dict[st
             "volatility_60d": cfg.volatility_60d_threshold,
             "return_20d_overheat": cfg.return_20d_overheat_threshold,
             "feature_quality_min": cfg.min_feature_quality_score,
+            "rsi_overbought": 82.0,
+            "bb_extreme": 0.95,
+            "vix_extreme": 35.0,
         },
     }
     return float(score), detail
@@ -696,6 +788,15 @@ def _build_reason_tags(
         tags.append("score_outlier_high")
     if component_scores["risk_score"] <= -8:
         tags.append("risk_extreme")
+
+    market_regime = str(row.get("market_regime") or "neutral").lower()
+    if market_regime == "bear":
+        tags.append("bear_market_regime")
+    elif market_regime == "bull":
+        tags.append("bull_market_regime")
+    vix = _safe_float(row.get("vix_close"))
+    if vix is not None and vix > 35.0:
+        tags.append("vix_extreme")
 
     for section_key in ["momentum", "relative_strength", "fundamental", "growth", "valuation"]:
         section = detail_sections.get(section_key) or {}
@@ -982,14 +1083,15 @@ def _resolve_effective_trade_date(price_snapshots: dict[str, dict[str, object]],
     return max(dates)
 
 
-def _fetch_join_inputs(*, trade_date: date, symbols: list[str]) -> tuple[date, dict[str, dict[str, object]], dict[str, dict[str, object]], dict[str, dict[str, object]], dict[str, dict[str, object]]]:
+def _fetch_join_inputs(*, trade_date: date, symbols: list[str]) -> tuple[date, dict[str, dict[str, object]], dict[str, dict[str, object]], dict[str, dict[str, object]], dict[str, dict[str, object]], dict[str, object] | None]:
     history_rows = fetch_price_history_for_tickers(sorted(set(symbols) | set(BENCHMARKS)), end_date=trade_date)
     price_snapshots = _compute_history_snapshot(history_rows)
     effective_trade_date = _resolve_effective_trade_date(price_snapshots, requested_trade_date=trade_date)
     daily_features = fetch_latest_daily_feature_snapshots(symbols, trade_date=effective_trade_date)
     relative_strength = fetch_latest_relative_strength_snapshots(symbols, trade_date=effective_trade_date)
     financial = fetch_latest_financial_feature_snapshots(symbols, trade_date=effective_trade_date)
-    return effective_trade_date, daily_features, relative_strength, financial, price_snapshots
+    macro = fetch_latest_macro_snapshot(trade_date=effective_trade_date)
+    return effective_trade_date, daily_features, relative_strength, financial, price_snapshots, macro
 
 
 def calculate_rule_scores(
@@ -1015,7 +1117,7 @@ def calculate_rule_scores(
         return RuleRankingRunResult(trade_date, source, 0, 0, [], dry_run)
 
     symbol_list = [str(row["symbol"]).upper() for row in active_universe]
-    effective_trade_date, daily_features, relative_strength, financial, price_snapshots = _fetch_join_inputs(
+    effective_trade_date, daily_features, relative_strength, financial, price_snapshots, macro = _fetch_join_inputs(
         trade_date=trade_date,
         symbols=symbol_list,
     )
@@ -1024,6 +1126,12 @@ def calculate_rule_scores(
             "[US_RULE_RANK] requested_trade_date=%s effective_trade_date=%s",
             trade_date.isoformat(),
             effective_trade_date.isoformat(),
+        )
+    if macro:
+        LOGGER.info(
+            "[US_RULE_RANK] macro market_regime=%s vix=%.1f",
+            macro.get("market_regime", "n/a"),
+            float(macro.get("vix_close") or 0.0),
         )
     benchmark_snapshot = {name: price_snapshots.get(name, {}) for name in BENCHMARKS}
 
@@ -1038,6 +1146,7 @@ def calculate_rule_scores(
             financial=financial.get(symbol),
             price_snapshot=price_snapshots.get(symbol),
             benchmark_snapshot=benchmark_snapshot,
+            macro_snapshot=macro,
         )
         scored_rows.append(calculate_total_score(joined, trade_date=effective_trade_date, cfg=cfg))
 

@@ -14,6 +14,9 @@ from sqlalchemy import text
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from python.us.us_config import USRelativeStrengthConfig, load_us_relative_strength_config
 from python.us.us_db import (
     fetch_active_tickers,

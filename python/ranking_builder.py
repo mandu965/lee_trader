@@ -57,7 +57,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 from sqlalchemy import bindparam, text
+
+load_dotenv()
 
 from production_config import (
     allow_experimental_runtime_features,
@@ -441,6 +444,7 @@ DAILY_RANKING_STORE_COLUMNS = [
     "score_contribution_liquidity",
     "score_contribution_theme",
     "score_contribution_risk",
+    "score_contribution_flow",
     "contrib_tech",
     "contrib_ret",
     "contrib_prob",
@@ -449,6 +453,7 @@ DAILY_RANKING_STORE_COLUMNS = [
     "contrib_liquidity",
     "contrib_theme",
     "contrib_penalty",
+    "contrib_flow",
     "top_positive_factor",
     "top_positive_value",
     "top_negative_factor",
@@ -472,6 +477,13 @@ DAILY_RANKING_STORE_COLUMNS = [
     "risk_factor_2",
     "action_note",
     "score_explain_json",
+    "flow_score",
+    "w_flow",
+    "w_flow_base",
+    "flow_foreign_net_5d",
+    "flow_inst_net_5d",
+    "flow_foreign_net_20d",
+    "flow_inst_net_20d",
     "confidence_version",
     "data_maturity_score",
     "model_reliability_score",
@@ -3518,6 +3530,12 @@ def apply_default_ranking_scores(base: pd.DataFrame) -> pd.DataFrame:
         .astype(int)
     )
     base["rank_final"] = base["live_rank"]
+    # shadow_fin_rank_diff: attach_fin_momentum_shadow 호출 시점에 rank_final이 없어 NaN이 됨 → 여기서 보정
+    if "shadow_fin_rank" in base.columns:
+        base["shadow_fin_rank_diff"] = (
+            pd.to_numeric(base["rank_final"], errors="coerce")
+            - pd.to_numeric(base["shadow_fin_rank"], errors="coerce")
+        )
     base = _compute_score_explain(base)
     base = _compute_confidence_score(base)
     base = attach_score_explain_columns(base)

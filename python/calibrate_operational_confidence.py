@@ -26,7 +26,7 @@ PROVISIONAL_MAP_CSV = DATA_DIR / "confidence_calibration_map.csv"
 
 HORIZONS = [5, 20, 60, 90]
 MIN_BUCKET_ROWS = 20
-RECENT_TRADE_COUNT = 10
+RECENT_TRADE_COUNT = 20
 BUCKETS = [
     (0, 20, "0-20"),
     (20, 40, "20-40"),
@@ -166,20 +166,41 @@ def _safe_float(value: object) -> float | None:
 
 
 def load_live_trade_review() -> tuple[pd.DataFrame, dict[str, object]]:
-    query = text(
-        """
-        SELECT
-            review_date,
-            confidence_score,
-            strategy_return,
-            excess_return,
-            review_status
-        FROM research.live_trade_review
-        """
-    )
+    calibration_start = str(
+        get_production_config_value(["confidence_calibration", "calibration_start_date"], "") or ""
+    ).strip()
+
+    if calibration_start:
+        query = text(
+            """
+            SELECT
+                review_date,
+                confidence_score,
+                strategy_return,
+                excess_return,
+                review_status
+            FROM research.live_trade_review
+            WHERE created_at >= :start_date
+            """
+        )
+        params = {"start_date": calibration_start}
+    else:
+        query = text(
+            """
+            SELECT
+                review_date,
+                confidence_score,
+                strategy_return,
+                excess_return,
+                review_status
+            FROM research.live_trade_review
+            """
+        )
+        params = {}
+
     try:
         with get_engine().connect() as conn:
-            df = pd.read_sql(query, conn)
+            df = pd.read_sql(query, conn, params=params)
     except Exception as exc:
         return pd.DataFrame(), {"available": False, "reason": str(exc)}
 
@@ -216,15 +237,29 @@ def classify_live_grade(
     hit_rate: float | None,
     min_bucket_rows: int,
 ) -> tuple[str, str]:
-    if avg_excess_return is not None and avg_excess_return < -0.01:
-        return "D", "excess_return_below_minus_1pct"
-    if recent_avg_return is not None and recent_avg_return < -0.02:
-        return "D", "recent_10_trade_return_below_minus_2pct"
+    # D requires dual confirmation: both excess AND overall avg must be poor
+    # Recent-only negative return does NOT trigger D (prevents single bad patch from blocking all buys)
+    if (avg_excess_return is not None and avg_excess_return < -0.01
+            and avg_return is not None and avg_return < -0.03):
+        return "D", "excess_return_below_minus_1pct_and_overall_negative"
+    if (recent_avg_return is not None and recent_avg_return < -0.05
+            and avg_return is not None and avg_return < -0.05):
+        return "D", "recent_and_overall_return_below_minus_5pct"
     if performance_count <= 0 or avg_return is None or hit_rate is None:
         return "C", "performance_data_missing"
     if sample_count < min_bucket_rows:
         return "C", "sample_below_20"
     if excess_count <= 0 or avg_excess_return is None:
+        # KOSPI 초과수익 데이터 미성숙 — recent 수익으로 proxy 등급 결정
+        # -3% 이상이면 초기 운영 허용 (B); 미성숙 모델 패널티 방지
+        if (recent_avg_return is not None
+                and recent_avg_return >= -0.03
+                and sample_count >= min_bucket_rows):
+            return "B", "excess_return_missing_recent_performance_acceptable"
+        if (recent_avg_return is not None
+                and recent_avg_return >= -0.05
+                and sample_count >= min_bucket_rows):
+            return "C", "excess_return_missing_recent_performance_neutral"
         return "C", "excess_return_missing"
     if hit_rate >= 0.60 and avg_return >= 0.01 and avg_excess_return >= 0.005 and (recent_avg_return is None or recent_avg_return >= 0):
         return "A", "sample_sufficient_and_live_performance_strong"
@@ -245,10 +280,12 @@ def grade_policy_for(grade: str) -> dict[str, object]:
 
 
 def build_live_grade_map(review_df: pd.DataFrame, *, min_bucket_rows: int, recent_trade_count: int) -> dict[str, object]:
+    if review_df.empty or "confidence_bucket" not in review_df.columns:
+        review_df = pd.DataFrame(columns=["review_date", "confidence_score", "strategy_return", "excess_return", "review_status", "confidence_bucket"])
     bucket_rows: list[dict[str, object]] = []
     for lo, hi, label in BUCKETS:
-        bucket = review_df.loc[review_df.get("confidence_bucket", pd.Series(index=review_df.index)).eq(label)].copy()
-        perf = bucket.loc[pd.to_numeric(bucket.get("strategy_return"), errors="coerce").notna()].copy()
+        bucket = review_df.loc[review_df["confidence_bucket"].eq(label)].copy()
+        perf = bucket.loc[pd.to_numeric(bucket["strategy_return"], errors="coerce").notna()].copy() if "strategy_return" in bucket.columns else pd.DataFrame()
         recent_perf = perf.sort_values(["review_date"], ascending=False).head(recent_trade_count)
         sample_count = int(len(bucket))
         performance_count = int(len(perf))
@@ -297,7 +334,9 @@ def build_live_grade_map(review_df: pd.DataFrame, *, min_bucket_rows: int, recen
         "rules": {
             "sample_lt_20_max_grade": "C",
             "excess_return_lt_minus_1pct": "D",
-            "recent_10_trade_return_lt_minus_2pct": "D",
+            "recent_10_trade_return_lt_minus_5pct": "D",
+            "proxy_b_threshold_recent_return": -0.03,
+            "proxy_c_threshold_recent_return": -0.05,
             "missing_performance_info": "C",
             "grade_A_policy": grade_policy_for("A"),
             "grade_B_policy": grade_policy_for("B"),

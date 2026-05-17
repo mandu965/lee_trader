@@ -160,7 +160,7 @@
       #strongTable th:nth-child(5), #strongTable th:nth-child(6) { width: 90px; }
       #strongTable th:nth-child(7) { width: 100px; }
       #strongTable th:nth-child(8) { width: 80px; }
-      #strongTable th:nth-child(9) { width: 108px; text-align: center; }
+      #strongTable th:nth-child(9) { width: 130px; text-align: center; }
       #strongTable td:nth-child(9) { text-align: center; }
 
       /* Entry 시그널 테이블 */
@@ -204,6 +204,7 @@
         <button class="tab-btn" data-tab="signals">시그널 <span class="tab-badge" id="badgeSignals">-</span></button>
         <button class="tab-btn" data-tab="orders">주문 <span class="tab-badge" id="badgeOrders">-</span></button>
         <button class="tab-btn" data-tab="account">계좌 <span class="tab-badge" id="badgeAccount">-</span></button>
+        <button class="tab-btn" data-tab="analysis">분석</button>
       </nav>
 
       <!-- ── 탭 1: 개요 ── -->
@@ -278,7 +279,7 @@
                   <th>종목명</th>
                   <th>섹터</th>
                   <th class="right">RULE 점수</th>
-                  <th class="right">점수 v2</th>
+                  <th class="right">점수 v3</th>
                   <th class="right">예상 진입가</th>
                   <th class="right">예상 갭</th>
                   <th class="center">포트폴리오 판단</th>
@@ -304,7 +305,7 @@
                   <th>종목명</th>
                   <th>섹터</th>
                   <th class="right">RULE 점수</th>
-                  <th class="right">점수 v2</th>
+                  <th class="right">점수 v3</th>
                   <th class="right">거래대금 MA20</th>
                   <th>차단 포인트</th>
                 </tr>
@@ -461,10 +462,50 @@
         </div>
       </div>
 
+      <!-- ── 탭 5: 분석 ── -->
+      <div class="tab-pane" id="tab-analysis">
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">시그널 점수 분포 (rule_score_v3)</h2>
+              <div class="section-note">오늘 후보 종목의 점수 분포입니다 (v3 우선, 없으면 v2 표시). entry ≥65, strong ≥70.</div>
+            </div>
+          </div>
+          <div class="panel-card" id="scoreDistPanel"></div>
+        </div>
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">보유 종목 수급 추이 (최근 20일)</h2>
+              <div class="section-note">RULE 계좌 보유 종목의 외국인·기관 순매수 금액 추이입니다.</div>
+            </div>
+          </div>
+          <div class="panel-card" id="ruleFlowHistoryPanel"></div>
+        </div>
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">US Macro 레짐 히스토리</h2>
+              <div class="section-note">최근 30일 레짐 변화입니다. RISK_OFF 기간에는 max_positions 3으로 축소됩니다.</div>
+            </div>
+          </div>
+          <div class="panel-card" id="ruleRegimeHistoryPanel"></div>
+        </div>
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">백테스트 상세 성과</h2>
+              <div class="section-note">전략 버전별 백테스트 결과 요약입니다.</div>
+            </div>
+          </div>
+          <div class="panel-card" id="ruleBacktestDetailPanel"></div>
+        </div>
+      </div>
+
       <div class="status-bar" id="statusBar">데이터 불러오는 중…</div>
     </div>
 
-    <script src="./ops-unified-nav.js?v=20260508c"></script>
-    <script src="./rule-auto-trading.js?v=20260510a"></script>
+    <script src="./ops-unified-nav.js?v=20260518-nav-fix"></script>
+    <script src="./rule-auto-trading.js?v=20260518a"></script>
   </body>
 </html>

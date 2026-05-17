@@ -552,6 +552,8 @@ def merge_financial_momentum(feat_df: pd.DataFrame) -> pd.DataFrame:
         "fin_risk_score",
         "fin_turnaround_score",
         "fin_hard_risk",
+        "revenue_growth_yoy",
+        "op_income_growth_yoy",
     ]
 
     def _set_nan(df: pd.DataFrame) -> pd.DataFrame:
@@ -569,7 +571,8 @@ def merge_financial_momentum(feat_df: pd.DataFrame) -> pd.DataFrame:
             mom = pd.read_sql(
                 "SELECT stock_code, disclosed_at, financial_momentum_phase, "
                 "financial_momentum_score, financial_risk_score, "
-                "turnaround_score, hard_fundamental_risk "
+                "turnaround_score, hard_fundamental_risk, "
+                "revenue_yoy, op_profit_yoy "
                 "FROM financial_momentum_quarterly",
                 eng,
                 dtype={"stock_code": str},
@@ -591,6 +594,8 @@ def merge_financial_momentum(feat_df: pd.DataFrame) -> pd.DataFrame:
         "financial_risk_score":      "fin_risk_score",
         "turnaround_score":          "fin_turnaround_score",
         "hard_fundamental_risk":     "fin_hard_risk",
+        "revenue_yoy":               "revenue_growth_yoy",
+        "op_profit_yoy":             "op_income_growth_yoy",
     })
 
     mom["disclosed_at"] = pd.to_datetime(mom["disclosed_at"], errors="coerce")

@@ -75,6 +75,7 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("rule_after_close_scheduler_status", OUTPUT_DIR / "rule_after_close_scheduler_status.json", None),
     ("us_macro_scheduler_status", OUTPUT_DIR / "us_macro_scheduler_status.json", None),
     ("us_macro_shadow_scheduler_status", OUTPUT_DIR / "us_macro_shadow_scheduler_status.json", None),
+    ("us_pipeline_scheduler_status", OUTPUT_DIR / "us_pipeline_scheduler_status.json", None),
     ("auto_trading_policy", OUTPUT_DIR / "auto_trading_policy.json", None),
     ("rule_dashboard_summary", OUTPUT_DIR / "rule_dashboard_summary.json", "as_of_date"),
     ("rule_signals_latest", OUTPUT_DIR / "rule_signals_latest.json", "as_of_date"),

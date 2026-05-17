@@ -164,6 +164,37 @@ def _us_macro_shadow_command() -> list[str]:
     return [sys.executable, str(ROOT / "python" / "run_us_macro_overlay_shadow.py")]
 
 
+def _us_pipeline_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "us" / "run_us_daily_pipeline.py"), "--incremental"]
+
+
+def _us_relative_strength_command() -> list[str]:
+    return [sys.executable, str(ROOT / "python" / "us" / "build_us_relative_strength_features.py")]
+
+
+def _scheduler_trade_date_text() -> str:
+    tz_name = str(os.environ.get("SCHEDULER_TIMEZONE", DEFAULT_TIMEZONE)).strip() or DEFAULT_TIMEZONE
+    return datetime.now(ZoneInfo(tz_name)).date().isoformat()
+
+
+def _us_rule_scores_command() -> list[str]:
+    return [
+        sys.executable,
+        str(ROOT / "python" / "us" / "calculate_us_stock_rule_scores.py"),
+        "--trade-date",
+        _scheduler_trade_date_text(),
+    ]
+
+
+def _us_trade_orchestration_command() -> list[str]:
+    return [
+        sys.executable,
+        str(ROOT / "python" / "us" / "run_us_trade_orchestration.py"),
+        "--trade-date",
+        _scheduler_trade_date_text(),
+    ]
+
+
 def _resolve_run_steps() -> list[tuple[str, list[str]]]:
     command_set = str(os.environ.get("SCHEDULER_COMMAND_SET", "close")).strip().lower() or "close"
     if command_set == "intraday":
@@ -203,6 +234,13 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
     if command_set == "us_macro_shadow":
         return [
             ("run_us_macro_shadow", _us_macro_shadow_command()),
+        ]
+    if command_set == "us_pipeline":
+        return [
+            ("run_us_daily_pipeline", _us_pipeline_command()),
+            ("build_us_relative_strength", _us_relative_strength_command()),
+            ("calculate_us_rule_scores", _us_rule_scores_command()),
+            ("run_us_trade_orchestration", _us_trade_orchestration_command()),
         ]
     return [("run_manual_close_batch", _close_batch_command())]
 

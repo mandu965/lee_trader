@@ -12,6 +12,7 @@ from outcome_maturity import (
     evaluate_prediction_maturity_rows,
     load_price_history,
 )
+from production_config import get_production_config_value
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -478,6 +479,35 @@ def build_markdown(summary: pd.DataFrame, regime_summary: pd.DataFrame, compare:
 def main() -> int:
     args = parse_args()
     archive = load_archive(args.archive_csv)
+
+    calibration_start = str(
+        get_production_config_value(["confidence_calibration", "calibration_start_date"], "") or ""
+    ).strip()
+    if calibration_start:
+        start_dt = pd.to_datetime(calibration_start, errors="coerce")
+        if pd.notna(start_dt):
+            before = len(archive)
+            archive = archive.loc[archive["asof_date"] >= start_dt].copy()
+            print(f"calibration_start_date={calibration_start}: archive filtered {before} -> {len(archive)} rows")
+
+    if archive.empty:
+        empty_summary = pd.DataFrame(columns=["top_n", "horizon_days", "benchmark_name", "dates_matured", "avg_portfolio_return", "avg_benchmark_return", "avg_excess_return"])
+        args.out_csv.parent.mkdir(parents=True, exist_ok=True)
+        empty_summary.to_csv(args.out_csv, index=False, encoding="utf-8-sig")
+        args.out_md.parent.mkdir(parents=True, exist_ok=True)
+        args.out_md.write_text(
+            f"# Benchmark Comparison Report\n\n- generated_at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"- calibration_start_date: {calibration_start}\n"
+            "- status: no_archive_data_yet (fresh start, awaiting new model data)\n\n"
+            "No ranked snapshot data available after the calibration start date.\n"
+            "Benchmark comparison will populate once D+20 periods mature for new model entries.\n",
+            encoding="utf-8",
+        )
+        print(f"comparison_rows: 0 (no archive data after {calibration_start})")
+        print(f"report_path: {args.out_md}")
+        print(f"csv_path: {args.out_csv}")
+        return 0
+
     full_snapshots = load_ranking_snapshots(args.ranking_history_dir, args.ranking_current_csv)
 
     archive_detail = attach_forward_metrics(archive, date_col="asof_date", prices_csv=args.prices_csv)

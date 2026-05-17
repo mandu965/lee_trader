@@ -80,6 +80,13 @@ ORDER BY us_trade_date DESC
 LIMIT 1
 """)
 
+_LATEST_MACRO_APPLY_DATE_SQL = text("""
+SELECT kr_apply_date
+FROM signal.us_macro_feature_daily
+ORDER BY kr_apply_date DESC, us_trade_date DESC
+LIMIT 1
+""")
+
 _RANKING_SQL = text("""
 SELECT date, code, name, sector, final_score, rank_final
 FROM public.daily_ranking
@@ -127,6 +134,15 @@ def _fetch_macro_row(engine: Any, kr_apply_date: date) -> dict | None:
     if row is None:
         return None
     return dict(row._mapping)
+
+
+def fetch_latest_macro_apply_date(engine: Any) -> date | None:
+    with engine.connect() as conn:
+        row = conn.execute(_LATEST_MACRO_APPLY_DATE_SQL).fetchone()
+    if row is None:
+        return None
+    value = row[0]
+    return value if isinstance(value, date) else None
 
 
 def _fetch_ai_candidates(engine: Any, top_n: int) -> pd.DataFrame:
