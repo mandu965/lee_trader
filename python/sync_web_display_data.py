@@ -31,7 +31,27 @@ PYTHON = sys.executable
 
 CORE_TABLES = {"stocks", "market_status", "features", "predictions", "daily_ranking"}
 US_RANKING_SOURCE_TABLE = "recommend.us_stock_rank_daily"
-US_RANKING_SYNC_DATES = 30
+US_RANKING_SYNC_DATES = 60
+KR_RANKING_SYNC_DATES = 60
+US_TRADE_DDL_PATH = ROOT / "postgres" / "us_trade_tables.sql"
+US_STOCK_DDL_PATH = ROOT / "postgres" / "us_stock_tables.sql"
+
+WEB_TABLE_SYNC_SPECS: list[dict[str, object]] = [
+    {"table": "market.us_stock_universe", "date_column": None, "lookback_dates": None},
+    {"table": "trade.us_buy_candidate_log", "date_column": "trade_date", "lookback_dates": 60},
+    {"table": "trade.us_buy_decision_log", "date_column": "trade_date", "lookback_dates": 60},
+    {"table": "trade.us_risk_guard_log", "date_column": "trade_date", "lookback_dates": 60},
+    {"table": "trade.us_paper_order", "date_column": "trade_date", "lookback_dates": 60},
+    {"table": "trade.us_sell_decision_log", "date_column": "trade_date", "lookback_dates": 60},
+    {"table": "trade.us_sell_signal_log", "date_column": "trade_date", "lookback_dates": 60},
+    {"table": "trade.us_paper_sell_order", "date_column": "trade_date", "lookback_dates": 60},
+    {"table": "trade.us_paper_position_snapshot", "date_column": "snapshot_date", "lookback_dates": 60},
+    {"table": "paper.us_stock_paper_account", "date_column": None, "lookback_dates": None},
+    {"table": "paper.us_stock_paper_order", "date_column": "trade_date", "lookback_dates": 60},
+    {"table": "paper.us_stock_paper_fill", "date_column": "trade_date", "lookback_dates": 60},
+    {"table": "paper.us_stock_paper_position", "date_column": None, "lookback_dates": None},
+    {"table": "paper.us_stock_paper_account_snapshot", "date_column": "snapshot_date", "lookback_dates": 60},
+]
 
 JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("daily_recommendations", SERVING_DIR / "daily_recommendations.json", "asof_date"),
@@ -167,11 +187,237 @@ def table_exists(conn, qualified_name: str) -> bool:
     return bool(conn.execute(text("SELECT to_regclass(:name)"), {"name": qualified_name}).scalar())
 
 
+def execute_sql_script(conn, path: Path) -> None:
+    if not path.exists():
+        raise FileNotFoundError(path)
+    sql = path.read_text(encoding="utf-8", errors="ignore").strip()
+    if not sql:
+        return
+    dbapi_conn = getattr(conn.connection, "driver_connection", None)
+    if dbapi_conn is None:
+        dbapi_conn = conn.connection.connection
+    with dbapi_conn.cursor() as cursor:
+        cursor.execute(sql)
+
+
+def ensure_market_us_universe_table(conn) -> None:
+    conn.execute(text("CREATE SCHEMA IF NOT EXISTS market"))
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS market.us_stock_universe (
+                ticker          VARCHAR NOT NULL,
+                name            VARCHAR,
+                sector          VARCHAR,
+                industry        VARCHAR,
+                universe_tag    VARCHAR,
+                is_active       VARCHAR,
+                added_date      DATE,
+                removed_date    DATE,
+                data_source     VARCHAR,
+                membership_rank INTEGER,
+                source_note     TEXT,
+                created_at      TIMESTAMPTZ,
+                updated_at      TIMESTAMPTZ,
+                PRIMARY KEY (ticker, universe_tag)
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_market_us_stock_universe_tag_rank
+            ON market.us_stock_universe (universe_tag, membership_rank, ticker)
+            """
+        )
+    )
+
+
+def ensure_us_web_supporting_tables(conn) -> None:
+    execute_sql_script(conn, US_TRADE_DDL_PATH)
+    execute_sql_script(conn, US_STOCK_DDL_PATH)
+    ensure_market_us_universe_table(conn)
+    ensure_us_ranking_table(conn)
+
+
+def get_table_columns(conn, qualified_name: str) -> list[dict[str, str]]:
+    schema_name, table_name = qualified_name.split(".", 1)
+    rows = conn.execute(
+        text(
+            """
+            SELECT column_name, udt_name
+            FROM information_schema.columns
+            WHERE table_schema = :schema_name AND table_name = :table_name
+            ORDER BY ordinal_position
+            """
+        ),
+        {"schema_name": schema_name, "table_name": table_name},
+    ).mappings()
+    return [dict(row) for row in rows]
+
+
+def sync_table_history(
+    source_database_url: str,
+    *,
+    table_name: str,
+    date_column: str | None,
+    lookback_dates: int | None,
+) -> None:
+    source_url = str(source_database_url or "").strip()
+    target_url = str(os.environ.get("DATABASE_URL", "")).strip()
+    if not source_url:
+        logging.info("Skip %s sync: source DATABASE_URL not set", table_name)
+        return
+    if not target_url:
+        logging.info("Skip %s sync: target DATABASE_URL not set", table_name)
+        return
+    if source_url == target_url:
+        logging.info("Skip %s sync: source and target DB are identical", table_name)
+        return
+
+    source_engine = create_engine(source_url, future=True)
+    target_engine = get_engine()
+    try:
+        with source_engine.connect() as source_conn:
+            if not table_exists(source_conn, table_name):
+                logging.info("Skip %s sync: source table not found", table_name)
+                return
+            source_columns = get_table_columns(source_conn, table_name)
+            if not source_columns:
+                logging.info("Skip %s sync: source table has no columns", table_name)
+                return
+            column_names = [str(col["column_name"]) for col in source_columns]
+            json_columns = {str(col["column_name"]) for col in source_columns if str(col["udt_name"]) in {"json", "jsonb"}}
+            select_columns_sql = ", ".join(column_names)
+
+            scoped_dates: list[object] | None = None
+            if date_column and lookback_dates:
+                scoped_dates = [
+                    row[0]
+                    for row in source_conn.execute(
+                        text(
+                            f"""
+                            SELECT {date_column}
+                            FROM (
+                                SELECT DISTINCT {date_column}
+                                FROM {table_name}
+                                ORDER BY {date_column} DESC
+                                LIMIT :limit
+                            ) recent
+                            ORDER BY {date_column}
+                            """
+                        ),
+                        {"limit": lookback_dates},
+                    ).fetchall()
+                ]
+                if not scoped_dates:
+                    logging.info("Skip %s sync: no source dates found", table_name)
+                    return
+                rows = [
+                    dict(row)
+                    for row in source_conn.execute(
+                        text(
+                            f"""
+                            SELECT {select_columns_sql}
+                            FROM {table_name}
+                            WHERE {date_column} = ANY(:scoped_dates)
+                            ORDER BY {date_column} DESC
+                            """
+                        ),
+                        {"scoped_dates": scoped_dates},
+                    ).mappings()
+                ]
+            else:
+                rows = [
+                    dict(row)
+                    for row in source_conn.execute(
+                        text(f"SELECT {select_columns_sql} FROM {table_name}")
+                    ).mappings()
+                ]
+
+        with target_engine.begin() as target_conn:
+            ensure_us_web_supporting_tables(target_conn)
+            if not table_exists(target_conn, table_name):
+                raise RuntimeError(f"target table missing after bootstrap: {table_name}")
+
+            target_columns = get_table_columns(target_conn, table_name)
+            target_column_names = [str(col["column_name"]) for col in target_columns]
+            insert_columns = [name for name in column_names if name in target_column_names]
+            if not insert_columns:
+                logging.info("Skip %s sync: no shared columns with target", table_name)
+                return
+
+            if date_column and scoped_dates:
+                target_conn.execute(
+                    text(f"DELETE FROM {table_name} WHERE {date_column} = ANY(:scoped_dates)"),
+                    {"scoped_dates": scoped_dates},
+                )
+            else:
+                target_conn.execute(text(f"DELETE FROM {table_name}"))
+
+            if rows:
+                payload_rows: list[dict[str, object]] = []
+                for row in rows:
+                    payload_row: dict[str, object] = {}
+                    for column in insert_columns:
+                        value = row.get(column)
+                        if column in json_columns and value is not None:
+                            payload_row[column] = json.dumps(value, ensure_ascii=False, default=str)
+                        else:
+                            payload_row[column] = value
+                    payload_rows.append(payload_row)
+                column_sql = ", ".join(insert_columns)
+                value_sql = ", ".join(
+                    f"CAST(:{column} AS {('jsonb' if column in json_columns else 'TEXT')})"
+                    if column in json_columns
+                    else f":{column}"
+                    for column in insert_columns
+                )
+                target_conn.execute(
+                    text(f"INSERT INTO {table_name} ({column_sql}) VALUES ({value_sql})"),
+                    payload_rows,
+                )
+
+        logging.info(
+            "Synced table %s rows=%d%s",
+            table_name,
+            len(rows),
+            f" dates={len(scoped_dates)}" if scoped_dates else "",
+        )
+    finally:
+        source_engine.dispose()
+        target_engine.dispose()
+
+
+def sync_kr_ranking_history(source_database_url: str) -> None:
+    sync_table_history(
+        source_database_url,
+        table_name="public.daily_ranking",
+        date_column="date",
+        lookback_dates=KR_RANKING_SYNC_DATES,
+    )
+
+
 def reset_display_tables(*, include_trades: bool = False) -> None:
     engine = get_engine()
     with engine.begin() as conn:
         delete_order = [
             (US_RANKING_SOURCE_TABLE, f"DELETE FROM {US_RANKING_SOURCE_TABLE}"),
+            ("market.us_stock_universe", "DELETE FROM market.us_stock_universe"),
+            ("paper.us_stock_paper_account_snapshot", "DELETE FROM paper.us_stock_paper_account_snapshot"),
+            ("paper.us_stock_paper_position", "DELETE FROM paper.us_stock_paper_position"),
+            ("paper.us_stock_paper_fill", "DELETE FROM paper.us_stock_paper_fill"),
+            ("paper.us_stock_paper_order", "DELETE FROM paper.us_stock_paper_order"),
+            ("paper.us_stock_paper_account", "DELETE FROM paper.us_stock_paper_account"),
+            ("trade.us_paper_position_snapshot", "DELETE FROM trade.us_paper_position_snapshot"),
+            ("trade.us_paper_sell_order", "DELETE FROM trade.us_paper_sell_order"),
+            ("trade.us_sell_signal_log", "DELETE FROM trade.us_sell_signal_log"),
+            ("trade.us_sell_decision_log", "DELETE FROM trade.us_sell_decision_log"),
+            ("trade.us_paper_order", "DELETE FROM trade.us_paper_order"),
+            ("trade.us_risk_guard_log", "DELETE FROM trade.us_risk_guard_log"),
+            ("trade.us_buy_decision_log", "DELETE FROM trade.us_buy_decision_log"),
+            ("trade.us_buy_candidate_log", "DELETE FROM trade.us_buy_candidate_log"),
             ("research.meaningfulness_review_note", "DELETE FROM research.meaningfulness_review_note"),
             ("research.paper_trading_position", "DELETE FROM research.paper_trading_position"),
             ("research.paper_trading_nav", "DELETE FROM research.paper_trading_nav"),
@@ -215,6 +461,32 @@ def verify_stocks_subset() -> dict[str, object]:
     }
 
 
+def verify_daily_ranking_history_aware() -> dict[str, object]:
+    csv_path = DATA_DIR / "ranking_final.csv"
+    if not csv_path.exists():
+        return {"status": "missing_csv", "csv_rows": 0, "db_rows": 0, "csv_latest_date": None, "db_latest_date": None}
+    df = pd.read_csv(csv_path, dtype={"code": str}, low_memory=False)
+    csv_rows = len(df.index)
+    csv_latest_date = None
+    if csv_rows and "date" in df.columns:
+        csv_latest_date = str(pd.to_datetime(df["date"], errors="coerce").max().date())
+    engine = get_engine()
+    with engine.connect() as conn:
+        result = conn.execute(
+            text("SELECT COUNT(*) AS row_count, MAX(date)::text AS latest_date FROM daily_ranking")
+        ).mappings().one()
+    db_rows = int(result["row_count"] or 0)
+    db_latest_date = result["latest_date"]
+    status = "ok" if db_rows >= csv_rows and db_latest_date == csv_latest_date else "mismatch"
+    return {
+        "status": status,
+        "csv_rows": csv_rows,
+        "db_rows": db_rows,
+        "csv_latest_date": csv_latest_date,
+        "db_latest_date": db_latest_date,
+    }
+
+
 def sync_core_tables() -> None:
     for spec in SYNC_TABLES:
         if str(spec["name"]) not in CORE_TABLES:
@@ -222,6 +494,8 @@ def sync_core_tables() -> None:
         result = sync_table(spec)
         if str(spec["name"]) == "stocks":
             verify = verify_stocks_subset()
+        elif str(spec["name"]) == "daily_ranking":
+            verify = verify_daily_ranking_history_aware()
         else:
             verify = verify_table(next(item for item in VERIFY_TABLES if item["name"] == spec["name"]))
         if verify["status"] != "ok":
@@ -380,7 +654,7 @@ def sync_us_ranking_table(source_database_url: str) -> None:
             ]
 
         with target_engine.begin() as conn:
-            ensure_us_ranking_table(conn)
+            ensure_us_web_supporting_tables(conn)
             conn.execute(
                 text(f"DELETE FROM {US_RANKING_SOURCE_TABLE} WHERE trade_date = ANY(:trade_dates)"),
                 {"trade_dates": trade_dates},
@@ -464,6 +738,16 @@ def sync_us_ranking_table(source_database_url: str) -> None:
     finally:
         source_engine.dispose()
         target_engine.dispose()
+
+
+def sync_us_supporting_tables(source_database_url: str) -> None:
+    for spec in WEB_TABLE_SYNC_SPECS:
+        sync_table_history(
+            source_database_url,
+            table_name=str(spec["table"]),
+            date_column=spec["date_column"],
+            lookback_dates=spec["lookback_dates"],
+        )
 
 
 def sync_payloads() -> None:
@@ -968,7 +1252,9 @@ def main() -> int:
         reset_display_tables(include_trades=args.reset_trades)
     if not args.skip_core:
         sync_core_tables()
+        sync_kr_ranking_history(source_database_url)
         sync_us_ranking_table(source_database_url)
+        sync_us_supporting_tables(source_database_url)
     if not args.skip_payloads:
         sync_payloads()
     run_script("sync_live_trade_ledger.py")

@@ -336,6 +336,44 @@ async function loadPerformance() {
   tableEl.innerHTML = `<div class="loading">랭킹 데이터 조회 중…</div>`;
 
   try {
+    // Prefer the curated payload when the selected date matches its analysis date.
+    const meaningRes = await fetch("/api/top20-meaningfulness");
+    if (meaningRes.ok) {
+      const meaningData = await meaningRes.json();
+      const payloadDate = String(
+        meaningData?.meta?.analysis_date ||
+        meaningData?.meta?.latest_date_in_file ||
+        ""
+      ).trim();
+      if (payloadDate && payloadDate === dateVal && Array.isArray(meaningData?.rows) && meaningData.rows.length) {
+        const merged = meaningData.rows.slice(0, topN).map((row, index) => ({
+          rank: index + 1,
+          code: String(row.code || "").trim(),
+          name: row.name || row.code || "",
+          final_score: row.final_score_v3 ?? row.final_score ?? row.score ?? null,
+          outcome: null,
+        }));
+
+        const codes = merged.map(r => r.code).filter(Boolean);
+        const outRes = await fetch("/api/meaningfulness-outcomes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ analysis_date: dateVal, codes }),
+        });
+        if (!outRes.ok) throw new Error("성과 API 오류 " + outRes.status);
+        const outData = await outRes.json();
+        const outcomeMap = new Map((outData.rows || []).map(r => [r.code, r]));
+        const rowsWithOutcome = merged.map(r => ({
+          ...r,
+          outcome: outcomeMap.get(r.code) || null,
+        }));
+
+        renderStats(rowsWithOutcome, statsEl);
+        renderTable(rowsWithOutcome, tableEl);
+        return;
+      }
+    }
+
     // 1) Get ranking for the date
     const rankRes = await fetch(`/api/ranking?date=${dateVal}`);
     if (!rankRes.ok) throw new Error("랭킹 API 오류 " + rankRes.status);
@@ -474,13 +512,50 @@ function renderTable(rows, el) {
 // Init
 (async () => {
   const gate = await loadGateStatus();
-
-  const fmt = d => d.toISOString().slice(0, 10);
-  const today = new Date();
-  const d20 = new Date(today); d20.setDate(d20.getDate() - 20);
   const dateInput = document.getElementById("perfDate");
-  dateInput.value = fmt(d20);
-  dateInput.max = fmt(today);
+
+  try {
+    const meaningRes = await fetch("/api/top20-meaningfulness");
+    if (meaningRes.ok) {
+      const meaningData = await meaningRes.json();
+      const payloadDate = String(
+        meaningData?.meta?.analysis_date ||
+        meaningData?.meta?.latest_date_in_file ||
+        ""
+      ).trim();
+      if (payloadDate) {
+        dateInput.value = payloadDate;
+        dateInput.max = payloadDate;
+      }
+    }
+  } catch (e) {
+    // Fall through to ranking latest lookup below.
+  }
+
+  if (!dateInput.value) {
+    try {
+      const rankRes = await fetch("/api/ranking");
+      if (rankRes.ok) {
+        const rankData = await rankRes.json();
+        const latestDate = Array.isArray(rankData?.rows) && rankData.rows.length
+          ? String(rankData.rows[0].date || "").slice(0, 10)
+          : (Array.isArray(rankData) && rankData.length ? String(rankData[0].date || "").slice(0, 10) : "");
+        if (latestDate) {
+          dateInput.value = latestDate;
+          dateInput.max = latestDate;
+        }
+      }
+    } catch (e) {
+      // Ignore and fall through to client-side date default.
+    }
+  }
+
+  if (!dateInput.value) {
+    const fmt = d => d.toISOString().slice(0, 10);
+    const today = new Date();
+    dateInput.value = fmt(today);
+    dateInput.max = fmt(today);
+  }
 
   loadPerformance();
 })();
