@@ -7,6 +7,10 @@ import sys
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[3]))
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
+
 from python.us.trade_orchestration.daily_trade_orchestrator import run_trade_orchestration
 
 

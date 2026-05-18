@@ -30,6 +30,8 @@ SERVING_DIR = ROOT / "serving"
 PYTHON = sys.executable
 
 CORE_TABLES = {"stocks", "market_status", "features", "predictions", "daily_ranking"}
+US_RANKING_SOURCE_TABLE = "recommend.us_stock_rank_daily"
+US_RANKING_SYNC_DATES = 30
 
 JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("daily_recommendations", SERVING_DIR / "daily_recommendations.json", "asof_date"),
@@ -89,7 +91,11 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Sync local display artifacts into the web DB.")
-    parser.add_argument("--skip-core", action="store_true", help="Skip stocks/market_status/predictions/daily_ranking sync.")
+    parser.add_argument(
+        "--skip-core",
+        action="store_true",
+        help="Skip stocks/market_status/predictions/daily_ranking and recommend.us_stock_rank_daily sync.",
+    )
     parser.add_argument("--skip-payloads", action="store_true", help="Skip app_payload_store JSON sync.")
     parser.add_argument("--skip-paper-trading", action="store_true", help="Skip research.paper_trading_* sync.")
     parser.add_argument("--skip-trades", action="store_true", help="Deprecated; trades are skipped unless --sync-trades-to-web is set.")
@@ -165,6 +171,7 @@ def reset_display_tables(*, include_trades: bool = False) -> None:
     engine = get_engine()
     with engine.begin() as conn:
         delete_order = [
+            (US_RANKING_SOURCE_TABLE, f"DELETE FROM {US_RANKING_SOURCE_TABLE}"),
             ("research.meaningfulness_review_note", "DELETE FROM research.meaningfulness_review_note"),
             ("research.paper_trading_position", "DELETE FROM research.paper_trading_position"),
             ("research.paper_trading_nav", "DELETE FROM research.paper_trading_nav"),
@@ -220,6 +227,243 @@ def sync_core_tables() -> None:
         if verify["status"] != "ok":
             raise RuntimeError(f"core table parity failed: {spec['name']} -> {verify}")
         logging.info("Synced core table %s rows=%s latest=%s", spec["name"], result["csv_rows"], result["csv_latest_date"])
+
+
+def ensure_us_ranking_table(conn) -> None:
+    conn.execute(text("CREATE SCHEMA IF NOT EXISTS recommend"))
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS recommend.us_stock_rank_daily (
+                trade_date              DATE        NOT NULL,
+                symbol                  TEXT        NOT NULL,
+                rank_no                 INTEGER,
+                recommend_grade         TEXT,
+                total_score             NUMERIC,
+                momentum_score          NUMERIC,
+                relative_strength_score NUMERIC,
+                fundamental_score       NUMERIC,
+                growth_score            NUMERIC,
+                valuation_score         NUMERIC,
+                risk_score              NUMERIC,
+                feature_quality_score   NUMERIC,
+                universe_group          TEXT,
+                company_name            TEXT,
+                sector                  TEXT,
+                industry                TEXT,
+                market_cap              NUMERIC,
+                avg_volume              NUMERIC,
+                is_etf                  BOOLEAN,
+                is_active               BOOLEAN,
+                data_status             TEXT,
+                exclude_reason          TEXT,
+                reason_summary          TEXT,
+                score_detail_json       JSONB,
+                source                  TEXT,
+                created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+                PRIMARY KEY (trade_date, symbol)
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_us_stock_rank_daily_trade_date
+                ON recommend.us_stock_rank_daily (trade_date DESC)
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_us_stock_rank_daily_grade
+                ON recommend.us_stock_rank_daily (trade_date DESC, recommend_grade)
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_us_stock_rank_daily_symbol_trade_date
+                ON recommend.us_stock_rank_daily (symbol, trade_date DESC)
+            """
+        )
+    )
+
+
+def sync_us_ranking_table(source_database_url: str) -> None:
+    source_url = str(source_database_url or "").strip()
+    target_url = str(os.environ.get("DATABASE_URL", "")).strip()
+    if not source_url:
+        logging.info("Skip US ranking sync: source DATABASE_URL not set")
+        return
+    if not target_url:
+        logging.info("Skip US ranking sync: target DATABASE_URL not set")
+        return
+    if source_url == target_url:
+        logging.info("Skip US ranking sync: source and target DB are identical")
+        return
+
+    source_engine = create_engine(source_url, future=True)
+    target_engine = get_engine()
+    try:
+        with source_engine.connect() as conn:
+            source_exists = bool(conn.execute(text("SELECT to_regclass(:name)"), {"name": US_RANKING_SOURCE_TABLE}).scalar())
+            if not source_exists:
+                logging.info("Skip US ranking sync: source table not found")
+                return
+
+            trade_dates = [
+                row["trade_date"]
+                for row in conn.execute(
+                    text(
+                        f"""
+                        SELECT trade_date
+                        FROM (
+                            SELECT DISTINCT trade_date
+                            FROM {US_RANKING_SOURCE_TABLE}
+                            ORDER BY trade_date DESC
+                            LIMIT :limit
+                        ) recent
+                        ORDER BY trade_date
+                        """
+                    ),
+                    {"limit": US_RANKING_SYNC_DATES},
+                ).mappings()
+            ]
+            if not trade_dates:
+                logging.info("Skip US ranking sync: source table has no rows")
+                return
+
+            rows = [
+                dict(row)
+                for row in conn.execute(
+                    text(
+                        f"""
+                        SELECT
+                            trade_date,
+                            symbol,
+                            rank_no,
+                            recommend_grade,
+                            total_score,
+                            momentum_score,
+                            relative_strength_score,
+                            fundamental_score,
+                            growth_score,
+                            valuation_score,
+                            risk_score,
+                            feature_quality_score,
+                            universe_group,
+                            company_name,
+                            sector,
+                            industry,
+                            market_cap,
+                            avg_volume,
+                            is_etf,
+                            is_active,
+                            data_status,
+                            exclude_reason,
+                            reason_summary,
+                            score_detail_json,
+                            source,
+                            created_at,
+                            updated_at
+                        FROM {US_RANKING_SOURCE_TABLE}
+                        WHERE trade_date = ANY(:trade_dates)
+                        ORDER BY trade_date DESC, rank_no ASC NULLS LAST, symbol ASC
+                        """
+                    ),
+                    {"trade_dates": trade_dates},
+                ).mappings()
+            ]
+
+        with target_engine.begin() as conn:
+            ensure_us_ranking_table(conn)
+            conn.execute(
+                text(f"DELETE FROM {US_RANKING_SOURCE_TABLE} WHERE trade_date = ANY(:trade_dates)"),
+                {"trade_dates": trade_dates},
+            )
+            if rows:
+                payload_rows = []
+                for row in rows:
+                    payload = dict(row)
+                    payload["score_detail_json"] = json.dumps(payload.get("score_detail_json"), ensure_ascii=False, default=str)
+                    payload_rows.append(payload)
+                conn.execute(
+                    text(
+                        f"""
+                        INSERT INTO {US_RANKING_SOURCE_TABLE} (
+                            trade_date,
+                            symbol,
+                            rank_no,
+                            recommend_grade,
+                            total_score,
+                            momentum_score,
+                            relative_strength_score,
+                            fundamental_score,
+                            growth_score,
+                            valuation_score,
+                            risk_score,
+                            feature_quality_score,
+                            universe_group,
+                            company_name,
+                            sector,
+                            industry,
+                            market_cap,
+                            avg_volume,
+                            is_etf,
+                            is_active,
+                            data_status,
+                            exclude_reason,
+                            reason_summary,
+                            score_detail_json,
+                            source,
+                            created_at,
+                            updated_at
+                        ) VALUES (
+                            :trade_date,
+                            :symbol,
+                            :rank_no,
+                            :recommend_grade,
+                            :total_score,
+                            :momentum_score,
+                            :relative_strength_score,
+                            :fundamental_score,
+                            :growth_score,
+                            :valuation_score,
+                            :risk_score,
+                            :feature_quality_score,
+                            :universe_group,
+                            :company_name,
+                            :sector,
+                            :industry,
+                            :market_cap,
+                            :avg_volume,
+                            :is_etf,
+                            :is_active,
+                            :data_status,
+                            :exclude_reason,
+                            :reason_summary,
+                            CAST(:score_detail_json AS jsonb),
+                            :source,
+                            :created_at,
+                            :updated_at
+                        )
+                        """
+                    ),
+                    payload_rows,
+                )
+        logging.info(
+            "Synced US ranking table rows=%d dates=%d latest=%s",
+            len(rows),
+            len(trade_dates),
+            trade_dates[-1].isoformat() if hasattr(trade_dates[-1], "isoformat") else str(trade_dates[-1]),
+        )
+    finally:
+        source_engine.dispose()
+        target_engine.dispose()
 
 
 def sync_payloads() -> None:
@@ -724,11 +968,12 @@ def main() -> int:
         reset_display_tables(include_trades=args.reset_trades)
     if not args.skip_core:
         sync_core_tables()
+        sync_us_ranking_table(source_database_url)
     if not args.skip_payloads:
         sync_payloads()
-        run_script("sync_live_trade_ledger.py")
-        sync_live_order_fills_table(source_database_url)
-        sync_live_trade_review_table(source_database_url)
+    run_script("sync_live_trade_ledger.py")
+    sync_live_order_fills_table(source_database_url)
+    sync_live_trade_review_table(source_database_url)
     if not args.skip_paper_trading:
         run_script("sync_paper_trading_db.py")
     if args.sync_trades_to_web:

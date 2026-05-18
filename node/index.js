@@ -4890,6 +4890,32 @@ app.get("/api/top20-meaningfulness", async (req, res) => {
   }
 });
 
+app.get("/api/ai-gate-status", async (req, res) => {
+  try {
+    const gate = await readJsonPayloadDbFirst("operational_buy_gate", [
+      path.join(OUTPUTS_DIR, "operational_buy_gate.json"),
+    ]);
+    const dec = Array.isArray(gate.decisions) && gate.decisions.length ? gate.decisions[0] : {};
+    const wf = dec.walkforward_acceptance || {};
+    const bm = dec.benchmark || {};
+    const buyability = dec.buyability || {};
+    res.json({
+      asof_date: gate.asof_date || null,
+      gate_status: gate.overall_status || dec.status || null,
+      walkforward_status: wf.status || null,
+      walkforward_reason_codes: Array.isArray(wf.reason_codes) ? wf.reason_codes : [],
+      benchmark_matured_dates_max: bm.matured_dates_max ?? null,
+      buy_now_count: buyability.buy_now_count ?? null,
+      paper_only_count: buyability.paper_only_count ?? null,
+      blocked_count: buyability.blocked_count ?? null,
+      watchlist_count: buyability.watchlist_count ?? null,
+    });
+  } catch (e) {
+    console.error("GET /api/ai-gate-status error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 app.get("/api/meaningfulness-review-notes", operatorAccess.apiGuard, async (req, res) => {
   try {
     await ensureMeaningfulnessReviewSchema();
@@ -5531,6 +5557,104 @@ app.get("/api/ranking", async (req, res) => {
   } catch (e) {
     console.error("api/ranking error", e);
     res.status(500).json({ error: "failed to read ranking", detail: String(e) });
+  }
+});
+
+// Ranking trend — rank change, sparkline history, streak, score component delta
+app.get("/api/ranking-trend", async (req, res) => {
+  try {
+    const targetDate = (req.query.date || "").trim() || null;
+    const date = targetDate || (await getLatestDate("daily_ranking"));
+    if (!date) return res.status(404).json({ error: "no data" });
+
+    // Last 10 available business days including target date
+    const recentDates = await queryRows(
+      "SELECT DISTINCT date::text AS d FROM daily_ranking WHERE date <= $1 ORDER BY d DESC LIMIT 10",
+      [date]
+    );
+    const dates = recentDates.map((x) => x.d.slice(0, 10)).reverse(); // oldest → newest
+    const compare5 = recentDates[4]?.d?.slice(0, 10) || null;
+
+    // Today's full stock list with score components
+    const todayRows = await queryRows(
+      `SELECT code, name, COALESCE(live_rank, rank_final) AS rank_today,
+              ret_score, prob_score, tech_score, flow_score
+       FROM daily_ranking WHERE date = $1`,
+      [date]
+    );
+    const codes = todayRows.map((r) => r.code);
+
+    // Full rank + score history for all stocks across last 10 dates (single query)
+    const histRows = await queryRows(
+      `SELECT code, date::text AS d,
+              COALESCE(live_rank, rank_final) AS rank,
+              ret_score, prob_score, tech_score, flow_score
+       FROM daily_ranking
+       WHERE date = ANY($1::date[]) AND code = ANY($2)`,
+      [dates, codes]
+    );
+
+    // Build per-code history map
+    const histByCode = {};
+    for (const r of histRows) {
+      const d = r.d.slice(0, 10);
+      if (!histByCode[r.code]) histByCode[r.code] = {};
+      histByCode[r.code][d] = {
+        rank: r.rank !== null ? Number(r.rank) : null,
+        ret_score: r.ret_score,
+        prob_score: r.prob_score,
+        tech_score: r.tech_score,
+        flow_score: r.flow_score,
+      };
+    }
+
+    const stocks = todayRows
+      .map((r) => {
+        const rt = Number(r.rank_today);
+        const codeHist = histByCode[r.code] || {};
+        const history = dates.map((d) => codeHist[d]?.rank ?? null);
+
+        // 5d comparison
+        const r5 = compare5 ? (codeHist[compare5]?.rank ?? null) : null;
+        const delta5 = r5 !== null ? r5 - rt : null;
+        const isNew = r5 === null;
+
+        // Streak: consecutive days in top 20 going back from today
+        let streak = 0;
+        for (let i = history.length - 1; i >= 0; i--) {
+          if (history[i] !== null && history[i] <= 20) streak++;
+          else break;
+        }
+
+        // Score component delta vs 5d ago
+        const comp5d = compare5 ? codeHist[compare5] : null;
+        const scoreDelta = comp5d
+          ? {
+              ret_score:  r.ret_score  != null && comp5d.ret_score  != null ? +( +r.ret_score  - +comp5d.ret_score ).toFixed(1) : null,
+              prob_score: r.prob_score != null && comp5d.prob_score != null ? +( +r.prob_score - +comp5d.prob_score).toFixed(1) : null,
+              tech_score: r.tech_score != null && comp5d.tech_score != null ? +( +r.tech_score - +comp5d.tech_score).toFixed(1) : null,
+              flow_score: r.flow_score != null && comp5d.flow_score != null ? +( +r.flow_score - +comp5d.flow_score).toFixed(1) : null,
+            }
+          : null;
+
+        return {
+          code: r.code,
+          name: r.name,
+          rank_today: rt,
+          rank_5d: r5,
+          delta_5d: delta5,
+          is_new: isNew,
+          history,
+          streak_top20: streak,
+          score_delta: scoreDelta,
+        };
+      })
+      .sort((a, b) => a.rank_today - b.rank_today);
+
+    res.json({ date, dates, compare_5d: compare5, stocks });
+  } catch (e) {
+    console.error("ranking-trend error", e);
+    res.status(500).json({ error: "internal error" });
   }
 });
 
@@ -7262,6 +7386,16 @@ app.get("/api/us/ranking", async (req, res) => {
     const sectorParam = (req.query.sector || "").trim() || null;
     const topN = Math.min(Math.max(parseInt(req.query.top_n || "50", 10), 1), 200);
 
+    const relationCheck = await pool.query(
+      "SELECT to_regclass('recommend.us_stock_rank_daily') AS relation_name"
+    );
+    if (!relationCheck.rows[0]?.relation_name) {
+      return res.status(503).json({
+        error: "us ranking table missing",
+        detail: "recommend.us_stock_rank_daily is not available in the web database",
+      });
+    }
+
     let tradeDateSql;
     let params;
     if (dateParam) {
@@ -7367,6 +7501,12 @@ app.get("/api/us/ranking", async (req, res) => {
 
 app.get("/api/us/ranking/dates", async (req, res) => {
   try {
+    const relationCheck = await pool.query(
+      "SELECT to_regclass('recommend.us_stock_rank_daily') AS relation_name"
+    );
+    if (!relationCheck.rows[0]?.relation_name) {
+      return res.json({ dates: [] });
+    }
     const result = await pool.query(
       `SELECT DISTINCT TO_CHAR(trade_date, 'YYYY-MM-DD') AS trade_date
        FROM recommend.us_stock_rank_daily
@@ -7381,6 +7521,12 @@ app.get("/api/us/ranking/dates", async (req, res) => {
 
 app.get("/api/us/ranking/sectors", async (req, res) => {
   try {
+    const relationCheck = await pool.query(
+      "SELECT to_regclass('recommend.us_stock_rank_daily') AS relation_name"
+    );
+    if (!relationCheck.rows[0]?.relation_name) {
+      return res.json({ sectors: [] });
+    }
     const result = await pool.query(
       `SELECT DISTINCT sector FROM recommend.us_stock_rank_daily
        WHERE sector IS NOT NULL AND sector <> ''
@@ -7399,17 +7545,198 @@ app.get("/api/us/ranking/sectors", async (req, res) => {
 
 app.get("/us-trading", (req, res) => sendPublicPage(res, "us-trading.html"));
 
+async function resolveUsTradingTradeDate(dateParam) {
+  if (dateParam) return dateParam;
+  const latestDateRow = await pool.query(
+    `SELECT COALESCE(
+        (SELECT MAX(trade_date)::text FROM trade.us_paper_order),
+        (SELECT MAX(trade_date)::text FROM trade.us_paper_sell_order),
+        (SELECT MAX(snapshot_date)::text FROM trade.us_paper_position_snapshot),
+        (SELECT MAX(trade_date)::text FROM trade.us_buy_decision_log)
+     ) AS trade_date`
+  ).catch(() => ({ rows: [{ trade_date: null }] }));
+  return latestDateRow.rows[0]?.trade_date || null;
+}
+
+async function resolveUsTradingMode(tradeDate) {
+  const envMode = String(
+    process.env.US_TRADE_ORCHESTRATION_MODE || process.env.US_BUY_AUTOMATION_MODE || "PAPER"
+  ).trim().toUpperCase();
+  if (!tradeDate) return envMode;
+
+  const hasPaperRows = await pool.query(
+    `SELECT EXISTS(
+        SELECT 1 FROM trade.us_paper_order WHERE trade_date = $1
+      ) OR EXISTS(
+        SELECT 1 FROM trade.us_paper_sell_order WHERE trade_date = $1
+      ) OR EXISTS(
+        SELECT 1 FROM trade.us_paper_position_snapshot WHERE snapshot_date = $1
+      ) AS has_paper_rows`,
+    [tradeDate]
+  ).catch(() => ({ rows: [{ has_paper_rows: false }] }));
+  if (hasPaperRows.rows[0]?.has_paper_rows) {
+    return "PAPER";
+  }
+
+  const modeRow = await pool.query(
+    `SELECT automation_mode
+       FROM trade.us_buy_decision_log
+      WHERE trade_date = $1
+      ORDER BY
+        CASE
+          WHEN automation_mode = $2 THEN 0
+          WHEN automation_mode = 'PAPER' THEN 1
+          WHEN automation_mode = 'SHADOW' THEN 2
+          WHEN automation_mode = 'LIVE' THEN 3
+          ELSE 9
+        END,
+        created_at DESC NULLS LAST
+      LIMIT 1`,
+    [tradeDate, envMode]
+  ).catch(() => ({ rows: [] }));
+  return modeRow.rows[0]?.automation_mode || envMode;
+}
+
+async function resolveUsTradingAccountId(tradeDate) {
+  const envAccountId = String(
+    process.env.US_BUY_AUTOMATION_ACCOUNT_ID || process.env.US_TRADE_ACCOUNT_ID || "US_TRADE_SCHEDULER"
+  ).trim();
+  if (!tradeDate) return envAccountId;
+
+  const accountRow = await pool.query(
+    `SELECT account_id
+       FROM trade.us_paper_order
+      WHERE trade_date = $1
+        AND account_id IS NOT NULL
+      ORDER BY created_at DESC NULLS LAST
+      LIMIT 1`,
+    [tradeDate]
+  ).catch(() => ({ rows: [] }));
+  return accountRow.rows[0]?.account_id || envAccountId;
+}
+
+async function loadUsTradingAccountMetrics(tradeDate, accountId) {
+  const initialCashDefault = Number(process.env.US_PAPER_INITIAL_CASH || 0) || 0;
+  const emptyMetrics = {
+    account_id: accountId || null,
+    initial_cash_usd: initialCashDefault,
+    cash_balance_usd: initialCashDefault,
+    reserved_cash_usd: 0,
+    market_value_usd: 0,
+    equity_value_usd: initialCashDefault,
+    deployed_cash_usd: 0,
+    total_pnl_usd: 0,
+    total_pnl_pct: 0,
+    cash_weight: initialCashDefault > 0 ? 1 : null,
+    invested_weight: 0,
+    valuation_source: "env_fallback",
+  };
+  if (!tradeDate) return emptyMetrics;
+
+  const accountSnapshotRow = await pool.query(
+    `SELECT account_id, snapshot_date, cash_balance, reserved_cash, market_value, equity_value,
+            realized_pnl, unrealized_pnl, total_pnl, total_pnl_pct, position_count
+       FROM paper.us_stock_paper_account_snapshot
+      WHERE account_id = $1
+        AND snapshot_date <= $2
+      ORDER BY snapshot_date DESC
+      LIMIT 1`,
+    [accountId, tradeDate]
+  ).catch(() => ({ rows: [] }));
+  if (accountSnapshotRow.rows[0]) {
+    const row = accountSnapshotRow.rows[0];
+    const initialRow = await pool.query(
+      `SELECT initial_cash
+         FROM paper.us_stock_paper_account
+        WHERE account_id = $1
+        LIMIT 1`,
+      [accountId]
+    ).catch(() => ({ rows: [] }));
+    const initialCash = Number(initialRow.rows[0]?.initial_cash ?? initialCashDefault) || initialCashDefault;
+    const cashBalance = Number(row.cash_balance || 0);
+    const reservedCash = Number(row.reserved_cash || 0);
+    const marketValue = Number(row.market_value || 0);
+    const equityValue = Number(row.equity_value || (cashBalance + marketValue));
+    return {
+      account_id: row.account_id || accountId,
+      initial_cash_usd: initialCash,
+      cash_balance_usd: cashBalance,
+      reserved_cash_usd: reservedCash,
+      market_value_usd: marketValue,
+      equity_value_usd: equityValue,
+      deployed_cash_usd: marketValue,
+      total_pnl_usd: Number(row.total_pnl || 0),
+      total_pnl_pct: row.total_pnl_pct != null ? Number(row.total_pnl_pct) : (initialCash > 0 ? (equityValue - initialCash) / initialCash : null),
+      cash_weight: equityValue > 0 ? cashBalance / equityValue : null,
+      invested_weight: equityValue > 0 ? marketValue / equityValue : null,
+      valuation_source: "paper_account_snapshot",
+    };
+  }
+
+  const derivedRow = await pool.query(
+    `WITH buy_orders AS (
+        SELECT COALESCE(SUM(paper_order_amount), 0) AS buy_amount
+          FROM trade.us_paper_order
+         WHERE account_id = $1
+           AND trade_date <= $2
+           AND side = 'BUY'
+      ),
+      sell_orders AS (
+        SELECT COALESCE(SUM(sell_amount), 0) AS sell_amount
+          FROM trade.us_paper_sell_order
+         WHERE trade_date <= $2
+      ),
+      positions AS (
+        SELECT
+          COALESCE(SUM(COALESCE(latest_price, 0) * COALESCE(remaining_quantity, 0)), 0) AS market_value,
+          COALESCE(SUM(unrealized_pnl), 0) AS unrealized_pnl
+        FROM trade.us_paper_position_snapshot
+        WHERE snapshot_date = (
+          SELECT MAX(snapshot_date)
+          FROM trade.us_paper_position_snapshot
+          WHERE snapshot_date <= $2
+        )
+          AND status = 'OPEN'
+      )
+      SELECT
+        buy_orders.buy_amount,
+        sell_orders.sell_amount,
+        positions.market_value,
+        positions.unrealized_pnl
+      FROM buy_orders, sell_orders, positions`,
+    [accountId, tradeDate]
+  ).catch(() => ({ rows: [] }));
+  const derived = derivedRow.rows[0] || {};
+  const buyAmount = Number(derived.buy_amount || 0);
+  const sellAmount = Number(derived.sell_amount || 0);
+  const marketValue = Number(derived.market_value || 0);
+  const cashBalance = initialCashDefault - buyAmount + sellAmount;
+  const equityValue = cashBalance + marketValue;
+  const totalPnl = equityValue - initialCashDefault;
+  return {
+    account_id: accountId,
+    initial_cash_usd: initialCashDefault,
+    cash_balance_usd: cashBalance,
+    reserved_cash_usd: 0,
+    market_value_usd: marketValue,
+    equity_value_usd: equityValue,
+    deployed_cash_usd: buyAmount - sellAmount,
+    total_pnl_usd: totalPnl,
+    total_pnl_pct: initialCashDefault > 0 ? totalPnl / initialCashDefault : null,
+    cash_weight: equityValue > 0 ? cashBalance / equityValue : null,
+    invested_weight: equityValue > 0 ? marketValue / equityValue : null,
+    valuation_source: "trade_order_fallback",
+  };
+}
+
 // 요약: 오늘 결론, 모드, 포지션 수, 최근 손익
 app.get("/api/us/trading/summary", async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
     const dateParam = (req.query.date || "").trim() || null;
-
-    // 최신 buy decision 날짜
-    const latestDateRow = await pool.query(
-      `SELECT MAX(trade_date)::text AS trade_date FROM trade.us_buy_decision_log`
-    ).catch(() => ({ rows: [{ trade_date: null }] }));
-    const tradeDate = dateParam || latestDateRow.rows[0]?.trade_date || null;
+    const tradeDate = await resolveUsTradingTradeDate(dateParam);
+    const mode = await resolveUsTradingMode(tradeDate);
+    const accountId = await resolveUsTradingAccountId(tradeDate);
+    const accountMetrics = await loadUsTradingAccountMetrics(tradeDate, accountId);
 
     // 오늘 결론 집계
     const decisionRow = await pool.query(
@@ -7419,10 +7746,11 @@ app.get("/api/us/trading/summary", async (req, res) => {
         COUNT(*) AS total,
         automation_mode
        FROM trade.us_buy_decision_log
-       WHERE trade_date = $1
-       GROUP BY automation_mode
-       ORDER BY COUNT(*) DESC LIMIT 1`,
-      [tradeDate]
+        WHERE trade_date = $1
+         AND automation_mode = $2
+        GROUP BY automation_mode
+        LIMIT 1`,
+      [tradeDate, mode]
     ).catch(() => ({ rows: [] }));
 
     const sellRow = await pool.query(
@@ -7430,8 +7758,9 @@ app.get("/api/us/trading/summary", async (req, res) => {
         COUNT(*) FILTER (WHERE decision IN ('FULL_SELL','PARTIAL_SELL')) AS sell_count,
         COUNT(*) FILTER (WHERE decision = 'HOLD') AS hold_count
        FROM trade.us_sell_decision_log
-       WHERE trade_date = $1`,
-      [tradeDate]
+        WHERE trade_date = $1
+          AND automation_mode = $2`,
+      [tradeDate, mode]
     ).catch(() => ({ rows: [{ sell_count: 0, hold_count: 0 }] }));
 
     // 현재 오픈 포지션
@@ -7447,18 +7776,20 @@ app.get("/api/us/trading/summary", async (req, res) => {
     const weekPnlRow = await pool.query(
       `SELECT COALESCE(SUM(realized_paper_pnl), 0) AS week_pnl
        FROM trade.us_sell_decision_log
-       WHERE trade_date >= (CURRENT_DATE - INTERVAL '7 days')
-         AND decision IN ('FULL_SELL','PARTIAL_SELL')`,
+        WHERE trade_date >= (CURRENT_DATE - INTERVAL '7 days')
+          AND automation_mode = $1
+          AND decision IN ('FULL_SELL','PARTIAL_SELL')`,
+      [mode],
     ).catch(() => ({ rows: [{ week_pnl: 0 }] }));
 
     const dec = decisionRow.rows[0] || {};
     const sell = sellRow.rows[0] || {};
     const pos = posRow.rows[0] || {};
-    const mode = dec.automation_mode || "PAPER";
 
     res.json({
       trade_date: tradeDate,
       mode,
+      account_id: accountMetrics.account_id,
       allowed_count: Number(dec.allowed || 0),
       blocked_count: Number(dec.blocked || 0),
       total_decisions: Number(dec.total || 0),
@@ -7467,6 +7798,17 @@ app.get("/api/us/trading/summary", async (req, res) => {
       open_positions: Number(pos.open_positions || 0),
       total_unrealized_pnl_usd: Number(pos.total_unrealized_pnl || 0),
       week_pnl_usd: Number(weekPnlRow.rows[0]?.week_pnl || 0),
+      initial_cash_usd: accountMetrics.initial_cash_usd,
+      cash_balance_usd: accountMetrics.cash_balance_usd,
+      reserved_cash_usd: accountMetrics.reserved_cash_usd,
+      market_value_usd: accountMetrics.market_value_usd,
+      equity_value_usd: accountMetrics.equity_value_usd,
+      deployed_cash_usd: accountMetrics.deployed_cash_usd,
+      total_pnl_usd: accountMetrics.total_pnl_usd,
+      total_pnl_pct: accountMetrics.total_pnl_pct,
+      cash_weight: accountMetrics.cash_weight,
+      invested_weight: accountMetrics.invested_weight,
+      valuation_source: accountMetrics.valuation_source,
       generated_at: new Date().toISOString(),
     });
   } catch (e) {
@@ -7479,9 +7821,8 @@ app.get("/api/us/trading/summary", async (req, res) => {
 app.get("/api/us/trading/decisions/buy", async (req, res) => {
   try {
     const dateParam = (req.query.date || "").trim() || null;
-    const tradeDate = dateParam || (await pool.query(
-      `SELECT MAX(trade_date)::text AS d FROM trade.us_buy_decision_log`
-    ).then(r => r.rows[0]?.d).catch(() => null));
+    const tradeDate = await resolveUsTradingTradeDate(dateParam);
+    const mode = await resolveUsTradingMode(tradeDate);
 
     if (!tradeDate) {
       return res.json({ trade_date: null, rows: [] });
@@ -7500,11 +7841,12 @@ app.get("/api/us/trading/decisions/buy", async (req, res) => {
        FROM trade.us_buy_decision_log d
        LEFT JOIN recommend.us_stock_rank_daily r
          ON r.trade_date = d.trade_date AND r.symbol = d.symbol
-       LEFT JOIN trade.us_paper_order o
-         ON o.trade_date = d.trade_date AND o.symbol = d.symbol AND o.automation_mode = d.automation_mode
-       WHERE d.trade_date = $1
-       ORDER BY d.rank_no ASC NULLS LAST`,
-      [tradeDate]
+        LEFT JOIN trade.us_paper_order o
+          ON o.trade_date = d.trade_date AND o.symbol = d.symbol AND o.automation_mode = d.automation_mode
+        WHERE d.trade_date = $1
+          AND d.automation_mode = $2
+        ORDER BY d.rank_no ASC NULLS LAST`,
+      [tradeDate, mode]
     );
     res.json({ trade_date: tradeDate, rows: result.rows });
   } catch (e) {
@@ -7517,9 +7859,8 @@ app.get("/api/us/trading/decisions/buy", async (req, res) => {
 app.get("/api/us/trading/decisions/sell", async (req, res) => {
   try {
     const dateParam = (req.query.date || "").trim() || null;
-    const tradeDate = dateParam || (await pool.query(
-      `SELECT MAX(trade_date)::text AS d FROM trade.us_sell_decision_log`
-    ).then(r => r.rows[0]?.d).catch(() => null));
+    const tradeDate = await resolveUsTradingTradeDate(dateParam);
+    const mode = await resolveUsTradingMode(tradeDate);
 
     const result = await pool.query(
       `SELECT
@@ -7528,13 +7869,94 @@ app.get("/api/us/trading/decisions/sell", async (req, res) => {
         d.realized_paper_pnl, d.sell_ratio, d.sell_quantity,
         d.review_required, d.automation_mode
        FROM trade.us_sell_decision_log d
-       WHERE d.trade_date = $1
-       ORDER BY d.decision ASC`,
-      [tradeDate]
+        WHERE d.trade_date = $1
+          AND d.automation_mode = $2
+        ORDER BY d.decision ASC`,
+      [tradeDate, mode]
     );
     res.json({ trade_date: tradeDate, rows: result.rows });
   } catch (e) {
     console.error("GET /api/us/trading/decisions/sell error", e);
+    res.status(500).json({ error: "internal error", detail: String(e) });
+  }
+});
+
+// 가상 주문 결과 (BUY/SELL order log)
+app.get("/api/us/trading/orders", async (req, res) => {
+  try {
+    const dateParam = (req.query.date || "").trim() || null;
+    const tradeDate = await resolveUsTradingTradeDate(dateParam);
+    if (!tradeDate) {
+      return res.json({ trade_date: null, rows: [] });
+    }
+
+    const buyOrders = await pool.query(
+      `SELECT
+         paper_order_id AS order_id,
+         trade_date,
+         symbol,
+         side,
+         paper_order_qty AS order_qty,
+         paper_order_price AS order_price,
+         paper_order_amount AS order_amount,
+         assumed_fill_price,
+         assumed_fill_status,
+         automation_mode,
+         source_decision_id,
+         created_at,
+         updated_at
+       FROM trade.us_paper_order
+       WHERE trade_date = $1`,
+      [tradeDate]
+    ).catch(() => ({ rows: [] }));
+
+    const sellOrders = await pool.query(
+      `SELECT
+         paper_sell_order_id AS order_id,
+         trade_date,
+         symbol,
+         side,
+         sell_quantity AS order_qty,
+         sell_price_ref AS order_price,
+         sell_amount AS order_amount,
+         sell_price_ref AS assumed_fill_price,
+         assumed_fill_status,
+         NULL::text AS automation_mode,
+         source_sell_decision_id AS source_decision_id,
+         created_at,
+         updated_at,
+         sell_action
+       FROM trade.us_paper_sell_order
+       WHERE trade_date = $1`,
+      [tradeDate]
+    ).catch(() => ({ rows: [] }));
+
+    const rows = [...buyOrders.rows, ...sellOrders.rows]
+      .map((row) => ({
+        order_id: row.order_id,
+        trade_date: row.trade_date ? String(row.trade_date).slice(0, 10) : tradeDate,
+        symbol: row.symbol,
+        side: row.side,
+        order_qty: row.order_qty != null ? Number(row.order_qty) : null,
+        order_price: row.order_price != null ? Number(row.order_price) : null,
+        order_amount: row.order_amount != null ? Number(row.order_amount) : null,
+        assumed_fill_price: row.assumed_fill_price != null ? Number(row.assumed_fill_price) : null,
+        assumed_fill_status: row.assumed_fill_status || null,
+        automation_mode: row.automation_mode || null,
+        source_decision_id: row.source_decision_id || null,
+        sell_action: row.sell_action || null,
+        created_at: row.created_at || null,
+        updated_at: row.updated_at || null,
+      }))
+      .sort((a, b) => {
+        const at = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bt = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bt - at;
+      });
+
+    res.json({ trade_date: tradeDate, rows });
+  } catch (e) {
+    console.error("GET /api/us/trading/orders error", e);
     res.status(500).json({ error: "internal error", detail: String(e) });
   }
 });
@@ -7547,7 +7969,13 @@ app.get("/api/us/trading/positions", async (req, res) => {
         ps.symbol, ps.latest_price, ps.remaining_quantity,
         ps.unrealized_pnl, ps.unrealized_pnl_pct, ps.holding_days,
         ps.highest_price_since_entry, ps.status, ps.snapshot_date,
-        u.name AS company_name, u.sector
+        u.name AS company_name, u.sector,
+        (COALESCE(ps.latest_price, 0) * COALESCE(ps.remaining_quantity, 0)) AS market_value_usd,
+        CASE
+          WHEN COALESCE(ps.remaining_quantity, 0) > 0
+            THEN ((COALESCE(ps.latest_price, 0) * COALESCE(ps.remaining_quantity, 0)) - COALESCE(ps.unrealized_pnl, 0)) / ps.remaining_quantity
+          ELSE NULL
+        END AS avg_entry_price
        FROM trade.us_paper_position_snapshot ps
        LEFT JOIN market.us_stock_universe u ON u.ticker = ps.symbol AND u.universe_tag = 'NASDAQ100'
        WHERE ps.snapshot_date = (
@@ -7567,12 +7995,16 @@ app.get("/api/us/trading/positions", async (req, res) => {
 // 리스크 가드 현황 (최신 날짜)
 app.get("/api/us/trading/guards", async (req, res) => {
   try {
+    const tradeDate = await resolveUsTradingTradeDate((req.query.date || "").trim() || null);
+    const mode = await resolveUsTradingMode(tradeDate);
     const result = await pool.query(
       `SELECT guard_name, guard_scope, guard_status, severity,
         metric_value, threshold_value, reason_code, reason_detail, trade_date
        FROM trade.us_risk_guard_log
-       WHERE trade_date = (SELECT MAX(trade_date) FROM trade.us_risk_guard_log)
-       ORDER BY severity DESC, guard_name ASC`
+        WHERE trade_date = $1
+          AND automation_mode = $2
+        ORDER BY severity DESC, guard_name ASC`,
+      [tradeDate, mode]
     );
     res.json({ rows: result.rows });
   } catch (e) {

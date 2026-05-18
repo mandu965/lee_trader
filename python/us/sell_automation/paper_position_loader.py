@@ -43,6 +43,76 @@ LATEST_PAPER_ORDER_DATE_SQL = text(
     """
 )
 
+LATEST_TRADE_PAPER_ORDER_DATE_SQL = text(
+    """
+    SELECT MAX(trade_date) AS max_trade_date
+    FROM trade.us_paper_order
+    WHERE account_id = :account_id
+    """
+)
+
+READ_TRADE_PAPER_BUY_ORDER_ROWS_SQL = text(
+    """
+    SELECT
+        paper_order_id,
+        trade_date,
+        account_id,
+        symbol,
+        side,
+        paper_order_qty AS order_qty,
+        paper_order_price AS order_price,
+        paper_order_amount,
+        assumed_fill_price,
+        assumed_fill_status,
+        created_at,
+        updated_at
+    FROM trade.us_paper_order
+    WHERE account_id = :account_id
+      AND side = 'BUY'
+    ORDER BY trade_date, created_at, symbol
+    """
+)
+
+READ_TRADE_PAPER_SELL_ORDER_ROWS_SQL = text(
+    """
+    SELECT
+        paper_sell_order_id,
+        trade_date,
+        paper_position_id,
+        symbol,
+        side,
+        sell_action,
+        sell_quantity,
+        sell_price_ref,
+        sell_amount,
+        assumed_fill_status,
+        created_at,
+        updated_at
+    FROM trade.us_paper_sell_order
+    WHERE side = 'SELL'
+    ORDER BY trade_date, created_at, symbol
+    """
+)
+
+READ_TRADE_POSITION_SNAPSHOT_ROWS_SQL = text(
+    """
+    SELECT DISTINCT ON (symbol)
+        paper_position_id,
+        symbol,
+        snapshot_date,
+        remaining_quantity,
+        latest_price,
+        highest_price_since_entry,
+        unrealized_pnl,
+        unrealized_pnl_pct,
+        holding_days,
+        status,
+        data_quality_flags
+    FROM trade.us_paper_position_snapshot
+    ORDER BY symbol, snapshot_date DESC, updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+    """
+)
+
 
 def _safe_float(value: object) -> float | None:
     try:
@@ -130,7 +200,7 @@ def _paper_qty_for_order(order_row: dict[str, object], fill_map: dict[str, float
     fill_qty = fill_map.get(order_id)
     if fill_qty is not None:
         return max(0.0, fill_qty)
-    for key in ("filled_qty", "order_qty", "paper_order_qty"):
+    for key in ("filled_qty", "order_qty", "paper_order_qty", "sell_quantity"):
         value = _safe_float(order_row.get(key))
         if value is not None:
             return max(0.0, value)
@@ -138,7 +208,7 @@ def _paper_qty_for_order(order_row: dict[str, object], fill_map: dict[str, float
 
 
 def _paper_price_for_order(order_row: dict[str, object]) -> float | None:
-    for key in ("filled_price", "order_price", "paper_order_price", "assumed_fill_price"):
+    for key in ("filled_price", "order_price", "paper_order_price", "assumed_fill_price", "sell_price_ref"):
         value = _safe_float(order_row.get(key))
         if value is not None:
             return value
@@ -153,6 +223,10 @@ def _effective_trade_date(account_id: str, requested_trade_date: date | None) ->
         with engine.connect() as conn:
             if relation_exists("recommend.us_stock_rank_daily"):
                 value = conn.execute(LATEST_TRADE_DATE_SQL).scalar()
+                if isinstance(value, date):
+                    return value
+            if relation_exists("trade.us_paper_order"):
+                value = conn.execute(LATEST_TRADE_PAPER_ORDER_DATE_SQL, {"account_id": account_id}).scalar()
                 if isinstance(value, date):
                     return value
             if relation_exists("paper.us_stock_paper_order"):
@@ -324,18 +398,30 @@ def load_paper_positions(
     trade_date = _effective_trade_date(account_id, requested_trade_date)
     events: list[dict[str, object]] = []
 
-    buy_orders = [
-        row
-        for row in fetch_us_paper_order_rows(account_id=account_id, side="BUY")
-        if str(row.get("status") or "").upper() in {"CREATED", "FILLED", "PENDING", "PARTIALLY_FILLED", ""}
-    ]
-    sell_orders = [
-        row
-        for row in fetch_us_paper_order_rows(account_id=account_id, side="SELL")
-        if str(row.get("status") or "").upper() in {"CREATED", "FILLED", "PENDING", "PARTIALLY_FILLED", ""}
-    ]
+    buy_orders: list[dict[str, object]] = []
+    sell_orders: list[dict[str, object]] = []
+    existing_positions: list[dict[str, object]] = []
+    if relation_exists("trade.us_paper_order"):
+        engine = get_us_engine()
+        with engine.connect() as conn:
+            buy_orders = [dict(row) for row in conn.execute(READ_TRADE_PAPER_BUY_ORDER_ROWS_SQL, {"account_id": account_id}).mappings().all()]
+            if relation_exists("trade.us_paper_sell_order"):
+                sell_orders = [dict(row) for row in conn.execute(READ_TRADE_PAPER_SELL_ORDER_ROWS_SQL).mappings().all()]
+            if relation_exists("trade.us_paper_position_snapshot"):
+                existing_positions = [dict(row) for row in conn.execute(READ_TRADE_POSITION_SNAPSHOT_ROWS_SQL).mappings().all()]
+    else:
+        buy_orders = [
+            row
+            for row in fetch_us_paper_order_rows(account_id=account_id, side="BUY")
+            if str(row.get("status") or "").upper() in {"CREATED", "FILLED", "PENDING", "PARTIALLY_FILLED", ""}
+        ]
+        sell_orders = [
+            row
+            for row in fetch_us_paper_order_rows(account_id=account_id, side="SELL")
+            if str(row.get("status") or "").upper() in {"CREATED", "FILLED", "PENDING", "PARTIALLY_FILLED", ""}
+        ]
+        existing_positions = fetch_us_paper_position_rows(account_id=account_id, status="OPEN")
     fill_rows = fetch_us_paper_fill_rows(account_id=account_id)
-    existing_positions = fetch_us_paper_position_rows(account_id=account_id, status="OPEN")
 
     symbols = sorted({str(row.get("symbol") or "").upper() for row in buy_orders if row.get("symbol")})
     if not symbols:

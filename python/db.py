@@ -154,6 +154,39 @@ def replace_table_rows_pg(table: str, df, columns: list[str] | None = None) -> N
     copy_df(table, out, columns=use_columns, truncate=True)
 
 
+def accumulate_date_rows_pg(table: str, df, columns: list[str] | None = None, date_col: str = "date") -> None:
+    """
+    Insert rows for dates present in df, deleting only those dates first.
+    Historical rows for other dates are preserved — enables cumulative storage.
+    """
+    import psycopg2
+
+    use_columns = list(columns) if columns else list(df.columns)
+    out = df.copy()
+    for col in use_columns:
+        if col not in out.columns:
+            out[col] = None
+    out = out.loc[:, use_columns]
+    if out.empty:
+        return
+    dates = sorted(out[date_col].dropna().unique().tolist()) if date_col and date_col in out.columns else []
+    conn = raw_psycopg2_conn()
+    try:
+        with conn, conn.cursor() as cur:
+            if dates:
+                cur.execute(f"DELETE FROM {table} WHERE {date_col}::text = ANY(%s)", ([str(d)[:10] for d in dates],))
+            buf = __import__("io").StringIO()
+            out.to_csv(buf, index=False, header=False, columns=use_columns)
+            buf.seek(0)
+            cols = f"({', '.join(use_columns)})"
+            cur.copy_expert(f"COPY {table} {cols} FROM STDIN WITH (FORMAT CSV)", buf)
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def replace_table_rows_sqlite(conn, table: str, df) -> None:
     """
     Replace table rows while preserving schema, PK, and indexes.

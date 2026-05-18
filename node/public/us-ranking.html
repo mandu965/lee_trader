@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>US Stock Ranking</title>
+  <link rel="stylesheet" href="./styles.css?v=20260518" />
   <style>
     :root {
       --bg: #06111f;
@@ -40,22 +41,7 @@
 
     .page { max-width: 1440px; margin: 0 auto; padding: 26px 18px 56px; }
 
-    /* Nav */
-    .top-nav {
-      background: var(--panel); border: 1px solid var(--line);
-      border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 18px;
-      display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    }
-    .nav-brand { font-size: 15px; font-weight: 700; color: var(--blue); letter-spacing: -0.02em; white-space: nowrap; }
-    .nav-strip { display: flex; gap: 6px; flex-wrap: wrap; }
-    .snav__item {
-      display: inline-flex; align-items: center; min-height: 30px; padding: 4px 14px;
-      border-radius: 8px; border: 1px solid transparent; background: none;
-      color: #94a3b8; font-size: 13px; font-weight: 600; text-decoration: none;
-      white-space: nowrap; cursor: pointer; transition: color .15s, border-color .15s, background .15s;
-    }
-    .snav__item:hover { color: #f1f5f9; border-color: rgba(148,163,184,0.25); background: rgba(255,255,255,0.05); }
-    .snav__item.is-active { color: #f8fafc; border-color: rgba(96,165,250,0.4); background: rgba(96,165,250,0.1); }
+    .ops-nav-wrap { margin-bottom: 18px; }
 
     /* Hero */
     .hero {
@@ -179,18 +165,7 @@
 <body>
 <div class="page">
 
-  <!-- Nav -->
-  <nav class="top-nav">
-    <div class="nav-brand">Lee Trader</div>
-    <div class="nav-strip">
-      <a class="snav__item" href="/ranking.html">국내 랭킹</a>
-      <a class="snav__item is-active" href="/us-ranking">US 랭킹</a>
-      <a class="snav__item" href="/holdings.html">보유종목</a>
-      <a class="snav__item" href="/us-trading">US 자동매매</a>
-      <a class="snav__item" href="/rule-auto-trading.html">RULE</a>
-      <a class="snav__item" href="/live-auto-trading.html">AI</a>
-    </div>
-  </nav>
+  <div class="ops-nav-wrap" data-unified-ops-nav data-nav-active="us-ranking"></div>
 
   <!-- Hero -->
   <section class="hero">
@@ -295,6 +270,7 @@
 
 </div>
 
+<script src="/ops-unified-nav.js"></script>
 <script src="/us-ranking.js"></script>
 </body>
 </html>

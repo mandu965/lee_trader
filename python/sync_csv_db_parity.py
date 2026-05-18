@@ -9,7 +9,7 @@ from pathlib import Path
 import pandas as pd
 from sqlalchemy import text
 
-from db import get_engine, replace_table_rows_pg
+from db import get_engine, replace_table_rows_pg, accumulate_date_rows_pg
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -350,11 +350,17 @@ def sync_table(spec: dict[str, object]) -> dict[str, object]:
     out = out.drop_duplicates(subset=spec["key_cols"], keep="last").reset_index(drop=True)
     if spec["table"] == "stocks":
         upsert_stocks(out)
+    elif spec["table"] == "daily_ranking":
+        accumulate_date_rows_pg(spec["table"], out, columns=columns, date_col=spec.get("date_col", "date"))
     else:
         replace_table_rows_pg(spec["table"], out, columns=columns)
     db = db_snapshot(spec["table"], spec.get("date_col"))
     csv_latest = latest_date(out, spec.get("date_col"))
-    status = "ok" if db["rows"] == len(out) and db["latest_date"] == csv_latest else "mismatch"
+    # accumulate mode: db rows >= csv rows (historical rows preserved)
+    if spec["table"] == "daily_ranking":
+        status = "ok" if db["rows"] >= len(out) and db["latest_date"] == csv_latest else "mismatch"
+    else:
+        status = "ok" if db["rows"] == len(out) and db["latest_date"] == csv_latest else "mismatch"
     return {
         "name": spec["name"],
         "table": spec["table"],

@@ -1,10 +1,7 @@
 const fmtNum = (value, digits = 0) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
-  return n.toLocaleString("ko-KR", {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
+  return n.toLocaleString("ko-KR", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 };
 
 const fmtPct = (value, digits = 2) => {
@@ -16,20 +13,20 @@ const fmtPct = (value, digits = 2) => {
 const getToneClass = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return "";
-  if (n > 0) return "pos";
-  if (n < 0) return "neg";
-  return "";
+  return n > 0 ? "pos" : n < 0 ? "neg" : "";
 };
 
 const ACTION_LABELS = {
-  BUY_NEW_COHORT: "신규 코호트",
-  HOLD_NEW_ENTRY: "신규 보유",
-  HOLD_ACTIVE: "일반 보유",
-  HOLD_REVIEW_SOON: "점검 임박",
-  EXIT_REVIEW_SOON: "청산 임박",
-  EXIT_HOLD_D20: "20거래일 청산",
+  BUY_NEW_COHORT:  "신규 코호트",
+  HOLD_NEW_ENTRY:  "신규 보유",
+  HOLD_ACTIVE:     "일반 보유",
+  HOLD_REVIEW_SOON:"점검 임박",
+  EXIT_REVIEW_SOON:"청산 임박",
+  EXIT_HOLD_D20:   "20일 청산",
   POSITION_CLOSED: "청산 완료",
 };
+
+const STRATEGY_COLORS = { top5: "#3ddc97", top8: "#69a7ff", top10: "#f7b955" };
 
 function toDate(value) {
   if (!value) return null;
@@ -70,247 +67,238 @@ function addBusinessDays(value, days) {
 
 async function fetchJson(url) {
   const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
-function buildExplainGrid(run) {
-  const replacementMode = String(run?.source_mode || "").includes("replacement");
-  document.getElementById("explainGrid").innerHTML = `
-    <article class="explain-card">
-      <div class="card-label">전략 구조</div>
-      <div class="card-value">3개 계좌</div>
-      <div class="card-detail">top5, top8, top10은 하나의 계좌가 아니라 서로 독립된 3개 가상 전략입니다.</div>
-    </article>
-    <article class="explain-card">
-      <div class="card-label">매일 처리</div>
-      <div class="card-value">${replacementMode ? "빈자리 보충" : "신규만 추가"}</div>
-      <div class="card-detail">${replacementMode ? "조기 청산이나 만기 청산으로 빈자리가 생기면, 그날 후보군에서 상위 대체 종목을 다시 채웁니다." : "매일 순위가 바뀌어도 기존 보유를 전량 교체하지 않고, 그날 새 후보만 코호트로 추가합니다."}</div>
-    </article>
-    <article class="explain-card">
-      <div class="card-label">보유 방식</div>
-      <div class="card-value">20거래일 보유</div>
-      <div class="card-detail">${replacementMode ? "한번 진입한 종목은 기본적으로 20거래일 보유하되, 조기 종료 규칙과 대체 편입 규칙이 함께 적용됩니다." : "한번 진입한 종목은 기본적으로 20거래일 보유합니다. 그래서 top5 전략도 현재 보유 종목 수는 5개를 넘을 수 있습니다."}</div>
-    </article>
-    <article class="explain-card">
-      <div class="card-label">중복 처리</div>
-      <div class="card-value">재매수 스킵</div>
-      <div class="card-detail">같은 전략 안에서 이미 들고 있는 종목이 다시 상위에 와도 추가 매수하지 않고 중복 스킵으로 처리합니다.</div>
-    </article>
-  `;
-}
+// ── NAV 라인 차트 ───────────────────────────────────────────────────────────
 
-function buildMetaStrip(run, strategies, selectedStrategy) {
-  const metaStrip = document.getElementById("metaStrip");
-  if (!run) {
-    metaStrip.innerHTML = `<div class="empty-state">paper trading run 정보가 없습니다.</div>`;
+function buildNavChart(items) {
+  const el = document.getElementById("navChart");
+  if (!items.length) {
+    el.innerHTML = '<div class="empty-state">NAV 데이터가 없습니다.</div>';
     return;
   }
-  const latestNav = strategies.reduce((acc, item) => {
-    const nav = Number(item.nav);
-    return Number.isFinite(nav) && nav > acc ? nav : acc;
-  }, 0);
-  const totalOpen = strategies.reduce((acc, item) => acc + (Number(item.open_position_count) || 0), 0);
-  const strategyLabel = selectedStrategy || "전체 전략";
 
-  metaStrip.innerHTML = `
-    <article class="meta-card">
-      <div class="card-label">Run Tag</div>
-      <div class="card-value">${run.run_tag || "-"}</div>
-      <div class="card-detail">기준일 ${run.asof_date || "-"} · source ${run.source_mode || "-"}</div>
-    </article>
-    <article class="meta-card">
-      <div class="card-label">선택 전략</div>
-      <div class="card-value">${strategyLabel}</div>
-      <div class="card-detail">hold_days ${fmtNum(run.hold_days)} · 초기자금 ${fmtNum(run.initial_nav)}</div>
-    </article>
-    <article class="meta-card">
-      <div class="card-label">현재 스냅샷</div>
-      <div class="card-value">${fmtNum(latestNav, 2)}</div>
-      <div class="card-detail">전체 open positions ${fmtNum(totalOpen)}</div>
-    </article>
-    <article class="meta-card">
-      <div class="card-label">추적 행 수</div>
-      <div class="card-value">${fmtNum(run.positions_row_count)} / ${fmtNum(run.nav_row_count)}</div>
-      <div class="card-detail">positions / nav rows</div>
-    </article>
-  `;
-
-  document.getElementById("runInfo").textContent = `run_id ${run.paper_run_id} · 기준일 ${run.asof_date || "-"}`;
-}
-
-function buildStrategyCards(strategies) {
-  const grid = document.getElementById("strategyGrid");
-  if (!strategies.length) {
-    grid.innerHTML = `<div class="empty-state">전략 요약 데이터가 없습니다.</div>`;
-    return;
+  // 전략별 그룹 + 날짜 정렬
+  const byStrategy = {};
+  for (const row of items) {
+    if (!byStrategy[row.strategy]) byStrategy[row.strategy] = [];
+    byStrategy[row.strategy].push(row);
   }
-  grid.innerHTML = strategies
-    .map((item) => {
-      const retCls = getToneClass(item.cumulative_return);
-      const ddCls = getToneClass(item.drawdown);
+  for (const rows of Object.values(byStrategy)) {
+    rows.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  const allDates = [...new Set(items.map((r) => r.date))].sort();
+  const dateIndex = new Map(allDates.map((d, i) => [d, i]));
+
+  const allReturns = items.map((r) => Number(r.cumulative_return)).filter(Number.isFinite);
+  const rawMin = Math.min(0, ...allReturns);
+  const rawMax = Math.max(0, ...allReturns);
+  const pad = Math.max((rawMax - rawMin) * 0.12, 0.005);
+  const yMin = rawMin - pad;
+  const yMax = rawMax + pad;
+
+  const W = 900, H = 240;
+  const PAD = { t: 28, r: 70, b: 36, l: 54 };
+  const cW = W - PAD.l - PAD.r;
+  const cH = H - PAD.t - PAD.b;
+
+  const xS = (i) => PAD.l + (i / Math.max(allDates.length - 1, 1)) * cW;
+  const yS = (v) => PAD.t + (1 - (v - yMin) / (yMax - yMin)) * cH;
+
+  // 그리드 + Y 축 레이블
+  const tickCount = 5;
+  const yTicks = Array.from({ length: tickCount + 1 }, (_, i) => {
+    const v = yMin + (i / tickCount) * (yMax - yMin);
+    const y = yS(v).toFixed(1);
+    return `
+      <line x1="${PAD.l}" y1="${y}" x2="${PAD.l + cW}" y2="${y}" stroke="#1e3050" stroke-width="1"/>
+      <text x="${PAD.l - 6}" y="${(+y + 3.5).toFixed(1)}" fill="#6b8ab5" font-size="10" text-anchor="end">${(v * 100).toFixed(1)}%</text>
+    `;
+  }).join("");
+
+  // X 축 레이블 (최대 8개)
+  const step = Math.max(1, Math.floor(allDates.length / 8));
+  const xLabels = allDates
+    .map((d, i) => {
+      if (i !== 0 && i !== allDates.length - 1 && i % step !== 0) return "";
+      return `<text x="${xS(i).toFixed(1)}" y="${H - 6}" fill="#6b8ab5" font-size="10" text-anchor="middle">${d.slice(5)}</text>`;
+    })
+    .join("");
+
+  // 기준선 (0%)
+  const zeroY = yS(0).toFixed(1);
+  const zeroLine = `<line x1="${PAD.l}" y1="${zeroY}" x2="${PAD.l + cW}" y2="${zeroY}" stroke="#3a5070" stroke-width="1.5" stroke-dasharray="5,4"/>`;
+
+  // 전략별 라인
+  const lines = Object.entries(byStrategy).map(([strategy, rows]) => {
+    const clr = STRATEGY_COLORS[strategy] || "#fff";
+    const pts = rows
+      .map((r) => {
+        const xi = dateIndex.get(r.date);
+        const v = Number(r.cumulative_return);
+        if (xi === undefined || !Number.isFinite(v)) return null;
+        return [xS(xi).toFixed(1), yS(v).toFixed(1)];
+      })
+      .filter(Boolean);
+    if (pts.length < 2) return "";
+    const pathD = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p[0]},${p[1]}`).join(" ");
+    const last = pts[pts.length - 1];
+    const lastVal = ((Number(rows[rows.length - 1]?.cumulative_return) || 0) * 100).toFixed(2);
+    const sign = +lastVal >= 0 ? "+" : "";
+    return `
+      <path d="${pathD}" fill="none" stroke="${clr}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+      <circle cx="${last[0]}" cy="${last[1]}" r="3.5" fill="${clr}"/>
+      <text x="${(+last[0] + 6).toFixed(1)}" y="${(+last[1] + 4).toFixed(1)}" fill="${clr}" font-size="11" font-weight="700">${sign}${lastVal}%</text>
+    `;
+  }).join("");
+
+  // 범례
+  const legend = Object.entries(STRATEGY_COLORS)
+    .map(([name, clr], i) => {
+      const x = PAD.l + i * 80;
       return `
-        <article class="strategy-card">
-          <div class="strategy-head">
-            <div>
-              <h3 class="strategy-name">${item.strategy}</h3>
-              <div class="strategy-date">latest ${item.latest_date || "-"}</div>
-            </div>
-            <div class="strategy-return ${retCls}">${fmtPct(item.cumulative_return)}</div>
-          </div>
-          <div class="strategy-metrics">
-            <div class="metric-box">
-              <div class="metric-box__label">NAV</div>
-              <div class="metric-box__value">${fmtNum(item.nav, 2)}</div>
-            </div>
-            <div class="metric-box">
-              <div class="metric-box__label">Drawdown</div>
-              <div class="metric-box__value ${ddCls}">${fmtPct(item.drawdown)}</div>
-            </div>
-            <div class="metric-box">
-              <div class="metric-box__label">현재 보유 수</div>
-              <div class="metric-box__value">${fmtNum(item.open_position_count)}</div>
-            </div>
-            <div class="metric-box">
-              <div class="metric-box__label">누적 청산 수</div>
-              <div class="metric-box__value">${fmtNum(item.closed_trade_count)}</div>
-            </div>
-          </div>
-        </article>
+        <line x1="${x}" y1="14" x2="${x + 18}" y2="14" stroke="${clr}" stroke-width="2.5"/>
+        <circle cx="${x + 9}" cy="14" r="3" fill="${clr}"/>
+        <text x="${x + 24}" y="18" fill="${clr}" font-size="11" font-weight="700">${name}</text>
       `;
     })
     .join("");
+
+  el.innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" preserveAspectRatio="xMidYMid meet">
+      <g>${legend}</g>
+      ${yTicks}
+      ${zeroLine}
+      ${xLabels}
+      <rect x="${PAD.l}" y="${PAD.t}" width="${cW}" height="${cH}" fill="none" stroke="#1e3050" stroke-width="1"/>
+      ${lines}
+    </svg>
+  `;
 }
 
-function computeFocusSummary(run, navItems, openItems) {
-  const asofDate = run?.asof_date || null;
-  const holdDays = Number(run?.hold_days) || 20;
-  const latestEntryDate = openItems.reduce((acc, item) => {
-    return !acc || String(item.entry_date) > String(acc) ? item.entry_date : acc;
-  }, null);
+// ── 전략 요약 카드 ──────────────────────────────────────────────────────────
 
+function buildMetaStrip(run) {
+  const el = document.getElementById("metaStrip");
+  if (!run) {
+    el.innerHTML = '<div class="empty-state">run 정보가 없습니다.</div>';
+    return;
+  }
+  el.innerHTML = `
+    <article class="meta-card">
+      <div class="card-label">기준일</div>
+      <div class="card-value">${run.asof_date || "-"}</div>
+      <div class="card-detail">hold_days ${fmtNum(run.hold_days)} · source ${run.source_mode || "-"}</div>
+    </article>
+    <article class="meta-card">
+      <div class="card-label">Run</div>
+      <div class="card-value">${run.run_tag || "-"}</div>
+      <div class="card-detail">초기자금 ${fmtNum(run.initial_nav)}</div>
+    </article>
+    <article class="meta-card">
+      <div class="card-label">포지션 / NAV rows</div>
+      <div class="card-value">${fmtNum(run.positions_row_count)} / ${fmtNum(run.nav_row_count)}</div>
+      <div class="card-detail">누적 데이터</div>
+    </article>
+    <article class="meta-card">
+      <div class="card-label">구동 모드</div>
+      <div class="card-value">${run.source_mode || "-"}</div>
+      <div class="card-detail">run_id ${run.paper_run_id || "-"}</div>
+    </article>
+  `;
+  document.getElementById("runInfo").textContent = `기준일 ${run.asof_date || "-"} · run_id ${run.paper_run_id || "-"}`;
+}
+
+function buildStrategyCards(strategies) {
+  const el = document.getElementById("strategyGrid");
+  if (!strategies.length) {
+    el.innerHTML = '<div class="empty-state">전략 요약 데이터가 없습니다.</div>';
+    return;
+  }
+  el.innerHTML = strategies.map((item) => {
+    const clr = STRATEGY_COLORS[item.strategy] || "#fff";
+    const retCls = getToneClass(item.cumulative_return);
+    const ddCls = getToneClass(item.drawdown);
+    return `
+      <article class="strategy-card">
+        <div class="strategy-head">
+          <div>
+            <h3 class="strategy-name" style="color:${clr}">${item.strategy}</h3>
+            <div class="strategy-date">최신 ${item.latest_date || "-"}</div>
+          </div>
+          <div class="strategy-return ${retCls}">${fmtPct(item.cumulative_return)}</div>
+        </div>
+        <div class="strategy-metrics">
+          <div class="metric-box">
+            <div class="metric-box__label">NAV</div>
+            <div class="metric-box__value">${fmtNum(item.nav, 0)}</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-box__label">MDD</div>
+            <div class="metric-box__value ${ddCls}">${fmtPct(item.drawdown)}</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-box__label">보유 종목</div>
+            <div class="metric-box__value">${fmtNum(item.open_position_count)}</div>
+          </div>
+          <div class="metric-box">
+            <div class="metric-box__label">누적 청산</div>
+            <div class="metric-box__value">${fmtNum(item.closed_trade_count)}</div>
+          </div>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+// ── 현재 상태 (신규 / 보유 / 청산임박) ────────────────────────────────────
+
+function computeFocusSummary(run, navItems, openItems) {
+  const holdDays = Number(run?.hold_days) || 20;
+  const latestEntryDate = openItems.reduce((acc, item) =>
+    !acc || String(item.entry_date) > String(acc) ? item.entry_date : acc, null);
   const newItems = latestEntryDate ? openItems.filter((item) => item.entry_date === latestEntryDate) : [];
   const ongoingItems = latestEntryDate ? openItems.filter((item) => item.entry_date !== latestEntryDate) : openItems.slice();
   const nearExitItems = openItems.filter((item) => Number.isFinite(item.remaining_days) && item.remaining_days <= 5);
   const latestNav = navItems.length ? navItems[navItems.length - 1] : null;
-
-  return {
-    asofDate,
-    holdDays,
-    latestEntryDate,
-    newItems,
-    ongoingItems,
-    nearExitItems,
-    latestNav,
-  };
+  return { holdDays, latestEntryDate, newItems, ongoingItems, nearExitItems, latestNav };
 }
 
 function buildStatusStrip(summary, strategyLabel) {
-  const wrap = document.getElementById("statusStrip");
-  const latestEntryText = summary.latestEntryDate || "없음";
+  const el = document.getElementById("statusStrip");
   const activeText = summary.latestNav ? fmtNum(summary.latestNav.active_position_count) : "-";
-  const duplicateText = summary.latestNav ? fmtNum(summary.latestNav.duplicate_skip_count) : "-";
+  const dupText = summary.latestNav ? fmtNum(summary.latestNav.duplicate_skip_count) : "-";
+  const makeList = (items) =>
+    items.slice(0, 5).map((item) => `<li>${item.code} ${item.name}</li>`).join("") || "<li>없음</li>";
+  const makeExitList = (items) =>
+    items.slice(0, 5).map((item) => `<li>${item.code} ${item.name} · 잔여 ${fmtNum(item.remaining_days)}일</li>`).join("") || "<li>없음</li>";
 
-  const newList = summary.newItems.slice(0, 4).map((item) => `<li>${item.code} ${item.name}</li>`).join("");
-  const ongoingList = summary.ongoingItems.slice(0, 4).map((item) => `<li>${item.code} ${item.name}</li>`).join("");
-  const nearExitList = summary.nearExitItems.slice(0, 4).map((item) => `<li>${item.code} ${item.name} · 잔여 ${fmtNum(item.remaining_days)}일</li>`).join("");
-
-  wrap.innerHTML = `
+  el.innerHTML = `
     <article class="status-card">
-      <div class="card-label">오늘 신규 편입 해석</div>
+      <div class="card-label">신규 편입</div>
       <div class="card-value">${fmtNum(summary.newItems.length)}개</div>
-      <div class="card-detail">${strategyLabel} 기준 최근 신규 코호트 진입일은 ${latestEntryText} 입니다.</div>
-      <ul class="status-card__list">${newList || "<li>이번 기준일에는 새로 들어온 종목이 없습니다.</li>"}</ul>
+      <div class="card-detail">${strategyLabel} 최근 진입일 ${summary.latestEntryDate || "-"}</div>
+      <ul class="status-card__list">${makeList(summary.newItems)}</ul>
     </article>
     <article class="status-card">
-      <div class="card-label">계속 보유 중</div>
+      <div class="card-label">계속 보유</div>
       <div class="card-value">${fmtNum(summary.ongoingItems.length)}개</div>
-      <div class="card-detail">기존 코호트가 계속 살아있기 때문에 현재 보유 종목 수가 top5보다 커질 수 있습니다. 활성 포지션 ${activeText}개입니다.</div>
-      <ul class="status-card__list">${ongoingList || "<li>계속 보유 중인 종목이 없습니다.</li>"}</ul>
+      <div class="card-detail">활성 ${activeText}개 · 중복 스킵 ${dupText}건</div>
+      <ul class="status-card__list">${makeList(summary.ongoingItems)}</ul>
     </article>
     <article class="status-card">
-      <div class="card-label">곧 청산 / 중복 스킵</div>
+      <div class="card-label">청산 임박 (잔여 5일↓)</div>
       <div class="card-value">${fmtNum(summary.nearExitItems.length)}개</div>
-      <div class="card-detail">잔여일수 5일 이하 종목 기준입니다. 최근 NAV 기준 중복 스킵은 ${duplicateText}건입니다.</div>
-      <ul class="status-card__list">${nearExitList || "<li>곧 청산할 종목은 아직 많지 않습니다.</li>"}</ul>
+      <div class="card-detail">20영업일 만기 임박 종목</div>
+      <ul class="status-card__list">${makeExitList(summary.nearExitItems)}</ul>
     </article>
   `;
 }
 
-function buildNavTable(items) {
-  const tbody = document.getElementById("navTbody");
-  if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="8" class="center">NAV 데이터가 없습니다.</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = items.map((row) => `
-    <tr>
-      <td>${row.strategy || "-"}</td>
-      <td>${row.date || "-"}</td>
-      <td class="right">${fmtNum(row.nav, 2)}</td>
-      <td class="right ${getToneClass(row.cumulative_return)}">${fmtPct(row.cumulative_return)}</td>
-      <td class="right ${getToneClass(row.drawdown)}">${fmtPct(row.drawdown)}</td>
-      <td class="right">${fmtNum(row.active_position_count)}</td>
-      <td class="right">${fmtNum(row.opened_today)}</td>
-      <td class="right">${fmtNum(row.duplicate_skip_count)}</td>
-    </tr>
-  `).join("");
-}
-
-function buildPositionsTable(items) {
-  const tbody = document.getElementById("positionsTbody");
-  if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="12" class="center">포지션 데이터가 없습니다.</td></tr>`;
-    return;
-  }
-  const statusChip = (row) => {
-    if (row.system_review_status === "BLOCK") {
-      return `<span class="chip is-loss">차단</span>`;
-    }
-    if (row.system_review_status === "EXIT_REVIEW") {
-      return `<span class="chip is-near">청산검토</span>`;
-    }
-    if (row.system_review_status === "REVIEW") {
-      return `<span class="chip is-watch">점검필요</span>`;
-    }
-    if (row.remaining_days !== null && row.remaining_days <= 5) {
-      return `<span class="chip is-near">곧 마감</span>`;
-    }
-    if (row.held_days !== null && row.held_days <= 1) {
-      return `<span class="chip is-new">신규</span>`;
-    }
-    return `<span class="chip is-hold">보유중</span>`;
-  };
-  tbody.innerHTML = items.map((row) => `
-    <tr>
-      <td>${statusChip(row)}</td>
-      <td>${row.strategy || "-"}</td>
-      <td>${row.code || "-"}</td>
-      <td>${row.name || "-"}</td>
-      <td>
-        <div class="date-stack">
-          <div class="date-stack__main">${row.entry_date || "-"}</div>
-          <div class="date-stack__sub">진입</div>
-        </div>
-      </td>
-      <td>
-        <div class="date-stack">
-          <div class="date-stack__main">${row.expected_exit_date || "-"}</div>
-          <div class="date-stack__sub">20거래일 기준</div>
-        </div>
-      </td>
-      <td class="right">${fmtNum(row.held_days)}</td>
-      <td class="right">${fmtNum(row.remaining_days)}</td>
-      <td class="right">${fmtNum(row.entry_exec_price, 2)}</td>
-      <td class="right">${fmtNum(row.shares, 2)}</td>
-      <td class="right ${getToneClass(row.net_return)}">${fmtPct(row.net_return)}</td>
-      <td class="right">${fmtNum(row.confidence_score, 2)}</td>
-      <td class="right">${fmtNum(row.final_score, 2)}</td>
-    </tr>
-  `).join("");
-}
+// ── 포지션 테이블 ──────────────────────────────────────────────────────────
 
 function enrichPositions(items, run) {
   const asofDate = run?.asof_date || null;
@@ -321,124 +309,66 @@ function enrichPositions(items, run) {
       : diffBusinessDays(item.entry_date, asofDate);
     const remainingDays = Number.isFinite(Number(item.remaining_holding_days))
       ? Number(item.remaining_holding_days)
-      : (Number.isFinite(heldDays) ? Math.max(0, holdDays - heldDays) : null);
+      : Number.isFinite(heldDays) ? Math.max(0, holdDays - heldDays) : null;
     const expectedExitDate = item.planned_exit_date || addBusinessDays(item.entry_date, holdDays);
-    return {
-      ...item,
-      held_days: heldDays,
-      remaining_days: remainingDays,
-      expected_exit_date: expectedExitDate,
-    };
+    return { ...item, held_days: heldDays, remaining_days: remainingDays, expected_exit_date: expectedExitDate };
   });
 }
 
 function buildPositionsTable(items) {
   const tbody = document.getElementById("positionsTbody");
-  const theadRow = document.querySelector(".positions-table thead tr");
-  if (theadRow) {
-    theadRow.innerHTML = `
-      <th>상태</th>
-      <th>전략</th>
-      <th>코드</th>
-      <th>종목명</th>
-      <th>진입일</th>
-      <th>예상 마감일</th>
-      <th>행동 코드</th>
-      <th class="right">보유일수</th>
-      <th class="right">잔여일수</th>
-      <th class="right">진입가</th>
-      <th class="right">수량</th>
-      <th class="right">현재가</th>
-      <th class="right">평가손익</th>
-      <th class="right">현재 평가수익률</th>
-      <th class="right">Confidence</th>
-      <th class="right">Final Score</th>
-    `;
-  }
-
   if (!items.length) {
-    tbody.innerHTML = `<tr><td colspan="16" class="center">포지션 데이터가 없습니다.</td></tr>`;
+    tbody.innerHTML = '<tr><td colspan="8" class="center">포지션 데이터가 없습니다.</td></tr>';
     return;
   }
-
   const statusChip = (row) => {
-    if (row.system_review_status === "BLOCK") {
-      return `<span class="chip is-loss">차단</span>`;
-    }
-    if (row.system_review_status === "EXIT_REVIEW") {
-      return `<span class="chip is-near">청산검토</span>`;
-    }
-    if (row.system_review_status === "REVIEW") {
-      return `<span class="chip is-watch">점검필요</span>`;
-    }
-    if (row.remaining_days !== null && row.remaining_days <= 5) {
-      return `<span class="chip is-near">곧 마감</span>`;
-    }
-    if (row.held_days !== null && row.held_days <= 1) {
-      return `<span class="chip is-new">신규</span>`;
-    }
-    return `<span class="chip is-hold">보유중</span>`;
+    if (row.system_review_status === "BLOCK") return '<span class="chip is-loss">차단</span>';
+    if (row.system_review_status === "EXIT_REVIEW") return '<span class="chip is-near">청산검토</span>';
+    if (row.system_review_status === "REVIEW") return '<span class="chip is-watch">점검필요</span>';
+    if (row.remaining_days !== null && row.remaining_days <= 5) return '<span class="chip is-near">곧 마감</span>';
+    if (row.held_days !== null && row.held_days <= 1) return '<span class="chip is-new">신규</span>';
+    return '<span class="chip is-hold">보유중</span>';
   };
-
+  const clr = (s) => STRATEGY_COLORS[s] || "";
   tbody.innerHTML = items.map((row) => `
     <tr>
       <td>${statusChip(row)}</td>
-      <td>${row.strategy || "-"}</td>
-      <td>${row.code || "-"}</td>
-      <td>${row.name || "-"}</td>
+      <td><span style="color:${clr(row.strategy)};font-weight:700">${row.strategy || "-"}</span></td>
       <td>
-        <div class="date-stack">
-          <div class="date-stack__main">${row.entry_date || "-"}</div>
-          <div class="date-stack__sub">진입</div>
-        </div>
+        <div>${row.name || row.code || "-"}</div>
+        <div style="font-size:11px;color:#6b8ab5">${row.code || ""}</div>
       </td>
-      <td>
-        <div class="date-stack">
-          <div class="date-stack__main">${row.expected_exit_date || "-"}</div>
-          <div class="date-stack__sub">20거래일 기준</div>
-        </div>
+      <td>${row.entry_date || "-"}</td>
+      <td class="right">
+        <div>${fmtNum(row.held_days)}일</div>
+        <div style="font-size:11px;color:#6b8ab5">잔여 ${fmtNum(row.remaining_days)}일</div>
       </td>
-      <td>
-        <div class="date-stack">
-          <div class="date-stack__main">${ACTION_LABELS[row.current_action_code || row.entry_action_code] || row.current_action_code || row.entry_action_code || "-"}</div>
-          <div class="date-stack__sub">${row.system_review_label || row.current_action_reason || row.entry_action_reason || "-"}</div>
-        </div>
-      </td>
-      <td class="right">${fmtNum(row.held_days)}</td>
-      <td class="right">${fmtNum(row.remaining_days)}</td>
-      <td class="right">${fmtNum(row.entry_exec_price, 2)}</td>
-      <td class="right">${fmtNum(row.shares, 2)}</td>
-      <td class="right">${fmtNum(row.current_price, 2)}</td>
-      <td class="right ${getToneClass(row.current_pnl_amount)}">${fmtNum(row.current_pnl_amount, 2)}</td>
-      <td class="right ${getToneClass(row.current_return)}">${fmtPct(row.current_return)}</td>
-      <td class="right">${fmtNum(row.confidence_score, 2)}</td>
-      <td class="right">${fmtNum(row.final_score, 2)}</td>
+      <td class="right ${getToneClass(row.current_return || row.net_return)}">${fmtPct(row.current_return ?? row.net_return)}</td>
+      <td class="right">${fmtNum(row.confidence_score, 1)}</td>
+      <td class="right">${fmtNum(row.final_score, 1)}</td>
     </tr>
   `).join("");
 }
 
+// ── 메인 로드 ──────────────────────────────────────────────────────────────
+
 async function loadPaperTrading() {
   const strategy = document.getElementById("strategyFilter").value.trim();
-  const status = document.getElementById("statusFilter").value.trim();
-  const state = document.getElementById("pageState");
-  const strategyLabel = strategy || "전체 전략";
-  state.textContent = "모의투자 데이터를 불러오는 중입니다.";
+  const status   = document.getElementById("statusFilter").value.trim();
+  const stateEl  = document.getElementById("pageState");
+  const label    = strategy || "전체 전략";
+  stateEl.textContent = "모의투자 데이터를 불러오는 중입니다.";
 
   try {
     const summary = await fetchJson("/api/paper-trading/summary");
     const navQs = new URLSearchParams();
     const posQs = new URLSearchParams();
-    if (strategy) {
-      navQs.set("strategy", strategy);
-      posQs.set("strategy", strategy);
-    }
-    if (status) {
-      posQs.set("status", status);
-    }
+    if (strategy) { navQs.set("strategy", strategy); posQs.set("strategy", strategy); }
+    if (status)   posQs.set("status", status);
 
     const [nav, positions] = await Promise.all([
-      fetchJson(`/api/paper-trading/nav?${navQs.toString()}`),
-      fetchJson(`/api/paper-trading/positions?${posQs.toString()}`),
+      fetchJson(`/api/paper-trading/nav?${navQs}`),
+      fetchJson(`/api/paper-trading/positions?${posQs}`),
     ]);
 
     const openItems = enrichPositions(
@@ -446,35 +376,27 @@ async function loadPaperTrading() {
       summary.run
     );
 
-    buildExplainGrid(summary.run);
-    buildMetaStrip(summary.run, summary.strategies || [], strategyLabel);
+    buildMetaStrip(summary.run);
     buildStrategyCards(summary.strategies || []);
-    buildStatusStrip(computeFocusSummary(summary.run, nav.items || [], openItems), strategyLabel);
-    buildNavTable(nav.items || []);
+    buildNavChart(nav.items || []);
+    buildStatusStrip(computeFocusSummary(summary.run, nav.items || [], openItems), label);
     buildPositionsTable(openItems);
 
-    state.textContent = `run ${summary.run?.paper_run_id || "-"} 기준 ${strategyLabel} 해석 완료 · 현재 open positions ${openItems.length}건`;
+    stateEl.textContent = `기준일 ${summary.run?.asof_date || "-"} · ${label} · open ${openItems.length}건`;
   } catch (error) {
     console.error(error);
-    document.getElementById("explainGrid").innerHTML = "";
-    document.getElementById("metaStrip").innerHTML = `<div class="empty-state">모의투자 데이터를 불러오지 못했습니다.</div>`;
+    document.getElementById("metaStrip").innerHTML = '<div class="empty-state">데이터를 불러오지 못했습니다.</div>';
     document.getElementById("strategyGrid").innerHTML = "";
+    document.getElementById("navChart").innerHTML = '<div class="empty-state">차트를 불러오지 못했습니다.</div>';
     document.getElementById("statusStrip").innerHTML = "";
-    buildNavTable([]);
     buildPositionsTable([]);
-    state.textContent = `조회 실패: ${error.message}`;
+    stateEl.textContent = `조회 실패: ${error.message}`;
   }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  document.getElementById("refreshBtn").addEventListener("click", () => {
-    loadPaperTrading().catch((error) => console.error(error));
-  });
-  document.getElementById("strategyFilter").addEventListener("change", () => {
-    loadPaperTrading().catch((error) => console.error(error));
-  });
-  document.getElementById("statusFilter").addEventListener("change", () => {
-    loadPaperTrading().catch((error) => console.error(error));
-  });
-  loadPaperTrading().catch((error) => console.error(error));
+  document.getElementById("refreshBtn").addEventListener("click", () => loadPaperTrading().catch(console.error));
+  document.getElementById("strategyFilter").addEventListener("change", () => loadPaperTrading().catch(console.error));
+  document.getElementById("statusFilter").addEventListener("change", () => loadPaperTrading().catch(console.error));
+  loadPaperTrading().catch(console.error);
 });

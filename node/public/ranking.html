@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>리서치 랭킹</title>
+  <title>AI 랭킹 분석</title>
   <style>
     :root {
       --bg: #06111f;
@@ -585,6 +585,91 @@
         font-size: 26px;
       }
     }
+
+    /* ── 랭킹 변화 섹션 ── */
+    .trend-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+    @media (max-width: 860px) { .trend-grid { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 560px) { .trend-grid { grid-template-columns: 1fr; } }
+
+    .trend-block {
+      background: rgba(255,255,255,0.025);
+      border: 1px solid var(--line-soft);
+      border-radius: var(--radius-sm);
+      padding: 16px;
+    }
+    .trend-block-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .trend-empty {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .trend-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      cursor: pointer;
+    }
+    .trend-item:hover { background: rgba(255,255,255,0.03); }
+    .trend-item:last-child { border-bottom: none; }
+    .trend-rank-box {
+      min-width: 30px;
+      text-align: center;
+    }
+    .trend-rank-now {
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .trend-rank-prev {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .trend-name {
+      flex: 1;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    .trend-name-sub {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 1px;
+    }
+    .trend-delta {
+      font-size: 14px;
+      font-weight: 800;
+      min-width: 48px;
+      text-align: right;
+    }
+    .delta-up   { color: var(--green); }
+    .delta-down { color: var(--red); }
+    .delta-new  { color: var(--blue); }
+    .delta-stable { color: var(--muted); }
+
+    /* rank cell: delta + streak + sparkline */
+    .rank-cell { display: flex; align-items: center; gap: 8px; }
+    .rank-left  { display: flex; flex-direction: column; gap: 2px; min-width: 32px; }
+    .rank-delta  { font-size: 11px; font-weight: 700; }
+    .rank-streak { font-size: 10px; font-weight: 700; white-space: nowrap; }
+    .rank-spark  { flex-shrink: 0; opacity: 0.85; }
+
+    /* score component delta tags */
+    .score-delta-line { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+    .score-delta-tag  {
+      font-size: 10px; font-weight: 600;
+      padding: 1px 5px; border-radius: 4px;
+      background: rgba(255,255,255,0.07);
+    }
   </style>
 </head>
 <body>
@@ -595,31 +680,53 @@
 
     <section class="hero">
       <div>
-        <p class="eyebrow">Research Ranking Workspace</p>
-        <h1>랭킹을 읽는 화면이 아니라<br />랭킹을 고르는 화면으로 바꿨습니다</h1>
-        <p id="heroCopy" class="hero-copy">
-          상위 카드만 나열하지 않고, 전체 랭킹을 검색·필터·정렬하면서 왜 점수가 높은지와 무엇이 리스크인지 바로 비교할 수 있게 구성합니다.
-        </p>
+        <p class="eyebrow">Ranking Analysis</p>
+        <h1>AI 랭킹 분석</h1>
+        <p id="heroCopy" class="hero-copy">-</p>
         <div class="hero-pills">
           <span id="heroDate" class="pill info">기준일 -</span>
           <span id="heroRegime" class="pill">시장 국면 -</span>
           <span id="heroBias" class="pill warn">상위 성향 -</span>
-          <span id="heroOverlay" class="pill">수동매매 오버레이 숨김</span>
+          <span id="heroOverlay" class="pill">오버레이 꺼짐</span>
         </div>
       </div>
       <div class="hero-side">
         <div class="hero-box">
-          <div class="hero-box-label">오늘의 해석</div>
+          <div class="hero-box-label">1위 점수 요약</div>
           <div id="heroThesis" class="hero-box-value">-</div>
           <div id="heroAction" class="hero-box-detail">-</div>
         </div>
         <div class="hero-box">
-          <div class="hero-box-label">시장 국면 메모</div>
+          <div class="hero-box-label">시장 국면</div>
           <div id="heroRegimeSummary" class="hero-box-detail">-</div>
         </div>
         <div class="hero-box">
-          <div class="hero-box-label">테이블 사용법</div>
-          <div class="hero-box-detail">검색, 시장/섹터 필터, 상태 필터, 정렬을 사용해 후보군을 빠르게 좁힌 뒤 행을 눌러 상세 페이지로 이동할 수 있습니다.</div>
+          <div class="hero-box-label">전체 분포</div>
+          <div id="heroDistribution" class="hero-box-detail">-</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-header">
+        <div>
+          <div class="section-kicker">Trend · 5일 전 대비</div>
+          <h2>랭킹 변화</h2>
+          <div id="trendMeta" class="section-sub">비교 기준일 로딩 중...</div>
+        </div>
+      </div>
+      <div class="trend-grid">
+        <div class="trend-block">
+          <div class="trend-block-label">신규 진입</div>
+          <div id="trendNew"><span class="trend-empty">-</span></div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-block-label">급부상 Top 5</div>
+          <div id="trendRising"><span class="trend-empty">-</span></div>
+        </div>
+        <div class="trend-block">
+          <div class="trend-block-label">급하락 Top 5</div>
+          <div id="trendFalling"><span class="trend-empty">-</span></div>
         </div>
       </div>
     </section>
@@ -684,10 +791,10 @@
         </div>
       </div>
       <div style="margin-top:12px;" class="filter-actions">
-        <button id="toggleOverlayBtn" type="button" class="btn">수동매매 오버레이 보기</button>
+        <button id="reloadBtn" type="button" class="btn is-primary">새로고침</button>
         <button id="downloadCsvBtn" type="button" class="btn">CSV 다운로드</button>
         <button id="resetBtn" type="button" class="btn">필터 초기화</button>
-        <button id="reloadBtn" type="button" class="btn is-primary">새로고침</button>
+        <button id="toggleOverlayBtn" type="button" class="btn" style="opacity:0.65">오버레이 켜기</button>
       </div>
     </section>
 
@@ -702,37 +809,6 @@
       <div id="statsGrid" class="stats-grid"></div>
     </section>
 
-    <section class="panel">
-      <div class="summary-grid">
-        <div>
-          <div class="panel-header">
-            <div>
-              <div class="section-kicker">Top Picks</div>
-              <h2>오늘 먼저 볼 3종목</h2>
-              <div class="section-sub">필터 결과에서 우선순위가 높은 종목만 짧게 추려냅니다.</div>
-            </div>
-          </div>
-          <div id="topIdeas" class="ideas-grid"></div>
-        </div>
-        <div>
-          <div class="panel-header">
-            <div>
-              <div class="section-kicker">Notes</div>
-              <h2>운영 메모</h2>
-              <div class="section-sub">상위 구간의 평균 구조와 주요 드라이버를 한 번에 봅니다.</div>
-            </div>
-          </div>
-          <div class="note-card">
-            <div class="note-label">시장 요약</div>
-            <div id="marketSummary" class="note-copy">-</div>
-            <div class="note-label">상위 구간 분포</div>
-            <ul id="alignmentNotes" class="note-list"></ul>
-            <div class="note-label">주요 driver / drag</div>
-            <ul id="driverNotes" class="note-list"></ul>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <section class="panel">
       <div class="panel-header">
@@ -745,7 +821,6 @@
       <div class="table-shell">
         <div class="table-toolbar">
           <div id="tableMeta" class="table-meta">-</div>
-          <div id="policyStrip"></div>
         </div>
         <div class="table-wrap">
           <table>
@@ -767,13 +842,10 @@
       </div>
     </section>
 
-    <section class="panel">
-      <div id="rankingRules"></div>
-    </section>
   </div>
 
   <script src="./ops-unified-nav.js?v=20260518-nav-fix"></script>
   <script src="trading-policy-ui.js?v=20260424b"></script>
-  <script src="ranking.js?v=20260424b"></script>
+  <script src="ranking.js?v=20260518-spark"></script>
 </body>
 </html>

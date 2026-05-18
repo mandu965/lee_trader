@@ -3,6 +3,9 @@ from __future__ import annotations
 from collections import Counter
 
 from python.us.buy_automation.decision_engine import run_buy_automation
+from python.us.sell_automation.config import load_sell_automation_config
+from python.us.sell_automation.paper_position_loader import load_paper_positions
+from python.us.sell_automation.sell_logger import persist_position_snapshots
 from python.us.sell_automation.sell_decision_engine import run_sell_automation
 from python.us.trade_orchestration.config import TradeOrchestrationConfig, load_trade_orchestration_config
 from python.us.trade_orchestration.integrated_logger import persist_integrated_logs
@@ -60,6 +63,29 @@ def run_trade_orchestration(
             portfolio_state=portfolio_state,
         )
         result["buy_executed"] = True
+
+        if cfg.mode == "PAPER":
+            sell_cfg = load_sell_automation_config()
+            refreshed_positions_result = load_paper_positions(
+                sell_cfg,
+                account_id=account_id,
+                requested_trade_date=__import__("datetime").date.fromisoformat(str(effective_trade_date)),
+            )
+            refreshed_positions = list(refreshed_positions_result.get("positions") or [])
+            if persist_logs:
+                result["paper_snapshot_persistence"] = {
+                    "positions": persist_position_snapshots(
+                        trade_date=effective_trade_date,
+                        positions=refreshed_positions,
+                    )
+                }
+            portfolio_state = load_portfolio_state(
+                cfg,
+                trade_date=__import__("datetime").date.fromisoformat(str(effective_trade_date)),
+                account_id=account_id,
+                buy_report=buy_report,
+            )
+            result["refreshed_positions"] = refreshed_positions
 
         conflict_results = [item for item in buy_report.get("candidates") or [] if item.get("conflict_checked")]
         conflict_counter = Counter()

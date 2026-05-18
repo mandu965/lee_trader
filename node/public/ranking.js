@@ -8,6 +8,19 @@ async function fetchRanking(dateValue, marketValue = "ALL", sectorValue = "ALL")
   return res.json();
 }
 
+async function fetchTrendSafe(dateValue) {
+  try {
+    const params = new URLSearchParams();
+    if (dateValue) params.set("date", dateValue);
+    const res = await fetch("/api/ranking-trend?" + params.toString());
+    if (!res.ok) throw new Error("trend API error");
+    return await res.json();
+  } catch (error) {
+    console.warn("trend unavailable", error);
+    return null;
+  }
+}
+
 async function fetchManualSummarySafe() {
   try {
     const res = await fetch("/api/manual-trading/summary");
@@ -19,16 +32,6 @@ async function fetchManualSummarySafe() {
   }
 }
 
-async function fetchTradingPolicySafe() {
-  try {
-    const res = await fetch("/api/trading-policy");
-    if (!res.ok) throw new Error("trading policy API error");
-    return await res.json();
-  } catch (error) {
-    console.warn("trading policy unavailable", error);
-    return null;
-  }
-}
 
 const EXPLAIN_LABELS = {
   high_ret_score: "기대수익 강점",
@@ -54,8 +57,9 @@ const state = {
   rows: [],
   filteredRows: [],
   manualSummary: null,
-  policy: null,
   showOverlay: false,
+  trendData: null,
+  trendMap: new Map(),
 };
 
 let manualCandidateMeta = new Map();
@@ -198,17 +202,22 @@ function buildRiskText(row) {
   return normalizeSentence(row.score_explain_risks, "주요 리스크 설명이 없습니다.");
 }
 
-function buildActionText(row) {
-  const note = normalizeSentence(row.action_note, "추가 확인 후 판단");
+function buildScoreDiagnostic(row) {
   const confidence = toNum(row.confidence_score);
   const penalty = toNum(row.risk_penalty);
-  if (confidence !== null && confidence >= 85 && penalty !== null && penalty < 6) {
-    return `${note}. 상단 후보군에서 먼저 볼 만한 수준입니다.`;
+  const flowScore = toNum(row.flow_score);
+  const parts = [];
+  if (confidence !== null) {
+    if (confidence >= 85 && (penalty === null || penalty < 6)) parts.push("신뢰도·리스크 균형 양호");
+    else if (confidence >= 75) parts.push("신뢰도 보통");
+    else parts.push("신뢰도 낮음");
   }
-  if (confidence !== null && confidence >= 75) {
-    return `${note}. 거래대금과 추세를 확인한 뒤 진입 검토가 가능합니다.`;
+  if (flowScore !== null) {
+    if (flowScore >= 70) parts.push("수급 강세");
+    else if (flowScore < 35) parts.push("수급 약세");
+    else parts.push("수급 중립");
   }
-  return `${note}. 바로 매수보다 추적 관찰이 우선입니다.`;
+  return parts.join(" · ") || normalizeSentence(row.action_note, "진단 정보 없음");
 }
 
 function calcRewardRiskRatio(row) {
@@ -282,6 +291,81 @@ function csvEscape(value) {
   return text;
 }
 
+function buildTrendItem(s, showPrev = true) {
+  const deltaHtml = s.is_new
+    ? `<div class="trend-delta delta-new">NEW</div>`
+    : s.delta_5d > 0
+    ? `<div class="trend-delta delta-up">▲${s.delta_5d}</div>`
+    : s.delta_5d < 0
+    ? `<div class="trend-delta delta-down">▼${Math.abs(s.delta_5d)}</div>`
+    : `<div class="trend-delta delta-stable">—</div>`;
+  const prevHtml = showPrev && !s.is_new && s.rank_5d
+    ? `<div class="trend-rank-prev">${s.rank_5d}위→</div>`
+    : "";
+  const streakHtml = (s.streak_top20 >= 3)
+    ? `<div class="rank-streak ${s.streak_top20 >= 7 ? "delta-up" : "delta-new"}" style="margin-top:2px">${s.streak_top20}일 연속 top20</div>`
+    : "";
+  const sparkHtml = s.history ? buildSparkline(s.history) : "";
+  return `
+    <div class="trend-item" onclick="location.href='./detail.html?code=${encodeURIComponent(s.code)}'">
+      <div class="trend-rank-box">
+        <div class="trend-rank-now">${s.rank_today}</div>
+        ${prevHtml}
+      </div>
+      <div style="flex:1;min-width:0">
+        <div class="trend-name">${escapeHtml(s.name || s.code)}</div>
+        <div class="trend-name-sub">${escapeHtml(s.code)}</div>
+        ${streakHtml}
+        ${buildScoreDeltaLine(s.score_delta)}
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        ${deltaHtml}
+        ${sparkHtml}
+      </div>
+    </div>
+  `;
+}
+
+function renderTrend(data) {
+  if (!data) {
+    document.getElementById("trendMeta").textContent = "변화 데이터를 불러오지 못했습니다.";
+    ["trendNew", "trendRising", "trendFalling"].forEach((id) => {
+      document.getElementById(id).innerHTML = '<span class="trend-empty">데이터 없음</span>';
+    });
+    return;
+  }
+
+  const compare = data.compare_5d || "-";
+  document.getElementById("trendMeta").textContent =
+    `기준일 ${data.date?.slice(0, 10)} · 비교일 ${compare} (5영업일 전)`;
+
+  const stocks = Array.isArray(data.stocks) ? data.stocks : [];
+
+  // 신규 진입: 5일 전에 없었던 종목 (상위 30위 이내)
+  const newEntries = stocks.filter((s) => s.is_new && s.rank_today <= 30);
+  document.getElementById("trendNew").innerHTML = newEntries.length
+    ? newEntries.map((s) => buildTrendItem(s, false)).join("")
+    : '<span class="trend-empty">신규 진입 종목 없음</span>';
+
+  // 급부상: 현재 상위 50위 이내이고 10계단 이상 상승
+  const rising = stocks
+    .filter((s) => !s.is_new && s.rank_today <= 50 && s.delta_5d !== null && s.delta_5d >= 10)
+    .sort((a, b) => b.delta_5d - a.delta_5d)
+    .slice(0, 5);
+  document.getElementById("trendRising").innerHTML = rising.length
+    ? rising.map((s) => buildTrendItem(s, true)).join("")
+    : '<span class="trend-empty">급부상 종목 없음</span>';
+
+  // 급하락: 5일 전 상위 30위였는데 10계단 이상 하락
+  const falling = stocks
+    .filter((s) => !s.is_new && s.rank_5d !== null && s.rank_5d <= 30 && s.delta_5d !== null && s.delta_5d <= -10)
+    .sort((a, b) => a.delta_5d - b.delta_5d)
+    .slice(0, 5);
+  document.getElementById("trendFalling").innerHTML = falling.length
+    ? falling.map((s) => buildTrendItem(s, true)).join("")
+    : '<span class="trend-empty">급하락 종목 없음</span>';
+}
+
 function buildStatCard(label, value, detail, cls = "") {
   return `
     <article class="stat-card">
@@ -320,20 +404,75 @@ function buildTopIdeaCard(row, index) {
       <div class="driver-wrap">${chips}</div>
       <div class="idea-rows">
         <div class="idea-row">
-          <strong>왜 지금 보나</strong>
+          <strong>주요 드라이버</strong>
           <div class="muted">${escapeHtml(buildWhyNow(row))}</div>
         </div>
         <div class="idea-row">
-          <strong>핵심 수치</strong>
-          <div class="muted">기대수익 ${fmtPct(row.pred_return_60d)} / 예상 MDD ${fmtPct(row.pred_mdd_60d)} / 수급 ${fmtScore(row.flow_score)}</div>
+          <strong>점수 구성</strong>
+          <div class="muted">기대수익 ${fmtScore(row.ret_score)} / 확률 ${fmtScore(row.prob_score)} / 기술 ${fmtScore(row.tech_score)} / 수급 ${fmtScore(row.flow_score)}</div>
         </div>
         <div class="idea-row">
-          <strong>행동 메모</strong>
-          <div class="muted">${escapeHtml(buildActionText(row))}</div>
+          <strong>진단</strong>
+          <div class="muted">${escapeHtml(buildScoreDiagnostic(row))}</div>
         </div>
       </div>
     </article>
   `;
+}
+
+function buildSparkline(history) {
+  const MAX = 50, W = 52, H = 18;
+  if (!Array.isArray(history)) return "";
+  const points = [];
+  history.forEach((rank, i) => {
+    if (rank === null) return;
+    const x = (i / Math.max(history.length - 1, 1)) * W;
+    const y = (Math.min(rank, MAX) - 1) / (MAX - 1) * H;
+    points.push([x.toFixed(1), y.toFixed(1)]);
+  });
+  if (points.length < 2) return "";
+  const last = points[points.length - 1];
+  const first = points[0];
+  const clr = Number(last[1]) <= Number(first[1]) ? "var(--green)" : "var(--red)";
+  return `<svg class="rank-spark" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="overflow:visible">
+    <polyline points="${points.map((p) => p.join(",")).join(" ")}"
+      fill="none" stroke="${clr}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.8"/>
+    <circle cx="${last[0]}" cy="${last[1]}" r="2.5" fill="${clr}"/>
+  </svg>`;
+}
+
+function buildStreakBadge(streak) {
+  if (!streak || streak < 3) return "";
+  const cls = streak >= 7 ? "delta-up" : streak >= 4 ? "delta-new" : "delta-stable";
+  return `<div class="rank-streak ${cls}">${streak}일 연속 top20</div>`;
+}
+
+function buildScoreDeltaLine(scoreDelta) {
+  if (!scoreDelta) return "";
+  const parts = [
+    ["flow", scoreDelta.flow_score],
+    ["ret",  scoreDelta.ret_score],
+    ["tech", scoreDelta.tech_score],
+    ["prob", scoreDelta.prob_score],
+  ]
+    .filter(([, v]) => v !== null && Math.abs(v) >= 1)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .slice(0, 3)
+    .map(([k, v]) => {
+      const cls = v > 0 ? "delta-up" : "delta-down";
+      return `<span class="score-delta-tag ${cls}">${k} ${v > 0 ? "+" : ""}${v}</span>`;
+    });
+  return parts.length ? `<div class="score-delta-line">${parts.join("")}</div>` : "";
+}
+
+function buildRankDeltaBadge(code) {
+  const t = state.trendMap.get(code);
+  if (!t) return "";
+  if (t.is_new) return `<div class="rank-delta delta-new">NEW</div>`;
+  if (t.delta_5d === null) return "";
+  if (t.delta_5d > 0) return `<div class="rank-delta delta-up">▲${t.delta_5d}</div>`;
+  if (t.delta_5d < 0) return `<div class="rank-delta delta-down">▼${Math.abs(t.delta_5d)}</div>`;
+  return `<div class="rank-delta delta-stable">—</div>`;
 }
 
 function buildTableRow(row, index) {
@@ -366,8 +505,13 @@ function buildTableRow(row, index) {
     <tr onclick="location.href='./detail.html?code=${encodeURIComponent(row.code)}'">
       <td>
         <div class="rank-cell">
-          <div class="rank-main">${escapeHtml(String(index + 1))}</div>
-          <div class="rank-sub">${escapeHtml(row.code || "-")}</div>
+          <div class="rank-left">
+            <div class="rank-main">${escapeHtml(String(index + 1))}</div>
+            ${buildRankDeltaBadge(row.code)}
+            ${buildStreakBadge(state.trendMap.get(row.code)?.streak_top20 ?? 0)}
+            <div class="rank-sub">${escapeHtml(row.code || "-")}</div>
+          </div>
+          ${buildSparkline(state.trendMap.get(row.code)?.history || null)}
         </div>
       </td>
       <td>
@@ -399,7 +543,7 @@ function buildTableRow(row, index) {
       <td><div class="driver-wrap">${driverChips}</div></td>
       <td>
         <div class="metric-stack">
-          <div>${escapeHtml(buildActionText(row))}</div>
+          <div>${escapeHtml(buildScoreDiagnostic(row))}</div>
           <div class="muted">${escapeHtml(memo)}</div>
         </div>
       </td>
@@ -416,28 +560,6 @@ function populateSelect(selectEl, values, keepValue = "ALL") {
   selectEl.value = currentValue;
 }
 
-function renderTradingPolicy(policy) {
-  if (!window.TradingPolicyUI) return;
-  try {
-    if (!policy) {
-      window.TradingPolicyUI.renderStrip("policyStrip", []);
-      window.TradingPolicyUI.renderRuleSection("rankingRules", {
-        title: "랭킹 해석 규칙",
-        note: "정책 데이터를 불러오지 못해 본문만 표시합니다.",
-        items: [],
-      });
-      return;
-    }
-    window.TradingPolicyUI.renderStrip("policyStrip", policy.banner || []);
-    window.TradingPolicyUI.renderRuleSection("rankingRules", {
-      title: "랭킹 해석 규칙",
-      note: "추천 순위와 실제 매수 판단 사이에 공통으로 적용되는 정책입니다.",
-      items: (policy.page_rules?.ranking || []).concat(policy.page_rules?.portfolio || []),
-    });
-  } catch (error) {
-    console.warn("renderTradingPolicy failed", error);
-  }
-}
 
 function renderHero() {
   const rows = state.filteredRows.length ? state.filteredRows : state.rows;
@@ -460,12 +582,17 @@ function renderHero() {
   heroRegime.textContent = `시장 국면 ${regimeMeta.label}`;
   heroRegime.className = `pill ${regimeMeta.cls}`;
   document.getElementById("heroBias").textContent = `상위 성향 ${bias}`;
-  document.getElementById("heroOverlay").textContent = state.showOverlay ? "수동매매 오버레이 표시 중" : "수동매매 오버레이 숨김";
+  document.getElementById("heroOverlay").textContent = state.showOverlay ? "오버레이 표시 중" : "오버레이 꺼짐";
+  const avgFlow = top.reduce((sum, row) => sum + (toNum(row.flow_score) || 0), 0) / Math.max(top.length, 1);
   document.getElementById("heroCopy").textContent =
-    `현재 조건에서 ${rows.length}개 종목을 보고 있습니다. 상위 20개 평균 기대수익은 ${fmtPct(rewardAvg)}, 평균 예상 MDD는 ${fmtPct(riskAvg)}입니다. 카드보다 아래 전체 랭킹 표에서 비교하는 것이 핵심입니다.`;
+    `${rows.length}개 종목 · 상위20 평균 기대수익 ${fmtPct(rewardAvg)} / 예상 MDD ${fmtPct(riskAvg)} / 수급 ${fmtScore(avgFlow)}`;
   document.getElementById("heroThesis").textContent = buildThesis(first);
-  document.getElementById("heroAction").textContent = buildActionText(first);
+  document.getElementById("heroAction").textContent = buildScoreDiagnostic(first);
   document.getElementById("heroRegimeSummary").textContent = regimeSummary;
+  const buyCount2 = state.filteredRows.filter((row) => statusCodeForRow(row) === "BUY_ALLOWED").length;
+  const watchCount2 = state.filteredRows.filter((row) => statusCodeForRow(row) === "WATCH").length;
+  document.getElementById("heroDistribution").textContent =
+    `신호 성향 ${bias} · 매수가능 ${buyCount2} / 관찰 ${watchCount2} · 기준일 ${first.date || "-"}`;
 }
 
 function renderStats() {
@@ -478,63 +605,18 @@ function renderStats() {
   const buyCount = rows.filter((row) => statusCodeForRow(row) === "BUY_ALLOWED").length;
   const watchCount = rows.filter((row) => statusCodeForRow(row) === "WATCH").length;
   const blockCount = rows.filter((row) => statusCodeForRow(row) === "BLOCK").length;
-  const overlayCount = rows.filter((row) => Boolean(getManualOverlay(row.code))).length;
 
   document.getElementById("statsGrid").innerHTML = [
     buildStatCard("남은 종목 수", String(rows.length), "현재 필터 기준 후보군 규모"),
     buildStatCard("평균 현재 점수", fmtScore(avg("live_score")), "live_score 또는 final_score 기준"),
     buildStatCard("평균 기대수익", fmtPct(avg("pred_return_60d")), "pred_return_60d 평균"),
     buildStatCard("평균 예상 MDD", fmtPct(avg("pred_mdd_60d")), "pred_mdd_60d 평균"),
-    buildStatCard("매수 가능 / 관찰 / 제외", `${buyCount} / ${watchCount} / ${blockCount}`, "수동매매 상태 오버레이 기준"),
-    buildStatCard("수동매매 중첩", String(overlayCount), state.showOverlay ? "표와 카드에 함께 표시 중" : "버튼으로 켤 수 있음"),
+    buildStatCard("매수 가능 / 관찰 / 제외", `${buyCount} / ${watchCount} / ${blockCount}`, "AI 매수 게이트 기준"),
+    buildStatCard("평균 수급 점수", fmtScore(avg("flow_score")), "flow_score 기준 필터 후보군 평균"),
   ].join("");
 }
 
-function renderTopIdeas() {
-  const rows = state.filteredRows.slice(0, 3);
-  const el = document.getElementById("topIdeas");
-  if (!rows.length) {
-    el.innerHTML = '<div class="table-empty">현재 조건에서 보여줄 상위 종목이 없습니다.</div>';
-    return;
-  }
-  el.innerHTML = rows.map((row, index) => buildTopIdeaCard(row, index)).join("");
-}
 
-function renderInsights() {
-  const rows = state.filteredRows;
-  const top = rows.slice(0, 20);
-  const driverCounts = countValues(top.flatMap((row) => [row.score_driver_1, row.score_driver_2, row.score_driver_3]));
-  const dragCounts = countValues(top.flatMap((row) => [row.score_drag_1, row.score_drag_2]));
-  const topMean = (key) => {
-    const values = top.map((row) => toNum(row[key])).filter((value) => value !== null);
-    if (!values.length) return null;
-    return values.reduce((a, b) => a + b, 0) / values.length;
-  };
-  document.getElementById("alignmentNotes").innerHTML = [
-    `<li><strong>ret_score 평균</strong> ${fmtScore(topMean("ret_score"))}</li>`,
-    `<li><strong>prob_score 평균</strong> ${fmtScore(topMean("prob_score"))}</li>`,
-    `<li><strong>tech_score 평균</strong> ${fmtScore(topMean("tech_score"))}</li>`,
-    `<li><strong>flow_score 평균</strong> ${fmtScore(topMean("flow_score"))}</li>`,
-    `<li><strong>confidence 평균</strong> ${fmtScore(topMean("confidence_score"))}</li>`,
-    `<li><strong>상위 20개 평균 기대수익</strong> ${fmtPct(topMean("pred_return_60d"))}</li>`,
-    `<li><strong>상위 20개 평균 예상 MDD</strong> ${fmtPct(topMean("pred_mdd_60d"))}</li>`,
-  ].join("");
-
-  const sortedDrivers = Object.entries(driverCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
-  const sortedDrags = Object.entries(dragCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
-  const notes = [
-    ...sortedDrivers.map(([key, value]) => `<li><strong>driver</strong> ${escapeHtml(explainLabel(key))} ${value}건</li>`),
-    ...sortedDrags.map(([key, value]) => `<li><strong>drag</strong> ${escapeHtml(explainLabel(key))} ${value}건</li>`),
-  ];
-  document.getElementById("driverNotes").innerHTML = notes.length ? notes.join("") : "<li>driver / drag 분포 정보가 없습니다.</li>";
-
-  const marketRegime = state.manualSummary?.market_regime || null;
-  const marketSummary = [];
-  if (marketRegime?.headline) marketSummary.push(marketRegime.headline);
-  if (marketRegime?.reason) marketSummary.push(marketRegime.reason);
-  if (!marketSummary.length && rows[0]?.regime_reason) marketSummary.push(rows[0].regime_reason);
-  document.getElementById("marketSummary").textContent = marketSummary.join(" / ") || "별도 시장 요약 데이터가 없습니다.";
-}
 
 function renderTable() {
   const rows = state.filteredRows;
@@ -570,8 +652,6 @@ function applyFilters() {
   state.filteredRows = filtered;
   renderHero();
   renderStats();
-  renderTopIdeas();
-  renderInsights();
   renderTable();
 }
 
@@ -675,7 +755,7 @@ function syncManualMaps(manualSummary) {
 
 function setOverlayButtonText() {
   const button = document.getElementById("toggleOverlayBtn");
-  button.textContent = state.showOverlay ? "수동매매 오버레이 숨기기" : "수동매매 오버레이 보기";
+  button.textContent = state.showOverlay ? "오버레이 끄기" : "오버레이 켜기";
 }
 
 async function loadAll() {
@@ -704,15 +784,18 @@ async function loadAll() {
     applyFilters();
     setOverlayButtonText();
 
-    const [policy, manualSummary] = await Promise.all([
-      fetchTradingPolicySafe(),
+    const [manualSummary, trendData] = await Promise.all([
       fetchManualSummarySafe(),
+      fetchTrendSafe(inferredDate || dateValue || ""),
     ]);
 
-    state.policy = policy;
     state.manualSummary = manualSummary;
+    state.trendData = trendData;
+    state.trendMap = new Map(
+      ((trendData?.stocks) || []).map((s) => [s.code, s])
+    );
     syncManualMaps(manualSummary);
-    renderTradingPolicy(policy);
+    renderTrend(trendData);
     applyFilters();
   } catch (error) {
     console.error(error);
@@ -721,7 +804,7 @@ async function loadAll() {
     manualCandidateMeta = new Map();
     manualPriorityMap = new Map();
     manualCautionMap = new Map();
-    renderTradingPolicy(null);
+    renderTrend(null);
     document.getElementById("rankingTableBody").innerHTML = '<tr><td colspan="8" class="table-empty">랭킹 데이터를 불러오지 못했습니다.</td></tr>';
     document.getElementById("tableMeta").textContent = "데이터 로드 실패";
   }

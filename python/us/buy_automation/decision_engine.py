@@ -31,6 +31,16 @@ RECENT_BUY_FROM_PAPER_SQL = text(
     """
 )
 
+RECENT_BUY_FROM_TRADE_SQL = text(
+    """
+    SELECT DISTINCT symbol
+    FROM trade.us_paper_order
+    WHERE account_id = :account_id
+      AND side = 'BUY'
+      AND trade_date BETWEEN :start_date AND :end_date
+    """
+)
+
 RECENT_BUY_FROM_MICRO_SQL = text(
     """
     SELECT DISTINCT symbol
@@ -74,6 +84,12 @@ def _recent_buy_symbols(account_id: str, trade_date: date, cooldown_days: int) -
             if relation_exists("paper.us_stock_paper_order"):
                 rows = conn.execute(
                     RECENT_BUY_FROM_PAPER_SQL,
+                    {"account_id": account_id, "start_date": start_date, "end_date": trade_date},
+                ).mappings().all()
+                symbols.update(str(row.get("symbol") or "").upper() for row in rows)
+            if relation_exists("trade.us_paper_order"):
+                rows = conn.execute(
+                    RECENT_BUY_FROM_TRADE_SQL,
                     {"account_id": account_id, "start_date": start_date, "end_date": trade_date},
                 ).mappings().all()
                 symbols.update(str(row.get("symbol") or "").upper() for row in rows)

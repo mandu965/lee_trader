@@ -1,13 +1,13 @@
 (() => {
   const ITEMS = [
     { key: "main", label: "\uBA54\uC778", href: "/app" },
-    { key: "manual-trading", label: "\uC218\uB3D9\uB9E4\uB9E4", href: "/manual-trading.html" },
     { key: "live-auto-trading", label: "AI \uC2E4\uC790\uB3D9\uB9E4\uB9E4", href: "/live-auto-trading.html" },
     { key: "rule-auto-trading", label: "RULE \uC790\uB3D9\uB9E4\uB9E4", href: "/rule-auto-trading.html" },
     { key: "paper-trading", label: "\uBAA8\uC758\uD22C\uC790", href: "/paper-trading.html" },
-    { key: "ranking", label: "\uB9AC\uC11C\uCE58 \uB7AD\uD0B9", href: "/ranking.html" },
+    { key: "ranking", label: "\uB7AD\uD0B9 \uBD84\uC11D", href: "/ranking.html" },
     { key: "us-ranking", label: "US \uB7AD\uD0B9", href: "/us-ranking" },
-    { key: "meaningfulness", label: "\uB9AC\uC11C\uCE58 \uB9AC\uBDF0", href: "/meaningfulness.html" },
+    { key: "us-trading", label: "US \uC790\uB3D9\uB9E4\uB9E4", href: "/us-trading" },
+    { key: "meaningfulness", label: "AI \uC131\uACFC", href: "/meaningfulness.html" },
   ];
 
   function detectActive() {
@@ -17,6 +17,7 @@
     if (pathname.includes("live-auto-trading")) return "live-auto-trading";
     if (pathname.includes("rule-auto-trading")) return "rule-auto-trading";
     if (pathname.includes("paper-trading")) return "paper-trading";
+    if (pathname.includes("us-trading")) return "us-trading";
     if (pathname.includes("us-ranking")) return "us-ranking";
     if (pathname.includes("ranking")) return "ranking";
     if (pathname.includes("meaningfulness")) return "meaningfulness";

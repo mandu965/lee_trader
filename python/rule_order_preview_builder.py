@@ -123,6 +123,17 @@ def build_rule_order_preview(plan: dict[str, Any], run_mode: str = "paper") -> d
             expected_price = float(expected_price) if expected_price is not None else None
         except Exception:
             expected_price = None
+        # SELL(exit/reduce) 시: last_price(현재 시장가)가 있으면 stale signal-date 가격 대신 사용.
+        # expected_entry_price는 신호 기준일 종가 기반이라 당일 갭다운 시 limit가 시장 위로 올라가
+        # 지정가 미체결 발생. last_price 사용 시 정확한 현재가 기준으로 limit 설정됨.
+        if side == "SELL":
+            last_price = item.get("last_price")
+            try:
+                last_price = float(last_price) if last_price is not None else None
+            except Exception:
+                last_price = None
+            if last_price and last_price > 0:
+                expected_price = last_price
 
         target_amount = float(item.get("target_amount") or 0.0)
         current_amount = float(item.get("current_amount") or 0.0)

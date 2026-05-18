@@ -1,1133 +1,489 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>리서치 리뷰</title>
+  <title>AI 성과</title>
   <link rel="stylesheet" href="./styles.css?v=20260508c">
   <style>
-    .review-wrap {
-      display: grid;
-      gap: 16px;
-      margin-top: 16px;
-    }
+    .page-wrap { max-width: 1400px; margin: 0 auto; padding: 20px 16px 60px; }
 
-    .hero-panel,
-    .review-card,
-    .lane-card,
-    .table-panel,
-    .check-card,
-    .memo-card {
-      padding: 16px;
-      border-radius: var(--radius-lg);
+    .hero-section {
+      background: rgba(255,255,255,0.03);
       border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.03);
-      box-shadow: var(--shadow-card-soft);
-    }
-
-    .hero-panel {
-      display: grid;
-      grid-template-columns: 1.15fr 0.85fr;
-      gap: 14px;
-      align-items: start;
-    }
-
-    .eyebrow,
-    .section-kicker,
-    .review-card__label,
-    .lane-card__label,
-    .check-card__label,
-    .memo-card__label {
-      font-size: 11px;
-      color: var(--color-text-secondary);
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-    }
-
-    .hero-title {
-      margin: 6px 0 0;
-      font-size: 30px;
-      line-height: 1.08;
-      letter-spacing: -0.03em;
-    }
-
-    .hero-copy,
-    .review-sub,
-    .lane-card__detail,
-    .check-card__detail,
-    .memo-card__copy {
-      margin-top: 8px;
-      font-size: 13px;
-      line-height: 1.65;
-      color: var(--color-text-secondary);
-    }
-
-    .hero-pills,
-    .chip-row,
-    .reason-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .hero-pills {
-      margin-top: 12px;
-    }
-
-    .pill,
-    .reason-chip,
-    .meaning-chip,
-    .grade-badge {
-      display: inline-flex;
-      align-items: center;
-      min-height: 28px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.12);
-      background: rgba(255,255,255,0.04);
-      font-size: 12px;
-    }
-
-    .pill.good,
-    .grade-badge--A,
-    .grade-badge--B,
-    .meaning-chip--good,
-    .reason-chip--good {
-      color: #8de4a5;
-      border-color: rgba(34, 197, 94, 0.28);
-      background: rgba(34, 197, 94, 0.10);
-    }
-
-    .pill.warn,
-    .grade-badge--C,
-    .meaning-chip--warn,
-    .reason-chip--warn {
-      color: #f7df8a;
-      border-color: rgba(250, 204, 21, 0.24);
-      background: rgba(250, 204, 21, 0.10);
-    }
-
-    .pill.bad,
-    .grade-badge--D,
-    .meaning-chip--bad,
-    .reason-chip--bad {
-      color: #f5a0a7;
-      border-color: rgba(248, 113, 113, 0.28);
-      background: rgba(248, 113, 113, 0.10);
-    }
-
-    .pill.info,
-    .reason-chip--info {
-      color: #9cc7ff;
-      border-color: rgba(96, 165, 250, 0.28);
-      background: rgba(96, 165, 250, 0.10);
-    }
-
-    .hero-side {
-      display: grid;
-      gap: 12px;
-    }
-
-    .hero-box-title {
-      margin-top: 6px;
-      font-size: 18px;
-      font-weight: 700;
-    }
-
-    .summary-grid,
-    .check-grid,
-    .lane-grid,
-    .memo-grid {
-      display: grid;
-      gap: 12px;
-    }
-
-    .summary-grid {
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-    }
-
-    .review-card__value {
-      margin-top: 8px;
-      font-size: 26px;
-      font-weight: 800;
-      letter-spacing: -0.03em;
-    }
-
-    .check-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .check-card__title,
-    .lane-card__title,
-    .table-title {
-      margin: 6px 0 0;
-      font-size: 20px;
-    }
-
-    .check-card__list,
-    .memo-list {
-      margin: 12px 0 0;
-      padding-left: 18px;
-      display: grid;
-      gap: 8px;
-      color: var(--color-text-primary);
-      font-size: 13px;
-    }
-
-    .lane-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .lane-list {
-      margin-top: 12px;
-      display: grid;
-      gap: 10px;
-    }
-
-    .lane-item {
-      padding: 12px;
-      border-radius: 14px;
-      border: 1px solid rgba(255,255,255,0.08);
-      background: rgba(255,255,255,0.03);
-      cursor: pointer;
-    }
-
-    .lane-item__head {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
-    }
-
-    .lane-item__name {
-      font-size: 15px;
-      font-weight: 700;
-    }
-
-    .lane-item__sub {
-      margin-top: 4px;
-      font-size: 12px;
-      color: var(--color-text-secondary);
-    }
-
-    .lane-item__score {
-      font-size: 18px;
-      font-weight: 800;
-    }
-
-    .lane-item__copy {
-      margin-top: 10px;
-      font-size: 13px;
-      line-height: 1.65;
-      color: var(--color-text-primary);
-    }
-
-    .decision-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 10px;
-    }
-
-    .decision-btn {
-      min-height: 28px;
-      padding: 4px 9px;
-      border-radius: 999px;
-      border: 1px solid rgba(255,255,255,0.12);
-      background: rgba(255,255,255,0.04);
-      color: var(--color-text-primary);
-      font-size: 11px;
-      cursor: pointer;
-    }
-
-    .decision-btn.is-active {
-      border-color: rgba(96, 165, 250, 0.35);
-      background: rgba(96, 165, 250, 0.16);
-      color: #d6e7ff;
-    }
-
-    .decision-btn:hover {
-      background: rgba(255,255,255,0.08);
-    }
-
-    .decision-note {
-      margin-top: 8px;
-      width: 100%;
-      min-height: 72px;
-      resize: vertical;
-      border-radius: 12px;
-      border: 1px solid rgba(255,255,255,0.1);
-      background: rgba(255,255,255,0.03);
-      color: var(--color-text-primary);
-      padding: 10px 12px;
-      font-size: 12px;
-      line-height: 1.5;
-    }
-
-    .reason-row {
-      margin-top: 10px;
-    }
-
-    .section-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-end;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
-    }
-
-    .meaning-empty {
-      padding: 18px;
       border-radius: var(--radius-lg);
-      border: 1px dashed var(--border);
-      color: var(--color-text-secondary);
-      font-size: 13px;
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .hero-section h1 { margin: 0 0 6px; font-size: 22px; font-weight: 700; }
+    .hero-section p { margin: 0; font-size: 13px; color: var(--color-text-secondary); }
+
+    .panel {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px 24px;
+      margin-bottom: 16px;
+    }
+    .panel-title {
+      font-size: 15px; font-weight: 700; margin: 0 0 16px;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .panel-title .kicker {
+      font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--color-text-secondary);
+      background: rgba(255,255,255,0.06); border-radius: 4px; padding: 2px 7px;
     }
 
-    .memo-grid {
-      grid-template-columns: 1.1fr 0.9fr;
+    /* Gate/Walkforward status grid */
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .status-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px 16px;
+    }
+    .status-card__label {
+      font-size: 11px; color: var(--color-text-secondary);
+      text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 6px;
+    }
+    .status-card__value {
+      font-size: 18px; font-weight: 700; letter-spacing: -0.01em;
+    }
+    .status-card__sub { font-size: 11px; color: var(--color-text-secondary); margin-top: 4px; }
+
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: var(--radius-pill);
+      font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+    }
+    .badge--pilot { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+    .badge--buy-allowed { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+    .badge--suspended { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+    .badge--rejected { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+    .badge--conditional { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+    .badge--accepted { background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); }
+    .badge--default { background: rgba(148,163,184,0.12); color: #94a3b8; border: 1px solid rgba(148,163,184,0.2); }
+
+    .reason-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .reason-pill {
+      font-size: 11px; padding: 3px 9px; border-radius: var(--radius-pill);
+      background: rgba(248,113,113,0.1); color: #f87171;
+      border: 1px solid rgba(248,113,113,0.2);
     }
 
-    .table-panel table td,
-    .table-panel table th {
-      vertical-align: top;
+    .maturation-bar {
+      margin-top: 12px; padding: 12px 16px;
+      background: rgba(255,255,255,0.03); border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+    }
+    .maturation-bar__label { font-size: 12px; color: var(--color-text-secondary); margin-bottom: 8px; }
+    .maturation-bar__track {
+      height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden;
+    }
+    .maturation-bar__fill {
+      height: 100%; border-radius: 3px;
+      background: linear-gradient(90deg, #3b82f6 0%, #22c55e 100%);
+      transition: width 0.4s ease;
+    }
+    .maturation-bar__meta {
+      display: flex; justify-content: space-between;
+      font-size: 11px; color: var(--color-text-secondary); margin-top: 5px;
     }
 
-    .table-meta {
-      color: var(--color-text-secondary);
-      font-size: 12px;
+    /* Performance section */
+    .controls-row {
+      display: flex; align-items: center; gap: 10px; margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .controls-row label { font-size: 12px; color: var(--color-text-secondary); }
+    .controls-row input[type="date"] {
+      background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+      border-radius: var(--radius-md); color: var(--color-text-primary);
+      padding: 7px 12px; font-size: 13px; font-family: inherit;
+    }
+    .controls-row input[type="number"] {
+      background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+      border-radius: var(--radius-md); color: var(--color-text-primary);
+      padding: 7px 12px; font-size: 13px; font-family: inherit; width: 70px;
+    }
+    .btn {
+      padding: 8px 16px; border-radius: var(--radius-md); border: 1px solid var(--border);
+      background: rgba(255,255,255,0.07); color: var(--color-text-primary);
+      font-size: 13px; font-family: inherit; cursor: pointer; transition: background 0.15s;
+    }
+    .btn:hover { background: rgba(255,255,255,0.12); }
+    .btn--primary {
+      background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.35); color: #22c55e;
+    }
+    .btn--primary:hover { background: rgba(34,197,94,0.25); }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 10px; margin-bottom: 16px;
+    }
+    .stat-card {
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 12px 14px; text-align: center;
+    }
+    .stat-card__label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 4px; }
+    .stat-card__value { font-size: 20px; font-weight: 700; }
+
+    /* Outcomes table */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      padding: 9px 10px; text-align: left;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.05em;
+      color: var(--color-text-secondary); text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody tr { border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.12s; }
+    tbody tr:hover { background: rgba(255,255,255,0.04); }
+    tbody td { padding: 9px 10px; vertical-align: middle; }
+    .td-rank { font-weight: 700; color: var(--color-text-secondary); width: 36px; }
+    .td-code { font-size: 11px; color: var(--color-text-secondary); }
+    .td-name { font-weight: 600; }
+    .td-score { font-weight: 700; }
+
+    .ret { font-weight: 700; font-size: 13px; }
+    .ret--pos { color: #22c55e; }
+    .ret--neg { color: #f87171; }
+    .ret--zero { color: var(--color-text-secondary); }
+
+    .days-badge {
+      display: inline-block; padding: 2px 7px; border-radius: 4px;
+      font-size: 11px; font-weight: 600;
+      background: rgba(96,165,250,0.12); color: #60a5fa;
     }
 
-    .table-note {
-      color: var(--color-text-secondary);
-      font-size: 12px;
-      line-height: 1.55;
-    }
+    .loading { text-align: center; padding: 40px; color: var(--color-text-secondary); font-size: 14px; }
+    .empty { text-align: center; padding: 32px; color: var(--color-text-secondary); font-size: 13px; }
+    .error-msg { color: #f87171; font-size: 13px; padding: 12px; }
 
-    @media (max-width: 1200px) {
-      .hero-panel,
-      .memo-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .summary-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-      }
-
-      .check-grid,
-      .lane-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 760px) {
-      .summary-grid {
-        grid-template-columns: 1fr 1fr;
-      }
-
-      .container {
-        padding: 12px;
-      }
-
-      .hero-title {
-        font-size: 24px;
-      }
-    }
-
-    @media (max-width: 460px) {
-      .summary-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .container {
-        padding: 10px;
-      }
-
-      .hero-title {
-        font-size: 22px;
-      }
+    .transition-note {
+      font-size: 12px; color: var(--color-text-secondary); margin-top: 10px;
+      padding: 10px 14px; background: rgba(59,130,246,0.08);
+      border: 1px solid rgba(59,130,246,0.2); border-radius: var(--radius-md);
+      line-height: 1.6;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>리서치 리뷰 <span class="badge">수동매매 선택 검수 보드</span></h1>
-      <div class="toolbar">
-        <div data-unified-ops-nav data-nav-active="meaningfulness"></div>
-      </div>
-    </header>
+<div data-unified-ops-nav data-nav-active="meaningfulness"></div>
+<div class="page-wrap">
 
-    <div class="review-wrap">
-      <section class="hero-panel">
-        <div>
-          <div class="eyebrow">Research Review Audit</div>
-          <h2 class="hero-title">좋은 종목을 찾는 페이지가 아니라<br>내 선택이 맞았는지 검수하는 페이지입니다</h2>
-          <div id="heroCopy" class="hero-copy">
-            랭킹 상위, 수동매매 우선 후보, 의미성 리뷰 등급을 한 화면에서 비교해서 놓친 종목과 무리한 선택을 찾습니다.
-          </div>
-          <div class="hero-pills">
-            <span id="heroDate" class="pill info">기준일 -</span>
-            <span id="heroManual" class="pill">수동매매 후보 -</span>
-            <span id="heroAudit" class="pill warn">검수 포인트 -</span>
-          </div>
-        </div>
-        <div class="hero-side">
-          <article class="memo-card">
-            <div class="memo-card__label">오늘의 리뷰 질문</div>
-            <div id="heroQuestion" class="hero-box-title">-</div>
-            <div id="heroSummary" class="memo-card__copy">-</div>
-          </article>
-          <article class="memo-card">
-            <div class="memo-card__label">활용 순서</div>
-            <ul class="memo-list">
-              <li>수동매매 핵심 후보 중 `C/D` 등급을 먼저 확인합니다.</li>
-              <li>`A/B`인데 manual 밖에 있는 종목을 대체 검토 후보로 봅니다.</li>
-              <li>경계 후보가 반복되면 수동 필터가 과도한지 점검합니다.</li>
-            </ul>
-          </article>
-        </div>
-      </section>
-
-      <section class="panel" style="padding:16px;">
-        <div class="section-head">
-          <div>
-            <div class="section-kicker">Controls</div>
-            <h3 class="table-title">리뷰 도구</h3>
-            <div class="review-sub">데이터 원본과 현재 검수 기준을 같이 열 수 있습니다.</div>
-          </div>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button id="reloadBtn" type="button">새로고침</button>
-            <button id="operatorLoginBtn" type="button">운영자 로그인</button>
-            <a class="detail-link" href="/api/manual-trading/summary" target="_blank" rel="noreferrer">수동매매 데이터</a>
-            <a class="detail-link" href="/api/top20-meaningfulness" target="_blank" rel="noreferrer">리뷰 원본</a>
-            <a class="detail-link" href="/ranking.html" target="_blank" rel="noreferrer">리서치 랭킹</a>
-          </div>
-        </div>
-      </section>
-
-      <section id="summaryGrid" class="summary-grid"></section>
-
-      <section class="check-grid">
-        <article class="check-card">
-          <div class="check-card__label">Check 1</div>
-          <h3 class="check-card__title">지금 밀어도 되는 종목인가</h3>
-          <div class="check-card__detail">수동매매 우선 후보가 리뷰 관점에서도 설명 가능한지 봅니다.</div>
-          <ul id="check1List" class="check-card__list"></ul>
-        </article>
-        <article class="check-card">
-          <div class="check-card__label">Check 2</div>
-          <h3 class="check-card__title">놓친 대안이 없는가</h3>
-          <div class="check-card__detail">랭킹과 리뷰 등급은 좋은데 manual 밖에 있는 종목을 확인합니다.</div>
-          <ul id="check2List" class="check-card__list"></ul>
-        </article>
-        <article class="check-card">
-          <div class="check-card__label">Check 3</div>
-          <h3 class="check-card__title">수동 필터가 과도한가</h3>
-          <div class="check-card__detail">경계 후보와 장중 변화에서 반복적으로 보이는 패턴을 확인합니다.</div>
-          <ul id="check3List" class="check-card__list"></ul>
-        </article>
-      </section>
-
-      <section class="lane-grid">
-        <article class="lane-card">
-          <div class="lane-card__label">Lane 1</div>
-          <h3 class="lane-card__title">설명 부족한 강행 후보</h3>
-          <div class="lane-card__detail">manual priority인데 `C/D` 등급이라 별도 근거가 필요한 종목입니다.</div>
-          <div id="forcedList" class="lane-list"></div>
-        </article>
-        <article class="lane-card">
-          <div class="lane-card__label">Lane 2</div>
-          <h3 class="lane-card__title">놓친 대체 후보</h3>
-          <div class="lane-card__detail">manual 밖에 있지만 `A/B` 등급이라 다시 봐야 할 종목입니다.</div>
-          <div id="missedList" class="lane-list"></div>
-        </article>
-        <article class="lane-card">
-          <div class="lane-card__label">Lane 3</div>
-          <h3 class="lane-card__title">경계 및 장중 변화</h3>
-          <div class="lane-card__detail">보류/제외/누락 쪽에서 운영 판단을 다시 봐야 하는 종목입니다.</div>
-          <div id="boundaryList" class="lane-list"></div>
-        </article>
-      </section>
-
-      <section class="memo-grid">
-        <article class="memo-card">
-          <div class="section-head" style="margin-bottom:8px;">
-            <div>
-              <div class="section-kicker">Audit Table</div>
-              <h3 class="table-title">선택 감사 표</h3>
-            </div>
-            <div id="tableMeta" class="table-meta">-</div>
-          </div>
-          <div class="table-wrap">
-            <table class="stock-table" aria-label="리서치 리뷰 감사 표">
-              <thead>
-                <tr>
-                  <th>구분</th>
-                  <th>종목</th>
-                  <th>최종 점수</th>
-                  <th>리뷰 등급</th>
-                  <th>수동매매</th>
-                  <th>강점</th>
-                  <th>주의</th>
-                </tr>
-              </thead>
-              <tbody id="tbody">
-                <tr><td colspan="7" class="center">데이터를 불러오는 중입니다.</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </article>
-        <article class="memo-card">
-          <div class="memo-card__label">운영 메모</div>
-          <div id="opsSummary" class="memo-card__copy">-</div>
-          <ul id="opsList" class="memo-list"></ul>
-          <div class="memo-card__label" style="margin-top:12px;">리뷰 기록 현황</div>
-          <div id="reviewSummary" class="memo-card__copy">-</div>
-          <div id="reviewChips" class="chip-row" style="margin-top:10px;"></div>
-          <div class="memo-card__label" style="margin-top:12px;">장중 변화</div>
-          <div id="intradaySummary" class="memo-card__copy">-</div>
-          <div id="intradayChips" class="chip-row" style="margin-top:10px;"></div>
-        </article>
-      </section>
-    </div>
+  <div class="hero-section">
+    <h1>AI 성과</h1>
+    <p>Gate·Walkforward 성숙도 현황과 AI Top-N 예측이 실제로 맞는지 날짜별로 추적합니다.</p>
   </div>
 
-  <script>
-    const API_BASE = window.__API_BASE__ || "";
-    const api = (path) => `${API_BASE}${path}`;
-    const $ = (sel) => document.querySelector(sel);
+  <!-- 시스템 성숙도 -->
+  <div class="panel" id="gateSection">
+    <div class="panel-title">
+      <span class="kicker">System Maturity</span>
+      시스템 성숙도
+    </div>
+    <div id="gateContent"><div class="loading">로딩 중…</div></div>
+  </div>
 
-    const toNum = (value) => {
-      const num = Number(value);
-      return Number.isFinite(num) ? num : null;
-    };
+  <!-- AI 예측 성과 -->
+  <div class="panel">
+    <div class="panel-title">
+      <span class="kicker">Prediction Performance</span>
+      AI 예측 성과
+    </div>
+    <div class="controls-row">
+      <label>기준일</label>
+      <input type="date" id="perfDate" onchange="loadPerformance()" />
+      <label>Top</label>
+      <input type="number" id="topN" value="20" min="5" max="50" onchange="loadPerformance()" />
+    </div>
+    <div id="perfStats"></div>
+    <div id="perfTable"></div>
+  </div>
 
-    const escapeHtml = (value) =>
-      String(value ?? "").replace(/[&<>"']/g, (m) => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[m]));
+</div>
 
-    const fmt = (value, digits = 1) => Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "-";
-    const REVIEW_STORAGE_KEY = "meaningfulness-review-notes-v1";
-    const REVIEW_DECISIONS = [
-      { key: "accept", label: "채택" },
-      { key: "hold", label: "보류" },
-      { key: "missed", label: "누락 인정" },
-      { key: "force", label: "강행" },
-    ];
-    let operatorAuth = { enabled: false, authorized: true };
+<script src="./ops-unified-nav.js?v=20260518-nav-fix"></script>
+<script>
+const WF_REASON_MAP = {
+  top20_excess_return_positive: "상위20 초과수익 미달",
+  ordering_not_stable: "순위 안정성 부족",
+  drawdown_too_deep: "최대낙폭 과도",
+  confidence_monotonicity_missing: "신뢰도 단조성 미확인",
+  execution_evidence_ok_or_unavailable: "실거래 증거 불충분",
+  data_insufficient: "데이터 부족",
+  matured_dates_insufficient: "만기 날짜 부족",
+};
 
-    async function fetchJson(path) {
-      const res = await fetch(api(path));
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    }
+function fmtPct(v) {
+  if (v == null || !isFinite(v)) return "—";
+  const sign = v >= 0 ? "+" : "";
+  return sign + (v * 100).toFixed(2) + "%";
+}
 
-    function operatorLoginUrl() {
-      return `/operator-login?next=${encodeURIComponent(location.pathname + location.search)}`;
-    }
+function retClass(v) {
+  if (v == null || !isFinite(v)) return "ret--zero";
+  if (v > 0.001) return "ret--pos";
+  if (v < -0.001) return "ret--neg";
+  return "ret--zero";
+}
 
-    function applyOperatorUi() {
-      const button = $("#operatorLoginBtn");
-      if (!button) return;
-      button.style.display = operatorAuth.enabled ? "" : "none";
-      button.textContent = operatorAuth.authorized ? "운영자 로그아웃" : "운영자 로그인";
-    }
+function gateBadge(status) {
+  if (!status) return `<span class="badge badge--default">—</span>`;
+  const s = status.toUpperCase();
+  if (s === "PILOT") return `<span class="badge badge--pilot">PILOT</span>`;
+  if (s === "BUY_ALLOWED") return `<span class="badge badge--buy-allowed">BUY_ALLOWED</span>`;
+  if (s === "SUSPENDED") return `<span class="badge badge--suspended">SUSPENDED</span>`;
+  return `<span class="badge badge--default">${status}</span>`;
+}
 
-    async function fetchOperatorAuthStatus() {
-      try {
-        const res = await fetch("/api/operator-auth/status");
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        operatorAuth = await res.json();
-      } catch (error) {
-        console.warn("operator auth status load fail", error);
-        operatorAuth = { enabled: false, authorized: true };
-      }
-      applyOperatorUi();
-    }
+function wfBadge(status) {
+  if (!status) return `<span class="badge badge--default">—</span>`;
+  const s = status.toUpperCase();
+  if (s === "REJECTED") return `<span class="badge badge--rejected">REJECTED</span>`;
+  if (s === "CONDITIONAL") return `<span class="badge badge--conditional">CONDITIONAL</span>`;
+  if (s === "ACCEPTED") return `<span class="badge badge--accepted">ACCEPTED</span>`;
+  return `<span class="badge badge--default">${status}</span>`;
+}
 
-    async function operatorLogout() {
-      try {
-        await fetch("/api/operator-auth/logout", { method: "POST" });
-      } catch (error) {
-        console.warn("operator logout fail", error);
-      }
-      operatorAuth = { enabled: true, authorized: false };
-      applyOperatorUi();
-    }
+async function loadGateStatus() {
+  const el = document.getElementById("gateContent");
+  try {
+    const res = await fetch("/api/ai-gate-status");
+    if (!res.ok) throw new Error("api error " + res.status);
+    const g = await res.json();
 
-    function loadReviewStore() {
-      try {
-        const raw = localStorage.getItem(REVIEW_STORAGE_KEY);
-        const parsed = raw ? JSON.parse(raw) : {};
-        return parsed && typeof parsed === "object" ? parsed : {};
-      } catch {
-        return {};
-      }
-    }
+    const maturedMax = g.benchmark_matured_dates_max ?? 0;
+    const MATURITY_TARGET = 90; // 60d+buffer to reach ACCEPTED
+    const maturityPct = Math.min(100, Math.round((maturedMax / MATURITY_TARGET) * 100));
 
-    function saveReviewStore(store) {
-      localStorage.setItem(REVIEW_STORAGE_KEY, JSON.stringify(store));
-    }
+    const reasonPills = (g.walkforward_reason_codes || []).map(code =>
+      `<span class="reason-pill">${WF_REASON_MAP[code] || code}</span>`
+    ).join("");
 
-    async function loadReviewStoreFromDb(date) {
-      if (operatorAuth.enabled && !operatorAuth.authorized) return {};
-      try {
-        const params = new URLSearchParams();
-        if (date) params.set("date", date);
-        const res = await fetch(`/api/meaningfulness-review-notes?${params.toString()}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const payload = await res.json();
-        const rows = Array.isArray(payload?.rows) ? payload.rows : [];
-        return rows.reduce((acc, row) => {
-          acc[reviewKey(row.analysis_date, row.code)] = {
-            code: row.code,
-            date: row.analysis_date,
-            decision: row.decision || "",
-            note: row.note || "",
-            updated_at: row.updated_at || null,
-            updated_by: row.updated_by || "",
-          };
-          return acc;
-        }, {});
-      } catch (error) {
-        console.warn("loadReviewStoreFromDb fail", error);
-        return {};
-      }
-    }
-
-    function reviewKey(date, code) {
-      return `${date || "unknown"}:${code || "unknown"}`;
-    }
-
-    function getReviewEntry(model, code) {
-      return model.reviewStore[reviewKey(model.analysisDate, code)] || null;
-    }
-
-    async function upsertReviewEntry(model, code, patch) {
-      if (operatorAuth.enabled && !operatorAuth.authorized) {
-        return { ok: false, requiresAuth: true };
-      }
-
-      const key = reviewKey(model.analysisDate, code);
-      const prev = model.reviewStore[key] || {};
-      const nextEntry = {
-        ...prev,
-        code,
-        date: model.analysisDate,
-        updated_at: new Date().toISOString(),
-        ...patch,
-      };
-      model.reviewStore[key] = nextEntry;
-      saveReviewStore(model.reviewStore);
-
-      try {
-        const res = await fetch("/api/meaningfulness-review-notes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            analysis_date: model.analysisDate,
-            code,
-            decision: nextEntry.decision || "",
-            note: nextEntry.note || "",
-            updated_by: "operator",
-          }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const payload = await res.json();
-        const row = payload?.row || null;
-        if (row) {
-          model.reviewStore[key] = {
-            code: row.code,
-            date: row.analysis_date,
-            decision: row.decision || "",
-            note: row.note || "",
-            updated_at: row.updated_at || null,
-            updated_by: row.updated_by || "",
-          };
-          saveReviewStore(model.reviewStore);
-        }
-        return { ok: true };
-      } catch (error) {
-        console.warn("upsertReviewEntry fail", error);
-        return { ok: false, error };
-      }
-    }
-
-    function reasonTokens(text) {
-      return String(text || "")
-        .split(" / ")
-        .map((item) => item.trim())
-        .filter(Boolean);
-    }
-
-    function reasonTone(text) {
-      const value = String(text || "").toLowerCase();
-      if (value.includes("high") || value.includes("healthy") || value.includes("quality") || value.includes("safety")) return "good";
-      if (value.includes("low") || value.includes("risk") || value.includes("caution")) return "bad";
-      return "warn";
-    }
-
-    function gradeTone(grade) {
-      const key = String(grade || "").toUpperCase();
-      if (key === "A" || key === "B") return "good";
-      if (key === "C") return "warn";
-      return "bad";
-    }
-
-    function classifyManual(item) {
-      if (!item) return "manual 밖";
-      if (item.bucket === "priority") return "우선 검토";
-      if (item.bucket === "caution") return "보수 검토";
-      return item.buy_eligibility_status || "-";
-    }
-
-    function fmtPct(value, digits = 1) {
-      return Number.isFinite(Number(value)) ? `${(Number(value) * 100).toFixed(digits)}%` : "-";
-    }
-
-    function formatCategory(category) {
-      if (category === "forced") return "강행 점검";
-      if (category === "missed") return "놓친 대안";
-      if (category === "boundary") return "경계 후보";
-      return category || "-";
-    }
-
-    function uniqueRows(rows) {
-      const seen = new Set();
-      return (rows || []).filter((row) => {
-        const code = String(row?.code || "").trim();
-        if (!code || seen.has(code)) return false;
-        seen.add(code);
-        return true;
-      });
-    }
-
-    function buildLookup(rows) {
-      return new Map((rows || []).map((row) => [String(row?.code || "").trim(), row]));
-    }
-
-    function buildChip(text, cls) {
-      return `<span class="reason-chip reason-chip--${escapeHtml(cls)}">${escapeHtml(text)}</span>`;
-    }
-
-    function buildReasonRow(text, fallback, cls) {
-      const tokens = reasonTokens(text);
-      if (!tokens.length) {
-        return `<div class="reason-row">${buildChip(fallback, cls)}</div>`;
-      }
-      return `<div class="reason-row">${tokens.map((item) => buildChip(item, cls || reasonTone(item))).join("")}</div>`;
-    }
-
-    async function fetchOutcomes(analysisDate, codes) {
-      const res = await fetch("/api/meaningfulness-outcomes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ analysis_date: analysisDate, codes }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
-    }
-
-    function buildLaneItem(row, manualItem, note) {
-      const finalScore = toNum(row.final_score_v3 ?? row.final_score);
-      const grade = String(row.meaningfulness_grade || "C").toUpperCase();
-      const reviewEntry = getReviewEntry(window.__meaningModel, row.code);
-      const savedDecision = reviewEntry?.decision || "";
-      const savedNote = reviewEntry?.note || "";
-      const outcome = window.__meaningModel?.outcomeMap?.get?.(String(row.code || "").trim()) || null;
-      return `
-        <article class="lane-item" onclick="location.href='./detail.html?code=${encodeURIComponent(row.code || "")}'">
-          <div class="lane-item__head">
-            <div>
-              <div class="lane-item__name">${escapeHtml(row.name || row.code)}</div>
-              <div class="lane-item__sub">${escapeHtml(row.code || "-")} / ${escapeHtml(row.market || "-")} / ${escapeHtml(row.sector || "-")}</div>
-            </div>
-            <div class="lane-item__score">${escapeHtml(fmt(finalScore, 1))}</div>
+    el.innerHTML = `
+      <div class="status-grid">
+        <div class="status-card">
+          <div class="status-card__label">Gate 상태</div>
+          <div class="status-card__value">${gateBadge(g.gate_status)}</div>
+          <div class="status-card__sub">기준일 ${g.asof_date || "—"}</div>
+        </div>
+        <div class="status-card">
+          <div class="status-card__label">Walkforward</div>
+          <div class="status-card__value">${wfBadge(g.walkforward_status)}</div>
+          <div class="status-card__sub">ACCEPTED 시 Gate 자동 전환</div>
+        </div>
+        <div class="status-card">
+          <div class="status-card__label">60d 만기 누적</div>
+          <div class="status-card__value" style="font-size:22px;">${maturedMax}</div>
+          <div class="status-card__sub">기준 ${MATURITY_TARGET}일 대비 ${maturityPct}%</div>
+        </div>
+        <div class="status-card">
+          <div class="status-card__label">매수 가능 / Paper</div>
+          <div class="status-card__value" style="font-size:18px;">
+            <span style="color:#22c55e">${g.buy_now_count ?? "—"}</span>
+            <span style="color:var(--color-text-secondary); font-size:14px"> / ${g.paper_only_count ?? "—"}</span>
           </div>
-          <div class="lane-item__copy">${escapeHtml(note)}</div>
-          <div class="reason-row">
-            <span class="grade-badge grade-badge--${escapeHtml(grade)}">${escapeHtml(`${grade} ${row.meaningfulness_label || ""}`)}</span>
-            <span class="meaning-chip meaning-chip--${escapeHtml(manualItem?.bucket === "priority" ? "good" : manualItem?.bucket === "caution" ? "warn" : "info")}">${escapeHtml(classifyManual(manualItem))}</span>
-            ${reviewEntry?.decision ? `<span class="meaning-chip meaning-chip--info">리뷰 ${escapeHtml(reviewEntry.decision)}</span>` : ""}
-            ${outcome ? `<span class="meaning-chip meaning-chip--${escapeHtml((Number(outcome.latest_return) || 0) >= 0 ? "good" : "bad")}">후행 ${escapeHtml(fmtPct(outcome.latest_return))}</span>` : ""}
-          </div>
-          ${buildReasonRow(row.positive_reasons, "강점 없음", "good")}
-          ${buildReasonRow(row.caution_reasons, "주의 없음", gradeTone(grade))}
-          ${outcome ? `<div class="reason-row">${buildChip(`최고 ${fmtPct(outcome.peak_return)}`, "good")}${buildChip(`최저 ${fmtPct(outcome.trough_return)}`, "bad")}${buildChip(`관측 ${escapeHtml(String(outcome.observed_days || 0))}일`, "info")}</div>` : ""}
-          <div class="decision-row" onclick="event.stopPropagation()">
-            ${REVIEW_DECISIONS.map((item) => `
-              <button
-                type="button"
-                class="decision-btn ${savedDecision === item.key ? "is-active" : ""}"
-                data-review-code="${escapeHtml(row.code || "")}"
-                data-review-decision="${escapeHtml(item.key)}"
-              >${escapeHtml(item.label)}</button>
-            `).join("")}
-          </div>
-          <textarea
-            class="decision-note"
-            data-review-note="${escapeHtml(row.code || "")}"
-            onclick="event.stopPropagation()"
-            placeholder="왜 채택/보류/강행/누락 인정했는지 간단히 남기세요."
-          >${escapeHtml(savedNote)}</textarea>
-        </article>
-      `;
+          <div class="status-card__sub">차단 ${g.blocked_count ?? "—"} · 관찰 ${g.watchlist_count ?? "—"}</div>
+        </div>
+      </div>
+      ${reasonPills ? `
+        <div style="font-size:11px; color:var(--color-text-secondary); margin-bottom:5px;">Walkforward REJECTED 사유</div>
+        <div class="reason-pills">${reasonPills}</div>
+      ` : ""}
+      <div class="maturation-bar">
+        <div class="maturation-bar__label">60d 성숙도 진행</div>
+        <div class="maturation-bar__track">
+          <div class="maturation-bar__fill" style="width:${maturityPct}%"></div>
+        </div>
+        <div class="maturation-bar__meta">
+          <span>운영 시작: 2026-03-29</span>
+          <span>${maturedMax} / ${MATURITY_TARGET} dates matured</span>
+          <span>60d 만기 시작: 2026-05-28</span>
+        </div>
+      </div>
+      <div class="transition-note">
+        2026-05-28 이후 60d 만기 데이터가 쌓이면 Walkforward 통과 조건이 충족되고
+        Gate가 PILOT → BUY_ALLOWED로 자동 전환됩니다. 코드 수정 불필요.
+        현재 REJECTED 사유는 데이터 부족이 원인이며 모델 고장이 아닙니다.
+      </div>
+    `;
+    return g;
+  } catch (e) {
+    el.innerHTML = `<div class="error-msg">Gate 상태 로드 실패: ${e.message}</div>`;
+    return null;
+  }
+}
+
+async function loadPerformance() {
+  const dateVal = document.getElementById("perfDate").value;
+  const topN = parseInt(document.getElementById("topN").value) || 20;
+  const statsEl = document.getElementById("perfStats");
+  const tableEl = document.getElementById("perfTable");
+
+  if (!dateVal) {
+    tableEl.innerHTML = `<div class="empty">날짜를 선택하세요.</div>`;
+    return;
+  }
+
+  statsEl.innerHTML = "";
+  tableEl.innerHTML = `<div class="loading">랭킹 데이터 조회 중…</div>`;
+
+  try {
+    // 1) Get ranking for the date
+    const rankRes = await fetch(`/api/ranking?date=${dateVal}`);
+    if (!rankRes.ok) throw new Error("랭킹 API 오류 " + rankRes.status);
+    const rankData = await rankRes.json();
+    const rows = Array.isArray(rankData.rows) ? rankData.rows : (Array.isArray(rankData) ? rankData : []);
+
+    // Sort by rank (ascending) and take top N
+    const sorted = rows
+      .filter(r => r.rank != null || r.final_score != null)
+      .sort((a, b) => {
+        const ra = a.rank ?? 9999, rb = b.rank ?? 9999;
+        if (ra !== rb) return ra - rb;
+        return (b.final_score || 0) - (a.final_score || 0);
+      })
+      .slice(0, topN);
+
+    if (!sorted.length) {
+      tableEl.innerHTML = `<div class="empty">${dateVal} 기준 랭킹 데이터가 없습니다.</div>`;
+      return;
     }
 
-    function renderSummary(model) {
-      const cards = [
-        {
-          label: "기준일",
-          value: model.analysisDate || "-",
-          detail: `랭킹 상위 ${model.topRows.length} / 수동매매 후보 ${model.manualItems.length}`
-        },
-        {
-          label: "강행 점검",
-          value: model.forcedRows.length,
-          detail: "manual priority인데 의미성 등급이 낮은 종목"
-        },
-        {
-          label: "놓친 대안",
-          value: model.missedRows.length,
-          detail: "manual 밖인데 A/B 등급인 종목"
-        },
-        {
-          label: "경계 후보",
-          value: model.boundaryRows.length,
-          detail: "manual caution 또는 장중 변화로 다시 봐야 하는 후보"
-        },
-        {
-          label: "리뷰 A/B",
-          value: model.topRows.filter((row) => ["A", "B"].includes(String(row.meaningfulness_grade || "").toUpperCase())).length,
-          detail: "상위 검토 구간에서 설명 가능한 후보 수"
-        },
-        {
-          label: "리뷰 기록",
-          value: Object.values(model.reviewStore).filter((item) => item?.date === model.analysisDate).length,
-          detail: "오늘 기준으로 남겨둔 운영 판단 기록 수"
-        }
-      ];
+    tableEl.innerHTML = `<div class="loading">성과 데이터 조회 중 (${sorted.length}종목)…</div>`;
 
-      $("#summaryGrid").innerHTML = cards.map((card) => `
-        <article class="review-card">
-          <div class="review-card__label">${escapeHtml(card.label)}</div>
-          <div class="review-card__value">${escapeHtml(String(card.value))}</div>
-          <div class="review-sub">${escapeHtml(card.detail)}</div>
-        </article>
-      `).join("");
-    }
-
-    function renderHero(model) {
-      const forcedCount = model.forcedRows.length;
-      const missedCount = model.missedRows.length;
-      const boundaryCount = model.boundaryRows.length;
-      const question =
-        forcedCount > 0
-          ? "우선 후보 중 설명이 약한 종목을 왜 밀고 있는가"
-          : missedCount > 0
-            ? "놓친 A/B 후보를 왜 빼고 있는가"
-            : "현재 선택은 비교적 설명 가능성이 유지되고 있는가";
-
-      $("#heroDate").textContent = `기준일 ${model.analysisDate || "-"}`;
-      $("#heroManual").textContent = `수동매매 후보 ${model.manualItems.length}`;
-      $("#heroAudit").textContent = `강행 ${forcedCount} / 누락 ${missedCount} / 경계 ${boundaryCount}`;
-      $("#heroQuestion").textContent = question;
-      $("#heroSummary").textContent =
-        `오늘 리뷰는 수동매매 우선 후보 ${model.manualPriorityRows.length}개 중 리뷰 등급이 약한 종목 ${forcedCount}개, manual 밖 대체 후보 ${missedCount}개, 경계 및 장중 변화 후보 ${boundaryCount}개를 중심으로 보면 됩니다.`;
-      $("#heroCopy").textContent =
-        `랭킹 상위와 수동매매 선택, meaningfulness 등급을 한 화면에서 비교해서 “왜 골랐는지”와 “왜 놓쳤는지”를 동시에 점검합니다.`;
-    }
-
-    function renderChecks(model) {
-      const forcedTop = model.forcedRows.slice(0, 4).map((row) => `${row.name || row.code}: ${row.meaningfulness_grade || "-"} 등급, ${row.caution_reasons || "주의 사유 없음"}`);
-      const missedTop = model.missedRows.slice(0, 4).map((row) => `${row.name || row.code}: ${row.meaningfulness_grade || "-"} 등급, ${row.positive_reasons || "강점 사유 없음"}`);
-      const boundaryTop = model.boundaryRows.slice(0, 4).map((row) => `${row.name || row.code}: ${classifyManual(model.manualMap.get(row.code))} / ${row.meaningfulness_grade || "-"} 등급`);
-
-      const renderList = (target, rows, fallback) => {
-        const el = $(target);
-        el.innerHTML = rows.length ? rows.map((text) => `<li>${escapeHtml(text)}</li>`).join("") : `<li>${escapeHtml(fallback)}</li>`;
-      };
-
-      renderList("#check1List", forcedTop, "강행 점검 대상이 없습니다.");
-      renderList("#check2List", missedTop, "놓친 대체 후보가 없습니다.");
-      renderList("#check3List", boundaryTop, "경계 후보가 많지 않습니다.");
-    }
-
-    function renderLanes(model) {
-      const sections = [
-        ["#forcedList", model.forcedRows.slice(0, 5), (row) => buildLaneItem(row, model.manualMap.get(row.code), "manual 우선 후보인데 리뷰 등급이 낮아 근거를 별도로 적어야 하는 종목")],
-        ["#missedList", model.missedRows.slice(0, 5), (row) => buildLaneItem(row, model.manualMap.get(row.code), "manual 밖이지만 리뷰 등급이 좋아 대체 후보로 다시 봐야 하는 종목")],
-        ["#boundaryList", model.boundaryRows.slice(0, 5), (row) => buildLaneItem(row, model.manualMap.get(row.code), "보수 검토 또는 장중 변화로 인해 최종 판단을 다시 봐야 하는 종목")],
-      ];
-
-      sections.forEach(([target, rows, render]) => {
-        const el = $(target);
-        if (!rows.length) {
-          el.innerHTML = '<div class="meaning-empty">해당 구간 종목이 없습니다.</div>';
-          return;
-        }
-        el.innerHTML = rows.map(render).join("");
-      });
-    }
-
-    function renderTable(model) {
-      const rows = uniqueRows([
-        ...model.forcedRows.map((row) => ({ ...row, _category: "forced" })),
-        ...model.missedRows.map((row) => ({ ...row, _category: "missed" })),
-        ...model.boundaryRows.map((row) => ({ ...row, _category: "boundary" })),
-      ]).slice(0, 18);
-
-      if (!rows.length) {
-        $("#tbody").innerHTML = '<tr><td colspan="7" class="center">표시할 리뷰 대상이 없습니다.</td></tr>';
-        $("#tableMeta").textContent = "0개 종목";
-        return;
-      }
-
-      $("#tbody").innerHTML = rows.map((row) => {
-        const manualItem = model.manualMap.get(row.code);
-        const grade = String(row.meaningfulness_grade || "C").toUpperCase();
-        const reviewEntry = getReviewEntry(model, row.code);
-        const outcome = model.outcomeMap.get(String(row.code || "").trim()) || null;
-        return `
-          <tr>
-            <td>${escapeHtml(formatCategory(row._category))}</td>
-            <td>
-              <div style="font-weight:700;">${escapeHtml(row.name || row.code)}</div>
-              <div class="table-note" style="margin-top:2px;">${escapeHtml(row.code || "-")} / ${escapeHtml(row.sector || "-")}</div>
-            </td>
-            <td>${escapeHtml(fmt(row.final_score_v3 ?? row.final_score, 1))}</td>
-            <td><span class="grade-badge grade-badge--${escapeHtml(grade)}">${escapeHtml(`${grade} ${row.meaningfulness_label || ""}`)}</span></td>
-            <td>
-              <div>${escapeHtml(classifyManual(manualItem))}</div>
-              <div class="table-note" style="margin-top:4px;">${escapeHtml(reviewEntry?.decision || "리뷰 미기록")}</div>
-              ${outcome ? `<div class="table-note" style="margin-top:4px;">후행 ${escapeHtml(fmtPct(outcome.latest_return))} / 최고 ${escapeHtml(fmtPct(outcome.peak_return))} / 최저 ${escapeHtml(fmtPct(outcome.trough_return))}</div>` : ""}
-            </td>
-            <td>${buildReasonRow(row.positive_reasons, "-", "good")}</td>
-            <td>
-              ${buildReasonRow(row.caution_reasons, "-", gradeTone(grade))}
-              ${reviewEntry?.note ? `<div class="table-note" style="margin-top:6px;">메모: ${escapeHtml(reviewEntry.note)}</div>` : ""}
-            </td>
-          </tr>
-        `;
-      }).join("");
-
-      $("#tableMeta").textContent = `총 ${rows.length}개 감사 대상`;
-    }
-
-    function renderOpsMemo(model) {
-      const intraday = model.intradaySummary || {};
-      const todayEntries = Object.values(model.reviewStore).filter((item) => item?.date === model.analysisDate);
-      const decisionCounts = todayEntries.reduce((acc, item) => {
-        const key = item?.decision || "unknown";
-        acc[key] = (acc[key] || 0) + 1;
-        return acc;
-      }, {});
-      const outcomeRows = Array.from(model.outcomeMap.values());
-      const positiveOutcomeCount = outcomeRows.filter((row) => Number(row.latest_return) > 0).length;
-      const negativeOutcomeCount = outcomeRows.filter((row) => Number(row.latest_return) < 0).length;
-      const opsMessages = [
-        model.forcedRows.length
-          ? `강행 점검 대상 ${model.forcedRows.length}개는 실제 진입 근거를 수동으로 남겨야 합니다.`
-          : "강행 점검 대상이 적어서 수동 선택과 리뷰 등급 괴리가 크지 않습니다.",
-        model.missedRows.length
-          ? `놓친 대안 ${model.missedRows.length}개는 다음 의사결정에서 누락 패턴을 확인해야 합니다.`
-          : "리뷰 등급이 좋은데 manual 밖에 있는 종목은 많지 않습니다.",
-        model.boundaryRows.length
-          ? `경계 후보 ${model.boundaryRows.length}개는 수동 필터가 너무 보수적인지 보기에 좋습니다.`
-          : "경계 후보 수가 적어서 현재 필터는 과도하지 않아 보입니다.",
-        outcomeRows.length
-          ? `후행 성과가 계산된 ${outcomeRows.length}개 중 상승 ${positiveOutcomeCount}개, 하락 ${negativeOutcomeCount}개입니다.`
-          : "후행 성과를 계산할 가격 데이터가 아직 충분하지 않습니다.",
-      ];
-
-      $("#opsSummary").textContent =
-        `이 페이지는 종목 추천 도구가 아니라 선택 검수 도구입니다. 수동매매 우선 후보, 놓친 대안, 경계 후보를 따로 보는 것이 핵심입니다.`;
-      $("#opsList").innerHTML = opsMessages.map((text) => `<li>${escapeHtml(text)}</li>`).join("");
-
-      $("#reviewSummary").textContent =
-        todayEntries.length
-          ? `오늘 기록 ${todayEntries.length}건이 저장되어 있습니다.${operatorAuth.enabled ? (operatorAuth.authorized ? " DB에 저장됩니다." : " 로그인 전에는 저장이 제한됩니다.") : " 로컬에서도 확인할 수 있습니다."}`
-          : operatorAuth.enabled && !operatorAuth.authorized
-            ? "운영자 로그인 후 DB에 리뷰 기록을 남길 수 있습니다."
-            : "아직 오늘 기록된 리뷰 판단이 없습니다.";
-
-      const reviewChips = [];
-      REVIEW_DECISIONS.forEach((item) => {
-        if (decisionCounts[item.key]) {
-          reviewChips.push(buildChip(`${item.label} ${decisionCounts[item.key]}`, "info"));
-        }
-      });
-      $("#reviewChips").innerHTML = reviewChips.length ? reviewChips.join("") : '<span class="meaning-chip">리뷰 미기록</span>';
-
-      $("#intradaySummary").textContent =
-        intraday?.headline || "장중 변화 요약이 없으면 수동매매 선택과 리뷰 등급 차이만 보면 됩니다.";
-
-      const chips = [];
-      if (Array.isArray(intraday.promoted_to_priority) && intraday.promoted_to_priority.length) {
-        chips.push(buildChip(`장중 상향 ${intraday.promoted_to_priority.length}`, "info"));
-      }
-      if (Array.isArray(intraday.dropped_from_priority) && intraday.dropped_from_priority.length) {
-        chips.push(buildChip(`장중 제외 ${intraday.dropped_from_priority.length}`, "warn"));
-      }
-      if (Array.isArray(intraday.missing_quotes) && intraday.missing_quotes.length) {
-        chips.push(buildChip(`장중 누락 ${intraday.missing_quotes.length}`, "bad"));
-      }
-      $("#intradayChips").innerHTML = chips.length ? chips.join("") : '<span class="meaning-chip">장중 특이사항 없음</span>';
-    }
-
-    function buildModel(rankingRows, manualSummary, meaningPayload, reviewStore, outcomeRows) {
-      const meaningRows = Array.isArray(meaningPayload?.rows) ? meaningPayload.rows : [];
-      const meaningMap = buildLookup(meaningRows);
-      const combinedRows = uniqueRows(
-        (rankingRows || []).slice(0, 60).map((row) => ({
-          ...row,
-          ...(meaningMap.get(String(row?.code || "").trim()) || {}),
-        }))
-      );
-
-      const topRows = combinedRows.slice(0, 30);
-      const manualPriorityItems = (manualSummary?.priority_candidates || []).map((item) => ({ ...item, bucket: "priority" }));
-      const manualCautionItems = (manualSummary?.caution_candidates || []).map((item) => ({ ...item, bucket: "caution" }));
-      const manualItems = [...manualPriorityItems, ...manualCautionItems];
-      const manualMap = new Map(manualItems.map((item) => [String(item.code || "").trim(), item]));
-      const rowLookup = buildLookup(combinedRows);
-
-      const manualPriorityRows = uniqueRows(
-        manualPriorityItems.map((item) => rowLookup.get(String(item.code || "").trim())).filter(Boolean)
-      );
-
-      const forcedRows = uniqueRows(
-        manualPriorityRows.filter((row) => ["C", "D"].includes(String(row.meaningfulness_grade || "").toUpperCase()))
-      ).sort((a, b) => (toNum(a.meaningfulness_score) ?? 0) - (toNum(b.meaningfulness_score) ?? 0));
-
-      const missedRows = uniqueRows(
-        topRows.filter((row) => {
-          const manual = manualMap.get(String(row.code || "").trim());
-          const grade = String(row.meaningfulness_grade || "").toUpperCase();
-          return !manual && ["A", "B"].includes(grade);
-        })
-      ).sort((a, b) => (toNum(b.meaningfulness_score) ?? 0) - (toNum(a.meaningfulness_score) ?? 0));
-
-      const boundaryCodes = new Set([
-        ...manualCautionItems.map((item) => String(item.code || "").trim()),
-        ...((manualSummary?.intraday_summary?.promoted_to_priority || []).map((item) => String(item.code || "").trim())),
-        ...((manualSummary?.intraday_summary?.dropped_from_priority || []).map((item) => String(item.code || "").trim())),
-        ...((manualSummary?.intraday_summary?.missing_quotes || []).map((item) => String(item.code || "").trim())),
-      ]);
-
-      const boundaryRows = uniqueRows(
-        topRows.filter((row) => boundaryCodes.has(String(row.code || "").trim()))
-      ).sort((a, b) => (toNum(b.final_score_v3 ?? b.final_score) ?? 0) - (toNum(a.final_score_v3 ?? a.final_score) ?? 0));
-
-      return {
-        analysisDate: meaningPayload?.meta?.analysis_date || manualSummary?.asof_date || rankingRows?.[0]?.date || "-",
-        topRows,
-        manualItems,
-        manualMap,
-        manualPriorityRows,
-        intradaySummary: manualSummary?.intraday_summary || null,
-        forcedRows,
-        missedRows,
-        boundaryRows,
-        reviewStore: reviewStore || {},
-        outcomeMap: new Map((outcomeRows || []).map((row) => [String(row.code || "").trim(), row])),
-      };
-    }
-
-    function bindReviewInputs(model) {
-      document.querySelectorAll("[data-review-decision]").forEach((button) => {
-        button.addEventListener("click", async (event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          const code = button.dataset.reviewCode;
-          const decision = button.dataset.reviewDecision;
-          const result = await upsertReviewEntry(model, code, { decision });
-          if (result?.requiresAuth) {
-            alert("운영자 로그인 후 저장할 수 있습니다.");
-            location.href = operatorLoginUrl();
-            return;
-          }
-          renderLanes(model);
-          renderTable(model);
-          renderOpsMemo(model);
-          bindReviewInputs(model);
-        });
-      });
-
-      document.querySelectorAll("[data-review-note]").forEach((textarea) => {
-        textarea.addEventListener("change", async (event) => {
-          const code = textarea.dataset.reviewNote;
-          const result = await upsertReviewEntry(model, code, { note: event.target.value.trim() });
-          if (result?.requiresAuth) {
-            alert("운영자 로그인 후 저장할 수 있습니다.");
-            location.href = operatorLoginUrl();
-            return;
-          }
-          renderTable(model);
-          renderOpsMemo(model);
-        });
-      });
-    }
-
-    async function loadReport() {
-      $("#tbody").innerHTML = '<tr><td colspan="7" class="center">데이터를 불러오는 중입니다.</td></tr>';
-      try {
-        await fetchOperatorAuthStatus();
-        const rankingRows = await fetchJson("/api/ranking");
-        const [manualSummary, meaningPayload] = await Promise.all([
-          fetchJson("/api/manual-trading/summary"),
-          fetchJson("/api/top20-meaningfulness"),
-        ]);
-        const analysisDate =
-          meaningPayload?.meta?.analysis_date || manualSummary?.asof_date || rankingRows?.[0]?.date || "-";
-        const reviewStore = operatorAuth.enabled && operatorAuth.authorized
-          ? await loadReviewStoreFromDb(analysisDate)
-          : loadReviewStore();
-        const outcomePayload = await fetchOutcomes(
-          analysisDate,
-          rankingRows.slice(0, 60).map((row) => row.code).filter(Boolean)
-        );
-        const model = buildModel(
-          rankingRows,
-          manualSummary,
-          meaningPayload,
-          reviewStore,
-          Array.isArray(outcomePayload?.rows) ? outcomePayload.rows : []
-        );
-        window.__meaningModel = model;
-        renderHero(model);
-        renderSummary(model);
-        renderChecks(model);
-        renderLanes(model);
-        renderTable(model);
-        renderOpsMemo(model);
-        bindReviewInputs(model);
-      } catch (err) {
-        console.error(err);
-        $("#summaryGrid").innerHTML = `<div class="meaning-empty">리뷰 페이지를 불러오지 못했습니다. ${escapeHtml(err.message || "")}</div>`;
-        $("#check1List").innerHTML = "<li>로드 실패</li>";
-        $("#check2List").innerHTML = "<li>로드 실패</li>";
-        $("#check3List").innerHTML = "<li>로드 실패</li>";
-        $("#forcedList").innerHTML = '<div class="meaning-empty">로드 실패</div>';
-        $("#missedList").innerHTML = '<div class="meaning-empty">로드 실패</div>';
-        $("#boundaryList").innerHTML = '<div class="meaning-empty">로드 실패</div>';
-        $("#opsSummary").textContent = "데이터 로드 실패";
-        $("#opsList").innerHTML = "<li>API 응답을 확인하세요.</li>";
-        $("#tbody").innerHTML = '<tr><td colspan="7" class="center">조회 실패</td></tr>';
-      }
-    }
-
-    $("#reloadBtn")?.addEventListener("click", loadReport);
-    $("#operatorLoginBtn")?.addEventListener("click", () => {
-      if (operatorAuth.authorized) {
-        operatorLogout().catch(() => {});
-        return;
-      }
-      location.href = operatorLoginUrl();
+    // 2) Get outcomes
+    const codes = sorted.map(r => String(r.code || "").trim()).filter(Boolean);
+    const outRes = await fetch("/api/meaningfulness-outcomes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ analysis_date: dateVal, codes }),
     });
-    loadReport();
-  </script>
-  <script src="./ops-unified-nav.js?v=20260518-nav-fix"></script>
+    if (!outRes.ok) throw new Error("성과 API 오류 " + outRes.status);
+    const outData = await outRes.json();
+    const outcomeMap = new Map((outData.rows || []).map(r => [r.code, r]));
+
+    // 3) Merge and render
+    const merged = sorted.map(r => ({
+      ...r,
+      outcome: outcomeMap.get(String(r.code || "").trim()) || null,
+    }));
+
+    renderStats(merged, statsEl);
+    renderTable(merged, tableEl);
+
+  } catch (e) {
+    statsEl.innerHTML = "";
+    tableEl.innerHTML = `<div class="error-msg">오류: ${e.message}</div>`;
+  }
+}
+
+function renderStats(rows, el) {
+  const withOutcome = rows.filter(r => r.outcome && r.outcome.latest_return != null);
+  if (!withOutcome.length) { el.innerHTML = ""; return; }
+
+  const rets = withOutcome.map(r => r.outcome.latest_return);
+  const hitCount = rets.filter(v => v > 0).length;
+  const hitRate = hitCount / rets.length;
+  const avgRet = rets.reduce((a, b) => a + b, 0) / rets.length;
+  const peakRets = withOutcome.map(r => r.outcome.peak_return).filter(v => v != null);
+  const avgPeak = peakRets.length ? peakRets.reduce((a, b) => a + b, 0) / peakRets.length : null;
+  const troughRets = withOutcome.map(r => r.outcome.trough_return).filter(v => v != null);
+  const avgTrough = troughRets.length ? troughRets.reduce((a, b) => a + b, 0) / troughRets.length : null;
+  const maxDays = Math.max(...withOutcome.map(r => r.outcome.observed_days || 0));
+
+  el.innerHTML = `
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-card__label">히트율 (양수수익)</div>
+        <div class="stat-card__value ${hitRate >= 0.5 ? 'ret--pos' : 'ret--neg'}">${Math.round(hitRate * 100)}%</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">평균 수익률</div>
+        <div class="stat-card__value ${retClass(avgRet)}">${fmtPct(avgRet)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">평균 최고 수익률</div>
+        <div class="stat-card__value ret--pos">${fmtPct(avgPeak)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">평균 최저 수익률</div>
+        <div class="stat-card__value ret--neg">${fmtPct(avgTrough)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">관찰 종목 / 기간</div>
+        <div class="stat-card__value" style="font-size:16px;">${withOutcome.length}<span style="font-size:12px; color:var(--color-text-secondary)"> / ${maxDays}일</span></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTable(rows, el) {
+  const tbody = rows.map((r, i) => {
+    const o = r.outcome;
+    const rank = r.rank ?? (i + 1);
+    const code = String(r.code || "");
+    const name = r.name || code;
+    const score = r.final_score != null ? Number(r.final_score).toFixed(1) : "—";
+    const latRet = o?.latest_return;
+    const peakRet = o?.peak_return;
+    const troughRet = o?.trough_return;
+    const obsDays = o?.observed_days;
+    const latestDate = o?.latest_date || "—";
+
+    return `
+      <tr>
+        <td class="td-rank">${rank}</td>
+        <td><div class="td-name">${name}</div><div class="td-code">${code}</div></td>
+        <td class="td-score">${score}</td>
+        <td class="${obsDays >= 60 ? 'ret--pos' : ''}">${obsDays != null ? `<span class="days-badge">${obsDays}일</span>` : "—"}</td>
+        <td><span class="ret ${retClass(latRet)}">${fmtPct(latRet)}</span><div style="font-size:10px;color:var(--color-text-secondary);margin-top:2px">${latestDate}</div></td>
+        <td><span class="ret ret--pos">${fmtPct(peakRet)}</span></td>
+        <td><span class="ret ret--neg">${fmtPct(troughRet)}</span></td>
+      </tr>
+    `;
+  }).join("");
+
+  el.innerHTML = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>순위</th>
+            <th>종목</th>
+            <th>점수</th>
+            <th>관찰</th>
+            <th>현재 수익률</th>
+            <th>최고 도달</th>
+            <th>최저 도달</th>
+          </tr>
+        </thead>
+        <tbody>${tbody}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+// Init
+(async () => {
+  const gate = await loadGateStatus();
+
+  const fmt = d => d.toISOString().slice(0, 10);
+  const today = new Date();
+  const d20 = new Date(today); d20.setDate(d20.getDate() - 20);
+  const dateInput = document.getElementById("perfDate");
+  dateInput.value = fmt(d20);
+  dateInput.max = fmt(today);
+
+  loadPerformance();
+})();
+</script>
 </body>
 </html>

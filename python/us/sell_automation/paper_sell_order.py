@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import math
 import uuid
 
 
@@ -22,7 +23,7 @@ def build_paper_sell_order(
 ) -> dict[str, object]:
     latest_price = _safe_float(position.get("latest_price"))
     avg_entry_price = _safe_float(position.get("avg_entry_price"))
-    sell_quantity = _safe_float(decision.get("sell_quantity")) or 0.0
+    sell_quantity = max(0, int(math.floor(_safe_float(decision.get("sell_quantity")) or 0.0)))
     sell_amount = round((latest_price or 0.0) * sell_quantity, 6)
     realized_paper_pnl = None
     realized_paper_pnl_pct = None

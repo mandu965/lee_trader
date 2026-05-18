@@ -281,16 +281,6 @@
       </section>
 
       <section class="panel panel-block">
-        <div class="section-head">
-          <div>
-            <h2 class="section-title">이 화면 읽는 법</h2>
-            <div class="section-note">먼저 구조를 이해해야 현재 보유 종목 수가 왜 많은지 해석이 됩니다.</div>
-          </div>
-        </div>
-        <div class="explain-grid" id="explainGrid"></div>
-      </section>
-
-      <section class="panel panel-block">
         <div class="meta-strip" id="metaStrip"></div>
       </section>
 
@@ -298,7 +288,7 @@
         <div class="section-head">
           <div>
             <h2 class="section-title">전략별 계좌 요약</h2>
-            <div class="section-note">top5 / top8 / top10은 서로 다른 가상 계좌입니다.</div>
+            <div class="section-note">top5 / top8 / top10은 서로 독립된 가상 계좌입니다. 20영업일 보유, 매일 신규 코호트 추가.</div>
           </div>
         </div>
         <div class="strategy-grid" id="strategyGrid"></div>
@@ -307,8 +297,18 @@
       <section class="panel panel-block">
         <div class="section-head">
           <div>
+            <h2 class="section-title">누적 수익률 추이</h2>
+            <div class="section-note">전략 시작일부터 오늘까지 누적 수익률 · 점선 = 기준(0%)</div>
+          </div>
+        </div>
+        <div id="navChart"><div class="empty-state">불러오는 중</div></div>
+      </section>
+
+      <section class="panel panel-block">
+        <div class="section-head">
+          <div>
             <h2 class="section-title">선택 전략 현재 상태</h2>
-            <div class="section-note">오늘 신규 편입, 계속 보유, 곧 청산 대기 상태를 요약합니다.</div>
+            <div class="section-note">오늘 신규 편입 / 계속 보유 / 청산 임박</div>
           </div>
         </div>
         <div class="status-strip" id="statusStrip"></div>
@@ -317,59 +317,26 @@
       <section class="panel panel-block">
         <div class="section-head">
           <div>
-            <h2 class="section-title">NAV 시계열</h2>
-            <div class="section-note">선택한 전략의 최근 NAV 흐름</div>
-          </div>
-        </div>
-        <div class="table-wrap table-wrap--nav">
-          <table>
-            <thead>
-              <tr>
-                <th>전략</th>
-                <th>날짜</th>
-                <th class="right">NAV</th>
-                <th class="right">누적수익률</th>
-                <th class="right">드로다운</th>
-                <th class="right">활성 포지션</th>
-                <th class="right">당일 신규</th>
-                <th class="right">중복 스킵</th>
-              </tr>
-            </thead>
-            <tbody id="navTbody">
-              <tr><td colspan="8" class="center">불러오는 중</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="panel panel-block">
-        <div class="section-head">
-          <div>
             <h2 class="section-title">현재 보유 종목</h2>
-            <div class="section-note">선택한 전략에서 아직 열려 있는 포지션 목록</div>
+            <div class="section-note">선택한 전략의 열린 포지션</div>
           </div>
         </div>
         <div class="table-wrap">
-          <table class="positions-table">
+          <table>
             <thead>
               <tr>
                 <th>상태</th>
                 <th>전략</th>
-                <th>코드</th>
                 <th>종목명</th>
                 <th>진입일</th>
-                <th>예상 마감일</th>
-                <th class="right">보유일수</th>
-                <th class="right">잔여일수</th>
-                <th class="right">진입가</th>
-                <th class="right">수량</th>
-                <th class="right">평가수익률</th>
+                <th class="right">보유일 / 잔여일</th>
+                <th class="right">현재수익률</th>
                 <th class="right">Confidence</th>
-                <th class="right">Final Score</th>
+                <th class="right">Score</th>
               </tr>
             </thead>
             <tbody id="positionsTbody">
-              <tr><td colspan="12" class="center">불러오는 중</td></tr>
+              <tr><td colspan="8" class="center">불러오는 중</td></tr>
             </tbody>
           </table>
         </div>

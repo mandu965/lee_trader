@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date, datetime, timezone
+import math
 import uuid
 
 from python.us.sell_automation.config import SellAutomationConfig, load_sell_automation_config
@@ -45,6 +46,18 @@ def _market_context(cfg: SellAutomationConfig, trade_date: date) -> dict[str, ob
     }
 
 
+def _whole_share_quantity(*, remaining_quantity: object, sell_ratio: float, full_exit: bool) -> int:
+    qty = _safe_float(remaining_quantity) or 0.0
+    if qty <= 0 or sell_ratio <= 0:
+        return 0
+    if full_exit:
+        return max(0, int(round(qty)))
+    partial_qty = int(math.floor(qty * sell_ratio))
+    if partial_qty <= 0 and qty >= 1:
+        return 1
+    return max(0, partial_qty)
+
+
 def _decision_for_rules(
     *,
     position: dict[str, object],
@@ -84,7 +97,11 @@ def _decision_for_rules(
         elif requested_sell_action == "PARTIAL_SELL":
             decision = "PARTIAL_SELL"
             sell_ratio = cfg.partial_take_profit_ratio
-    sell_quantity = round((_safe_float(position.get("remaining_quantity")) or 0.0) * sell_ratio, 6)
+    sell_quantity = _whole_share_quantity(
+        remaining_quantity=position.get("remaining_quantity"),
+        sell_ratio=sell_ratio,
+        full_exit=decision == "SELL",
+    )
 
     sell_action = requested_sell_action
     if not cfg.enabled and requested_sell_action != "NONE":

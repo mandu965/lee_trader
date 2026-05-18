@@ -209,6 +209,43 @@ def _write_json(path: Path, payload: object) -> Path:
     return path
 
 
+def _build_position_snapshot_rows(*, trade_date: object, positions: list[dict[str, object]]) -> list[dict[str, object]]:
+    rows: list[dict[str, object]] = []
+    now = datetime.now(timezone.utc)
+    for position in positions:
+        rows.append(
+            {
+                "snapshot_id": f"{trade_date}_{position.get('paper_position_id')}",
+                "snapshot_date": trade_date,
+                "paper_position_id": position.get("paper_position_id"),
+                "symbol": position.get("symbol"),
+                "latest_price": position.get("latest_price"),
+                "remaining_quantity": position.get("remaining_quantity"),
+                "highest_price_since_entry": position.get("highest_price_since_entry"),
+                "unrealized_pnl": position.get("unrealized_pnl"),
+                "unrealized_pnl_pct": position.get("unrealized_pnl_pct"),
+                "holding_days": position.get("holding_days"),
+                "status": position.get("status"),
+                "data_quality_flags": _json_text(position.get("data_quality_flags") or []),
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    return rows
+
+
+def persist_position_snapshots(*, trade_date: object, positions: list[dict[str, object]]) -> int:
+    if not positions or not relation_exists("trade.us_paper_position_snapshot"):
+        return 0
+    rows = _build_position_snapshot_rows(trade_date=trade_date, positions=positions)
+    if not rows:
+        return 0
+    engine = get_us_engine()
+    with engine.begin() as conn:
+        conn.execute(INSERT_POSITION_SNAPSHOT_SQL, rows)
+    return len(rows)
+
+
 def persist_sell_automation_logs(
     *,
     cfg: SellAutomationConfig,
@@ -313,26 +350,10 @@ def persist_sell_automation_logs(
                     persisted["db_paper_sell_orders"] = len(rows)
 
             if relation_exists("trade.us_paper_position_snapshot"):
-                rows = []
-                for position in report.get("positions", []):
-                    rows.append(
-                        {
-                            "snapshot_id": f"{report.get('trade_date')}_{position.get('paper_position_id')}",
-                            "snapshot_date": report.get("trade_date"),
-                            "paper_position_id": position.get("paper_position_id"),
-                            "symbol": position.get("symbol"),
-                            "latest_price": position.get("latest_price"),
-                            "remaining_quantity": position.get("remaining_quantity"),
-                            "highest_price_since_entry": position.get("highest_price_since_entry"),
-                            "unrealized_pnl": position.get("unrealized_pnl"),
-                            "unrealized_pnl_pct": position.get("unrealized_pnl_pct"),
-                            "holding_days": position.get("holding_days"),
-                            "status": position.get("status"),
-                            "data_quality_flags": _json_text(position.get("data_quality_flags") or []),
-                            "created_at": datetime.now(timezone.utc),
-                            "updated_at": datetime.now(timezone.utc),
-                        }
-                    )
+                rows = _build_position_snapshot_rows(
+                    trade_date=report.get("trade_date"),
+                    positions=list(report.get("positions") or []),
+                )
                 if rows:
                     conn.execute(INSERT_POSITION_SNAPSHOT_SQL, rows)
                     persisted["db_position_snapshots"] = len(rows)
