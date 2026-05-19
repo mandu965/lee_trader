@@ -6,6 +6,8 @@ import json
 
 from sqlalchemy import text
 
+import os
+
 from python.us.sell_automation.config import SellAutomationConfig
 from python.us.us_config import parse_iso_date
 from python.us.us_db import (
@@ -24,6 +26,7 @@ LATEST_RANK_ROWS_SQL = text(
     FROM recommend.us_stock_rank_daily
     WHERE symbol = ANY(:symbols)
       AND trade_date <= :trade_date
+      AND source = :source
     ORDER BY symbol, trade_date DESC, rank_no ASC NULLS LAST
     """
 )
@@ -186,6 +189,10 @@ def _extract_probability(rank_row: dict[str, object]) -> float | None:
     candidates = [
         detail.get("probability"),
         detail.get("model_probability"),
+        detail.get("predicted_probability"),
+        # ml_v1 uses prob_top20_20d / prob_top20_60d
+        detail.get("prob_top20_20d"),
+        detail.get("prob_top20_60d"),
         detail.get("meta", {}).get("probability") if isinstance(detail.get("meta"), dict) else None,
     ]
     for candidate in candidates:
@@ -238,13 +245,13 @@ def _effective_trade_date(account_id: str, requested_trade_date: date | None) ->
     return date.today()
 
 
-def _load_latest_rank_map(symbols: list[str], trade_date: date) -> dict[str, dict[str, object]]:
+def _load_latest_rank_map(symbols: list[str], trade_date: date, ranking_source: str = "rule_v1") -> dict[str, dict[str, object]]:
     if not symbols or not relation_exists("recommend.us_stock_rank_daily"):
         return {}
     try:
         engine = get_us_engine()
         with engine.connect() as conn:
-            rows = conn.execute(LATEST_RANK_ROWS_SQL, {"symbols": symbols, "trade_date": trade_date}).mappings().all()
+            rows = conn.execute(LATEST_RANK_ROWS_SQL, {"symbols": symbols, "trade_date": trade_date, "source": ranking_source}).mappings().all()
         return {str(row.get("symbol") or "").upper(): dict(row) for row in rows}
     except Exception:
         return {}
@@ -433,7 +440,8 @@ def load_paper_positions(
             "events": events,
         }
 
-    latest_rank_map = _load_latest_rank_map(symbols, trade_date)
+    ranking_source = str(os.environ.get("US_RANKING_DEFAULT_SOURCE", "rule_v1")).strip() or "rule_v1"
+    latest_rank_map = _load_latest_rank_map(symbols, trade_date, ranking_source)
     price_history_rows = fetch_price_history_for_tickers(sorted(set(symbols) | {cfg.benchmark_symbol.upper()}), end_date=trade_date)
     positions = build_positions_from_orders(
         account_id=account_id,

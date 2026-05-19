@@ -145,6 +145,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-hold-rank", type=int, default=int(get_production_config_value(["execution_policy", "max_hold_rank"], 8)))
     parser.add_argument("--min-replace-score-gap", type=float, default=float(get_production_config_value(["execution_policy", "min_replace_score_gap"], 3.0)))
     parser.add_argument("--max-replacements-per-cycle", type=int, default=int(get_production_config_value(["execution_policy", "max_replacements_per_cycle"], 2)))
+    parser.add_argument("--position-trim-buffer", type=float, default=float(get_production_config_value(["execution_policy", "position_trim_buffer"], 0.03)))
+    parser.add_argument("--position-cap-trim-enabled", action="store_true", default=bool(get_production_config_value(["execution_policy", "position_cap_trim_enabled"], True)))
     parser.add_argument("--reentry-cooldown-days", type=int, default=int(get_production_config_value(["execution_policy", "reentry_cooldown_days"], 10)))
     parser.add_argument("--min-liquidity-score", type=float, default=float(get_production_config_value(["buy_candidate", "min_liquidity_score"], 15.0)))
     parser.add_argument("--min-trading-value", type=float, default=float(get_production_config_value(["buy_candidate", "min_trading_value"], 5_000_000_000.0)))
@@ -961,12 +963,14 @@ def classify_holdings(
             # position risk로 이미 EXIT_CANDIDATE인 경우 다운그레이드하지 않음
             action = "REPLACE_CANDIDATE"
             reasons.append(f"confidence {_fmt_num(confidence)} < hold floor {_fmt_num(args.min_hold_confidence)}")
-        if pd.notna(current_weight) and float(current_weight) > args.max_position_weight + 1e-8:
-            action = "TRIM"
-            reasons.append(f"position cap {_fmt_pct(args.max_position_weight)} exceeded")
-        if pd.notna(current_weight) and policy_cap_weight > 0 and float(current_weight) > policy_cap_weight + 1e-8:
-            action = "TRIM"
-            reasons.append(f"confidence band cap {_fmt_pct(policy_cap_weight)} exceeded ({confidence_policy.band})")
+        if bool(getattr(args, "position_cap_trim_enabled", True)):
+            _trim_buffer = float(getattr(args, "position_trim_buffer", 0.03))
+            if pd.notna(current_weight) and float(current_weight) > args.max_position_weight + _trim_buffer:
+                action = "TRIM"
+                reasons.append(f"position cap {_fmt_pct(args.max_position_weight)} exceeded by >{_fmt_pct(_trim_buffer)} buffer")
+            if pd.notna(current_weight) and policy_cap_weight > 0 and float(current_weight) > policy_cap_weight + _trim_buffer:
+                action = "TRIM"
+                reasons.append(f"confidence band cap {_fmt_pct(policy_cap_weight)} exceeded by >{_fmt_pct(_trim_buffer)} buffer ({confidence_policy.band})")
         if sector_weights.get(sector, 0.0) > args.sector_cap + 1e-8:
             action = "TRIM"
             reasons.append(f"sector cap {_fmt_pct(args.sector_cap)} exceeded")

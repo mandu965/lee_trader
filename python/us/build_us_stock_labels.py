@@ -112,11 +112,11 @@ def add_label_columns(
     out = frame.copy()
     if 20 in windows:
         out["label_positive_20d"] = out["future_ret_20d"].map(
-            lambda x: None if pd.isna(x) else (1 if float(x) > 0 else 0)
+            lambda x: None if pd.isna(x) else bool(float(x) > 0)
         )
     if 60 in windows:
         out["label_positive_60d"] = out["future_ret_60d"].map(
-            lambda x: None if pd.isna(x) else (1 if float(x) > 0 else 0)
+            lambda x: None if pd.isna(x) else bool(float(x) > 0)
         )
 
     universe_mask = ~out["ticker"].isin(exclude_benchmarks)
@@ -135,7 +135,7 @@ def add_label_columns(
         rank_source[label_col] = rank_source.apply(
             lambda row: None
             if pd.isna(row[future_col]) or universe_counts.loc[row.name] < min_universe_size
-            else (1 if float(row[rank_col]) >= (1.0 - top_percentile) else 0),
+            else bool(float(row[rank_col]) >= (1.0 - top_percentile)),
             axis=1,
         )
         out = out.merge(rank_source[["ticker", "trade_date", rank_col, label_col]], on=["ticker", "trade_date"], how="left")

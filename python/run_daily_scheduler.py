@@ -192,6 +192,8 @@ def _us_trade_orchestration_command() -> list[str]:
         str(ROOT / "python" / "us" / "run_us_trade_orchestration.py"),
         "--trade-date",
         _scheduler_trade_date_text(),
+        "--account-id",
+        "US_TRADE_SCHEDULER",
     ]
 
 

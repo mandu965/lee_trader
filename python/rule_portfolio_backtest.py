@@ -36,6 +36,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from krx_price_utils import normalize_krx_limit_price
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
@@ -56,16 +57,30 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--end-date", type=str, default=None, help="YYYY-MM-DD")
     p.add_argument("--initial-capital", type=float, default=10_000_000.0)
     p.add_argument("--max-positions", type=int, default=int(os.getenv("RULE_MAX_POSITIONS", "5")))
-    p.add_argument("--new-entry-weight", type=float, default=float(os.getenv("RULE_NEW_ENTRY_WEIGHT", "0.10")))
+    p.add_argument("--new-entry-weight", type=float, default=float(os.getenv("RULE_NEW_ENTRY_WEIGHT", "0.16")))
     p.add_argument("--max-position-weight", type=float, default=float(os.getenv("RULE_MAX_POSITION_WEIGHT", "0.20")))
     p.add_argument("--min-cash-weight", type=float, default=float(os.getenv("RULE_MIN_CASH_WEIGHT", "0.20")))
     p.add_argument("--max-sector-weight", type=float, default=float(os.getenv("RULE_MAX_SECTOR_WEIGHT", "0.35")))
     p.add_argument("--cooldown-days", type=int, default=int(os.getenv("RULE_COOLDOWN_DAYS", "5")))
-    p.add_argument("--max-holding-days", type=int, default=int(os.getenv("RULE_MAX_HOLDING_DAYS", "10")))
+    p.add_argument("--max-holding-days", type=int, default=int(os.getenv("RULE_MAX_HOLDING_DAYS", "20")))
+    p.add_argument("--max-holding-days-defensive", type=int, default=int(os.getenv("RULE_MAX_HOLDING_DAYS_DEFENSIVE", "14")))
     p.add_argument("--max-holding-profit-buffer", type=float, default=float(os.getenv("RULE_MAX_HOLDING_DAYS_PROFIT_BUFFER", "0.02")))
     p.add_argument("--stop-loss-pct", type=float, default=float(os.getenv("RULE_STOP_LOSS_PCT", "0.05")))
-    p.add_argument("--trailing-stop-pct", type=float, default=float(os.getenv("RULE_TRAILING_STOP_PCT", "0.04")))
-    p.add_argument("--trailing-stop-min-profit-pct", type=float, default=float(os.getenv("RULE_TRAILING_STOP_MIN_PROFIT_PCT", "0.03")))
+    p.add_argument("--trailing-stop-pct", type=float, default=float(os.getenv("RULE_TRAILING_STOP_PCT", "0.025")))
+    p.add_argument("--trailing-stop-min-profit-pct", type=float, default=float(os.getenv("RULE_TRAILING_STOP_MIN_PROFIT_PCT", "0.05")))
+    p.add_argument("--allow-entry-signal", action="store_true",
+                   default=str(os.getenv("RULE_ALLOW_ENTRY_SIGNAL", "0")).strip().lower() in {"1", "true", "yes", "on"},
+                   help="Allow relaxed entry_signal candidates in addition to strong_entry_signal.")
+    p.add_argument("--entry-allow-ratio", type=float, default=float(os.getenv("RULE_ENTRY_ALLOW_RATIO", "0.6")))
+    p.add_argument("--exit-score-mode", type=str, default="mixed", choices=["mixed", "v2", "v3"],
+                   help="Score mode for non-stop/non-trailing exit decisions.")
+    p.add_argument("--buy-limit-buffer", type=float, default=float(os.getenv("RULE_BUY_LIMIT_BUFFER", "0.01")))
+    p.add_argument("--buy-limit-buffer-high-vol", type=float, default=float(os.getenv("RULE_BUY_LIMIT_BUFFER_HIGH_VOL", "0.02")))
+    p.add_argument("--reprice-unfilled-sell", action="store_true",
+                   default=str(os.getenv("RULE_REPRICE_UNFILLED_SELL_ENABLED", "0")).strip().lower() in {"1", "true", "yes", "on"},
+                   help="Retry one repriced sell on the same day when the original sell limit is not filled.")
+    p.add_argument("--unfilled-sell-reprice-factor", type=float,
+                   default=float(os.getenv("RULE_UNFILLED_SELL_REPRICE_FACTOR", "0.985")))
     p.add_argument("--signal-col", type=str, default="strong_entry_signal",
                    help="Signal column to use: entry_signal or strong_entry_signal")
     p.add_argument("--out-equity-csv", type=Path, default=OUTPUT_DIR / "rule_portfolio_backtest_equity.csv")
@@ -120,6 +135,7 @@ def load_prices(path: Path) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["code"] = df["code"].astype(str).str.zfill(6)
     df["open"] = pd.to_numeric(df.get("adj_open", df.get("open")), errors="coerce")
+    df["low"] = pd.to_numeric(df.get("adj_low", df.get("low")), errors="coerce")
     df["high"] = pd.to_numeric(df.get("adj_high", df.get("high")), errors="coerce")
     df["close"] = pd.to_numeric(df.get("adj_close", df.get("close")), errors="coerce")
     return df.dropna(subset=["date", "code", "open", "close"]).sort_values(["date", "code"])
@@ -170,6 +186,7 @@ class PendingOrder:
     sector: str
     signal_date: pd.Timestamp
     target_amount: float  # 목표 투자금액
+    limit_price: float
 
 
 @dataclass
@@ -239,7 +256,9 @@ class PendingSell:
     code: str
     reason: str
     qty: int       # 청산 수량 (전량 or 50%)
+    limit_price: float
     is_partial: bool = False  # True이면 reduce (부분 청산)
+    repriced: bool = False
 
 
 @dataclass
@@ -310,6 +329,8 @@ def run_simulation(
             price_idx[d] = {}
         price_idx[d][row.code] = {
             "open": _float(row.open),
+            "low": _float(getattr(row, "low", None)),
+            "high": _float(row.high),
             "close": _float(row.close),
         }
 
@@ -347,9 +368,28 @@ def run_simulation(
                 continue
             pos = state.positions[code]
             px = prices_today.get(code, {})
-            exit_price = px.get("open", pos.entry_price)
+            open_price = px.get("open", 0.0)
+            high_price = px.get("high", 0.0)
+            exit_price = 0.0
+            if open_price > 0 and open_price >= sell.limit_price:
+                exit_price = open_price
+            elif high_price > 0 and high_price >= sell.limit_price:
+                exit_price = sell.limit_price
+            elif cfg.reprice_unfilled_sell and not sell.repriced and sell.limit_price > 0:
+                reference_price = sell.limit_price / 0.99
+                repriced_limit = normalize_krx_limit_price(
+                    reference_price * cfg.unfilled_sell_reprice_factor,
+                    side="SELL",
+                )
+                if repriced_limit and repriced_limit > 0:
+                    if open_price > 0 and open_price >= repriced_limit:
+                        exit_price = open_price
+                        sell.reason = f"{sell.reason}_after_reprice"
+                    elif high_price > 0 and high_price >= repriced_limit:
+                        exit_price = float(repriced_limit)
+                        sell.reason = f"{sell.reason}_after_reprice"
             if exit_price <= 0:
-                exit_price = pos.entry_price
+                continue
 
             sell_qty = min(sell.qty, pos.qty)
             effective_exit_price = exit_price * (1.0 - sell_cost_rate)
@@ -391,7 +431,13 @@ def run_simulation(
             if order.code in state.positions:
                 continue
             px = prices_today.get(order.code, {})
-            buy_price = px.get("open", 0.0)
+            open_price = px.get("open", 0.0)
+            low_price = px.get("low", 0.0)
+            buy_price = 0.0
+            if open_price > 0 and open_price <= order.limit_price:
+                buy_price = open_price
+            elif low_price > 0 and low_price <= order.limit_price:
+                buy_price = order.limit_price
             if buy_price <= 0:
                 continue
             effective_buy_price = buy_price * (1.0 + buy_cost_rate)
@@ -450,25 +496,38 @@ def run_simulation(
                     # 아직 수익 중 + 최초 reduce: 50% 부분 청산
                     exit_reason = "trailing_stop_reduce"
                     is_partial = True
-            elif hold_days > cfg.max_holding_days and cur_ret < cfg.max_holding_profit_buffer:
-                if cur_ret <= 0 or pos.is_reduced:
-                    # 손실 or 본전, 또는 이미 reduce됐으면 전량 청산
-                    exit_reason = "max_holding_days_exit"
-                else:
-                    # 소폭 수익 중 + 최초 reduce: 50% 부분 청산
-                    exit_reason = "max_holding_days_reduce"
-                    is_partial = True
             else:
                 sig = signals_today.get(code, {})
+                is_defensive = _bool(sig.get("market_defensive_mode", False))
+                effective_max_holding_days = cfg.max_holding_days_defensive if is_defensive else cfg.max_holding_days
                 rule_score_v2 = _float(sig.get("rule_score_v2"), 100.0)
+                rule_score_v3 = _float(sig.get("rule_score_v3"), rule_score_v2)
+                exit_score = rule_score_v3 if cfg.exit_score_mode == "v3" else rule_score_v2
                 gap_blocked = _bool(sig.get("gap_risk_blocked", False))
-                if rule_score_v2 < 35.0 or gap_blocked:
+
+                if hold_days > effective_max_holding_days and cur_ret < cfg.max_holding_profit_buffer:
+                    if cur_ret <= 0 or pos.is_reduced:
+                        exit_reason = "max_holding_days_exit"
+                    else:
+                        exit_reason = "max_holding_days_reduce"
+                        is_partial = True
+                elif is_defensive and exit_score < 45.0:
+                    exit_reason = f"defensive_rule_score_{cfg.exit_score_mode}_drop"
+                    is_partial = cur_ret > 0 and not pos.is_reduced
+                elif exit_score < 35.0 or gap_blocked:
                     exit_reason = "rule_exit_condition"
 
             if exit_reason:
                 sell_qty = max(pos.qty // 2, 1) if is_partial else pos.qty
+                sell_limit_price = normalize_krx_limit_price(close * 0.99, side="SELL") or close
                 state.pending_sells.append(
-                    PendingSell(code=code, reason=exit_reason, qty=sell_qty, is_partial=is_partial)
+                    PendingSell(
+                        code=code,
+                        reason=exit_reason,
+                        qty=sell_qty,
+                        limit_price=float(sell_limit_price),
+                        is_partial=is_partial,
+                    )
                 )
 
         # ------------------------------------------------------------------
@@ -487,7 +546,7 @@ def run_simulation(
         defensive_values = [_bool(s.get("market_defensive_mode", False)) for s in signals_today.values()]
         market_defensive = any(defensive_values) if defensive_values else False
 
-        if not market_defensive and signals_today:
+        if signals_today:
             # 현재 equity 추정 (entry 결정을 위한 비중 계산 기준)
             position_value = sum(
                 pos.qty * _float(prices_today.get(code, {}).get("close", pos.entry_price), pos.entry_price)
@@ -507,19 +566,24 @@ def run_simulation(
                 w = pos_val / total_equity
                 sector_weight[pos.sector] = sector_weight.get(pos.sector, 0.0) + w
 
-            # 후보 정렬: rule_score_v2 ↓, rule_score ↓, liquidity_score ↓, vol_20 ↑
+            valid_vols = sorted(
+                _float(s.get("vol_20"), 0.0)
+                for s in signals_today.values()
+                if _float(s.get("vol_20"), 0.0) > 0
+            )
+            vol_20_high_threshold = valid_vols[int(len(valid_vols) * 0.70)] if len(valid_vols) >= 5 else None
+
+            # 후보 정렬: 실거래와 동일하게 rule_score_v3 우선, 없으면 v2 fallback
             signal_col = cfg.signal_col
+            effective_max_positions = 3 if market_defensive else cfg.max_positions
+            relaxed_entry_cap = max(int(effective_max_positions * cfg.entry_allow_ratio), 0)
             candidates = [
                 s for s in signals_today.values()
-                if (
-                    _bool(s.get(signal_col, False))
-                    and s.get("code") not in active_codes
-                    and s.get("code") not in cooldown_set
-                )
+                if s.get("code") not in active_codes and s.get("code") not in cooldown_set
             ]
             candidates.sort(
                 key=lambda s: (
-                    -_float(s.get("rule_score_v2"), 0.0),
+                    -_float(s.get("rule_score_v3"), _float(s.get("rule_score_v2"), 0.0)),
                     -_float(s.get("rule_score"), 0.0),
                     -_float(s.get("liquidity_score"), 0.0),
                     _float(s.get("vol_20"), 999.0),
@@ -530,21 +594,58 @@ def run_simulation(
                 code = str(sig.get("code", "")).zfill(6)
                 sector = str(sig.get("sector") or "(none)")
                 n_open = len(active_codes) + len(state.pending_buys)
-                if n_open >= cfg.max_positions:
+                is_strong = _bool(sig.get("strong_entry_signal", False))
+                is_entry = _bool(sig.get("entry_signal", False))
+
+                if not is_strong:
+                    if signal_col == "strong_entry_signal":
+                        continue
+                    if not (cfg.allow_entry_signal and is_entry):
+                        continue
+                    if market_defensive:
+                        continue
+                    if n_open >= relaxed_entry_cap:
+                        continue
+                elif signal_col not in {"strong_entry_signal", "entry_signal"} and not _bool(sig.get(signal_col, False)):
+                    continue
+
+                if n_open >= effective_max_positions:
                     break
 
                 # 섹터 비중 확인
-                sector_after = sector_weight.get(sector, 0.0) + cfg.new_entry_weight
+                target_weight = cfg.new_entry_weight
+                if is_strong:
+                    score_v3 = _float(sig.get("rule_score_v3"), _float(sig.get("rule_score_v2"), 0.0))
+                    weight_min = float(os.getenv("RULE_NEW_ENTRY_WEIGHT_MIN", round(cfg.new_entry_weight * 0.85, 4)))
+                    weight_max = float(
+                        os.getenv(
+                            "RULE_NEW_ENTRY_WEIGHT_MAX",
+                            min(round(cfg.new_entry_weight * 1.25, 4), cfg.max_position_weight),
+                        )
+                    )
+                    t = max(0.0, min(1.0, (score_v3 - 70.0) / 30.0))
+                    target_weight = weight_min + t * (weight_max - weight_min)
+                else:
+                    target_weight = round(cfg.new_entry_weight * 0.75, 4)
+
+                sector_after = sector_weight.get(sector, 0.0) + target_weight
                 if sector_after > cfg.max_sector_weight:
                     continue
 
                 # 현금 비중 확인
-                allocated = len(state.pending_buys) * cfg.new_entry_weight * total_equity
-                cash_after_buy = state.cash - allocated - cfg.new_entry_weight * total_equity
+                allocated = sum(order.target_amount for order in state.pending_buys)
+                cash_after_buy = state.cash - allocated - target_weight * total_equity
                 if cash_after_buy / total_equity < cfg.min_cash_weight:
                     continue
 
-                target_amount = total_equity * cfg.new_entry_weight
+                target_amount = total_equity * target_weight
+                expected_entry_price = _float(sig.get("expected_entry_price"), 0.0)
+                vol_20 = _float(sig.get("vol_20"), 0.0)
+                is_high_vol = vol_20_high_threshold is not None and vol_20 > 0 and vol_20 >= vol_20_high_threshold
+                limit_buffer = cfg.buy_limit_buffer_high_vol if is_high_vol else cfg.buy_limit_buffer
+                limit_price = normalize_krx_limit_price(expected_entry_price * (1.0 + limit_buffer), side="BUY")
+                if not limit_price or limit_price <= 0:
+                    continue
                 state.pending_buys.append(
                     PendingOrder(
                         code=code,
@@ -552,10 +653,11 @@ def run_simulation(
                         sector=sector,
                         signal_date=today,
                         target_amount=target_amount,
+                        limit_price=float(limit_price),
                     )
                 )
                 active_codes.add(code)
-                sector_weight[sector] = sector_weight.get(sector, 0.0) + cfg.new_entry_weight
+                sector_weight[sector] = sector_weight.get(sector, 0.0) + target_weight
 
         # ------------------------------------------------------------------
         # 5. 오늘 equity 기록
@@ -810,9 +912,17 @@ def render_md(metrics: dict, cfg: argparse.Namespace) -> str:
         f"| 최소 현금 비중 | {fmt_pct(cfg.min_cash_weight)} |",
         f"| 최대 섹터 비중 | {fmt_pct(cfg.max_sector_weight)} |",
         f"| 최대 보유기간 | {cfg.max_holding_days}일 |",
+        f"| 방어 모드 최대 보유기간 | {cfg.max_holding_days_defensive}일 |",
         f"| 쿨다운 | {cfg.cooldown_days}일 |",
         f"| Stop-loss | {fmt_pct(cfg.stop_loss_pct)} |",
         f"| Trailing stop | {fmt_pct(cfg.trailing_stop_pct)} (최소 수익 {fmt_pct(cfg.trailing_stop_min_profit_pct)} 이상 시) |",
+        f"| entry_signal 완화 | {'ON' if cfg.allow_entry_signal else 'OFF'} |",
+        f"| entry_allow_ratio | {fmt_num(cfg.entry_allow_ratio, 2)} |",
+        f"| exit score mode | {cfg.exit_score_mode} |",
+        f"| BUY limit buffer | {fmt_pct(cfg.buy_limit_buffer)} |",
+        f"| BUY limit buffer high vol | {fmt_pct(cfg.buy_limit_buffer_high_vol)} |",
+        f"| SELL 미체결 재호가 | {'ON' if cfg.reprice_unfilled_sell else 'OFF'} |",
+        f"| SELL 재호가 계수 | {fmt_num(cfg.unfilled_sell_reprice_factor, 3)} |",
         f"| 비용 모드 | {'미반영 (no-cost)' if no_cost else f'매수 {fmt_pct(buy_total)} / 매도 {fmt_pct(sell_total)}'} |",
         f"| IS 종료일 | {getattr(cfg, 'is_end_date', None) or '미설정'} |",
         "",
@@ -873,7 +983,15 @@ def main() -> None:
             "trailing_stop_pct": cfg.trailing_stop_pct,
             "trailing_stop_min_profit_pct": cfg.trailing_stop_min_profit_pct,
             "max_holding_days": cfg.max_holding_days,
+            "max_holding_days_defensive": cfg.max_holding_days_defensive,
             "cooldown_days": cfg.cooldown_days,
+            "allow_entry_signal": cfg.allow_entry_signal,
+            "entry_allow_ratio": cfg.entry_allow_ratio,
+            "exit_score_mode": cfg.exit_score_mode,
+            "buy_limit_buffer": cfg.buy_limit_buffer,
+            "buy_limit_buffer_high_vol": cfg.buy_limit_buffer_high_vol,
+            "reprice_unfilled_sell": cfg.reprice_unfilled_sell,
+            "unfilled_sell_reprice_factor": cfg.unfilled_sell_reprice_factor,
         }}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

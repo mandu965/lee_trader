@@ -44,3 +44,7 @@
 - [FILE_INDEX.md](</d:/ai/lee_trader/doc/modules/Lee_trader_rule/FILE_INDEX.md>)
 - [ENV.md](</d:/ai/lee_trader/doc/modules/Lee_trader_rule/ENV.md>)
 - [OPERATIONS.md](</d:/ai/lee_trader/doc/modules/Lee_trader_rule/OPERATIONS.md>)
+
+## Recent Analysis
+
+- [20260519_로직진단.md](</d:/ai/lee_trader/doc/modules/Lee_trader_rule/20260519_로직진단.md>)

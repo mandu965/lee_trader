@@ -112,7 +112,9 @@ execution_policy:
   confidence_standard_position_cap_scale: 1.00
   confidence_expanded_position_cap_scale: 1.15
   live_grade_c_entry_enabled: true
-  max_hold_rank: 10
-  min_replace_score_gap: 3.0
-  max_replacements_per_cycle: 2
+  max_hold_rank: 20
+  min_replace_score_gap: 7.0
+  max_replacements_per_cycle: 1
+  position_trim_buffer: 0.03
+  position_cap_trim_enabled: false
   reentry_cooldown_days: 10

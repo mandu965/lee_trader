@@ -197,11 +197,14 @@ def iter_copyable_files(root: Path, base: Path):
             yield path
 
 
+CLEAN_SKIP_NAMES = {".git", "data"}
+
+
 def clean_target(target: Path, dry_run: bool) -> None:
     if not target.exists():
         return
     for child in target.iterdir():
-        if child.name == ".git":
+        if child.name in CLEAN_SKIP_NAMES:
             continue
         if dry_run:
             print(f"REMOVE {child}")

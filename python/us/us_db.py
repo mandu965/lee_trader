@@ -3484,7 +3484,7 @@ UPSERT_US_RANK_SQL = text(
         now(),
         now()
     )
-    ON CONFLICT (trade_date, symbol) DO UPDATE SET
+    ON CONFLICT (trade_date, symbol, source) DO UPDATE SET
         rank_no = EXCLUDED.rank_no,
         recommend_grade = EXCLUDED.recommend_grade,
         total_score = EXCLUDED.total_score,

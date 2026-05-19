@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -28,6 +29,7 @@ DATA_DIR = ROOT / "data"
 OUTPUT_DIR = ROOT / "outputs"
 SERVING_DIR = ROOT / "serving"
 PYTHON = sys.executable
+RANKING_ARCHIVE_DIR = DATA_DIR / "history" / "ranking"
 
 CORE_TABLES = {"stocks", "market_status", "features", "predictions", "daily_ranking"}
 US_RANKING_SOURCE_TABLE = "recommend.us_stock_rank_daily"
@@ -37,6 +39,7 @@ US_TRADE_DDL_PATH = ROOT / "postgres" / "us_trade_tables.sql"
 US_STOCK_DDL_PATH = ROOT / "postgres" / "us_stock_tables.sql"
 
 WEB_TABLE_SYNC_SPECS: list[dict[str, object]] = [
+    {"table": "public.fact_price_daily", "date_column": "date", "lookback_dates": 180},
     {"table": "market.us_stock_universe", "date_column": None, "lookback_dates": None},
     {"table": "trade.us_buy_candidate_log", "date_column": "trade_date", "lookback_dates": 60},
     {"table": "trade.us_buy_decision_log", "date_column": "trade_date", "lookback_dates": 60},
@@ -391,12 +394,105 @@ def sync_table_history(
 
 
 def sync_kr_ranking_history(source_database_url: str) -> None:
+    archive_result = load_kr_ranking_history_from_archives(KR_RANKING_SYNC_DATES)
+    if archive_result is not None:
+        scoped_dates, archive_df = archive_result
+        sync_kr_ranking_history_rows(scoped_dates, archive_df)
+        return
+
+    logging.info("KR ranking archive unavailable; fallback to source DB history sync")
     sync_table_history(
         source_database_url,
         table_name="public.daily_ranking",
         date_column="date",
         lookback_dates=KR_RANKING_SYNC_DATES,
     )
+
+
+def load_kr_ranking_history_from_archives(lookback_dates: int) -> tuple[list[str], pd.DataFrame] | None:
+    pattern = re.compile(r"(?P<yyyymmdd>\d{8})_ranking_final\.csv$", re.IGNORECASE)
+    candidates: list[tuple[str, Path]] = []
+    if RANKING_ARCHIVE_DIR.exists():
+        for path in sorted(RANKING_ARCHIVE_DIR.glob("*_ranking_final.csv")):
+            match = pattern.match(path.name)
+            if not match:
+                continue
+            compact = match.group("yyyymmdd")
+            date_value = f"{compact[:4]}-{compact[4:6]}-{compact[6:8]}"
+            candidates.append((date_value, path))
+    if not candidates:
+        return None
+
+    selected = candidates[-lookback_dates:]
+    frames: list[pd.DataFrame] = []
+    scoped_dates: list[str] = []
+    for date_value, path in selected:
+        try:
+            df = pd.read_csv(path, dtype={"code": str}, low_memory=False)
+        except Exception:
+            logging.exception("Failed to read ranking archive %s", path)
+            continue
+        if df.empty:
+            continue
+        scoped_dates.append(date_value)
+        frame = df.copy()
+        frame["date"] = date_value
+        if "code" in frame.columns:
+            frame["code"] = frame["code"].astype(str).str.zfill(6)
+        frame = frame.drop_duplicates(subset=["date", "code"], keep="last").reset_index(drop=True)
+        frames.append(frame)
+
+    if not frames or not scoped_dates:
+        return None
+
+    merged = pd.concat(frames, ignore_index=True, sort=False)
+    merged = merged.drop_duplicates(subset=["date", "code"], keep="last").reset_index(drop=True)
+    logging.info(
+        "Loaded KR ranking archives rows=%d dates=%d latest=%s",
+        len(merged),
+        len(scoped_dates),
+        scoped_dates[-1],
+    )
+    return scoped_dates, merged
+
+
+def sync_kr_ranking_history_rows(scoped_dates: list[str], archive_df: pd.DataFrame) -> None:
+    if archive_df.empty or not scoped_dates:
+        logging.info("Skip KR ranking archive sync: no archive rows")
+        return
+
+    target_engine = get_engine()
+    try:
+        with target_engine.begin() as target_conn:
+            if not table_exists(target_conn, "public.daily_ranking"):
+                raise RuntimeError("target public.daily_ranking missing after bootstrap")
+
+            target_columns = get_table_columns(target_conn, "public.daily_ranking")
+            target_column_names = [str(col["column_name"]) for col in target_columns]
+            insert_columns = [name for name in archive_df.columns if name in target_column_names]
+            if not insert_columns:
+                logging.info("Skip KR ranking archive sync: no shared columns with target")
+                return
+
+            payload_df = archive_df.loc[:, insert_columns].copy()
+            min_scoped_date = min(scoped_dates)
+            target_conn.execute(
+                text("DELETE FROM daily_ranking WHERE date < :min_scoped_date"),
+                {"min_scoped_date": min_scoped_date},
+            )
+            target_conn.execute(
+                text("DELETE FROM daily_ranking WHERE date::text = ANY(:scoped_dates)"),
+                {"scoped_dates": scoped_dates},
+            )
+            payload_df.to_sql("daily_ranking", con=target_conn, if_exists="append", index=False)
+            logging.info(
+                "Synced KR ranking archive rows=%d dates=%d latest=%s",
+                len(payload_df),
+                len(scoped_dates),
+                scoped_dates[-1],
+            )
+    finally:
+        target_engine.dispose()
 
 
 def reset_display_tables(*, include_trades: bool = False) -> None:
@@ -423,6 +519,7 @@ def reset_display_tables(*, include_trades: bool = False) -> None:
             ("research.paper_trading_nav", "DELETE FROM research.paper_trading_nav"),
             ("research.paper_trading_run", "DELETE FROM research.paper_trading_run"),
             ("research.app_payload_store", "DELETE FROM research.app_payload_store"),
+            ("public.fact_price_daily", "DELETE FROM public.fact_price_daily"),
             ("public.daily_ranking", "DELETE FROM daily_ranking"),
             ("public.predictions", "DELETE FROM predictions"),
             ("public.market_status", "DELETE FROM market_status"),
@@ -536,8 +633,43 @@ def ensure_us_ranking_table(conn) -> None:
                 source                  TEXT,
                 created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
                 updated_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-                PRIMARY KEY (trade_date, symbol)
+                PRIMARY KEY (trade_date, symbol, source)
             )
+            """
+        )
+    )
+    # ml_v1 도입 후 source 컬럼이 PK에 없으면 duplicate key 에러 발생.
+    # 기존 (trade_date, symbol) PK를 (trade_date, symbol, source)로 마이그레이션.
+    conn.execute(
+        text(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.table_constraints
+                    WHERE table_schema = 'recommend'
+                      AND table_name   = 'us_stock_rank_daily'
+                      AND constraint_type = 'PRIMARY KEY'
+                ) THEN
+                    -- source 컬럼이 PK에 포함되지 않은 경우에만 재생성
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.key_column_usage
+                        WHERE table_schema = 'recommend'
+                          AND table_name   = 'us_stock_rank_daily'
+                          AND constraint_name = (
+                              SELECT constraint_name FROM information_schema.table_constraints
+                              WHERE table_schema='recommend' AND table_name='us_stock_rank_daily'
+                                AND constraint_type='PRIMARY KEY'
+                          )
+                          AND column_name = 'source'
+                    ) THEN
+                        ALTER TABLE recommend.us_stock_rank_daily
+                            DROP CONSTRAINT us_stock_rank_daily_pkey;
+                        ALTER TABLE recommend.us_stock_rank_daily
+                            ADD PRIMARY KEY (trade_date, symbol, source);
+                    END IF;
+                END IF;
+            END $$;
             """
         )
     )

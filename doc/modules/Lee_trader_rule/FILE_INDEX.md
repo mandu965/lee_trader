@@ -42,3 +42,7 @@ RULE 자동매매 모듈에서 실제 운영에 직접 영향을 주는 핵심 �
 - `paper`, `pilot`, `live` 분기를 건드릴 때는 `run_rule_before_open_cycle.py`와 `rule_execution_results.json` 구조를 같이 확인합니다.
 - 실주문 관련 변경은 guard, 로그, 상한 중심으로만 접근하고 KIS 호출부는 단순화하지 않습니다.
 - RULE 계좌 동기화 관련 수정은 AI 일반 실계좌 경로와 섞지 않습니다.
+
+## Recent Analysis
+
+- [20260519_로직진단.md](</d:/ai/lee_trader/doc/modules/Lee_trader_rule/20260519_로직진단.md>)

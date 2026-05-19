@@ -4,6 +4,7 @@ import argparse
 from dataclasses import dataclass
 from datetime import date
 import logging
+import os
 from pathlib import Path
 import sys
 import time
@@ -24,6 +25,8 @@ from python.us.trade_orchestration.config import load_trade_orchestration_config
 from python.us.trade_orchestration.scheduler_job import run_trade_scheduler_job
 from python.us.us_config import load_us_stock_config, parse_iso_date, resolve_universe_csv_path
 from python.us.validate_us_price_data import ValidationResult, validate_and_save_quality_report
+
+_ML_RANKING_ENABLED_ENV = "US_ML_RANKING_ENABLED"
 
 
 LOGGER = logging.getLogger("us_pipeline")
@@ -236,6 +239,40 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
             LOGGER.info("[US_PIPELINE] Step 4c/4 Build Sector Features completed rows=%s", sector_rows)
         except Exception as exc:
             LOGGER.warning("[US_PIPELINE] Step 4c/4 Build Sector Features failed (non-fatal): %s", exc)
+
+    # ML ranking — runs if US_ML_RANKING_ENABLED=1 and features were built
+    _ml_ranking_enabled = str(os.environ.get(_ML_RANKING_ENABLED_ENV, "0")).strip().lower() in {"1", "true", "yes"}
+    if _ml_ranking_enabled and should_run_features and not args.skip_features:
+        LOGGER.info("[US_PIPELINE] Step 4d/4 ML Ranking started")
+        try:
+            from python.us.us_ranking_builder_ml import (
+                build_rank_rows,
+                ensure_source_in_pk,
+                fetch_universe_meta,
+                load_all_features,
+                resolve_model_path,
+            )
+            from python.us.us_model_predict import load_model
+            from python.us.us_db import upsert_us_rank_rows, get_us_engine
+            from pathlib import Path as _Path
+
+            _ml_engine = get_us_engine()
+            _ml_model_path = resolve_model_path(None)
+            if _ml_model_path.exists():
+                _ml_model = load_model(_ml_model_path)
+                ensure_source_in_pk(_ml_engine)
+                _ml_meta = fetch_universe_meta(_ml_engine)
+                _ml_td = parse_iso_date(args.end_date, field_name="end_date") or date.today()
+                _ml_features = load_all_features(_ml_engine, _ml_td, _ml_td, _ml_model["features"])
+                _ml_rows = build_rank_rows(_ml_features, trade_date=_ml_td, model_pack=_ml_model, meta_df=_ml_meta, source="ml_v1")
+                _ml_written = upsert_us_rank_rows(_ml_rows) if _ml_rows else 0
+                LOGGER.info("[US_PIPELINE] Step 4d/4 ML Ranking completed rows=%s date=%s", _ml_written, _ml_td)
+            else:
+                LOGGER.info("[US_PIPELINE] Step 4d/4 ML Ranking skipped (model not found at %s)", _ml_model_path)
+        except Exception as exc:
+            LOGGER.warning("[US_PIPELINE] Step 4d/4 ML Ranking failed (non-fatal): %s", exc)
+    elif not _ml_ranking_enabled:
+        LOGGER.info("[US_PIPELINE] Step 4d/4 ML Ranking skipped (%s=0)", _ML_RANKING_ENABLED_ENV)
 
     trade_cfg = load_trade_orchestration_config()
     should_run_trade_scheduler = trade_cfg.scheduler_enabled

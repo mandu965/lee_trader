@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,8 @@ import pandas as pd
 
 from kis_client import KISClient
 from kis_live_account import inquire_daily_ccld, inquire_psbl_rvsecncl, order_rvsecncl
+from krx_price_utils import normalize_krx_limit_price
+from kis_live_account import order_cash
 from rule_execution_simulator import append_jsonl, default_state, load_json, render_reconciliation
 from rule_live_account_snapshot import build_rule_live_account_state
 from rule_market_open_snapshot import resolve_rule_account_env
@@ -178,7 +181,14 @@ def _write_skip(path: Path, payload: dict[str, Any]) -> None:
 
 
 def _flag(name: str, default: str = "0") -> bool:
-    return str(__import__("os").getenv(name, default)).strip().lower() in {"1", "true", "yes", "on"}
+    return str(os.getenv(name, default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _cfg_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _cancel_unfilled_order(
@@ -221,6 +231,50 @@ def _cancel_unfilled_order(
         "cancel_request_reason": None,
         "cancel_broker_order_id": response_row.get("ODNO") or response_row.get("odno"),
         "cancel_raw_response": response_row,
+    }
+
+
+def _reprice_unfilled_sell_order(
+    *,
+    client: KISClient,
+    account: Any,
+    item: dict[str, Any],
+) -> dict[str, Any]:
+    if str(item.get("side") or "").upper() != "SELL":
+        return {"resubmit_status": "not_applicable", "resubmit_reason": "side_not_sell"}
+    order_qty = int(float(item.get("unfilled_qty") or item.get("order_qty") or 0))
+    if order_qty <= 0:
+        return {"resubmit_status": "not_applicable", "resubmit_reason": "no_unfilled_qty"}
+
+    reference_price = _num(item.get("expected_execution_price"))
+    if reference_price is None or reference_price <= 0:
+        reference_price = _num(item.get("original_limit_price")) or _num(item.get("limit_price"))
+    if reference_price is None or reference_price <= 0:
+        return {"resubmit_status": "failed", "resubmit_reason": "reference_price_missing"}
+
+    factor = _cfg_float("RULE_UNFILLED_SELL_REPRICE_FACTOR", 0.985)
+    ord_unpr = normalize_krx_limit_price(reference_price * factor, side="SELL")
+    if ord_unpr is None or ord_unpr <= 0:
+        return {"resubmit_status": "failed", "resubmit_reason": "repriced_limit_invalid"}
+
+    response_df = order_cash(
+        client,
+        account,
+        side="sell",
+        pdno=str(item.get("code") or item.get("symbol") or "").zfill(6),
+        ord_dvsn="00",
+        ord_qty=str(order_qty),
+        ord_unpr=str(ord_unpr),
+    )
+    response_row = response_df.iloc[0].to_dict() if not response_df.empty else {}
+    return {
+        "resubmit_requested_at": datetime.now().isoformat(timespec="seconds"),
+        "resubmit_status": "submitted",
+        "resubmit_reason": None,
+        "resubmit_limit_price": int(ord_unpr),
+        "resubmit_broker_order_id": response_row.get("ODNO") or response_row.get("odno"),
+        "resubmit_broker_org_order_id": response_row.get("KRX_FWDG_ORD_ORGNO") or response_row.get("krx_fwdg_ord_orgno"),
+        "resubmit_raw_response": response_row,
     }
 
 
@@ -328,6 +382,31 @@ def main() -> None:
                     if row.get("order_status") == "unfilled" and row.get("cancel_request_status") == "submitted":
                         row["order_status"] = "canceled"
                         row["reconciliation_status"] = "canceled_after_fill_check"
+                        if _flag("RULE_REPRICE_UNFILLED_SELL_ENABLED", "1") and str(row.get("side") or "").upper() == "SELL":
+                            try:
+                                resubmit_meta = _reprice_unfilled_sell_order(
+                                    client=client,
+                                    account=account,
+                                    item=row,
+                                )
+                                row.update(resubmit_meta)
+                                if row.get("resubmit_status") == "submitted":
+                                    row["previous_broker_order_id"] = order_id
+                                    row["previous_broker_org_order_id"] = row.get("broker_org_order_id")
+                                    row["broker_order_id"] = row.get("resubmit_broker_order_id")
+                                    row["broker_org_order_id"] = row.get("resubmit_broker_org_order_id")
+                                    row["limit_price"] = row.get("resubmit_limit_price")
+                                    row["original_limit_price"] = row.get("resubmit_limit_price")
+                                    row["order_status"] = "submitted"
+                                    row["reconciliation_status"] = "resubmitted_after_cancel"
+                                    row["submitted_at"] = row.get("resubmit_requested_at")
+                                    row["filled_qty"] = 0
+                                    row["filled_amount"] = 0.0
+                                    row["avg_fill_price"] = None
+                                    row["unfilled_qty"] = int(float(row.get("order_qty") or 0))
+                            except Exception as exc:
+                                row["resubmit_status"] = "failed"
+                                row["resubmit_reason"] = str(exc)
                     elif row.get("order_status") == "partial_filled" and row.get("cancel_request_status") == "submitted":
                         row["reconciliation_status"] = "partial_filled_cancel_requested"
                 except Exception as exc:
@@ -344,6 +423,9 @@ def main() -> None:
                     "avg_fill_price": row.get("avg_fill_price"),
                     "filled_amount": row.get("filled_amount"),
                     "cancel_request_status": row.get("cancel_request_status"),
+                    "resubmit_status": row.get("resubmit_status"),
+                    "resubmit_limit_price": row.get("resubmit_limit_price"),
+                    "resubmit_broker_order_id": row.get("resubmit_broker_order_id"),
                 }
             )
 
