@@ -12,6 +12,7 @@ try:
         copy_df,
         ensure_unique_keys,
         get_engine,
+        raw_psycopg2_conn,
         replace_table_rows_pg,
         replace_table_rows_sqlite,
         use_sqlite_fallback_writes,
@@ -20,6 +21,7 @@ except Exception:
     get_engine = None
     copy_df = None
     ensure_unique_keys = None
+    raw_psycopg2_conn = None
     replace_table_rows_pg = None
     replace_table_rows_sqlite = None
     def use_sqlite_fallback_writes() -> bool:
@@ -34,8 +36,10 @@ DB_PATH = DATA_DIR / "lee_trader.db"
 PREDICTIONS_DB_COLUMNS = [
     "date",
     "code",
+    "pred_return_30d",
     "pred_return_60d",
     "pred_return_90d",
+    "pred_mdd_30d",
     "pred_mdd_60d",
     "pred_mdd_90d",
     "prob_top20_60d",
@@ -46,10 +50,12 @@ PREDICTIONS_PK = ["date", "code"]
 
 # 회귀 타깃 이름과 horizon 매핑 (log-return / MDD)
 REG_LOG_TARGETS = {
+    "target_log_30d": ("pred_return_30d", 30),
     "target_log_60d": ("pred_return_60d", 60),
     "target_log_90d": ("pred_return_90d", 90),
 }
 REG_MDD_TARGETS = {
+    "target_mdd_30d": "pred_mdd_30d",
     "target_mdd_60d": "pred_mdd_60d",
     "target_mdd_90d": "pred_mdd_90d",
 }
@@ -196,6 +202,28 @@ def predict_all(model_pack: Dict[str, Any], feats_latest: pd.DataFrame) -> pd.Da
     return out
 
 
+def _ensure_predictions_pg_columns() -> None:
+    """Postgres predictions 테이블에 누락된 컬럼을 DOUBLE PRECISION으로 자동 추가."""
+    if raw_psycopg2_conn is None:
+        return
+    numeric_cols = [c for c in PREDICTIONS_DB_COLUMNS if c not in ("date", "code")]
+    try:
+        conn = raw_psycopg2_conn()
+        try:
+            with conn, conn.cursor() as cur:
+                for col in numeric_cols:
+                    cur.execute(
+                        f"ALTER TABLE predictions ADD COLUMN IF NOT EXISTS {col} DOUBLE PRECISION"
+                    )
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    except Exception:
+        logging.warning("Could not ensure predictions pg columns (table may not exist yet)")
+
+
 def save_predictions(df: pd.DataFrame) -> None:
     out = df.copy()
     out["date"] = pd.to_datetime(out["date"]).dt.strftime("%Y-%m-%d")
@@ -213,6 +241,7 @@ def save_predictions(df: pd.DataFrame) -> None:
     try:
         if replace_table_rows_pg:
             try:
+                _ensure_predictions_pg_columns()
                 replace_table_rows_pg("predictions", out, columns=PREDICTIONS_DB_COLUMNS)
                 logging.info("Replaced predictions rows in Postgres (rows=%d)", len(out))
                 return
@@ -234,8 +263,10 @@ def save_predictions(df: pd.DataFrame) -> None:
             CREATE TABLE IF NOT EXISTS predictions (
                 date             DATE NOT NULL,
                 code             TEXT NOT NULL,
+                pred_return_30d  REAL,
                 pred_return_60d  REAL,
                 pred_return_90d  REAL,
+                pred_mdd_30d     REAL,
                 pred_mdd_60d     REAL,
                 pred_mdd_90d     REAL,
                 prob_top20_60d   REAL,

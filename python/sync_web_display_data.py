@@ -35,6 +35,7 @@ CORE_TABLES = {"stocks", "market_status", "features", "predictions", "daily_rank
 US_RANKING_SOURCE_TABLE = "recommend.us_stock_rank_daily"
 US_RANKING_SYNC_DATES = 60
 KR_RANKING_SYNC_DATES = 60
+US_RANKING_INSERT_BATCH_SIZE = 2000
 US_TRADE_DDL_PATH = ROOT / "postgres" / "us_trade_tables.sql"
 US_STOCK_DDL_PATH = ROOT / "postgres" / "us_stock_tables.sql"
 
@@ -203,6 +204,10 @@ def execute_sql_script(conn, path: Path) -> None:
         cursor.execute(sql)
 
 
+def ensure_schema(conn, schema_name: str) -> None:
+    conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_name}"))
+
+
 def ensure_market_us_universe_table(conn) -> None:
     conn.execute(text("CREATE SCHEMA IF NOT EXISTS market"))
     conn.execute(
@@ -238,8 +243,19 @@ def ensure_market_us_universe_table(conn) -> None:
 
 
 def ensure_us_web_supporting_tables(conn) -> None:
-    execute_sql_script(conn, US_TRADE_DDL_PATH)
-    execute_sql_script(conn, US_STOCK_DDL_PATH)
+    ensure_schema(conn, "trade")
+    ensure_schema(conn, "raw")
+    ensure_schema(conn, "feature")
+    ensure_schema(conn, "label")
+    ensure_schema(conn, "meta")
+    ensure_schema(conn, "recommend")
+    ensure_schema(conn, "paper")
+    ensure_schema(conn, "risk")
+    ensure_schema(conn, "research")
+    if not table_exists(conn, "trade.us_buy_candidate_log"):
+        execute_sql_script(conn, US_TRADE_DDL_PATH)
+    if not table_exists(conn, "paper.us_stock_paper_account"):
+        execute_sql_script(conn, US_STOCK_DDL_PATH)
     ensure_market_us_universe_table(conn)
     ensure_us_ranking_table(conn)
 
@@ -561,24 +577,48 @@ def verify_stocks_subset() -> dict[str, object]:
 def verify_daily_ranking_history_aware() -> dict[str, object]:
     csv_path = DATA_DIR / "ranking_final.csv"
     if not csv_path.exists():
-        return {"status": "missing_csv", "csv_rows": 0, "db_rows": 0, "csv_latest_date": None, "db_latest_date": None}
+        return {
+            "status": "missing_csv",
+            "csv_rows": 0,
+            "db_rows": 0,
+            "csv_latest_rows": 0,
+            "db_latest_rows": 0,
+            "csv_latest_date": None,
+            "db_latest_date": None,
+        }
     df = pd.read_csv(csv_path, dtype={"code": str}, low_memory=False)
     csv_rows = len(df.index)
     csv_latest_date = None
+    csv_latest_rows = 0
     if csv_rows and "date" in df.columns:
-        csv_latest_date = str(pd.to_datetime(df["date"], errors="coerce").max().date())
+        normalized_dates = pd.to_datetime(df["date"], errors="coerce")
+        latest_ts = normalized_dates.max()
+        if pd.notna(latest_ts):
+            csv_latest_date = str(latest_ts.date())
+            csv_latest_rows = int((normalized_dates.dt.strftime("%Y-%m-%d") == csv_latest_date).sum())
     engine = get_engine()
     with engine.connect() as conn:
         result = conn.execute(
-            text("SELECT COUNT(*) AS row_count, MAX(date)::text AS latest_date FROM daily_ranking")
+            text(
+                """
+                SELECT
+                    COUNT(*) AS row_count,
+                    MAX(date)::text AS latest_date,
+                    COUNT(*) FILTER (WHERE date = (SELECT MAX(date) FROM daily_ranking)) AS latest_rows
+                FROM daily_ranking
+                """
+            )
         ).mappings().one()
     db_rows = int(result["row_count"] or 0)
     db_latest_date = result["latest_date"]
-    status = "ok" if db_rows >= csv_rows and db_latest_date == csv_latest_date else "mismatch"
+    db_latest_rows = int(result["latest_rows"] or 0)
+    status = "ok" if db_latest_date == csv_latest_date and db_latest_rows == csv_latest_rows else "mismatch"
     return {
         "status": status,
         "csv_rows": csv_rows,
         "db_rows": db_rows,
+        "csv_latest_rows": csv_latest_rows,
+        "db_latest_rows": db_latest_rows,
         "csv_latest_date": csv_latest_date,
         "db_latest_date": db_latest_date,
     }
@@ -712,6 +752,7 @@ def sync_us_ranking_table(source_database_url: str) -> None:
         logging.info("Skip US ranking sync: source and target DB are identical")
         return
 
+    logging.info("Starting US ranking sync from %s", US_RANKING_SOURCE_TABLE)
     source_engine = create_engine(source_url, future=True)
     target_engine = get_engine()
     try:
@@ -784,6 +825,12 @@ def sync_us_ranking_table(source_database_url: str) -> None:
                     {"trade_dates": trade_dates},
                 ).mappings()
             ]
+            logging.info(
+                "Loaded US ranking source rows=%d dates=%d latest=%s",
+                len(rows),
+                len(trade_dates),
+                trade_dates[-1].isoformat() if hasattr(trade_dates[-1], "isoformat") else str(trade_dates[-1]),
+            )
 
         with target_engine.begin() as conn:
             ensure_us_web_supporting_tables(conn)
@@ -797,70 +844,77 @@ def sync_us_ranking_table(source_database_url: str) -> None:
                     payload = dict(row)
                     payload["score_detail_json"] = json.dumps(payload.get("score_detail_json"), ensure_ascii=False, default=str)
                     payload_rows.append(payload)
-                conn.execute(
-                    text(
-                        f"""
-                        INSERT INTO {US_RANKING_SOURCE_TABLE} (
-                            trade_date,
-                            symbol,
-                            rank_no,
-                            recommend_grade,
-                            total_score,
-                            momentum_score,
-                            relative_strength_score,
-                            fundamental_score,
-                            growth_score,
-                            valuation_score,
-                            risk_score,
-                            feature_quality_score,
-                            universe_group,
-                            company_name,
-                            sector,
-                            industry,
-                            market_cap,
-                            avg_volume,
-                            is_etf,
-                            is_active,
-                            data_status,
-                            exclude_reason,
-                            reason_summary,
-                            score_detail_json,
-                            source,
-                            created_at,
-                            updated_at
-                        ) VALUES (
-                            :trade_date,
-                            :symbol,
-                            :rank_no,
-                            :recommend_grade,
-                            :total_score,
-                            :momentum_score,
-                            :relative_strength_score,
-                            :fundamental_score,
-                            :growth_score,
-                            :valuation_score,
-                            :risk_score,
-                            :feature_quality_score,
-                            :universe_group,
-                            :company_name,
-                            :sector,
-                            :industry,
-                            :market_cap,
-                            :avg_volume,
-                            :is_etf,
-                            :is_active,
-                            :data_status,
-                            :exclude_reason,
-                            :reason_summary,
-                            CAST(:score_detail_json AS jsonb),
-                            :source,
-                            :created_at,
-                            :updated_at
-                        )
-                        """
-                    ),
-                    payload_rows,
+                insert_stmt = text(
+                    f"""
+                    INSERT INTO {US_RANKING_SOURCE_TABLE} (
+                        trade_date,
+                        symbol,
+                        rank_no,
+                        recommend_grade,
+                        total_score,
+                        momentum_score,
+                        relative_strength_score,
+                        fundamental_score,
+                        growth_score,
+                        valuation_score,
+                        risk_score,
+                        feature_quality_score,
+                        universe_group,
+                        company_name,
+                        sector,
+                        industry,
+                        market_cap,
+                        avg_volume,
+                        is_etf,
+                        is_active,
+                        data_status,
+                        exclude_reason,
+                        reason_summary,
+                        score_detail_json,
+                        source,
+                        created_at,
+                        updated_at
+                    ) VALUES (
+                        :trade_date,
+                        :symbol,
+                        :rank_no,
+                        :recommend_grade,
+                        :total_score,
+                        :momentum_score,
+                        :relative_strength_score,
+                        :fundamental_score,
+                        :growth_score,
+                        :valuation_score,
+                        :risk_score,
+                        :feature_quality_score,
+                        :universe_group,
+                        :company_name,
+                        :sector,
+                        :industry,
+                        :market_cap,
+                        :avg_volume,
+                        :is_etf,
+                        :is_active,
+                        :data_status,
+                        :exclude_reason,
+                        :reason_summary,
+                        CAST(:score_detail_json AS jsonb),
+                        :source,
+                        :created_at,
+                        :updated_at
+                    )
+                    """
                 )
+                total_batches = (len(payload_rows) + US_RANKING_INSERT_BATCH_SIZE - 1) // US_RANKING_INSERT_BATCH_SIZE
+                for batch_index, start in enumerate(range(0, len(payload_rows), US_RANKING_INSERT_BATCH_SIZE), start=1):
+                    batch = payload_rows[start : start + US_RANKING_INSERT_BATCH_SIZE]
+                    conn.execute(insert_stmt, batch)
+                    logging.info(
+                        "Inserted US ranking batch %d/%d rows=%d",
+                        batch_index,
+                        total_batches,
+                        len(batch),
+                    )
         logging.info(
             "Synced US ranking table rows=%d dates=%d latest=%s",
             len(rows),
@@ -874,12 +928,14 @@ def sync_us_ranking_table(source_database_url: str) -> None:
 
 def sync_us_supporting_tables(source_database_url: str) -> None:
     for spec in WEB_TABLE_SYNC_SPECS:
+        logging.info("Starting supporting table sync: %s", spec["table"])
         sync_table_history(
             source_database_url,
             table_name=str(spec["table"]),
             date_column=spec["date_column"],
             lookback_dates=spec["lookback_dates"],
         )
+        logging.info("Completed supporting table sync: %s", spec["table"])
 
 
 def sync_payloads() -> None:
@@ -1385,8 +1441,10 @@ def main() -> int:
     if not args.skip_core:
         sync_core_tables()
         sync_kr_ranking_history(source_database_url)
+        logging.info("Starting post-core US sync stages")
         sync_us_ranking_table(source_database_url)
         sync_us_supporting_tables(source_database_url)
+        logging.info("Completed post-core US sync stages")
     if not args.skip_payloads:
         sync_payloads()
     run_script("sync_live_trade_ledger.py")

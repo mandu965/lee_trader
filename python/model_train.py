@@ -27,8 +27,9 @@ MODEL_PKL = DATA_DIR / "model.pkl"
 MODELS_DIR = Path("models")
 LGBM_REG_PARAMS_JSON = MODELS_DIR / "lgbm_reg_params.json"
 
-# 회귀 horizon: log-return + MDD 예측 (60d/90d 유지)
-DEFAULT_HORIZONS = [60, 90]
+# 회귀 horizon: log-return + MDD 예측
+# 30d: AI_MAX_HOLDING_DAYS 정합을 위해 추가 (target_log_30d / target_mdd_30d)
+DEFAULT_HORIZONS = [30, 60, 90]
 
 # 분류 horizon: Top20 확률 예측
 # prob_top20_90d 는 final_score.py 에서 점수에 반영되지 않으므로 60d만 학습

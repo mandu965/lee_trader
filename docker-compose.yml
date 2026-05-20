@@ -168,7 +168,7 @@ services:
   scheduler-rule-after-close:
     <<: *python-runtime
     container_name: lee_trader_scheduler_rule_after_close
-    restart: unless-stopped
+    restart: "no"  # 2026-05-20 RULE 서비스 종료
     command: ["python", "python/run_daily_scheduler.py"]
     volumes:
       - ./data:/app/data
@@ -192,7 +192,7 @@ services:
   scheduler-rule-before-open:
     <<: *python-runtime
     container_name: lee_trader_scheduler_rule_before_open
-    restart: unless-stopped
+    restart: "no"  # 2026-05-20 RULE 서비스 종료
     command: ["python", "python/run_daily_scheduler.py"]
     volumes:
       - ./data:/app/data
@@ -216,7 +216,7 @@ services:
   scheduler-rule-after-open:
     <<: *python-runtime
     container_name: lee_trader_scheduler_rule_after_open
-    restart: unless-stopped
+    restart: "no"  # 2026-05-20 RULE 서비스 종료
     command: ["python", "python/run_daily_scheduler.py"]
     volumes:
       - ./data:/app/data

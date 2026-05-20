@@ -37,7 +37,9 @@ OUTPUTS_DIR = Path("outputs")
 
 # 예측값-실제값 쌍 정의
 REGRESSION_PAIRS = [
+    ("pred_return_30d", "target_30d", "수익률 30d"),
     ("pred_return_60d", "target_60d", "수익률 60d"),
+    ("pred_mdd_30d", "target_mdd_30d", "MDD 30d"),
     ("pred_mdd_60d", "target_mdd_60d", "MDD 60d"),
 ]
 CALIBRATION_COL = ("prob_top20_60d", "target_60d_top20", "Top20 확률 Calibration")
