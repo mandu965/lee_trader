@@ -9,7 +9,8 @@ stop_loss / trailing_stop / max_holding_days 기준으로 청산 신호를 반�
   AI_POSITION_STOP_LOSS_PCT     (기본 0.07)  — 7% 손절
   AI_TRAILING_STOP_PCT          (기본 0.05)  — 고점 대비 5% 하락 시 청산
   AI_TRAILING_STOP_MIN_PROFIT   (기본 0.03)  — trailing 발동 최소 수익 3%
-  AI_MAX_HOLDING_DAYS           (기본 15)    — 최대 보유일
+  AI_MAX_HOLDING_DAYS           (기본 15)    — 최대 보유일 (pnl < 2% 시 청산)
+  AI_MAX_HOLDING_DAYS_HARD_CAP  (기본 45)    — 하드캡: pnl >= 2%여도 초과 시 강제 청산
   AI_POSITION_TAKE_PROFIT_PCT   (기본 0.0)   — 익절 기준 (0=비활성)
 """
 from __future__ import annotations
@@ -82,9 +83,14 @@ def update_position_state_from_holdings(holdings_df: pd.DataFrame) -> dict:
     신규 포지션은 entry_date/entry_price 기록,
     기존 포지션은 peak_price 갱신,
     holdings에서 사라진 포지션은 제거한다.
+
+    상태 파일이 유실된 경우, 현재 보유 종목은 state_recovered=True로 마킹되어
+    max_holding_days 체크가 억제된다. (하드캡은 여전히 적용)
     """
     state = load_ai_position_state()
     positions: dict[str, dict] = state.get("positions") or {}
+    # 기존 포지션이 없으면 상태 파일이 유실된 것으로 간주
+    state_was_empty = not positions
     today = datetime.now().strftime("%Y-%m-%d")
 
     current_codes: set[str] = set()
@@ -98,6 +104,19 @@ def update_position_state_from_holdings(holdings_df: pd.DataFrame) -> dict:
         current_price = float(row.get("current_price") or 0)
 
         if code not in positions:
+            state_recovered = state_was_empty
+            if state_recovered:
+                logger.warning(
+                    "AI_POSITION_STATE_RECOVERED | code=%s — state file was missing, "
+                    "entry_date set to today(%s); max_holding_days check suppressed until "
+                    "AI_MAX_HOLDING_DAYS_HARD_CAP",
+                    code, today,
+                )
+            else:
+                logger.info(
+                    "AI_POSITION_STATE_NEW | code=%s entry_date=%s entry_price=%.0f",
+                    code, today, avg_price,
+                )
             positions[code] = {
                 "code": code,
                 "name": str(row.get("name") or ""),
@@ -106,11 +125,8 @@ def update_position_state_from_holdings(holdings_df: pd.DataFrame) -> dict:
                 "peak_price": max(current_price, avg_price),
                 "peak_date": today,
                 "first_seen_at": datetime.now().isoformat(timespec="seconds"),
+                "state_recovered": state_recovered,
             }
-            logger.info(
-                "AI_POSITION_STATE_NEW | code=%s entry_date=%s entry_price=%.0f",
-                code, today, avg_price,
-            )
         else:
             existing = positions[code]
             old_peak = float(existing.get("peak_price") or 0)
@@ -193,15 +209,37 @@ def evaluate_ai_position_risk(
         return "reduce", reason
 
     # 4. Max holding days ──────────────────────────────────────────────────────
+    max_holding_hard_cap = _cfg_int("AI_MAX_HOLDING_DAYS_HARD_CAP", 45)
     entry_date_str = pos.get("entry_date")
+    state_recovered = bool(pos.get("state_recovered", False))
     if entry_date_str and as_of_date:
         try:
             entry_dt = datetime.strptime(entry_date_str, "%Y-%m-%d")
             as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
             holding_days = (as_of_dt - entry_dt).days
+
+            # 하드캡: state_recovered 여부와 무관하게 무조건 적용
+            if holding_days > max_holding_hard_cap:
+                reason = (
+                    f"max_holding_hard_cap_exit days={holding_days} > {max_holding_hard_cap}"
+                    + (" [state_recovered]" if state_recovered else "")
+                    + (f" pnl={pnl_pct:.2%}" if pnl_pct is not None else "")
+                )
+                logger.warning(
+                    "AI_POSITION_RISK_BLOCK | code=%s reason=%s", code, reason
+                )
+                return "exit", reason
+
             if holding_days > max_holding_days:
-                # 수익률 2% 미만인 경우에만 청산 (Rule과 동일 기준)
-                if pnl_pct is None or pnl_pct < 0.02:
+                if state_recovered:
+                    # 상태 파일 유실 복구 포지션: entry_date 신뢰 불가 → 소프트 체크 생략
+                    logger.warning(
+                        "AI_POSITION_RISK_WARN | code=%s max_holding_days exceeded "
+                        "but state_recovered=True, soft check suppressed (days=%d)",
+                        code, holding_days,
+                    )
+                elif pnl_pct is None or pnl_pct < 0.02:
+                    # 수익률 2% 미만인 경우만 청산 (수익권은 하드캡까지 유지)
                     action = "exit" if (pnl_pct is None or pnl_pct <= 0) else "reduce"
                     reason = (
                         f"max_holding_days_{action} days={holding_days} > {max_holding_days}"
