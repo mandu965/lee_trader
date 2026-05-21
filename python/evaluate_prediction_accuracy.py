@@ -1,21 +1,15 @@
 """
-evaluate_prediction_accuracy.py
+Evaluate realized prediction accuracy from archived predictions.
 
-archive_predictions.py로 저장된 과거 예측 파일과 실제 레이블을 비교하여
-예측 정확도 리포트를 생성합니다.
+This script compares archived prediction snapshots from
+`data/predictions_archive/YYYYMMDD.csv` against `data/labels.csv` and writes a
+markdown report into `outputs/`.
 
-평가 항목:
-  - pred_return_60d  vs  target_60d    (RMSE, 방향 정확도)
-  - pred_mdd_60d     vs  target_mdd_60d (RMSE, 방향 정확도)
-  - prob_top20_60d   calibration        (구간별 실제 Top20 비율)
-
-기본 동작: predictions_archive/에서 60일 이상 지난 아카이브를 자동 선택.
-
-Usage:
-    python evaluate_prediction_accuracy.py
-    python evaluate_prediction_accuracy.py --archive-date 20260318
-    python evaluate_prediction_accuracy.py --min-days 60
-    python evaluate_prediction_accuracy.py --output-dir outputs/accuracy
+Improvements over the initial version:
+ - dynamically loads the label columns needed by the archived prediction file
+ - evaluates 30d and 60d targets only when the archive is mature enough
+ - emits a report even when no rows can be evaluated yet
+ - allows a fixed reference date for reproducible source-only checks
 """
 
 from __future__ import annotations
@@ -23,6 +17,7 @@ from __future__ import annotations
 import argparse
 import logging
 import math
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -35,14 +30,35 @@ LABELS_CSV = DATA_DIR / "labels.csv"
 ARCHIVE_DIR = DATA_DIR / "predictions_archive"
 OUTPUTS_DIR = Path("outputs")
 
-# 예측값-실제값 쌍 정의
-REGRESSION_PAIRS = [
-    ("pred_return_30d", "target_30d", "수익률 30d"),
-    ("pred_return_60d", "target_60d", "수익률 60d"),
-    ("pred_mdd_30d", "target_mdd_30d", "MDD 30d"),
-    ("pred_mdd_60d", "target_mdd_60d", "MDD 60d"),
+
+@dataclass(frozen=True)
+class RegressionSpec:
+    pred_col: str
+    actual_col: str
+    label: str
+    horizon_days: int
+
+
+@dataclass(frozen=True)
+class CalibrationSpec:
+    prob_col: str
+    actual_col: str
+    label: str
+    horizon_days: int
+
+
+REGRESSION_SPECS = [
+    RegressionSpec("pred_return_30d", "target_30d", "Return 30d", 30),
+    RegressionSpec("pred_return_60d", "target_60d", "Return 60d", 60),
+    RegressionSpec("pred_mdd_30d", "target_mdd_30d", "MDD 30d", 30),
+    RegressionSpec("pred_mdd_60d", "target_mdd_60d", "MDD 60d", 60),
 ]
-CALIBRATION_COL = ("prob_top20_60d", "target_60d_top20", "Top20 확률 Calibration")
+CALIBRATION_SPEC = CalibrationSpec(
+    "prob_top20_60d",
+    "target_60d_top20",
+    "Top20 Probability Calibration 60d",
+    60,
+)
 
 
 def setup_logging() -> None:
@@ -50,116 +66,140 @@ def setup_logging() -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Evaluate prediction accuracy against realized labels")
-    p.add_argument(
+    parser = argparse.ArgumentParser(description="Evaluate prediction accuracy against realized labels")
+    parser.add_argument(
         "--archive-date",
         type=str,
         default=None,
-        help="평가할 아카이브 날짜 (YYYYMMDD). 미지정 시 자동 선택.",
+        help="Specific archive date to evaluate (YYYYMMDD).",
     )
-    p.add_argument(
+    parser.add_argument(
         "--min-days",
         type=int,
         default=60,
-        help="최소 경과 일수 (기본 60). 이 이상 지난 아카이브만 평가.",
+        help="Minimum archive age in days when auto-selecting archives.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--labels-csv",
         type=Path,
         default=LABELS_CSV,
-        help="레이블 CSV 경로",
+        help="Labels CSV path.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--archive-dir",
         type=Path,
         default=ARCHIVE_DIR,
-        help="아카이브 디렉토리 경로",
+        help="Archived predictions directory.",
     )
-    p.add_argument(
+    parser.add_argument(
         "--output-dir",
         type=Path,
         default=OUTPUTS_DIR,
-        help="리포트 출력 디렉토리",
+        help="Directory for markdown reports.",
     )
-    p.add_argument(
+    parser.add_argument(
+        "--as-of-date",
+        type=str,
+        default=None,
+        help="Reference date used to decide maturity (YYYY-MM-DD). Defaults to today.",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
-        help="조건 맞는 모든 아카이브 평가 (기본: 최신 1개)",
+        help="Evaluate every eligible archive instead of only the latest one.",
     )
-    return p.parse_args()
+    return parser.parse_args()
 
 
-def find_archive_dates(archive_dir: Path, min_days: int) -> list[str]:
-    """min_days 이상 지난 아카이브 날짜 목록을 내림차순으로 반환."""
-    today = pd.Timestamp.today().normalize()
-    cutoff = today - pd.Timedelta(days=min_days)
+def resolve_reference_date(value: str | None) -> pd.Timestamp:
+    if value:
+        return pd.to_datetime(value).normalize()
+    return pd.Timestamp.today().normalize()
 
-    dates = []
-    for f in sorted(archive_dir.glob("????????.csv"), reverse=True):
+
+def find_archive_dates(archive_dir: Path, min_days: int, reference_date: pd.Timestamp) -> list[str]:
+    cutoff = reference_date - pd.Timedelta(days=min_days)
+    dates: list[str] = []
+    for file_path in sorted(archive_dir.glob("????????.csv"), reverse=True):
         try:
-            dt = pd.to_datetime(f.stem, format="%Y%m%d")
-            if dt <= cutoff:
-                dates.append(f.stem)
+            archive_date = pd.to_datetime(file_path.stem, format="%Y%m%d")
         except ValueError:
             continue
+        if archive_date <= cutoff:
+            dates.append(file_path.stem)
     return dates
 
 
-def load_archive(archive_dir: Path, date_str: str) -> pd.DataFrame:
-    path = archive_dir / f"{date_str}.csv"
+def load_archive(archive_dir: Path, archive_date: str) -> pd.DataFrame:
+    path = archive_dir / f"{archive_date}.csv"
     if not path.exists():
-        raise FileNotFoundError(f"아카이브 파일 없음: {path.resolve()}")
+        raise FileNotFoundError(f"Archive file not found: {path.resolve()}")
     df = pd.read_csv(path, dtype={"code": str})
-    LOGGER.info("아카이브 로드: %s (%d 행)", path.name, len(df))
+    if "date" not in df.columns or "code" not in df.columns:
+        raise ValueError(f"Archive file must contain date/code columns: {path.resolve()}")
+    LOGGER.info("Loaded archive %s (%d rows)", path.name, len(df))
     return df
 
 
 def load_labels(labels_csv: Path) -> pd.DataFrame:
     if not labels_csv.exists():
-        raise FileNotFoundError(f"레이블 파일 없음: {labels_csv.resolve()}")
+        raise FileNotFoundError(f"labels.csv not found: {labels_csv.resolve()}")
     df = pd.read_csv(labels_csv, dtype={"code": str})
-    LOGGER.info("레이블 로드: %s (%d 행)", labels_csv.name, len(df))
+    if "date" not in df.columns or "code" not in df.columns:
+        raise ValueError("labels.csv must contain date/code columns")
+    LOGGER.info("Loaded labels %s (%d rows)", labels_csv.name, len(df))
     return df
 
 
-def merge_pred_label(pred_df: pd.DataFrame, label_df: pd.DataFrame) -> pd.DataFrame:
-    """예측 날짜와 동일한 date 기준으로 예측-레이블 병합."""
-    pred_cols = ["date", "code"] + [
-        col for col in pred_df.columns
-        if col not in ("date", "code")
-    ]
-    pred = pred_df[[c for c in pred_cols if c in pred_df.columns]].copy()
-    pred["date"] = pd.to_datetime(pred["date"]).dt.strftime("%Y-%m-%d")
+def build_required_label_columns(pred_df: pd.DataFrame) -> set[str]:
+    needed = {"date", "code"}
+    pred_cols = set(pred_df.columns)
+    for spec in REGRESSION_SPECS:
+        if spec.pred_col in pred_cols:
+            needed.add(spec.actual_col)
+    if CALIBRATION_SPEC.prob_col in pred_cols:
+        needed.add(CALIBRATION_SPEC.actual_col)
+    return needed
 
-    label_needed = ["date", "code", "target_60d", "target_mdd_60d", "target_60d_top20"]
-    label = label_df[[c for c in label_needed if c in label_df.columns]].copy()
-    label["date"] = pd.to_datetime(label["date"]).dt.strftime("%Y-%m-%d")
+
+def merge_pred_label(pred_df: pd.DataFrame, label_df: pd.DataFrame) -> pd.DataFrame:
+    pred = pred_df.copy()
+    pred["date"] = pd.to_datetime(pred["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+
+    required_label_cols = [
+        column for column in build_required_label_columns(pred_df)
+        if column in label_df.columns
+    ]
+    label = label_df[required_label_cols].copy()
+    label["date"] = pd.to_datetime(label["date"], errors="coerce").dt.strftime("%Y-%m-%d")
 
     merged = pred.merge(label, on=["date", "code"], how="inner")
-    LOGGER.info("병합 결과: %d 행 (예측 %d, 레이블 %d)", len(merged), len(pred), len(label))
+    LOGGER.info("Merged rows=%d (pred=%d, labels=%d)", len(merged), len(pred), len(label))
     return merged
 
 
-def compute_regression_metrics(df: pd.DataFrame, pred_col: str, actual_col: str) -> dict:
+def compute_regression_metrics(df: pd.DataFrame, pred_col: str, actual_col: str) -> dict[str, float | int | None]:
     sub = df[[pred_col, actual_col]].dropna()
     n = len(sub)
     if n == 0:
         return {"n": 0, "rmse": None, "mae": None, "direction_acc": None, "corr": None}
 
-    pred = sub[pred_col].values
-    actual = sub[actual_col].values
+    pred = sub[pred_col].to_numpy()
+    actual = sub[actual_col].to_numpy()
 
     rmse = math.sqrt(np.mean((pred - actual) ** 2))
     mae = np.mean(np.abs(pred - actual))
 
-    # 방향 정확도: 둘 다 양수/음수인 비율 (중립 0 제외)
     valid_dir = (pred != 0) & (actual != 0)
-    if valid_dir.sum() > 0:
+    direction_acc = None
+    if int(valid_dir.sum()) > 0:
         direction_acc = float(np.mean(np.sign(pred[valid_dir]) == np.sign(actual[valid_dir])))
-    else:
-        direction_acc = None
 
-    corr = float(np.corrcoef(pred, actual)[0, 1]) if n > 1 else None
+    corr = None
+    if n > 1:
+        corr_value = np.corrcoef(pred, actual)[0, 1]
+        if np.isfinite(corr_value):
+            corr = float(corr_value)
 
     return {
         "n": n,
@@ -170,70 +210,115 @@ def compute_regression_metrics(df: pd.DataFrame, pred_col: str, actual_col: str)
     }
 
 
-def compute_calibration(df: pd.DataFrame, prob_col: str, actual_col: str, n_bins: int = 10) -> list[dict]:
-    """prob_col을 n_bins 구간으로 나눠 실제 positive 비율과 비교."""
+def compute_calibration(df: pd.DataFrame, prob_col: str, actual_col: str, n_bins: int = 10) -> list[dict[str, object]]:
     sub = df[[prob_col, actual_col]].dropna()
-    if len(sub) == 0:
+    if sub.empty:
         return []
 
     bins = np.linspace(0, 1, n_bins + 1)
-    results = []
-    for i in range(n_bins):
-        lo, hi = bins[i], bins[i + 1]
-        mask = (sub[prob_col] >= lo) & (sub[prob_col] < hi if i < n_bins - 1 else sub[prob_col] <= hi)
+    results: list[dict[str, object]] = []
+    for idx in range(n_bins):
+        lo, hi = bins[idx], bins[idx + 1]
+        if idx < n_bins - 1:
+            mask = (sub[prob_col] >= lo) & (sub[prob_col] < hi)
+        else:
+            mask = (sub[prob_col] >= lo) & (sub[prob_col] <= hi)
         bucket = sub[mask]
-        n = len(bucket)
-        actual_rate = float(bucket[actual_col].mean()) if n > 0 else None
-        mid = round((lo + hi) / 2, 2)
-        results.append({
-            "prob_range": f"{lo:.1f}~{hi:.1f}",
-            "mid": mid,
-            "n": n,
-            "actual_top20_rate": round(actual_rate, 4) if actual_rate is not None else None,
-            "gap": round(actual_rate - mid, 4) if actual_rate is not None else None,
-        })
+        actual_rate = float(bucket[actual_col].mean()) if not bucket.empty else None
+        midpoint = round((lo + hi) / 2, 2)
+        results.append(
+            {
+                "prob_range": f"{lo:.1f}~{hi:.1f}",
+                "mid": midpoint,
+                "n": len(bucket),
+                "actual_top20_rate": round(actual_rate, 4) if actual_rate is not None else None,
+                "gap": round(actual_rate - midpoint, 4) if actual_rate is not None else None,
+            }
+        )
     return results
+
+
+def format_metric_value(value: float | int | None, fmt: str) -> str:
+    if value is None:
+        return "-"
+    return format(value, fmt)
+
+
+def format_percent(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.1%}"
 
 
 def format_report(
     archive_date: str,
-    df: pd.DataFrame,
-    reg_results: list[tuple[str, dict]],
-    cal_rows: list[dict],
+    archive_age_days: int,
+    merged: pd.DataFrame,
+    matured_horizons: list[int],
+    pending_horizons: list[int],
+    reg_results: list[tuple[str, int, dict[str, float | int | None] | None, str]],
+    cal_rows: list[dict[str, object]],
+    notes: list[str],
 ) -> str:
-    lines = []
-    lines.append(f"# 예측 정확도 리포트 — {archive_date}")
+    lines: list[str] = []
+    lines.append(f"# Prediction Accuracy Report - {archive_date}")
     lines.append("")
-    lines.append(f"- 예측 기준일: {archive_date}")
-    lines.append(f"- 평가 행 수: {len(df):,}")
-    lines.append(f"- 레이블 기준 날짜 분포: {df['date'].nunique()} 거래일")
-    lines.append("")
-
-    lines.append("## 회귀 예측 정확도")
-    lines.append("")
-    lines.append("| 항목 | N | RMSE | MAE | 방향 정확도 | 상관계수 |")
-    lines.append("|---|---:|---:|---:|---:|---:|")
-    for label, m in reg_results:
-        n = m["n"]
-        rmse = f"{m['rmse']:.4f}" if m["rmse"] is not None else "—"
-        mae = f"{m['mae']:.4f}" if m["mae"] is not None else "—"
-        da = f"{m['direction_acc']:.1%}" if m["direction_acc"] is not None else "—"
-        corr = f"{m['corr']:.4f}" if m["corr"] is not None else "—"
-        lines.append(f"| {label} | {n:,} | {rmse} | {mae} | {da} | {corr} |")
+    lines.append(f"- archive_date: `{archive_date}`")
+    lines.append(f"- archive_age_days: `{archive_age_days}`")
+    lines.append(f"- merged_rows: `{len(merged):,}`")
+    lines.append(f"- merged_trade_dates: `{merged['date'].nunique() if not merged.empty else 0}`")
+    lines.append(f"- matured_horizons: `{', '.join(map(str, matured_horizons)) if matured_horizons else 'none'}`")
+    lines.append(f"- pending_horizons: `{', '.join(map(str, pending_horizons)) if pending_horizons else 'none'}`")
     lines.append("")
 
-    if cal_rows:
-        lines.append("## prob_top20_60d Calibration")
+    if notes:
+        lines.append("## Notes")
         lines.append("")
-        lines.append("| 예측 구간 | N | 실제 Top20 비율 | 차이 (실제-예측) |")
+        for note in notes:
+            lines.append(f"- {note}")
+        lines.append("")
+
+    lines.append("## Regression Metrics")
+    lines.append("")
+    lines.append("| Metric | Horizon | Status | N | RMSE | MAE | Direction Acc | Corr |")
+    lines.append("|---|---:|---|---:|---:|---:|---:|---:|")
+    for label, horizon_days, metrics, status in reg_results:
+        if metrics is None:
+            lines.append(f"| {label} | {horizon_days} | {status} | 0 | - | - | - | - |")
+            continue
+        lines.append(
+            "| {label} | {horizon} | {status} | {n:,} | {rmse} | {mae} | {direction} | {corr} |".format(
+                label=label,
+                horizon=horizon_days,
+                status=status,
+                n=int(metrics["n"] or 0),
+                rmse=format_metric_value(metrics["rmse"], ".4f"),
+                mae=format_metric_value(metrics["mae"], ".4f"),
+                direction=format_percent(metrics["direction_acc"]),
+                corr=format_metric_value(metrics["corr"], ".4f"),
+            )
+        )
+    lines.append("")
+
+    lines.append("## Probability Calibration")
+    lines.append("")
+    if cal_rows:
+        lines.append("| Probability Range | N | Actual Top20 Rate | Gap (Actual - Midpoint) |")
         lines.append("|---|---:|---:|---:|")
         for row in cal_rows:
-            actual = f"{row['actual_top20_rate']:.1%}" if row["actual_top20_rate"] is not None else "—"
-            gap = f"{row['gap']:+.1%}" if row["gap"] is not None else "—"
-            lines.append(f"| {row['prob_range']} | {row['n']:,} | {actual} | {gap} |")
-        lines.append("")
-        lines.append("> 차이가 양수(+)이면 과소추정(모델이 낮게 예측), 음수(-)이면 과대추정.")
-        lines.append("")
+            actual_rate = row["actual_top20_rate"]
+            gap = row["gap"]
+            lines.append(
+                "| {prob_range} | {n:,} | {actual} | {gap_text} |".format(
+                    prob_range=row["prob_range"],
+                    n=int(row["n"]),
+                    actual=format_percent(actual_rate if isinstance(actual_rate, float) else None),
+                    gap_text=f"{gap:+.1%}" if isinstance(gap, float) else "-",
+                )
+            )
+    else:
+        lines.append("- No mature probability calibration rows available yet.")
+    lines.append("")
 
     lines.append("---")
     lines.append("*generated by evaluate_prediction_accuracy.py*")
@@ -245,52 +330,78 @@ def evaluate_one(
     archive_dir: Path,
     label_df: pd.DataFrame,
     output_dir: Path,
+    reference_date: pd.Timestamp,
 ) -> Path:
     pred_df = load_archive(archive_dir, archive_date)
     merged = merge_pred_label(pred_df, label_df)
 
-    if len(merged) == 0:
-        LOGGER.warning("[%s] 병합 결과 0행 — 레이블이 아직 생성되지 않았을 수 있습니다", archive_date)
-        return None
+    archive_dt = pd.to_datetime(archive_date, format="%Y%m%d")
+    archive_age_days = int((reference_date - archive_dt).days)
 
-    reg_results = []
-    for pred_col, actual_col, label in REGRESSION_PAIRS:
-        if pred_col in merged.columns and actual_col in merged.columns:
-            m = compute_regression_metrics(merged, pred_col, actual_col)
-            reg_results.append((label, m))
-            LOGGER.info(
-                "[%s] %s — RMSE=%.4f, 방향=%.1f%%, Corr=%.4f (N=%d)",
-                archive_date, label,
-                m["rmse"] or 0,
-                (m["direction_acc"] or 0) * 100,
-                m["corr"] or 0,
-                m["n"],
-            )
-        else:
-            LOGGER.warning("[%s] 컬럼 없음: %s 또는 %s", archive_date, pred_col, actual_col)
+    available_horizons = sorted({spec.horizon_days for spec in REGRESSION_SPECS if spec.pred_col in pred_df.columns})
+    matured_horizons = [h for h in available_horizons if archive_age_days >= h]
+    pending_horizons = [h for h in available_horizons if archive_age_days < h]
 
-    prob_col, actual_col, _ = CALIBRATION_COL
-    cal_rows = []
-    if prob_col in merged.columns and actual_col in merged.columns:
-        cal_rows = compute_calibration(merged, prob_col, actual_col)
-    else:
-        LOGGER.warning("[%s] Calibration 컬럼 없음: %s 또는 %s", archive_date, prob_col, actual_col)
+    notes: list[str] = []
+    if merged.empty:
+        notes.append("No rows merged between archived predictions and labels for the same trade date.")
+    if pending_horizons:
+        notes.append(
+            "Some targets are not mature yet for this archive: "
+            + ", ".join(f"{h}d" for h in pending_horizons)
+        )
 
-    report_text = format_report(archive_date, merged, reg_results, cal_rows)
+    reg_results: list[tuple[str, int, dict[str, float | int | None] | None, str]] = []
+    for spec in REGRESSION_SPECS:
+        if spec.pred_col not in pred_df.columns:
+            reg_results.append((spec.label, spec.horizon_days, None, "prediction_missing"))
+            continue
+        if spec.actual_col not in merged.columns:
+            reg_results.append((spec.label, spec.horizon_days, None, "label_missing"))
+            continue
+        if archive_age_days < spec.horizon_days:
+            reg_results.append((spec.label, spec.horizon_days, None, "not_matured"))
+            continue
+
+        metrics = compute_regression_metrics(merged, spec.pred_col, spec.actual_col)
+        status = "ok" if int(metrics["n"] or 0) > 0 else "no_rows"
+        reg_results.append((spec.label, spec.horizon_days, metrics, status))
+
+    cal_rows: list[dict[str, object]] = []
+    if (
+        CALIBRATION_SPEC.prob_col in pred_df.columns
+        and CALIBRATION_SPEC.actual_col in merged.columns
+        and archive_age_days >= CALIBRATION_SPEC.horizon_days
+    ):
+        cal_rows = compute_calibration(merged, CALIBRATION_SPEC.prob_col, CALIBRATION_SPEC.actual_col)
+    elif CALIBRATION_SPEC.prob_col in pred_df.columns:
+        notes.append("Probability calibration is pending until the 60d horizon matures.")
+
+    report_text = format_report(
+        archive_date=archive_date,
+        archive_age_days=archive_age_days,
+        merged=merged,
+        matured_horizons=matured_horizons,
+        pending_horizons=pending_horizons,
+        reg_results=reg_results,
+        cal_rows=cal_rows,
+        notes=notes,
+    )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / f"prediction_accuracy_report_{archive_date}.md"
-    out_path.write_text(report_text, encoding="utf-8")
-    LOGGER.info("리포트 저장: %s", out_path.resolve())
-    return out_path
+    output_path = output_dir / f"prediction_accuracy_report_{archive_date}.md"
+    output_path.write_text(report_text, encoding="utf-8")
+    LOGGER.info("Wrote report %s", output_path.resolve())
+    return output_path
 
 
 def main() -> None:
     setup_logging()
     args = parse_args()
+    reference_date = resolve_reference_date(args.as_of_date)
 
     if not args.archive_dir.exists():
-        LOGGER.error("아카이브 디렉토리 없음: %s", args.archive_dir.resolve())
+        LOGGER.error("Archive directory not found: %s", args.archive_dir.resolve())
         raise SystemExit(1)
 
     label_df = load_labels(args.labels_csv)
@@ -298,21 +409,27 @@ def main() -> None:
     if args.archive_date:
         dates_to_eval = [pd.to_datetime(args.archive_date).strftime("%Y%m%d")]
     else:
-        dates_to_eval = find_archive_dates(args.archive_dir, args.min_days)
+        dates_to_eval = find_archive_dates(args.archive_dir, args.min_days, reference_date)
         if not dates_to_eval:
-            LOGGER.info("평가 가능한 아카이브 없음 (최소 %d일 경과 필요)", args.min_days)
+            LOGGER.info("No archive is old enough to evaluate yet (min_days=%d)", args.min_days)
             return
         if not args.all:
             dates_to_eval = dates_to_eval[:1]
-        LOGGER.info("평가 대상 아카이브: %s", dates_to_eval)
+        LOGGER.info("Archives selected for evaluation: %s", dates_to_eval)
 
     for archive_date in dates_to_eval:
         try:
-            evaluate_one(archive_date, args.archive_dir, label_df, args.output_dir)
-        except FileNotFoundError as e:
-            LOGGER.error("%s", e)
-        except Exception as e:
-            LOGGER.error("[%s] 평가 실패: %s", archive_date, e, exc_info=True)
+            evaluate_one(
+                archive_date=archive_date,
+                archive_dir=args.archive_dir,
+                label_df=label_df,
+                output_dir=args.output_dir,
+                reference_date=reference_date,
+            )
+        except FileNotFoundError as exc:
+            LOGGER.error("%s", exc)
+        except Exception as exc:
+            LOGGER.error("[%s] evaluation failed: %s", archive_date, exc, exc_info=True)
 
 
 if __name__ == "__main__":

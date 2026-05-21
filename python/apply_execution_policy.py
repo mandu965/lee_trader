@@ -145,6 +145,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-hold-rank", type=int, default=int(get_production_config_value(["execution_policy", "max_hold_rank"], 8)))
     parser.add_argument("--min-replace-score-gap", type=float, default=float(get_production_config_value(["execution_policy", "min_replace_score_gap"], 3.0)))
     parser.add_argument("--max-replacements-per-cycle", type=int, default=int(get_production_config_value(["execution_policy", "max_replacements_per_cycle"], 2)))
+    parser.add_argument("--min-hold-days-before-replace", type=int, default=int(get_production_config_value(["execution_policy", "min_hold_days_before_replace"], 10)), help="Minimum business days after entry before score-based replacement is allowed (default 10).")
     parser.add_argument("--position-trim-buffer", type=float, default=float(get_production_config_value(["execution_policy", "position_trim_buffer"], 0.03)))
     parser.add_argument("--position-cap-trim-enabled", action="store_true", default=bool(get_production_config_value(["execution_policy", "position_cap_trim_enabled"], True)))
     parser.add_argument("--reentry-cooldown-days", type=int, default=int(get_production_config_value(["execution_policy", "reentry_cooldown_days"], 10)))
@@ -910,10 +911,18 @@ def classify_holdings(
     theme_weights = holdings.groupby("dominant_theme", dropna=False)["weight"].sum().to_dict() if "weight" in holdings.columns else {}
     _ai_position_state = load_ai_position_state()
     _today = datetime.now().strftime("%Y-%m-%d")
+    _today_ts = pd.Timestamp(_today).normalize()
 
     rows: list[dict[str, object]] = []
     for _, row in holdings.iterrows():
         code = str(row["code"]).zfill(6)
+        _pos_entry_date_str = ((_ai_position_state or {}).get("positions") or {}).get(code, {}).get("entry_date")
+        _holding_bdays = 0
+        if _pos_entry_date_str:
+            try:
+                _holding_bdays = business_days_since(pd.Timestamp(_pos_entry_date_str).normalize(), _today_ts)
+            except Exception:
+                pass
         current_weight = pd.to_numeric(row.get("weight"), errors="coerce")
         sector = str(row.get("sector") or "(unknown)")
         theme = str(row.get("dominant_theme") or "(none)")
@@ -986,16 +995,22 @@ def classify_holdings(
                     action = "TRIM"
                 reasons.append(f"out of top{args.max_holdings} but within hold range top{args.max_hold_rank}")
             else:
-                action = "REPLACE_CANDIDATE"
-                reasons.append(f"outside hold range top{args.max_hold_rank}")
+                if _holding_bdays < args.min_hold_days_before_replace:
+                    reasons.append(f"replace deferred: holding {_holding_bdays}bd < min {args.min_hold_days_before_replace}bd")
+                else:
+                    action = "REPLACE_CANDIDATE"
+                    reasons.append(f"outside hold range top{args.max_hold_rank}")
         elif pd.isna(candidate_rank):
             if pd.notna(latest_rank) and int(latest_rank) <= args.max_hold_rank and confidence_policy.hold_allowed:
                 if action == "HOLD":
                     action = "TRIM"
                 reasons.append("not in official top5, latest snapshot still inside hold range")
             else:
-                action = "REPLACE_CANDIDATE"
-                reasons.append("missing from official recommendation set")
+                if _holding_bdays < args.min_hold_days_before_replace:
+                    reasons.append(f"replace deferred: holding {_holding_bdays}bd < min {args.min_hold_days_before_replace}bd")
+                else:
+                    action = "REPLACE_CANDIDATE"
+                    reasons.append("missing from official recommendation set")
 
         # Phase 8: 보유 종목 재무 모멘텀 BUY gate — hard_risk 시 TRIM 강제
         fin_qty_scale, fin_gate_reason = resolve_fin_momentum_gate(

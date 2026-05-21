@@ -96,7 +96,10 @@ def _decision_for_rules(
             sell_ratio = 1.0
         elif requested_sell_action == "PARTIAL_SELL":
             decision = "PARTIAL_SELL"
-            sell_ratio = cfg.partial_take_profit_ratio
+            if str(selected_rule.get("reason") or "") == "TAKE_PROFIT":
+                sell_ratio = cfg.partial_take_profit_ratio
+            else:
+                sell_ratio = cfg.partial_deterioration_ratio
     sell_quantity = _whole_share_quantity(
         remaining_quantity=position.get("remaining_quantity"),
         sell_ratio=sell_ratio,
@@ -189,7 +192,10 @@ def run_sell_automation(
             "stop_loss_pct": cfg.stop_loss_pct,
             "take_profit_pct": cfg.take_profit_pct,
             "trailing_stop_pct": cfg.trailing_stop_pct,
+            "trailing_stop_min_profit_pct": cfg.trailing_stop_min_profit_pct,
+            "soft_max_holding_days": cfg.soft_max_holding_days,
             "max_holding_days": cfg.max_holding_days,
+            "entry_grace_days": cfg.entry_grace_days,
             "rank_exit_threshold": cfg.rank_exit_threshold,
             "min_score_hold": cfg.min_score_hold,
             "min_prob_hold": cfg.min_prob_hold,
@@ -197,6 +203,7 @@ def run_sell_automation(
             "market_drawdown_exit_pct": cfg.market_drawdown_exit_pct,
             "partial_take_profit_enabled": cfg.partial_take_profit_enabled,
             "partial_take_profit_ratio": cfg.partial_take_profit_ratio,
+            "partial_deterioration_ratio": cfg.partial_deterioration_ratio,
         },
         "config_warnings": list(cfg.warnings),
         "events": events,

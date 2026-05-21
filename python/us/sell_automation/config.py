@@ -58,7 +58,10 @@ class SellAutomationConfig:
     stop_loss_pct: float
     take_profit_pct: float
     trailing_stop_pct: float
+    trailing_stop_min_profit_pct: float   # trailing 발동 최소 수익 (US-H-1)
     max_holding_days: int
+    soft_max_holding_days: int            # soft 보유 한도 (US-H-2)
+    entry_grace_days: int                 # 진입 후 교체/청산 유예 영업일 (US-H-5)
     rank_exit_threshold: int
     min_score_hold: float
     min_prob_hold: float
@@ -69,6 +72,7 @@ class SellAutomationConfig:
     market_drawdown_exit_pct: float
     partial_take_profit_enabled: bool
     partial_take_profit_ratio: float
+    partial_deterioration_ratio: float
     failsafe_on_data_error: bool
     live_implemented: bool
     warnings: tuple[str, ...]
@@ -85,6 +89,7 @@ def load_sell_automation_config() -> SellAutomationConfig:
     stop_loss_pct, stop_loss_warning = _pct("US_SELL_STOP_LOSS_PCT", -0.08, allow_negative=True)
     take_profit_pct, take_profit_warning = _pct("US_SELL_TAKE_PROFIT_PCT", 0.15)
     trailing_stop_pct, trailing_stop_warning = _pct("US_SELL_TRAILING_STOP_PCT", 0.10)
+    trailing_stop_min_profit_pct, trailing_min_profit_warning = _pct("US_SELL_TRAILING_MIN_PROFIT_PCT", 0.08)
     min_score_hold, score_warning = _ratio("US_SELL_MIN_SCORE_HOLD", 0.50)
     min_prob_hold, prob_warning = _ratio("US_SELL_MIN_PROB_HOLD", 0.50)
     benchmark_underperform_pct, benchmark_warning = _pct(
@@ -98,15 +103,18 @@ def load_sell_automation_config() -> SellAutomationConfig:
         allow_negative=True,
     )
     partial_take_profit_ratio, partial_warning = _ratio("US_SELL_PARTIAL_TAKE_PROFIT_RATIO", 0.5)
+    partial_deterioration_ratio, deterioration_partial_warning = _ratio("US_SELL_PARTIAL_DETERIORATION_RATIO", 0.5)
     for warning in (
         stop_loss_warning,
         take_profit_warning,
         trailing_stop_warning,
+        trailing_min_profit_warning,
         score_warning,
         prob_warning,
         benchmark_warning,
         market_warning,
         partial_warning,
+        deterioration_partial_warning,
     ):
         if warning:
             warnings.append(warning)
@@ -123,6 +131,12 @@ def load_sell_automation_config() -> SellAutomationConfig:
     if market_drawdown_exit_pct > 0:
         market_drawdown_exit_pct = -abs(market_drawdown_exit_pct)
 
+    soft_max = _safe_int("US_SELL_SOFT_MAX_HOLDING_DAYS", 35, minimum=1)
+    hard_max = _safe_int("US_SELL_MAX_HOLDING_DAYS", 60, minimum=1)
+    if soft_max >= hard_max:
+        warnings.append(f"US_SELL_SOFT_MAX_HOLDING_DAYS({soft_max}) >= US_SELL_MAX_HOLDING_DAYS({hard_max}); soft cap ignored")
+        soft_max = hard_max
+
     return SellAutomationConfig(
         root_dir=root_dir,
         output_dir=output_dir,
@@ -131,7 +145,10 @@ def load_sell_automation_config() -> SellAutomationConfig:
         stop_loss_pct=stop_loss_pct,
         take_profit_pct=max(0.0, take_profit_pct),
         trailing_stop_pct=max(0.0, trailing_stop_pct),
-        max_holding_days=_safe_int("US_SELL_MAX_HOLDING_DAYS", 60, minimum=1),
+        trailing_stop_min_profit_pct=max(0.0, trailing_stop_min_profit_pct),
+        max_holding_days=hard_max,
+        soft_max_holding_days=soft_max,
+        entry_grace_days=_safe_int("US_SELL_ENTRY_GRACE_DAYS", 7, minimum=0),
         rank_exit_threshold=_safe_int("US_SELL_RANK_EXIT_THRESHOLD", 30, minimum=1),
         min_score_hold=min_score_hold,
         min_prob_hold=min_prob_hold,
@@ -140,8 +157,9 @@ def load_sell_automation_config() -> SellAutomationConfig:
         benchmark_underperform_pct=benchmark_underperform_pct,
         risk_off_exit_enabled=_flag("US_SELL_RISK_OFF_EXIT_ENABLED", "1"),
         market_drawdown_exit_pct=market_drawdown_exit_pct,
-        partial_take_profit_enabled=_flag("US_SELL_PARTIAL_TAKE_PROFIT_ENABLED", "0"),
+        partial_take_profit_enabled=_flag("US_SELL_PARTIAL_TAKE_PROFIT_ENABLED", "1"),
         partial_take_profit_ratio=partial_take_profit_ratio,
+        partial_deterioration_ratio=partial_deterioration_ratio,
         failsafe_on_data_error=_flag("US_SELL_FAILSAFE_ON_DATA_ERROR", "1"),
         live_implemented=False,
         warnings=tuple(warnings),

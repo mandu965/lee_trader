@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import shutil
 from pathlib import Path
@@ -58,6 +59,11 @@ def parse_args() -> argparse.Namespace:
         default=ARCHIVE_DIR,
         help="Archive directory path",
     )
+    p.add_argument(
+        "--skip-manifest",
+        action="store_true",
+        help="Do not write a JSON sidecar manifest next to the archived CSV.",
+    )
     return p.parse_args()
 
 
@@ -78,6 +84,30 @@ def resolve_prediction_date(pred_df: pd.DataFrame, override: str | None) -> str:
     return latest.strftime("%Y%m%d")
 
 
+def validate_predictions(pred_df: pd.DataFrame) -> None:
+    required = {"date", "code"}
+    missing = sorted(required - set(pred_df.columns))
+    if missing:
+        raise ValueError(f"predictions.csv is missing required columns: {missing}")
+    if pred_df.empty:
+        raise ValueError("predictions.csv is empty")
+
+
+def write_manifest(dest_csv: Path, pred_df: pd.DataFrame, archive_date: str) -> Path:
+    manifest_path = dest_csv.with_suffix(".meta.json")
+    payload = {
+        "archive_date": archive_date,
+        "csv_path": str(dest_csv),
+        "row_count": int(len(pred_df)),
+        "column_count": int(len(pred_df.columns)),
+        "columns": list(pred_df.columns),
+        "min_trade_date": str(pd.to_datetime(pred_df["date"], errors="coerce").min()),
+        "max_trade_date": str(pd.to_datetime(pred_df["date"], errors="coerce").max()),
+    }
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return manifest_path
+
+
 def main() -> None:
     setup_logging()
     args = parse_args()
@@ -89,6 +119,7 @@ def main() -> None:
     LOGGER.info("Loading predictions: %s", args.predictions_csv.resolve())
     pred_df = pd.read_csv(args.predictions_csv, dtype={"code": str})
     LOGGER.info("Loaded %d rows", len(pred_df))
+    validate_predictions(pred_df)
 
     date_str = resolve_prediction_date(pred_df, args.date)
 
@@ -101,6 +132,9 @@ def main() -> None:
 
     shutil.copy2(args.predictions_csv, dest)
     LOGGER.info("Archived predictions -> %s (%d rows)", dest.resolve(), len(pred_df))
+    if not args.skip_manifest:
+        manifest_path = write_manifest(dest, pred_df, date_str)
+        LOGGER.info("Wrote archive manifest -> %s", manifest_path.resolve())
 
 
 if __name__ == "__main__":

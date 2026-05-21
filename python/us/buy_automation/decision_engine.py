@@ -12,7 +12,7 @@ from python.us.buy_automation.candidate_loader import load_buy_candidates
 from python.us.buy_automation.config import BuyAutomationConfig, load_buy_automation_config
 from python.us.buy_automation.logger import persist_buy_automation_logs
 from python.us.buy_automation.paper_order import build_paper_order
-from python.us.buy_automation.risk_guard import evaluate_candidate
+from python.us.buy_automation.risk_guard import evaluate_candidate, GRADE_ORDER
 from python.us.trade_orchestration.conflict_guard import build_conflict_rule_rows, check_buy_conflict
 from python.us.trade_orchestration.config import load_trade_orchestration_config
 from python.us.us_config import parse_iso_date
@@ -196,7 +196,11 @@ def run_buy_automation(
     allowed_after_conflict = 0
     conflict_blocked_candidates = 0
 
-    for raw_candidate in sorted(candidates, key=lambda row: (int(row.get("rank") or 999999), str(row.get("symbol") or ""))):
+    for raw_candidate in sorted(candidates, key=lambda row: (
+        -GRADE_ORDER.get(str(row.get("recommend_grade") or "").upper(), -1),  # STRONG_BUY 먼저
+        int(row.get("rank") or 999999),
+        str(row.get("symbol") or ""),
+    )):
         candidate = _attach_ids(dict(raw_candidate))
         kill_switch_active = _is_kill_switch_active(account_id, str(candidate.get("symbol") or ""), candidate.get("sector"))
         guard = evaluate_candidate(

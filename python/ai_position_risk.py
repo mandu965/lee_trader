@@ -29,6 +29,10 @@ AI_POSITION_STATE_PATH = ROOT / "outputs" / "ai_position_state.json"
 logger = logging.getLogger(__name__)
 
 
+def _now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
 # ── 환경변수 헬퍼 ──────────────────────────────────────────────────────────────
 
 def _cfg_float(name: str, default: float) -> float:
@@ -92,6 +96,7 @@ def update_position_state_from_holdings(holdings_df: pd.DataFrame) -> dict:
     # 기존 포지션이 없으면 상태 파일이 유실된 것으로 간주
     state_was_empty = not positions
     today = datetime.now().strftime("%Y-%m-%d")
+    now_iso = _now_iso()
 
     current_codes: set[str] = set()
     for _, row in holdings_df.iterrows():
@@ -105,6 +110,7 @@ def update_position_state_from_holdings(holdings_df: pd.DataFrame) -> dict:
 
         if code not in positions:
             state_recovered = state_was_empty
+            first_seen_reason = "STATE_RECOVERED" if state_recovered else "NEW_POSITION"
             if state_recovered:
                 logger.warning(
                     "AI_POSITION_STATE_RECOVERED | code=%s — state file was missing, "
@@ -124,11 +130,20 @@ def update_position_state_from_holdings(holdings_df: pd.DataFrame) -> dict:
                 "entry_price": avg_price,
                 "peak_price": max(current_price, avg_price),
                 "peak_date": today,
-                "first_seen_at": datetime.now().isoformat(timespec="seconds"),
+                "first_seen_at": now_iso,
+                "first_seen_reason": first_seen_reason,
                 "state_recovered": state_recovered,
+                "last_seen_at": now_iso,
+                "last_seen_price": current_price,
+                "last_seen_avg_price": avg_price,
             }
         else:
             existing = positions[code]
+            existing.setdefault("first_seen_at", now_iso)
+            existing.setdefault("first_seen_reason", "NEW_POSITION")
+            existing["last_seen_at"] = now_iso
+            existing["last_seen_price"] = current_price
+            existing["last_seen_avg_price"] = avg_price
             old_peak = float(existing.get("peak_price") or 0)
             if current_price > old_peak:
                 existing["peak_price"] = current_price
@@ -164,7 +179,7 @@ def evaluate_ai_position_risk(
     stop_loss_pct = _cfg_float("AI_POSITION_STOP_LOSS_PCT", 0.07)
     trailing_stop_pct = _cfg_float("AI_TRAILING_STOP_PCT", 0.05)
     trailing_stop_min_profit = _cfg_float("AI_TRAILING_STOP_MIN_PROFIT", 0.03)
-    max_holding_days = _cfg_int("AI_MAX_HOLDING_DAYS", 15)
+    max_holding_days = _cfg_int("AI_MAX_HOLDING_DAYS", 30)
     take_profit_pct = _cfg_float("AI_POSITION_TAKE_PROFIT_PCT", 0.0)
 
     # 1. Stop loss ─────────────────────────────────────────────────────────────
@@ -238,16 +253,13 @@ def evaluate_ai_position_risk(
                         "but state_recovered=True, soft check suppressed (days=%d)",
                         code, holding_days,
                     )
-                elif pnl_pct is None or pnl_pct < 0.02:
-                    # 수익률 2% 미만인 경우만 청산 (수익권은 하드캡까지 유지)
-                    action = "exit" if (pnl_pct is None or pnl_pct <= 0) else "reduce"
-                    reason = (
-                        f"max_holding_days_{action} days={holding_days} > {max_holding_days}"
-                    )
+                elif pnl_pct is None or pnl_pct < 0.0:
+                    # 0% 미만인 경우만 청산 (0% 이상은 hard_cap까지 HOLD)
+                    reason = f"max_holding_days_exit days={holding_days} > {max_holding_days}"
                     logger.warning(
                         "AI_POSITION_RISK_BLOCK | code=%s reason=%s", code, reason
                     )
-                    return action, reason
+                    return "exit", reason
         except ValueError:
             pass
 

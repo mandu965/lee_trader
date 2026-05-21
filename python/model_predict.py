@@ -61,9 +61,9 @@ REG_MDD_TARGETS = {
 }
 
 # 분류 타깃(Top20) -> 확률 컬럼명 매핑
+# prob_top20_90d 는 점수에 반영되지 않으므로 학습/예측 대상에서 제외 (저장은 유지)
 CLS_TARGET_PROB_COL = {
     "target_60d_top20": "prob_top20_60d",
-    "target_90d_top20": "prob_top20_90d",
 }
 
 

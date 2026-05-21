@@ -5,7 +5,6 @@ import os
 from datetime import datetime
 import json  # 튜닝 파라미터 로딩용
 from pathlib import Path
-from pathlib import Path
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -13,6 +12,7 @@ import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, roc_auc_score, log_loss
 from sklearn.model_selection import TimeSeriesSplit
 from lightgbm import LGBMRegressor, LGBMClassifier
+from sklearn.calibration import CalibratedClassifierCV
 
 # ---------------------------------------------------------------------
 # Paths & constants
@@ -36,6 +36,7 @@ DEFAULT_HORIZONS = [30, 60, 90]
 DEFAULT_CLS_HORIZONS = [60]
 
 N_SPLITS = 3  # TimeSeriesSplit fold 수 (너무 크지 않게)
+DEFAULT_SAMPLE_WEIGHT_HALFLIFE_YEARS = 3.0  # 3년 반감기: 최근 데이터에 더 높은 가중치
 
 
 # ---------------------------------------------------------------------
@@ -48,6 +49,21 @@ def setup_logging() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
     )
+
+
+def compute_sample_weights(dates: np.ndarray, halflife_years: float) -> np.ndarray | None:
+    """지수 감쇠 샘플 가중치. halflife_years <= 0 이면 None 반환(비활성).
+
+    오래된 데이터일수록 낮은 가중치를 부여해 최근 시장 환경에 더 민감하게 학습한다.
+    가중치는 평균=1로 정규화되어 유효 샘플 수 해석이 직관적이다.
+    """
+    if halflife_years <= 0:
+        return None
+    dts = pd.to_datetime(dates)
+    days_ago = (dts.max() - dts).days.to_numpy().astype(float)
+    decay_rate = np.log(2.0) / (halflife_years * 365.0)
+    weights = np.exp(-decay_rate * days_ago)
+    return weights / weights.mean()
 
 
 def parse_args() -> argparse.Namespace:
@@ -99,6 +115,22 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default=os.environ.get("MODEL_VERSION", "v1"),
         help="Model version metadata stored in the model pack.",
+    )
+    p.add_argument(
+        "--sample-weight-halflife",
+        type=float,
+        default=DEFAULT_SAMPLE_WEIGHT_HALFLIFE_YEARS,
+        dest="sample_weight_halflife",
+        help=(
+            "Exponential decay halflife in years for sample weights. "
+            "0 disables weighting. Default=%(default).1f."
+        ),
+    )
+    p.add_argument(
+        "--no-calibrate",
+        action="store_true",
+        dest="no_calibrate",
+        help="Disable isotonic calibration for classifiers (enabled by default).",
     )
     return p.parse_args()
 
@@ -247,7 +279,13 @@ def mae(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 # ---------------------------------------------------------------------
 
 
-def train_regressors(df: pd.DataFrame, feature_cols: List[str], reg_targets: List[str]) -> Dict[str, LGBMRegressor]:
+def train_regressors(
+    df: pd.DataFrame,
+    feature_cols: List[str],
+    reg_targets: List[str],
+    *,
+    halflife_years: float = 0.0,
+) -> Dict[str, LGBMRegressor]:
     reg_models: Dict[str, LGBMRegressor] = {}
 
     for target in reg_targets:
@@ -263,6 +301,12 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str], reg_targets: Lis
         X = df_t[feature_cols]
         y = df_t[target].astype(float)
         dates = df_t["date"].values
+        sample_weight = compute_sample_weights(dates, halflife_years)
+        if sample_weight is not None:
+            logging.info(
+                "  [%s] sample_weight enabled (halflife_years=%.1f, min=%.3f, max=%.3f)",
+                target, halflife_years, float(sample_weight.min()), float(sample_weight.max()),
+            )
 
         logging.info("Training regressor for %s (rows=%d)", target, len(df_t))
 
@@ -288,7 +332,7 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str], reg_targets: Lis
 
         folds = time_series_folds(dates, N_SPLITS)
         if not folds:
-            reg.fit(X, y)
+            reg.fit(X, y, sample_weight=sample_weight)
             reg_models[target] = reg
             logging.info("  [%s] trained on full data (no CV).", target)
         else:
@@ -303,7 +347,8 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str], reg_targets: Lis
                     continue
 
                 reg_i = LGBMRegressor(**reg.get_params())
-                reg_i.fit(X_tr, y_tr)
+                sw_tr = sample_weight[tr_mask] if sample_weight is not None else None
+                reg_i.fit(X_tr, y_tr, sample_weight=sw_tr)
                 pred_va = reg_i.predict(X_va)
                 fold_rmse = rmse(y_va, pred_va)
                 fold_mae = mae(y_va, pred_va)
@@ -320,7 +365,7 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str], reg_targets: Lis
                     len(X_va),
                 )
 
-            reg.fit(X, y)
+            reg.fit(X, y, sample_weight=sample_weight)
             reg_models[target] = reg
             if rmses:
                 logging.info(
@@ -340,8 +385,15 @@ def train_regressors(df: pd.DataFrame, feature_cols: List[str], reg_targets: Lis
 # ---------------------------------------------------------------------
 
 
-def train_classifiers(df: pd.DataFrame, feature_cols: List[str], cls_targets: List[str]) -> Dict[str, LGBMClassifier]:
-    cls_models: Dict[str, LGBMClassifier] = {}
+def train_classifiers(
+    df: pd.DataFrame,
+    feature_cols: List[str],
+    cls_targets: List[str],
+    *,
+    halflife_years: float = 0.0,
+    calibrate: bool = True,
+) -> Dict[str, object]:
+    cls_models: Dict[str, object] = {}
 
     for target in cls_targets:
         if target not in df.columns:
@@ -356,6 +408,12 @@ def train_classifiers(df: pd.DataFrame, feature_cols: List[str], cls_targets: Li
         X = df_t[feature_cols]
         y = df_t[target].astype(int)
         dates = df_t["date"].values
+        sample_weight = compute_sample_weights(dates, halflife_years)
+        if sample_weight is not None:
+            logging.info(
+                "  [%s] sample_weight enabled (halflife_years=%.1f, min=%.3f, max=%.3f)",
+                target, halflife_years, float(sample_weight.min()), float(sample_weight.max()),
+            )
 
         # sanity check: 양성 비율이 너무 낮으면 경고
         pos_ratio = y.mean()
@@ -380,9 +438,10 @@ def train_classifiers(df: pd.DataFrame, feature_cols: List[str], cls_targets: Li
             n_jobs=-1,
         )
 
+        last_va_mask: np.ndarray | None = None
         folds = time_series_folds(dates, N_SPLITS)
         if not folds:
-            cls.fit(X, y)
+            cls.fit(X, y, sample_weight=sample_weight)
             cls_models[target] = cls
             logging.info("  [%s] classifier trained on full data (no CV).", target)
         else:
@@ -397,7 +456,8 @@ def train_classifiers(df: pd.DataFrame, feature_cols: List[str], cls_targets: Li
                     continue
 
                 cls_i = cls.__class__(**cls.get_params())
-                cls_i.fit(X_tr, y_tr)
+                sw_tr = sample_weight[tr_mask] if sample_weight is not None else None
+                cls_i.fit(X_tr, y_tr, sample_weight=sw_tr)
                 proba_va = cls_i.predict_proba(X_va)[:, 1]
                 auc = roc_auc_score(y_va, proba_va)
                 loss = log_loss(y_va, proba_va, labels=[0, 1])
@@ -413,9 +473,26 @@ def train_classifiers(df: pd.DataFrame, feature_cols: List[str], cls_targets: Li
                     len(X_tr),
                     len(X_va),
                 )
+                last_va_mask = va_mask
 
-            cls.fit(X, y)
-            cls_models[target] = cls
+            cls.fit(X, y, sample_weight=sample_weight)
+            if calibrate and last_va_mask is not None and int(last_va_mask.sum()) >= 20:
+                X_cal = X[last_va_mask]
+                y_cal = y[last_va_mask]
+                cal = CalibratedClassifierCV(cls, method="isotonic", cv="prefit")
+                cal.fit(X_cal, y_cal)
+                cls_models[target] = cal
+                logging.info(
+                    "  [%s] isotonic calibration applied (last-fold n_cal=%d)",
+                    target, int(last_va_mask.sum()),
+                )
+            else:
+                if calibrate:
+                    logging.warning(
+                        "  [%s] calibration skipped (last-fold n=%d)",
+                        target, int(last_va_mask.sum()) if last_va_mask is not None else 0,
+                    )
+                cls_models[target] = cls
             if aucs:
                 logging.info(
                     "  [%s] CV AUC=%.4f±%.4f, logloss=%.4f±%.4f",
@@ -445,10 +522,17 @@ def main() -> None:
     df, cutoff = apply_train_end_date(df, args.train_end_date)
 
     logging.info("Start training regressors (log-return + MDD)...")
-    reg_models = train_regressors(df, feature_cols, reg_targets)
+    reg_models = train_regressors(
+        df, feature_cols, reg_targets,
+        halflife_years=args.sample_weight_halflife,
+    )
 
     logging.info("Start training classifiers (Top20 flags)...")
-    cls_models = train_classifiers(df, feature_cols, cls_targets)
+    cls_models = train_classifiers(
+        df, feature_cols, cls_targets,
+        halflife_years=args.sample_weight_halflife,
+        calibrate=not args.no_calibrate,
+    )
 
     train_end_date = cutoff.strftime("%Y-%m-%d") if cutoff is not None else None
     pack = {

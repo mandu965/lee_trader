@@ -88,7 +88,16 @@ def evaluate_sell_rules(
         )
 
     if not cfg.risk_off_exit_enabled:
-        rules.append(_rule("RISK_OFF_MARKET_EXIT", result="PASS", value=None, threshold=cfg.market_drawdown_exit_pct, action="HOLD", reason=None))
+        rules.append(
+            _rule(
+                "RISK_OFF_MARKET_EXIT",
+                result="PASS",
+                value=None,
+                threshold=cfg.market_drawdown_exit_pct,
+                action="HOLD",
+                reason=None,
+            )
+        )
     elif benchmark_drawdown_pct is None:
         rules.append(
             _rule(
@@ -124,17 +133,57 @@ def evaluate_sell_rules(
         )
 
     if unrealized_pnl_pct is None:
-        rules.append(_rule("STOP_LOSS", result="UNKNOWN", value=None, threshold=cfg.stop_loss_pct, action="REVIEW_REQUIRED", reason="PRICE_DATA_MISSING"))
+        rules.append(
+            _rule(
+                "STOP_LOSS",
+                result="UNKNOWN",
+                value=None,
+                threshold=cfg.stop_loss_pct,
+                action="REVIEW_REQUIRED",
+                reason="PRICE_DATA_MISSING",
+            )
+        )
     elif unrealized_pnl_pct <= cfg.stop_loss_pct:
-        rules.append(_rule("STOP_LOSS", result="FAIL", value=unrealized_pnl_pct, threshold=cfg.stop_loss_pct, action="FULL_SELL", reason="STOP_LOSS"))
+        rules.append(
+            _rule(
+                "STOP_LOSS",
+                result="FAIL",
+                value=unrealized_pnl_pct,
+                threshold=cfg.stop_loss_pct,
+                action="FULL_SELL",
+                reason="STOP_LOSS",
+            )
+        )
     else:
-        rules.append(_rule("STOP_LOSS", result="PASS", value=unrealized_pnl_pct, threshold=cfg.stop_loss_pct, action="HOLD", reason=None))
+        rules.append(
+            _rule(
+                "STOP_LOSS",
+                result="PASS",
+                value=unrealized_pnl_pct,
+                threshold=cfg.stop_loss_pct,
+                action="HOLD",
+                reason=None,
+            )
+        )
 
     trailing_drawdown_pct = None
     trailing_threshold = -cfg.trailing_stop_pct
+    trailing_min_profit = cfg.trailing_stop_min_profit_pct
+    trailing_active = unrealized_pnl_pct is not None and unrealized_pnl_pct >= trailing_min_profit
     if latest_price is not None and highest_price_since_entry and highest_price_since_entry > 0:
         trailing_drawdown_pct = round((latest_price / highest_price_since_entry) - 1.0, 6)
-    if trailing_drawdown_pct is None:
+    if not trailing_active:
+        rules.append(
+            _rule(
+                "TRAILING_STOP",
+                result="PASS",
+                value=unrealized_pnl_pct,
+                threshold=trailing_min_profit,
+                action="HOLD",
+                reason=f"trailing_inactive: pnl below min_profit {trailing_min_profit:.0%}",
+            )
+        )
+    elif trailing_drawdown_pct is None:
         rules.append(
             _rule(
                 "TRAILING_STOP",
@@ -157,7 +206,16 @@ def evaluate_sell_rules(
             )
         )
     else:
-        rules.append(_rule("TRAILING_STOP", result="PASS", value=trailing_drawdown_pct, threshold=trailing_threshold, action="HOLD", reason=None))
+        rules.append(
+            _rule(
+                "TRAILING_STOP",
+                result="PASS",
+                value=trailing_drawdown_pct,
+                threshold=trailing_threshold,
+                action="HOLD",
+                reason=None,
+            )
+        )
 
     if holding_days is None:
         rules.append(
@@ -165,15 +223,56 @@ def evaluate_sell_rules(
                 "MAX_HOLDING_DAYS",
                 result="UNKNOWN",
                 value=None,
-                threshold=cfg.max_holding_days,
+                threshold={"soft": cfg.soft_max_holding_days, "hard": cfg.max_holding_days},
                 action="REVIEW_REQUIRED",
                 reason="HOLDING_DAYS_MISSING",
             )
         )
     elif holding_days >= cfg.max_holding_days:
-        rules.append(_rule("MAX_HOLDING_DAYS", result="FAIL", value=holding_days, threshold=cfg.max_holding_days, action="FULL_SELL", reason="MAX_HOLDING_DAYS"))
+        rules.append(
+            _rule(
+                "MAX_HOLDING_DAYS",
+                result="FAIL",
+                value=holding_days,
+                threshold=cfg.max_holding_days,
+                action="FULL_SELL",
+                reason="MAX_HOLDING_DAYS_HARD_CAP",
+            )
+        )
+    elif holding_days >= cfg.soft_max_holding_days:
+        if unrealized_pnl_pct is not None and unrealized_pnl_pct < 0.0:
+            rules.append(
+                _rule(
+                    "MAX_HOLDING_DAYS",
+                    result="FAIL",
+                    value=holding_days,
+                    threshold=cfg.soft_max_holding_days,
+                    action="FULL_SELL",
+                    reason="MAX_HOLDING_DAYS_SOFT_LOSS",
+                )
+            )
+        else:
+            rules.append(
+                _rule(
+                    "MAX_HOLDING_DAYS",
+                    result="PASS",
+                    value=holding_days,
+                    threshold=cfg.soft_max_holding_days,
+                    action="HOLD",
+                    reason=f"soft_holding: {holding_days}d >= soft {cfg.soft_max_holding_days}d but pnl >= 0",
+                )
+            )
     else:
-        rules.append(_rule("MAX_HOLDING_DAYS", result="PASS", value=holding_days, threshold=cfg.max_holding_days, action="HOLD", reason=None))
+        rules.append(
+            _rule(
+                "MAX_HOLDING_DAYS",
+                result="PASS",
+                value=holding_days,
+                threshold=cfg.soft_max_holding_days,
+                action="HOLD",
+                reason=None,
+            )
+        )
 
     deterioration_reason = None
     deterioration_value: object = None
@@ -205,19 +304,36 @@ def evaluate_sell_rules(
             deterioration_reason = "PROBABILITY_BELOW_HOLD"
             deterioration_value = latest_probability
 
+        in_entry_grace = (
+            deterioration_reason == "RANK_EXIT_THRESHOLD"
+            and holding_days is not None
+            and holding_days < cfg.entry_grace_days
+        )
+        threshold_detail = {
+            "rank_exit_threshold": cfg.rank_exit_threshold,
+            "min_score_hold": cfg.min_score_hold,
+            "min_prob_hold": cfg.min_prob_hold,
+        }
         if deterioration_reason == "PROBABILITY_MISSING":
             rules.append(
                 _rule(
                     "RANK_SCORE_DETERIORATION",
                     result="UNKNOWN",
                     value=None,
-                    threshold={
-                        "rank_exit_threshold": cfg.rank_exit_threshold,
-                        "min_score_hold": cfg.min_score_hold,
-                        "min_prob_hold": cfg.min_prob_hold,
-                    },
+                    threshold=threshold_detail,
                     action="REVIEW_REQUIRED",
                     reason=deterioration_reason,
+                )
+            )
+        elif deterioration_reason and in_entry_grace:
+            rules.append(
+                _rule(
+                    "RANK_SCORE_DETERIORATION",
+                    result="PASS",
+                    value=deterioration_value,
+                    threshold=threshold_detail,
+                    action="HOLD",
+                    reason=f"entry_grace: {holding_days}d < {cfg.entry_grace_days}d ({deterioration_reason})",
                 )
             )
         elif deterioration_reason:
@@ -226,12 +342,8 @@ def evaluate_sell_rules(
                     "RANK_SCORE_DETERIORATION",
                     result="FAIL",
                     value=deterioration_value,
-                    threshold={
-                        "rank_exit_threshold": cfg.rank_exit_threshold,
-                        "min_score_hold": cfg.min_score_hold,
-                        "min_prob_hold": cfg.min_prob_hold,
-                    },
-                    action="FULL_SELL",
+                    threshold=threshold_detail,
+                    action="PARTIAL_SELL",
                     reason="RANK_SCORE_DETERIORATION",
                 )
             )
@@ -245,18 +357,23 @@ def evaluate_sell_rules(
                         "score_ratio": latest_score_ratio,
                         "probability": latest_probability,
                     },
-                    threshold={
-                        "rank_exit_threshold": cfg.rank_exit_threshold,
-                        "min_score_hold": cfg.min_score_hold,
-                        "min_prob_hold": cfg.min_prob_hold,
-                    },
+                    threshold=threshold_detail,
                     action="HOLD",
                     reason=None,
                 )
             )
 
     if not cfg.require_benchmark_strength:
-        rules.append(_rule("BENCHMARK_UNDERPERFORMANCE", result="PASS", value=None, threshold=cfg.benchmark_underperform_pct, action="HOLD", reason=None))
+        rules.append(
+            _rule(
+                "BENCHMARK_UNDERPERFORMANCE",
+                result="PASS",
+                value=None,
+                threshold=cfg.benchmark_underperform_pct,
+                action="HOLD",
+                reason=None,
+            )
+        )
     elif symbol_return_pct is None or benchmark_return_pct is None:
         rules.append(
             _rule(
@@ -294,7 +411,16 @@ def evaluate_sell_rules(
             )
 
     if unrealized_pnl_pct is None:
-        rules.append(_rule("TAKE_PROFIT", result="UNKNOWN", value=None, threshold=cfg.take_profit_pct, action="REVIEW_REQUIRED", reason="PRICE_DATA_MISSING"))
+        rules.append(
+            _rule(
+                "TAKE_PROFIT",
+                result="UNKNOWN",
+                value=None,
+                threshold=cfg.take_profit_pct,
+                action="REVIEW_REQUIRED",
+                reason="PRICE_DATA_MISSING",
+            )
+        )
     elif unrealized_pnl_pct >= cfg.take_profit_pct:
         rules.append(
             _rule(
@@ -307,7 +433,16 @@ def evaluate_sell_rules(
             )
         )
     else:
-        rules.append(_rule("TAKE_PROFIT", result="PASS", value=unrealized_pnl_pct, threshold=cfg.take_profit_pct, action="HOLD", reason=None))
+        rules.append(
+            _rule(
+                "TAKE_PROFIT",
+                result="PASS",
+                value=unrealized_pnl_pct,
+                threshold=cfg.take_profit_pct,
+                action="HOLD",
+                reason=None,
+            )
+        )
 
     rules.append(_rule("HOLD", result="PASS", value="NO_EXIT_TRIGGER", threshold=None, action="HOLD", reason=None))
     return rules
