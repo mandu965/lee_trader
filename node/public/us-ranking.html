@@ -170,9 +170,9 @@
   <!-- Hero -->
   <section class="hero">
     <div>
-      <p class="eyebrow">US Stock Module · rule_v1 · Shadow Mode</p>
+      <p class="eyebrow">US Stock Module · AI Ranking</p>
       <h1>미국주식<br>랭킹</h1>
-      <p class="hero-sub" id="heroSub">NASDAQ100 유니버스 기준 모멘텀·상대강도·펀더멘털 종합 점수</p>
+      <p class="hero-sub" id="heroSub">SP500/NASDAQ100 유니버스 기준 종합 점수</p>
     </div>
     <div class="stat-grid">
       <div class="stat-card">
@@ -188,12 +188,12 @@
       <div class="stat-card">
         <div class="stat-label">STRONG_BUY</div>
         <div class="stat-value green" id="statSB">—</div>
-        <div class="stat-detail">80점 이상</div>
+        <div class="stat-detail" id="statSBLabel">80점 이상</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">BUY</div>
         <div class="stat-value blue" id="statBuy">—</div>
-        <div class="stat-detail">70~79점</div>
+        <div class="stat-detail" id="statBuyLabel">70~79점</div>
       </div>
     </div>
   </section>
@@ -223,6 +223,7 @@
           <option value="20">Top 20</option>
           <option value="50" selected>Top 50</option>
           <option value="100">Top 100</option>
+          <option value="200">Top 200</option>
         </select>
       </div>
       <div class="filter-item" style="margin-left:auto;">
@@ -245,24 +246,22 @@
     <div class="table-shell">
       <table id="rankTable">
         <thead>
-          <tr>
+          <tr id="rankTableHead">
             <th></th>
             <th>Rank</th>
             <th>Symbol</th>
             <th>Company</th>
             <th>Sector</th>
             <th>Grade</th>
-            <th>Total</th>
-            <th>Mom</th>
-            <th>RS</th>
-            <th>Fund</th>
-            <th>Growth</th>
-            <th>Val</th>
-            <th>Risk</th>
+            <th>ML Score</th>
+            <th>Pred 20d</th>
+            <th>Pred 60d</th>
+            <th>P(Top20/20d)</th>
+            <th>P(Top20/60d)</th>
           </tr>
         </thead>
         <tbody id="rankBody">
-          <tr><td colspan="13" class="empty">데이터 로딩 중…</td></tr>
+          <tr><td colspan="11" class="empty">데이터 로딩 중…</td></tr>
         </tbody>
       </table>
     </div>
@@ -271,6 +270,6 @@
 </div>
 
 <script src="/ops-unified-nav.js"></script>
-<script src="/us-ranking.js"></script>
+<script src="/us-ranking.js?v=20260521-ml-pred"></script>
 </body>
 </html>

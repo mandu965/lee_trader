@@ -147,6 +147,15 @@ const gateChipText = (value) => {
 const gateStatusChip = (ok, label, value, failTone = "warn") =>
   `<span class="chip ${ok ? "good" : failTone}">${escapeHtml(label)} ${escapeHtml(value)}</span>`;
 
+const usMacroChip = (row) => {
+  if (!row?.us_macro_applied) return `<span class="chip warn">macro off</span>`;
+  if (row?.us_macro_buy_blocked) return `<span class="chip bad">macro block</span>`;
+  const adj = Number(row?.us_macro_adjustment);
+  if (Number.isFinite(adj) && adj > 0) return `<span class="chip good">macro +${adj.toFixed(1)}</span>`;
+  if (Number.isFinite(adj) && adj < 0) return `<span class="chip watch">macro ${adj.toFixed(1)}</span>`;
+  return `<span class="chip warn">${escapeHtml(String(row?.us_macro_status || "macro neutral"))}</span>`;
+};
+
 const helpTip = (text) =>
   `<span class="help-tip" title="${escapeHtml(text)}">?</span>`;
 
@@ -632,6 +641,9 @@ function renderIntents(intents) {
       <td class="right">${fmtNum(row.priority)}</td>
       <td class="right">${fmtPct(row.target_weight, 1)}</td>
       <td>${escapeHtml(row.reason || "-")}</td>
+      <td>${usMacroChip(row)}</td>
+      <td class="right">${fmtNum(row.us_macro_order_rank)}</td>
+      <td class="right">${fmtNum(row.us_macro_order_score, 2)}</td>
     </tr>
   `).join("");
 }
@@ -684,6 +696,16 @@ function buildPreviewBlockDetail(row) {
     parts.push(`실시간가: ${fmtNum(row.live_price)}`);
   if (row.quote_checked_at)
     parts.push(`시세 확인: ${fmtRuntimeDateTime(row.quote_checked_at)}`);
+  if (row.us_macro_status)
+    parts.push(`US macro: ${row.us_macro_status}`);
+  if (row.us_macro_order_score != null)
+    parts.push(`macro order score: ${fmtNum(row.us_macro_order_score, 2)}`);
+  if (row.us_macro_adjustment != null)
+    parts.push(`macro adj: ${fmtNum(row.us_macro_adjustment, 2)}`);
+  if (row.us_macro_qty_scale != null)
+    parts.push(`macro qty scale: ${fmtNum(row.us_macro_qty_scale, 2)}`);
+  if (row.us_macro_reason)
+    parts.push(`macro reason: ${row.us_macro_reason}`);
   const referenceNote = translateEntryReferenceNote(row.entry_reference_note);
   if (referenceNote)
     parts.push(referenceNote);

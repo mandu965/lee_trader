@@ -81,7 +81,7 @@ services:
   scheduler-recovery:
     <<: *python-runtime
     container_name: lee_trader_scheduler_recovery
-    restart: unless-stopped
+    restart: "no"
     command: ["python", "python/run_daily_scheduler.py"]
     volumes:
       - ./data:/app/data

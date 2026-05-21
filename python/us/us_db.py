@@ -597,9 +597,15 @@ READ_MARKET_REGIME_ROWS_BETWEEN_SQL = text(
 
 READ_LATEST_MACRO_SNAPSHOT_SQL = text(
     """
-    SELECT trade_date, vix_close, vix_ret_20d, spy_ret_20d,
-           spy_above_ma200, qqq_ret_20d, market_regime
-    FROM feature.us_macro_daily
+    SELECT
+        trade_date,
+        NULL::numeric AS vix_close,
+        NULL::numeric AS vix_ret_20d,
+        spy_return_20d AS spy_ret_20d,
+        NULL::boolean AS spy_above_ma200,
+        qqq_return_20d AS qqq_ret_20d,
+        market_regime
+    FROM research.us_market_regime_daily
     WHERE trade_date <= :trade_date
     ORDER BY trade_date DESC
     LIMIT 1
@@ -4580,7 +4586,7 @@ def fetch_latest_financial_feature_snapshots(tickers: list[str], *, trade_date: 
 
 
 def fetch_latest_macro_snapshot(*, trade_date: date) -> dict[str, object] | None:
-    if not relation_exists("feature.us_macro_daily"):
+    if not relation_exists("research.us_market_regime_daily"):
         return None
     engine = get_us_engine()
     with engine.connect() as conn:

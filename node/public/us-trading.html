@@ -6,6 +6,42 @@
     <title>US 자동매매</title>
     <link rel="stylesheet" href="./styles.css?v=20260518-us-nav2" />
     <style>
+      /* ── Live Account Widget ── */
+      .live-acct-panel {
+        margin-bottom: 16px; padding: 16px; border-radius: var(--radius-lg);
+        border: 1px solid rgba(34,197,94,0.28); background: rgba(34,197,94,0.05);
+      }
+      .live-acct-header {
+        display: flex; justify-content: space-between; align-items: center; gap: 12px;
+        margin-bottom: 12px;
+      }
+      .live-acct-title {
+        margin: 0; font-size: 14px; font-weight: 800; color: #86efac;
+        display: flex; align-items: center; gap: 8px;
+      }
+      .live-acct-badge {
+        display: inline-flex; align-items: center;
+        padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 700;
+        background: rgba(34,197,94,0.18); border: 1px solid rgba(34,197,94,0.30); color: #86efac;
+      }
+      .live-acct-fetched { font-size: 11px; color: var(--color-text-secondary); }
+      .live-acct-stats {
+        display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px;
+        margin-bottom: 12px;
+      }
+      .live-acct-stat {
+        border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius-md);
+        background: rgba(255,255,255,0.03); padding: 10px 12px;
+      }
+      .live-acct-stat-label { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; }
+      .live-acct-stat-value { margin-top: 4px; font-size: 20px; font-weight: 800; }
+      .live-acct-error {
+        padding: 10px 12px; border-radius: var(--radius-md); font-size: 12px; color: #fca5a5;
+        background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.24);
+      }
+      @media (max-width: 640px) { .live-acct-stats { grid-template-columns: 1fr; } }
+    </style>
+    <style>
       .live-page { max-width: 1480px; margin: 0 auto; padding: 24px 20px 48px; }
       .page-header { display: block; margin-bottom: 16px; }
       .page-title { display: block; margin: 0; font-size: 28px; letter-spacing: -0.02em; }
@@ -195,11 +231,28 @@
 
       <section class="mode-notice">
         <div>
-          <p class="mode-notice__title">이 화면은 US Shadow/Paper 전용입니다.</p>
-          <p class="mode-notice__body">실제 체결, 실계좌 잔고, 보유 종목 수익률은 여기서 보여주지 않습니다. 실제 주문과 계좌 현황은 RULE 자동매매 화면의 계좌 탭에서 확인하세요.</p>
+          <p class="mode-notice__title">이 화면은 US Paper Trading 운영 보드입니다.</p>
+          <p class="mode-notice__body">아래 실계좌 현황 위젯에서 KIS 해외계좌 잔고와 실제 보유 포지션을 실시간으로 확인할 수 있습니다. Paper Trading 탭들은 백테스트·시뮬레이션 기반 결과입니다.</p>
         </div>
-        <a class="mode-notice__link" href="/rule-auto-trading.html">RULE 계좌 화면 열기</a>
       </section>
+
+      <!-- 실계좌 현황 위젯 -->
+      <div id="liveAccountWidget" class="live-acct-panel">
+        <div class="live-acct-header">
+          <h3 class="live-acct-title">
+            <span>실계좌 현황</span>
+            <span class="live-acct-badge">KIS LIVE</span>
+            <span id="liveAcctAccountNo" style="font-size:12px;color:var(--color-text-secondary);font-weight:400;"></span>
+          </h3>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="live-acct-fetched" id="liveAcctFetched"></span>
+            <button id="btnRefreshLiveAcct" class="btn-outline" style="padding:4px 10px;font-size:11px;">새로고침</button>
+          </div>
+        </div>
+        <div id="liveAcctContent">
+          <div class="live-acct-error">계좌 데이터 로딩 중…</div>
+        </div>
+      </div>
 
       <!-- Safety banner -->
       <div class="safety-banner warn" id="safetyBanner">
@@ -413,6 +466,6 @@
     </div><!-- /live-page -->
 
     <script src="./ops-unified-nav.js?v=20260518-us-nav2"></script>
-    <script src="./us-trading.js?v=20260518-orders-fix"></script>
+    <script src="./us-trading.js?v=20260521-live-acct"></script>
   </body>
 </html>

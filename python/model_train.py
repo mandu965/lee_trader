@@ -12,7 +12,27 @@ import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, roc_auc_score, log_loss
 from sklearn.model_selection import TimeSeriesSplit
 from lightgbm import LGBMRegressor, LGBMClassifier
-from sklearn.calibration import CalibratedClassifierCV
+from sklearn.isotonic import IsotonicRegression
+
+# ---------------------------------------------------------------------
+# sklearn 1.8.0 에서 CalibratedClassifierCV(cv="prefit") 가 제거됨.
+# IsotonicRegression 으로 직접 보정하는 래퍼를 사용.
+# ---------------------------------------------------------------------
+
+
+class _IsotonicCalibratedClassifier:
+    """LGBMClassifier + IsotonicRegression 확률 보정 래퍼."""
+
+    def __init__(self, estimator, calibrator):
+        self.estimator = estimator
+        self.calibrator = calibrator
+        self.classes_ = estimator.classes_
+
+    def predict_proba(self, X):
+        raw = self.estimator.predict_proba(X)[:, 1]
+        calibrated = np.clip(self.calibrator.transform(raw), 0.0, 1.0)
+        return np.column_stack([1.0 - calibrated, calibrated])
+
 
 # ---------------------------------------------------------------------
 # Paths & constants
@@ -252,7 +272,9 @@ def time_series_folds(dates: np.ndarray, n_splits: int) -> List[Tuple[np.ndarray
     """
     dates 배열(중복 허용)에 대해 date 레벨에서 TimeSeriesSplit 수행.
     """
-    uniq = np.array(sorted(pd.Series(dates).dropna().unique()))
+    # sorted() + np.array() 조합은 datetime64를 object Timestamp로 바꿔
+    # np.isin() 비교가 항상 False가 되는 버그 발생 → 원본 dtype 유지 필수
+    uniq = pd.DatetimeIndex(pd.Series(dates).dropna().unique()).sort_values().values
     if uniq.size < 10:
         # 너무 적으면 CV 생략
         return []
@@ -479,9 +501,10 @@ def train_classifiers(
             if calibrate and last_va_mask is not None and int(last_va_mask.sum()) >= 20:
                 X_cal = X[last_va_mask]
                 y_cal = y[last_va_mask]
-                cal = CalibratedClassifierCV(cls, method="isotonic", cv="prefit")
-                cal.fit(X_cal, y_cal)
-                cls_models[target] = cal
+                proba_cal = cls.predict_proba(X_cal)[:, 1]
+                iso = IsotonicRegression(out_of_bounds="clip")
+                iso.fit(proba_cal, y_cal)
+                cls_models[target] = _IsotonicCalibratedClassifier(cls, iso)
                 logging.info(
                     "  [%s] isotonic calibration applied (last-fold n_cal=%d)",
                     target, int(last_va_mask.sum()),

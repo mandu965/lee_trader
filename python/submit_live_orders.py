@@ -209,6 +209,17 @@ def build_ranking_context(row: pd.Series, intent_row: pd.Series | None = None) -
         "entry_quality_reasons": str(first("entry_quality_reasons") or "").strip() or None,
         "original_final_rank": _int_or_none(first("original_final_rank", "rank_final", "buy_rank")),
         "original_final_score": _num_or_none(first("original_final_score", "final_score", "live_score")),
+        "us_macro_applied": bool(first("us_macro_applied")) if first("us_macro_applied") is not None else False,
+        "us_macro_status": str(first("us_macro_status") or "").strip() or None,
+        "us_macro_us_trade_date": str(first("us_macro_us_trade_date") or "").strip() or None,
+        "us_macro_kr_apply_date": str(first("us_macro_kr_apply_date") or "").strip() or None,
+        "us_macro_adjustment": _num_or_none(first("us_macro_adjustment")),
+        "us_macro_order_score": _num_or_none(first("us_macro_order_score")),
+        "us_macro_order_rank": _int_or_none(first("us_macro_order_rank")),
+        "us_macro_buy_blocked": bool(first("us_macro_buy_blocked")) if first("us_macro_buy_blocked") is not None else False,
+        "us_macro_qty_scale": _num_or_none(first("us_macro_qty_scale")),
+        "us_macro_reason": str(first("us_macro_reason") or "").strip() or None,
+        "us_macro_target_weight_before_scale": _num_or_none(first("us_macro_target_weight_before_scale")),
     }
 
 
