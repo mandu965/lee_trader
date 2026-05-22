@@ -4,6 +4,9 @@
 >
 > Phase 5 paper-trading 구조와 운영 검증 흐름을 자세히 설명하는 문서다.
 
+> 상태 메모: 2026-05-22 기준 이 문서는 현재 운영 원칙과 가장 가까운 핵심 참고 문서 중 하나다.  
+> US는 `paper-only` 유지가 기본이며, 실제 운영 검증은 이 문서의 paper lifecycle 문맥을 우선 기준으로 본다.
+
 ## 1. Purpose
 
 Phase 5 builds a paper-only virtual trading path for the US ranking engine.

@@ -28,7 +28,7 @@
 - `Lee_trader_backTest`
   - prediction history, ranking history, and outcome analysis
 - `Lee_trader_rule`
-  - Korean rule-based trading path kept separate from the AI order path
+  - Korean rule-based trading path — **운영 중단 (2026-05-22, `RULE_LIVE_ENABLED=0`)**. 소스는 유지되나 AI 경로와 독립적으로 비활성 상태.
 
 ## Project C Phase 2-2
 

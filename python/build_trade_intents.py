@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -133,8 +132,6 @@ def map_action_to_intent(action: str) -> tuple[str, bool, int]:
 
 
 RANKING_CONTEXT_COLUMNS = [
-    "name",
-    "sector",
     "buy_rank",
     "rank_final",
     "live_rank",
@@ -327,203 +324,6 @@ def load_ai_filtered_context(
             "original_final_score": _num_or_none(row.get("final_score")),
         }
     return context, True, source_asof_text, None
-
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    value = str(os.environ.get(name, "1" if default else "0")).strip().lower()
-    return value in {"1", "true", "yes", "on", "y"}
-
-
-def _load_us_macro_overlay_context(asof_date: pd.Timestamp) -> dict[str, object]:
-    enabled = _env_flag("US_MACRO_ORDER_OVERLAY_ENABLED", False)
-    payload: dict[str, object] = {
-        "enabled": enabled,
-        "applied": False,
-        "warning": None,
-        "macro_row": None,
-        "source": None,
-    }
-    if not enabled:
-        return payload
-    try:
-        from datetime import timedelta
-
-        from sqlalchemy import text
-
-        from db import get_engine
-
-        stale_limit = max(0, int(float(os.environ.get("US_MACRO_STALE_DAYS_LIMIT", "3"))))
-        target_date = pd.Timestamp(asof_date).normalize().date()
-        engine = get_engine()
-        with engine.connect() as conn:
-            for lag in range(stale_limit + 1):
-                check_date = target_date - timedelta(days=lag)
-                row = conn.execute(text("""
-                    SELECT us_trade_date, kr_apply_date,
-                           spy_ret_1d, qqq_ret_1d, vix_ret_1d, semiconductor_ret_1d,
-                           sector_breadth, top_sector, bottom_sector,
-                           risk_on_flag, risk_off_flag, vix_spike_flag,
-                           macro_status, macro_summary, missing_tickers
-                    FROM signal.us_macro_feature_daily
-                    WHERE kr_apply_date = :kr_apply_date
-                    ORDER BY us_trade_date DESC
-                    LIMIT 1
-                """), {"kr_apply_date": check_date}).fetchone()
-                if row is None:
-                    continue
-                payload["macro_row"] = dict(row._mapping)
-                payload["applied"] = True
-                payload["source"] = "db"
-                if lag > 0:
-                    payload["warning"] = (
-                        f"us_macro_overlay_used_lagged_row "
-                        f"kr_apply_date={check_date.isoformat()} lag_days={lag}"
-                    )
-                return payload
-        payload["warning"] = f"us_macro_overlay_row_missing kr_apply_date={target_date.isoformat()}"
-        return payload
-    except Exception as exc:
-        payload["warning"] = f"us_macro_overlay_load_failed: {exc}"
-        return payload
-
-
-def _resolve_us_macro_qty_scale(adjustment: object, buy_blocked: bool) -> float:
-    if buy_blocked:
-        return 0.0
-    adj = float(pd.to_numeric(adjustment, errors="coerce") or 0.0)
-    if adj <= -5.0:
-        return 0.5
-    if adj < 0.0:
-        return 0.7
-    return 1.0
-
-
-def apply_us_macro_overlay_to_intents(
-    intents: list[dict[str, object]],
-    *,
-    ranking_context: dict[str, dict[str, object]],
-    macro_context: dict[str, object],
-) -> tuple[list[dict[str, object]], dict[str, object]]:
-    macro_row = macro_context.get("macro_row") if isinstance(macro_context, dict) else None
-    enabled = bool(macro_context.get("enabled")) if isinstance(macro_context, dict) else False
-    applied = bool(macro_context.get("applied")) if isinstance(macro_context, dict) else False
-    warning = str(macro_context.get("warning") or "").strip() or None if isinstance(macro_context, dict) else None
-    macro_status = str((macro_row or {}).get("macro_status") or "").strip() or None
-    us_trade_date = str((macro_row or {}).get("us_trade_date") or "").strip() or None
-    kr_apply_date = str((macro_row or {}).get("kr_apply_date") or "").strip() or None
-
-    summary = {
-        "enabled": enabled,
-        "applied": applied,
-        "warning": warning,
-        "macro_status": macro_status,
-        "us_trade_date": us_trade_date,
-        "kr_apply_date": kr_apply_date,
-        "buy_count": 0,
-        "blocked_count": 0,
-        "scaled_count": 0,
-        "reranked_count": 0,
-    }
-    if not intents:
-        return intents, summary
-
-    updated: list[dict[str, object]] = []
-    buy_positions: list[int] = []
-    if enabled and applied and macro_row is not None:
-        from compute_us_macro_overlay_shadow import _Cfg as _UsMacroCfg
-        from compute_us_macro_overlay_shadow import _apply_overlay_rules
-
-        cfg = _UsMacroCfg()
-    else:
-        cfg = None
-        _apply_overlay_rules = None
-
-    for item in intents:
-        row = dict(item)
-        row["us_macro_applied"] = bool(enabled and applied and macro_row is not None)
-        row["us_macro_status"] = macro_status
-        row["us_macro_us_trade_date"] = us_trade_date
-        row["us_macro_kr_apply_date"] = kr_apply_date
-        row["us_macro_adjustment"] = 0.0
-        row["us_macro_order_score"] = _num_or_none(row.get("final_score"))
-        row["us_macro_order_rank"] = None
-        row["us_macro_buy_blocked"] = False
-        row["us_macro_qty_scale"] = 1.0
-        row["us_macro_reason"] = None
-        row["us_macro_target_weight_before_scale"] = _num_or_none(row.get("target_weight"))
-
-        if str(row.get("intent_type") or "").upper() != "BUY":
-            updated.append(row)
-            continue
-
-        summary["buy_count"] += 1
-        buy_positions.append(len(updated))
-        code = str(row.get("code") or "").zfill(6)
-        ranking = ranking_context.get(code, {})
-        if not (enabled and applied and macro_row is not None and _apply_overlay_rules is not None and cfg is not None):
-            updated.append(row)
-            continue
-
-        overlay = _apply_overlay_rules(
-            code=code,
-            name=str(row.get("name") or ranking.get("name") or "").strip() or None,
-            sector=str(ranking.get("sector") or "").strip() or None,
-            original_score=_num_or_none(row.get("final_score")),
-            is_buy_candidate=True,
-            macro=macro_row,
-            cfg=cfg,
-        )
-        qty_scale = _resolve_us_macro_qty_scale(overlay.get("macro_adjustment"), bool(overlay.get("buy_blocked_flag")))
-        row["us_macro_adjustment"] = _num_or_none(overlay.get("macro_adjustment")) or 0.0
-        row["us_macro_order_score"] = _num_or_none(overlay.get("adjusted_score"))
-        row["us_macro_buy_blocked"] = bool(overlay.get("buy_blocked_flag"))
-        row["us_macro_qty_scale"] = float(qty_scale)
-        row["us_macro_reason"] = str(overlay.get("overlay_reason") or "").strip() or None
-
-        target_weight = pd.to_numeric(row.get("target_weight"), errors="coerce")
-        if pd.notna(target_weight) and qty_scale < 1.0:
-            row["target_weight"] = round(float(target_weight) * float(qty_scale), 6)
-            if qty_scale > 0.0:
-                summary["scaled_count"] += 1
-
-        if row["us_macro_buy_blocked"]:
-            summary["blocked_count"] += 1
-            row["policy_status"] = "BLOCK"
-            row["block_type"] = "US_MACRO"
-            row["severity"] = "high"
-            row["recommended_action"] = "skip_buy"
-            row["user_message_ko"] = "미국 매크로 리스크 신호로 신규 매수를 차단합니다."
-            row["executable"] = False
-            raw_reason = str(row.get("raw_reason") or row.get("reason") or "").strip()
-            macro_reason = str(row.get("us_macro_reason") or "").strip()
-            combined_reason = "; ".join(part for part in [raw_reason, f"us_macro_blocked={macro_reason}" if macro_reason else "us_macro_blocked"] if part)
-            row["reason"] = combined_reason or row.get("reason")
-            row["raw_reason"] = combined_reason or row.get("raw_reason")
-
-        updated.append(row)
-
-    buy_rows = [updated[idx] for idx in buy_positions]
-    if buy_rows:
-        buy_rows_sorted = sorted(
-            buy_rows,
-            key=lambda row: (
-                1 if bool(row.get("us_macro_buy_blocked")) else 0,
-                -(float(pd.to_numeric(row.get("us_macro_order_score"), errors="coerce")) if pd.notna(pd.to_numeric(row.get("us_macro_order_score"), errors="coerce")) else -1e9),
-                float(pd.to_numeric(row.get("ranking_rank"), errors="coerce")) if pd.notna(pd.to_numeric(row.get("ranking_rank"), errors="coerce")) else 1e9,
-                str(row.get("code") or ""),
-            ),
-        )
-        for rank, row in enumerate(buy_rows_sorted, start=1):
-            row["us_macro_order_rank"] = rank
-            row["priority"] = (1000 - rank) if not bool(row.get("us_macro_buy_blocked")) else (100 - rank)
-        summary["reranked_count"] = len(buy_rows_sorted)
-
-        non_buy_rows = [row for row in updated if str(row.get("intent_type") or "").upper() != "BUY"]
-        executable_non_buy = [row for row in non_buy_rows if str(row.get("intent_type") or "").upper() in {"EXIT", "TRIM"}]
-        observational_non_buy = [row for row in non_buy_rows if str(row.get("intent_type") or "").upper() not in {"EXIT", "TRIM"}]
-        updated = executable_non_buy + buy_rows_sorted + observational_non_buy
-
-    return updated, summary
 
 
 def build_intent_rows(
@@ -788,12 +588,6 @@ def main() -> int:
                 existing_codes=existing_buy_codes,
             )
         )
-    us_macro_overlay_context = _load_us_macro_overlay_context(asof_date)
-    intents, us_macro_overlay_summary = apply_us_macro_overlay_to_intents(
-        intents,
-        ranking_context=ranking_context,
-        macro_context=us_macro_overlay_context,
-    )
     payload = {
         "run_id": run_id,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -811,7 +605,6 @@ def main() -> int:
         "ai_filtered_source_used": bool(ai_filtered_source_used),
         "ai_filtered_source_asof_date": ai_filtered_source_asof_date,
         "ai_filtered_source_warning": ai_filtered_source_warning,
-        "us_macro_overlay": us_macro_overlay_summary,
         "intent_count": len(intents),
         "intents": intents,
     }
@@ -831,12 +624,6 @@ def main() -> int:
         f"- ai_filtered_source_used: {'Y' if payload['ai_filtered_source_used'] else 'N'}",
         f"- ai_filtered_source_asof_date: {payload.get('ai_filtered_source_asof_date') or 'NA'}",
         f"- ai_filtered_source_warning: {payload.get('ai_filtered_source_warning') or 'none'}",
-        f"- us_macro_overlay_enabled: {'Y' if (payload.get('us_macro_overlay') or {}).get('enabled') else 'N'}",
-        f"- us_macro_overlay_applied: {'Y' if (payload.get('us_macro_overlay') or {}).get('applied') else 'N'}",
-        f"- us_macro_status: {(payload.get('us_macro_overlay') or {}).get('macro_status') or 'NA'}",
-        f"- us_macro_us_trade_date: {(payload.get('us_macro_overlay') or {}).get('us_trade_date') or 'NA'}",
-        f"- us_macro_kr_apply_date: {(payload.get('us_macro_overlay') or {}).get('kr_apply_date') or 'NA'}",
-        f"- us_macro_overlay_warning: {(payload.get('us_macro_overlay') or {}).get('warning') or 'none'}",
         f"- intent_count: {payload['intent_count']}",
         "",
         "## Gate Guidance",
@@ -847,7 +634,7 @@ def main() -> int:
         "",
         _markdown_table(
             intents_df if not intents_df.empty else pd.DataFrame([{"intent_id": "-", "code": "-", "name": "", "intent_type": "NO_ACTION", "target_weight": None, "gate_status": payload["gate_status"], "priority": 0, "executable": False, "reason": "no intents"}]),
-            ["intent_id", "code", "name", "intent_type", "ranking_rank", "final_score", "us_macro_order_rank", "us_macro_order_score", "us_macro_qty_scale", "ai_filtered_rank", "ai_adjusted_score", "entry_quality_status", "confidence_score", "risk_penalty", "target_weight", "gate_status", "priority", "executable", "reason"],
+            ["intent_id", "code", "name", "intent_type", "ranking_rank", "final_score", "ai_filtered_rank", "ai_adjusted_score", "entry_quality_status", "confidence_score", "risk_penalty", "target_weight", "gate_status", "priority", "executable", "reason"],
         ),
         "",
         "## Intent Notes",

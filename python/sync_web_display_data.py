@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -39,7 +38,6 @@ KR_RANKING_SYNC_DATES = 60
 US_RANKING_INSERT_BATCH_SIZE = 2000
 US_TRADE_DDL_PATH = ROOT / "postgres" / "us_trade_tables.sql"
 US_STOCK_DDL_PATH = ROOT / "postgres" / "us_stock_tables.sql"
-WEB_DISPLAY_SYNC_STATUS_JSON = OUTPUT_DIR / "web_display_sync.json"
 
 WEB_TABLE_SYNC_SPECS: list[dict[str, object]] = [
     {"table": "public.fact_price_daily", "date_column": "date", "lookback_dates": 180},
@@ -202,11 +200,8 @@ def execute_sql_script(conn, path: Path) -> None:
     dbapi_conn = getattr(conn.connection, "driver_connection", None)
     if dbapi_conn is None:
         dbapi_conn = conn.connection.connection
-    statements = [stmt.strip() for stmt in re.split(r";\s*(?:\r?\n)+", sql) if stmt.strip()]
     with dbapi_conn.cursor() as cursor:
-        cursor.execute("SET LOCAL statement_timeout = 0")
-        for stmt in statements:
-            cursor.execute(stmt)
+        cursor.execute(sql)
 
 
 def ensure_schema(conn, schema_name: str) -> None:
@@ -287,7 +282,6 @@ def sync_table_history(
     table_name: str,
     date_column: str | None,
     lookback_dates: int | None,
-    ensure_supporting_tables: bool = True,
 ) -> None:
     source_url = str(source_database_url or "").strip()
     target_url = str(os.environ.get("DATABASE_URL", "")).strip()
@@ -362,8 +356,7 @@ def sync_table_history(
                 ]
 
         with target_engine.begin() as target_conn:
-            if ensure_supporting_tables:
-                ensure_us_web_supporting_tables(target_conn)
+            ensure_us_web_supporting_tables(target_conn)
             if not table_exists(target_conn, table_name):
                 raise RuntimeError(f"target table missing after bootstrap: {table_name}")
 
@@ -421,30 +414,20 @@ def sync_kr_ranking_history(source_database_url: str) -> None:
     if archive_result is not None:
         scoped_dates, archive_df = archive_result
         sync_kr_ranking_history_rows(scoped_dates, archive_df)
-        verify = verify_daily_ranking_history_aware()
-        if verify["status"] != "ok":
-            raise RuntimeError(f"KR ranking archive parity failed: {verify}")
-        logging.info(
-            "Verified KR ranking archive latest_rows=%s latest_date=%s",
-            verify["db_latest_rows"],
-            verify["db_latest_date"],
-        )
         return
 
-    logging.info("KR ranking archive unavailable; fallback to source DB history sync")
+    history_result = load_kr_ranking_history_from_db_history(source_database_url, KR_RANKING_SYNC_DATES)
+    if history_result is not None:
+        scoped_dates, history_df = history_result
+        sync_kr_ranking_history_rows(scoped_dates, history_df)
+        return
+
+    logging.info("KR ranking archive/history unavailable; fallback to source DB daily_ranking sync")
     sync_table_history(
         source_database_url,
         table_name="public.daily_ranking",
         date_column="date",
         lookback_dates=KR_RANKING_SYNC_DATES,
-    )
-    verify = verify_daily_ranking_history_aware()
-    if verify["status"] != "ok":
-        raise RuntimeError(f"KR ranking source history parity failed: {verify}")
-    logging.info(
-        "Verified KR ranking source history latest_rows=%s latest_date=%s",
-        verify["db_latest_rows"],
-        verify["db_latest_date"],
     )
 
 
@@ -493,6 +476,100 @@ def load_kr_ranking_history_from_archives(lookback_dates: int) -> tuple[list[str
         scoped_dates[-1],
     )
     return scoped_dates, merged
+
+
+def load_kr_ranking_history_from_db_history(
+    source_database_url: str,
+    lookback_dates: int,
+) -> tuple[list[str], pd.DataFrame] | None:
+    source_url = str(source_database_url or "").strip()
+    if not source_url:
+        return None
+
+    source_engine = create_engine(source_url, future=True)
+    try:
+        with source_engine.connect() as source_conn:
+            if not table_exists(source_conn, "research.ranking_history"):
+                return None
+
+            recent_dates = [
+                str(row[0])[:10]
+                for row in source_conn.execute(
+                    text(
+                        """
+                        SELECT as_of_date::text
+                        FROM (
+                            SELECT DISTINCT as_of_date
+                            FROM research.ranking_history
+                            ORDER BY as_of_date DESC
+                            LIMIT :limit
+                        ) recent
+                        ORDER BY as_of_date
+                        """
+                    ),
+                    {"limit": lookback_dates},
+                ).fetchall()
+            ]
+            if not recent_dates:
+                return None
+
+            history_df = pd.read_sql_query(
+                text(
+                    """
+                    WITH latest_runs AS (
+                        SELECT as_of_date, MAX(run_id) AS run_id
+                        FROM research.ranking_history
+                        WHERE as_of_date = ANY(:scoped_dates)
+                        GROUP BY as_of_date
+                    )
+                    SELECT
+                        rh.as_of_date::text AS date,
+                        LPAD(rh.code::text, 6, '0') AS code,
+                        COALESCE(s.name, '') AS name,
+                        rh.rank AS rank_final,
+                        rh.rank AS live_rank,
+                        rh.live_score,
+                        rh.live_score_source,
+                        rh.final_score,
+                        rh.ret_score,
+                        rh.prob_score,
+                        rh.qual_score,
+                        rh.tech_score,
+                        rh.risk_penalty
+                    FROM research.ranking_history rh
+                    INNER JOIN latest_runs lr
+                        ON lr.as_of_date = rh.as_of_date
+                       AND lr.run_id = rh.run_id
+                    LEFT JOIN public.stocks s
+                        ON LPAD(s.code::text, 6, '0') = LPAD(rh.code::text, 6, '0')
+                    WHERE rh.as_of_date = ANY(:scoped_dates)
+                    ORDER BY rh.as_of_date ASC, rh.rank ASC, rh.code ASC
+                    """
+                ),
+                source_conn,
+                params={"scoped_dates": recent_dates},
+            )
+    finally:
+        source_engine.dispose()
+
+    if history_df.empty:
+        return None
+
+    history_df["date"] = pd.to_datetime(history_df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    history_df["code"] = history_df["code"].astype(str).str.zfill(6)
+    history_df = history_df.dropna(subset=["date", "code"]).copy()
+    history_df = history_df.drop_duplicates(subset=["date", "code"], keep="first").reset_index(drop=True)
+    scoped_dates = sorted(history_df["date"].dropna().unique().tolist())
+    if not scoped_dates:
+        return None
+
+    logging.info(
+        "Loaded KR ranking history from research.ranking_history rows=%d dates=%d latest=%s",
+        len(history_df),
+        len(scoped_dates),
+        scoped_dates[-1],
+    )
+    return scoped_dates, history_df
 
 
 def sync_kr_ranking_history_rows(scoped_dates: list[str], archive_df: pd.DataFrame) -> None:
@@ -651,15 +728,11 @@ def sync_core_tables() -> None:
     for spec in SYNC_TABLES:
         if str(spec["name"]) not in CORE_TABLES:
             continue
-        # daily_ranking is handled by sync_kr_ranking_history() so that the
-        # web DB keeps multi-date history instead of mixing latest-only core
-        # sync with archive-based history sync in the same run.
-        if str(spec["name"]) == "daily_ranking":
-            logging.info("Skip core table daily_ranking; archive/history sync owns KR ranking replication")
-            continue
         result = sync_table(spec)
         if str(spec["name"]) == "stocks":
             verify = verify_stocks_subset()
+        elif str(spec["name"]) == "daily_ranking":
+            verify = verify_daily_ranking_history_aware()
         else:
             verify = verify_table(next(item for item in VERIFY_TABLES if item["name"] == spec["name"]))
         if verify["status"] != "ok":
@@ -954,25 +1027,15 @@ def sync_us_ranking_table(source_database_url: str) -> None:
 
 
 def sync_us_supporting_tables(source_database_url: str) -> None:
-    target_engine = get_engine()
-    try:
-        with target_engine.begin() as conn:
-            ensure_us_web_supporting_tables(conn)
-            logging.info("Ensured US supporting schemas/tables before bulk sync")
-    finally:
-        target_engine.dispose()
-
     for spec in WEB_TABLE_SYNC_SPECS:
-        table_name = str(spec["table"])
-        logging.info("Starting supporting table sync: %s", table_name)
+        logging.info("Starting supporting table sync: %s", spec["table"])
         sync_table_history(
             source_database_url,
-            table_name=table_name,
+            table_name=str(spec["table"]),
             date_column=spec["date_column"],
             lookback_dates=spec["lookback_dates"],
-            ensure_supporting_tables=False,
         )
-        logging.info("Completed supporting table sync: %s", table_name)
+        logging.info("Completed supporting table sync: %s", spec["table"])
 
 
 def sync_payloads() -> None:
@@ -1466,31 +1529,10 @@ def run_script(script_name: str, *extra_args: str) -> None:
     subprocess.run(command, check=True)
 
 
-def _record_warning(warnings: list[dict[str, str]], stage: str, exc: Exception) -> None:
-    message = f"{type(exc).__name__}: {exc}"
-    warnings.append({"stage": stage, "message": message})
-    logging.warning("Non-fatal web sync stage failed: %s -> %s", stage, message, exc_info=True)
-
-
-def write_web_display_sync_status(*, status: str, warnings: list[dict[str, str]]) -> None:
-    WEB_DISPLAY_SYNC_STATUS_JSON.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "status": status,
-        "warning_count": len(warnings),
-        "warnings": warnings,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-    }
-    WEB_DISPLAY_SYNC_STATUS_JSON.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-
-
 def main() -> int:
     args = parse_args()
     setup_logging()
     load_environment()
-    warnings: list[dict[str, str]] = []
     source_database_url = resolve_source_database_url()
     sync_local_display_state_if_needed(args, source_database_url)
     configure_target_database()
@@ -1500,14 +1542,8 @@ def main() -> int:
         sync_core_tables()
         sync_kr_ranking_history(source_database_url)
         logging.info("Starting post-core US sync stages")
-        try:
-            sync_us_ranking_table(source_database_url)
-        except Exception as exc:
-            _record_warning(warnings, "sync_us_ranking_table", exc)
-        try:
-            sync_us_supporting_tables(source_database_url)
-        except Exception as exc:
-            _record_warning(warnings, "sync_us_supporting_tables", exc)
+        sync_us_ranking_table(source_database_url)
+        sync_us_supporting_tables(source_database_url)
         logging.info("Completed post-core US sync stages")
     if not args.skip_payloads:
         sync_payloads()
@@ -1526,11 +1562,7 @@ def main() -> int:
         logging.info("Skip trades.csv -> web trades sync; web public.trades is treated as source of truth")
     if not args.skip_meaningfulness_review:
         sync_meaningfulness_review_notes(source_database_url)
-    try:
-        sync_us_macro_signal_tables(source_database_url)
-    except Exception as exc:
-        _record_warning(warnings, "sync_us_macro_signal_tables", exc)
-    write_web_display_sync_status(status="warning" if warnings else "success", warnings=warnings)
+    sync_us_macro_signal_tables(source_database_url)
     logging.info("Web display sync completed")
     return 0
 

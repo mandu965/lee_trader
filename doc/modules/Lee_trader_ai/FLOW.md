@@ -97,5 +97,5 @@
 
 ## Notes
 
-- AI 자동매매와 RULE 자동매매는 별도 경로입니다.
+- KR Rule 자동매매는 2026-05-22 기준 운영 중단 (`RULE_LIVE_ENABLED=0`). AI 경로와 완전히 분리된 상태로 비활성 유지.
 - AI 쪽 실주문 여부는 `AUTO_TRADE_EXECUTE`, `AUTO_TRADE_ALLOW_BUY` 영향을 직접 받습니다.

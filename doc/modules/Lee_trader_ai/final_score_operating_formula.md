@@ -21,11 +21,15 @@ Live code paths:
 
 | File | Role | Main Fields |
 | --- | --- | --- |
-| `data/predictions.csv` | model outputs | `pred_return_60d`, `pred_return_90d`, `pred_mdd_60d`, `pred_mdd_90d`, `prob_top20_60d`, `prob_top20_90d` |
+| `data/predictions.csv` | model outputs (required) | `pred_return_60d`, `pred_return_90d`, `pred_mdd_60d`, `pred_mdd_90d`, `prob_top20_60d`, `prob_top20_90d` |
+| `data/predictions.csv` | model outputs (optional, 2026-05-22 추가) | `pred_return_30d`, `pred_mdd_30d`, `prob_top20_30d` — 모델 재학습 후 공급됨, 공식 미반영 시 null 허용 |
 | `data/scores_final.csv` | technical score source | `composite`, `score_score` |
 | `data/features.csv` | quality, volatility, liquidity, technical inputs | `quality_score`, `vol_20`, `vol_60`, `vol_ma_20`, `volume`, `mom_20`, `close_over_ma20`, `rsi_14` |
 | `data/universe.csv` | metadata | `code`, `name`, `market`, `sector` |
 | `data/market_status.csv` | market regime metadata | `market_up`, `kospi_close`, `kospi_ma20`, `volatility_5d`, `foreign_net_5d` |
+
+> `pred_return_30d`는 `AI_MAX_HOLDING_DAYS=30` 정합을 위해 학습 타겟에 추가됐다 (KR-A, 2026-05-22).  
+> `ret_score` 공식은 현재 60d/90d 기반을 유지하며, 30d 반영은 서버 재학습 + OOS 검증 후 별도 결정한다.
 
 ## Production Operating Axes
 
@@ -66,8 +70,9 @@ prob_score_raw = clip(prob_top20_60d × 100, 0, 100)
 prob_score     = percentile01(prob_top20_60d by date) × 100
 ```
 
-- `prob_top20_60d` is the only direct production probability input.
-- `prob_top20_90d` is stored for research / diagnostics only.
+- `prob_top20_60d`가 현재 운영 확률 입력의 기준이다.
+- `prob_top20_90d`는 운영 점수에서 제외됐으며 연구/진단 보조 컬럼으로만 유지 (KR-B, 2026-05-22).
+- `prob_top20_30d`는 옵셔널 입력으로 준비됐으나 현재 공식에는 미반영.
 
 ### 3. `tech_score`
 

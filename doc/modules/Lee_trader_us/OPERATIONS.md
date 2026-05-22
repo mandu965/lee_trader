@@ -4,6 +4,14 @@
 >
 > 현재 수동 실행 명령과 운영 확인 절차를 모아 둔 문서다. 실제 실행 시 가장 직접적으로 참고한다.
 
+## Current Rule (2026-05-22)
+
+This module is currently operated in `paper-only` mode.
+
+- paper-trading, ranking, backtest, validation, and reporting commands are active
+- live-safety and Micro Live commands are retained for reference / dry-run review only
+- real-order rollout is not part of the current operating plan
+
 ## Manual Commands
 
 ```powershell
@@ -82,12 +90,10 @@ python -m python.us.run_us_daily_pipeline --universe NASDAQ100 --force --skip-qu
 - Use [PHASE3_CHECKLIST.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/PHASE3_CHECKLIST.md) for short-form completion tracking.
 - Use [US_STOCK_BACKTEST_V1.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_BACKTEST_V1.md) for Phase 4-1 rank backtest setup and SQL checks.
 - Use [US_STOCK_PAPER_TRADING.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_PAPER_TRADING.md) for Phase 5 paper operations.
-- Use [US_STOCK_LIVE_OPERATION_RUNBOOK.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_OPERATION_RUNBOOK.md) as the primary Phase 6 operations guide.
-- Use [US_STOCK_LIVE_TRADING_POLICY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_TRADING_POLICY.md) for Phase 6 live-order safety policy before any Micro Live review.
-- Use [US_STOCK_LIVE_RISK_POLICY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_RISK_POLICY.md) for Phase 6-2 risk-state tables, YAML policy structure, and safe-default validation flow.
-- Use [US_STOCK_LIVE_RISK_POLICY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_RISK_POLICY.md) for Phase 6-4 kill-switch scope, event log, and manual-management flow.
-- Use [US_STOCK_LIVE_RISK_POLICY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_RISK_POLICY.md) for Phase 6-5 approval-request tables, approval lifecycle, and audit flow.
-- Use [PHASE7_SUMMARY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/PHASE7_SUMMARY.md) for the current Phase 7 document map and next-step handoff.
+- Use [US_STOCK_LIVE_OPERATION_RUNBOOK.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_OPERATION_RUNBOOK.md) only when reviewing deferred live / Micro Live design.
+- Use [US_STOCK_LIVE_TRADING_POLICY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_TRADING_POLICY.md) only as a reference safety-policy draft.
+- Use [US_STOCK_LIVE_RISK_POLICY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_RISK_POLICY.md) only when reviewing deferred risk / kill-switch design.
+- Use [PHASE7_SUMMARY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/PHASE7_SUMMARY.md) as historical handoff material, not as the active rollout plan.
 
 ## Phase 7 Micro Live Commands
 
@@ -111,6 +117,7 @@ python scripts/run_us_micro_live_daily_check.py --trade-date 2026-05-16 --accoun
 - reconciliation is record-and-review only
 - operations report is read/report only
 - no automatic correction order is allowed
+- current operating plan keeps this entire layer in reference / dry-run status only
 
 ## Phase 8-1 Limited BUY Automation Design Notes
 

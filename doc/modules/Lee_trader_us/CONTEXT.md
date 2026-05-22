@@ -28,6 +28,16 @@ The long-term goal is a US stock recommendation system that can evolve through:
 - paper trading
 - live trading review
 
+## Current Operating Position (2026-05-22)
+
+The long-term design history includes live-safety and Micro Live review layers.
+But the **current operating position** is narrower:
+
+- US is treated as a `paper-only` track
+- live transition is not part of the active short-term operating plan
+- current success criteria are paper lifecycle stability, backtest interpretability, and policy validation
+- live / Micro Live documents remain useful as reference and design history, but not as immediate rollout instructions
+
 ## Phase 1 Limits
 
 Phase 1 is limited to data foundation and standalone validation.

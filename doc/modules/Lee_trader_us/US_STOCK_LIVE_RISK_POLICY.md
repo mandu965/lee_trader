@@ -4,6 +4,9 @@
 >
 > live risk policy 구조, YAML/ENV baseline, risk table 의미를 자세히 설명하는 정책 문서다.
 
+> 상태 메모: 2026-05-22 기준 현재 운영 원칙상 US는 `paper-only` 유지다.
+> 이 문서는 현재 실전 적용 문서가 아니라, deferred live-risk design reference로 사용한다.
+
 ## 1. Phase 6-2 Purpose
 
 Phase 6-2 converts the Phase 6-1 live-trading safety policy into reusable configuration and state structures.

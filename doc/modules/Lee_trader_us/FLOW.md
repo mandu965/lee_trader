@@ -10,9 +10,14 @@ Current Project C US-stock flow is:
 
 `Universe -> Price -> Validation -> Features -> Ranking -> Backtest / Forward Test -> Paper Trading -> Live Safety -> Micro Live -> Status Sync -> Reconciliation -> Operations Report`
 
+As of 2026-05-22, the **active operating path** is narrower:
+
+`Universe -> Price -> Validation -> Features -> Ranking -> Backtest / Forward Test -> Paper Trading -> Paper Report / Policy Review`
+
 ## Current Phase Boundary
 
-The project is now effectively through Phase 7.
+The repository contains work effectively through Phase 7 and Phase 8-6 design.
+But the active operating boundary is still paper-first.
 
 Implemented layers:
 
@@ -29,9 +34,10 @@ Implemented layers:
 11. reconciliation
 12. daily operations reporting
 
-## What Phase 7 Means In The Flow
+## What Live / Micro Live Means In The Flow
 
 Phase 7 is not unrestricted live trading.
+It is also not the current operating target.
 
 Phase 7 adds:
 
@@ -52,11 +58,22 @@ The following are still outside the allowed runtime path:
 4. automatic broker-state overwrite
 5. unrestricted sell automation
 
+## Current Reading Guidance
+
+If the task is about current operation, prioritize:
+
+1. ranking
+2. backtest
+3. paper trading
+4. paper buy/sell policy validation
+
+Use live-safety, Micro Live, and runbook documents only when reviewing deferred design history.
+
 ## Recommended Reading Path
 
-1. [PHASE7_SUMMARY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/PHASE7_SUMMARY.md)
+1. [README.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/README.md)
 2. [CONTEXT.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/CONTEXT.md)
 3. [OPERATIONS.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/OPERATIONS.md)
-4. [US_STOCK_LIVE_TRADING_POLICY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_TRADING_POLICY.md)
-5. [US_STOCK_LIVE_RISK_POLICY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_RISK_POLICY.md)
-6. [US_STOCK_LIVE_OPERATION_RUNBOOK.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_LIVE_OPERATION_RUNBOOK.md)
+4. [US_STOCK_PAPER_TRADING.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_PAPER_TRADING.md)
+5. [US_STOCK_BACKTEST_V1.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/US_STOCK_BACKTEST_V1.md)
+6. live-policy / Micro Live docs only when reviewing deferred design

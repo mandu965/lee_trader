@@ -3575,53 +3575,14 @@ async function getRanking(targetDate) {
       "SELECT * FROM daily_ranking WHERE date = $1 ORDER BY COALESCE(live_score, final_score) DESC NULLS LAST",
       [date]
     );
-    if (rows.length) {
-      return { date, rows };
-    }
-
-    // daily_ranking may keep only the latest snapshot. When a historical date is
-    // requested, restore it from archived daily exports so date-based UIs still work.
-    const archivedRows = loadArchivedRankingRows(date);
-    if (archivedRows.length) {
-      return { date, rows: archivedRows };
-    }
-
-    const csvRows = readCsv(path.join(DATA_DIR, "ranking_final.csv")) || [];
-    const csvDateRows = csvRows.filter((r) => String(r.date || "").slice(0, 10) === String(date));
-    if (csvDateRows.length) {
-      return { date, rows: csvDateRows };
-    }
-
-    return { date, rows: [] };
+    return { date, rows };
   } catch (e) {
     console.warn("[daily_ranking] DB load fail:", e.message);
-
-    if (targetDate) {
-      const archivedRows = loadArchivedRankingRows(targetDate);
-      if (archivedRows.length) {
-        return { date: targetDate, rows: archivedRows };
-      }
-    }
-
-    const csvRows = readCsv(path.join(DATA_DIR, "ranking_final.csv")) || [];
-    if (csvRows.length) {
-      const date = targetDate || csvRows.map((r) => String(r.date || "").slice(0, 10)).filter(Boolean).sort().pop();
-      const rows = csvRows.filter((r) => String(r.date || "").slice(0, 10) === String(date));
-      if (rows.length) {
-        return { date, rows };
-      }
-    }
-
-    const archivedDates = listArchivedRankingDates(targetDate || null, 1);
-    if (archivedDates.length) {
-      const date = archivedDates[archivedDates.length - 1];
-      const rows = loadArchivedRankingRows(date);
-      if (rows.length) {
-        return { date, rows };
-      }
-    }
-
-    return null;
+    const csvRows = readCsv(path.join(DATA_DIR, "ranking_final.csv"));
+    if (!csvRows || !csvRows.length) return null;
+    const date = targetDate || csvRows.map((r) => r.date).filter(Boolean).sort().pop();
+    const rows = csvRows.filter((r) => String(r.date || "") === String(date));
+    return { date, rows };
   }
 }
 
@@ -3632,29 +3593,6 @@ async function getRankingLatestByCode() {
     res.rows.forEach((r) => map.set(r.code, r));
   }
   return map;
-}
-
-function listArchivedRankingDates(targetDate = null, limit = 10) {
-  const historyDir = path.join(DATA_DIR, "history", "ranking");
-  if (!fs.existsSync(historyDir)) return [];
-  const files = fs.readdirSync(historyDir);
-  const dates = files
-    .map((name) => {
-      const match = /^(\d{4})(\d{2})(\d{2})_ranking_final\.csv$/i.exec(String(name || "").trim());
-      if (!match) return null;
-      return `${match[1]}-${match[2]}-${match[3]}`;
-    })
-    .filter((value) => value && (!targetDate || value <= targetDate))
-    .sort();
-  if (!dates.length) return [];
-  return dates.slice(-Math.max(limit, 1));
-}
-
-function loadArchivedRankingRows(targetDate) {
-  if (!targetDate) return [];
-  const token = String(targetDate).replaceAll("-", "");
-  const filePath = path.join(DATA_DIR, "history", "ranking", `${token}_ranking_final.csv`);
-  return readCsv(filePath) || [];
 }
 
 function getScoreWeightProfile(regime) {
@@ -5629,94 +5567,44 @@ app.get("/api/ranking-trend", async (req, res) => {
     const date = targetDate || (await getLatestDate("daily_ranking"));
     if (!date) return res.status(404).json({ error: "no data" });
 
-    let dates = [];
-    let todayRows = [];
-    let histRows = [];
+    // Last 10 available business days including target date
+    const recentDates = await queryRows(
+      "SELECT DISTINCT date::text AS d FROM daily_ranking WHERE date <= $1 ORDER BY d DESC LIMIT 10",
+      [date]
+    );
+    const dates = recentDates.map((x) => x.d.slice(0, 10)).reverse(); // oldest → newest
+    const compare5 = recentDates[4]?.d?.slice(0, 10) || null;
 
-    try {
-      const recentDates = await queryRows(
-        "SELECT DISTINCT date::text AS d FROM daily_ranking WHERE date <= $1 ORDER BY d DESC LIMIT 11",
-        [date]
-      );
-      dates = recentDates.map((x) => x.d.slice(0, 10)).reverse();
+    // Today's full stock list with score components
+    const todayRows = await queryRows(
+      `SELECT code, name, COALESCE(live_rank, rank_final) AS rank_today,
+              ret_score, prob_score, tech_score, flow_score
+       FROM daily_ranking WHERE date = $1`,
+      [date]
+    );
+    const codes = todayRows.map((r) => r.code);
 
-      todayRows = await queryRows(
-        `SELECT code, name, COALESCE(live_rank, rank_final) AS rank_today,
-                ret_score, prob_score, tech_score, flow_score
-         FROM daily_ranking WHERE date = $1`,
-        [date]
-      );
-      const codes = todayRows.map((r) => r.code);
-
-      if (dates.length && codes.length) {
-        histRows = await queryRows(
-          `SELECT code, date::text AS d,
-                  COALESCE(live_rank, rank_final) AS rank,
-                  ret_score, prob_score, tech_score, flow_score
-           FROM daily_ranking
-           WHERE date = ANY($1::date[]) AND code = ANY($2)`,
-          [dates, codes]
-        );
-      }
-    } catch (dbError) {
-      console.warn("[ranking-trend] DB history load fail:", dbError.message);
-    }
-
-    // daily_ranking is often replaced with only the latest date. When that happens,
-    // fall back to archived dated snapshots so the trend UI can still compare history.
-    if (dates.length < 6 || histRows.length === 0 || todayRows.length === 0) {
-      dates = listArchivedRankingDates(date, 11);
-      const archiveByDate = new Map();
-      dates.forEach((d) => {
-        archiveByDate.set(d, loadArchivedRankingRows(d));
-      });
-
-      const todayArchiveRows = archiveByDate.get(date) || [];
-      if (todayArchiveRows.length) {
-        todayRows = todayArchiveRows.map((r) => ({
-          code: r.code,
-          name: r.name,
-          rank_today: toNum(r.live_rank) ?? toNum(r.rank_final) ?? toNum(r.rank),
-          ret_score: toNum(r.ret_score),
-          prob_score: toNum(r.prob_score),
-          tech_score: toNum(r.tech_score),
-          flow_score: toNum(r.flow_score),
-        }));
-      }
-
-      const codeSet = new Set(todayRows.map((r) => String(r.code || "").trim()).filter(Boolean));
-      histRows = [];
-      dates.forEach((d) => {
-        const rows = archiveByDate.get(d) || [];
-        rows.forEach((r) => {
-          const code = String(r.code || "").trim();
-          if (!codeSet.has(code)) return;
-          histRows.push({
-            code,
-            d,
-            rank: toNum(r.live_rank) ?? toNum(r.rank_final) ?? toNum(r.rank),
-            ret_score: toNum(r.ret_score),
-            prob_score: toNum(r.prob_score),
-            tech_score: toNum(r.tech_score),
-            flow_score: toNum(r.flow_score),
-          });
-        });
-      });
-    }
-
-    const compare5 = dates.length >= 6 ? dates[dates.length - 6] : null;
+    // Full rank + score history for all stocks across last 10 dates (single query)
+    const histRows = await queryRows(
+      `SELECT code, date::text AS d,
+              COALESCE(live_rank, rank_final) AS rank,
+              ret_score, prob_score, tech_score, flow_score
+       FROM daily_ranking
+       WHERE date = ANY($1::date[]) AND code = ANY($2)`,
+      [dates, codes]
+    );
 
     // Build per-code history map
     const histByCode = {};
     for (const r of histRows) {
-      const d = String(r.d || "").slice(0, 10);
+      const d = r.d.slice(0, 10);
       if (!histByCode[r.code]) histByCode[r.code] = {};
       histByCode[r.code][d] = {
         rank: r.rank !== null ? Number(r.rank) : null,
-        ret_score: toNum(r.ret_score),
-        prob_score: toNum(r.prob_score),
-        tech_score: toNum(r.tech_score),
-        flow_score: toNum(r.flow_score),
+        ret_score: r.ret_score,
+        prob_score: r.prob_score,
+        tech_score: r.tech_score,
+        flow_score: r.flow_score,
       };
     }
 
@@ -7080,18 +6968,34 @@ app.get("/api/live-account/holdings", async (req, res) => {
   try {
     const payload = await readJsonPayloadDbFirst("live_account_holdings");
     const rows = Array.isArray(payload?.items) ? payload.items : (readCsv(path.join(DATA_DIR, "live_account_holdings.csv")) || []);
-    const items = rows.map((row) => ({
-      code: String(row.code || "").trim(),
-      name: row.name || getName(String(row.code || "").trim()) || null,
-      qty: toNum(row.qty),
-      avg_price: toNum(row.avg_price),
-      current_price: toNum(row.current_price),
-      eval_amount: toNum(row.eval_amount),
-      pnl_amount: toNum(row.pnl_amount),
-      pnl_pct: toNum(row.pnl_pct),
-      weight: toNum(row.weight),
-      status: row.status || "OPEN",
-    })).filter((row) => Number(row.qty) > 0);
+    const posState = readJsonFile(path.join(OUTPUTS_DIR, "ai_position_state.json"), {});
+    const positions = posState?.positions || {};
+    const todayMs = Date.now();
+    const items = rows.map((row) => {
+      const code = String(row.code || "").trim();
+      const pos = positions[code] || {};
+      const entryDate = pos.entry_date || null;
+      let holdingDays = null;
+      if (entryDate) {
+        const entryMs = new Date(entryDate).getTime();
+        if (!isNaN(entryMs)) holdingDays = Math.floor((todayMs - entryMs) / 86400000);
+      }
+      return {
+        code,
+        name: row.name || getName(code) || null,
+        qty: toNum(row.qty),
+        avg_price: toNum(row.avg_price),
+        current_price: toNum(row.current_price),
+        eval_amount: toNum(row.eval_amount),
+        pnl_amount: toNum(row.pnl_amount),
+        pnl_pct: toNum(row.pnl_pct),
+        weight: toNum(row.weight),
+        status: row.status || "OPEN",
+        entry_date: entryDate,
+        holding_days: holdingDays,
+        peak_price: toNum(pos.peak_price) || null,
+      };
+    }).filter((row) => Number(row.qty) > 0);
     if (!items.length) {
       return res.status(404).json({ error: "live account holdings not found" });
     }
@@ -7494,11 +7398,9 @@ app.get("/us-ranking", (req, res) => sendPublicPage(res, "us-ranking.html"));
 app.get("/api/us/ranking", async (req, res) => {
   try {
     const dateParam = (req.query.date || "").trim() || null;
-    const sourceParam = (req.query.source || "").trim() || null;
     const gradeParam = (req.query.grade || "").trim().toUpperCase() || null;
     const sectorParam = (req.query.sector || "").trim() || null;
     const topN = Math.min(Math.max(parseInt(req.query.top_n || "50", 10), 1), 200);
-    const expectedSource = String(process.env.US_RANKING_DEFAULT_SOURCE || "rule_v1").trim() || "rule_v1";
 
     const relationCheck = await pool.query(
       "SELECT to_regclass('recommend.us_stock_rank_daily') AS relation_name"
@@ -7510,74 +7412,21 @@ app.get("/api/us/ranking", async (req, res) => {
       });
     }
 
-    let tradeDate;
+    let tradeDateSql;
+    let params;
     if (dateParam) {
-      tradeDate = dateParam;
+      tradeDateSql = "$1::date";
+      params = [dateParam];
     } else {
-      const latestDateResult = await pool.query(
-        "SELECT MAX(trade_date)::text AS trade_date FROM recommend.us_stock_rank_daily"
-      );
-      tradeDate = latestDateResult.rows[0]?.trade_date || null;
-    }
-    if (!tradeDate) {
-      return res.status(404).json({ error: "US ranking data not found." });
+      tradeDateSql = "(SELECT MAX(trade_date) FROM recommend.us_stock_rank_daily)";
+      params = [];
     }
 
-    const sourceRowsResult = await pool.query(
-      `SELECT source, COUNT(*) AS cnt
-       FROM recommend.us_stock_rank_daily
-       WHERE trade_date = $1
-         AND COALESCE(is_etf, false) = false
-       GROUP BY source
-       ORDER BY cnt DESC, source ASC`,
-      [tradeDate]
-    );
-    const sourceRows = sourceRowsResult.rows.map((row) => ({
-      source: String(row.source || "").trim(),
-      count: Number(row.cnt || 0),
-    })).filter((row) => row.source);
+    const gradeClause = gradeParam ? ` AND recommend_grade = $${params.length + 1}` : "";
+    if (gradeParam) params.push(gradeParam);
 
-    if (!sourceRows.length) {
-      return res.status(404).json({ error: "US ranking data not found. Run calculate_us_stock_rule_scores.py first." });
-    }
-
-    let resolvedSource = sourceParam;
-    let sourceFallbackUsed = false;
-    if (!resolvedSource) {
-      const expectedRow = sourceRows.find((row) => row.source === expectedSource);
-      if (expectedRow) {
-        resolvedSource = expectedRow.source;
-      } else {
-        resolvedSource = sourceRows[0].source;
-        sourceFallbackUsed = resolvedSource !== expectedSource;
-      }
-    }
-
-    const sourceExists = sourceRows.some((row) => row.source === resolvedSource);
-    if (!sourceExists) {
-      return res.status(404).json({
-        error: "requested source not found",
-        detail: `No rows found for source=${resolvedSource} on trade_date=${tradeDate}`,
-      });
-    }
-
-    const baseParams = [tradeDate, resolvedSource];
-    const baseClauses = [
-      "trade_date = $1::date",
-      "source = $2",
-      "COALESCE(is_etf, false) = false",
-    ];
-    if (sectorParam) {
-      baseParams.push(sectorParam);
-      baseClauses.push(`sector = $${baseParams.length}`);
-    }
-
-    const rowParams = baseParams.slice();
-    const rowClauses = baseClauses.slice();
-    if (gradeParam) {
-      rowParams.push(gradeParam);
-      rowClauses.push(`recommend_grade = $${rowParams.length}`);
-    }
+    const sectorClause = sectorParam ? ` AND sector = $${params.length + 1}` : "";
+    if (sectorParam) params.push(sectorParam);
 
     const sql = `
       SELECT
@@ -7606,17 +7455,21 @@ app.get("/api/us/ranking", async (req, res) => {
         score_detail_json,
         source
       FROM recommend.us_stock_rank_daily
-      WHERE ${rowClauses.join("\n        AND ")}
+      WHERE trade_date = ${tradeDateSql}
+        AND COALESCE(is_etf, false) = false
+        ${gradeClause}
+        ${sectorClause}
       ORDER BY rank_no ASC NULLS LAST, total_score DESC NULLS LAST
-      LIMIT $${rowParams.length + 1}
+      LIMIT $${params.length + 1}
     `;
-    rowParams.push(topN);
+    params.push(topN);
 
-    const result = await pool.query(sql, rowParams);
+    const result = await pool.query(sql, params);
     if (!result.rows.length) {
       return res.status(404).json({ error: "US ranking data not found. Run calculate_us_stock_rule_scores.py first." });
     }
 
+    const tradeDate = result.rows[0].trade_date;
     const rows = result.rows.map((r) => ({
       trade_date: r.trade_date,
       symbol: r.symbol,
@@ -7635,96 +7488,25 @@ app.get("/api/us/ranking", async (req, res) => {
       industry: r.industry || null,
       market_cap: r.market_cap != null ? Number(r.market_cap) : null,
       avg_volume: r.avg_volume != null ? Number(r.avg_volume) : null,
-      universe_group: r.universe_group || null,
       data_status: r.data_status || null,
       exclude_reason: r.exclude_reason || null,
       reason_summary: r.reason_summary || null,
       score_detail: r.score_detail_json || null,
-      source: r.source || null,
     }));
 
-    const gradeCountsResult = await pool.query(
-      `SELECT recommend_grade, COUNT(*) AS cnt
-       FROM recommend.us_stock_rank_daily
-       WHERE ${baseClauses.join("\n         AND ")}
-       GROUP BY recommend_grade
-       ORDER BY recommend_grade`,
-      baseParams
-    );
     const gradeCounts = {};
-    for (const row of gradeCountsResult.rows) {
-      gradeCounts[String(row.recommend_grade || "").trim() || "UNKNOWN"] = Number(row.cnt || 0);
-    }
-
-    const dataStatusCountsResult = await pool.query(
-      `SELECT data_status, COUNT(*) AS cnt
-       FROM recommend.us_stock_rank_daily
-       WHERE ${baseClauses.join("\n         AND ")}
-       GROUP BY data_status
-       ORDER BY cnt DESC, data_status ASC`,
-      baseParams
+    rows.forEach((r) => { gradeCounts[r.grade] = (gradeCounts[r.grade] || 0) + 1; });
+    const totalCountResult = await pool.query(
+      `SELECT COUNT(*) FROM recommend.us_stock_rank_daily WHERE trade_date = $1 AND COALESCE(is_etf, false) = false`,
+      [tradeDate]
     );
-    const dataStatusCounts = {};
-    for (const row of dataStatusCountsResult.rows) {
-      dataStatusCounts[String(row.data_status || "").trim() || "UNKNOWN"] = Number(row.cnt || 0);
-    }
-
-    const universeGroupCountsResult = await pool.query(
-      `SELECT universe_group, COUNT(*) AS cnt
-       FROM recommend.us_stock_rank_daily
-       WHERE ${baseClauses.join("\n         AND ")}
-       GROUP BY universe_group
-       ORDER BY cnt DESC, universe_group ASC NULLS LAST`,
-      baseParams
-    );
-    const universeGroupCounts = {};
-    for (const row of universeGroupCountsResult.rows) {
-      universeGroupCounts[String(row.universe_group || "").trim() || "UNKNOWN"] = Number(row.cnt || 0);
-    }
-
-    const summaryResult = await pool.query(
-      `SELECT
-          COUNT(*) AS total_count,
-          COUNT(*) FILTER (WHERE LOWER(data_status) = 'ok') AS ok_count,
-          COUNT(*) FILTER (WHERE data_status IN ('MISSING_FUNDAMENTAL', 'MISSING_RELATIVE_STRENGTH', 'PARTIAL_DATA')) AS partial_count,
-          COUNT(*) FILTER (WHERE recommend_grade = 'EXCLUDE') AS exclude_count
-       FROM recommend.us_stock_rank_daily
-       WHERE ${baseClauses.join("\n         AND ")}`,
-      baseParams
-    );
-    const summaryRow = summaryResult.rows[0] || {};
-    const totalCount = Number(summaryRow.total_count || 0);
-    const okCount = Number(summaryRow.ok_count || 0);
-    const partialCount = Number(summaryRow.partial_count || 0);
-    const excludeCount = Number(summaryRow.exclude_count || 0);
-
-    const sourceSummaries = sourceRows.map((row) => ({
-      source: row.source,
-      count: row.count,
-    }));
-    const universeTokens = Array.from(new Set(
-      Object.keys(universeGroupCounts)
-        .flatMap((value) => String(value || "").split(","))
-        .map((value) => value.trim())
-        .filter(Boolean)
-    ));
-    const universeLabel = universeTokens.length ? universeTokens.join(" + ") : "UNKNOWN";
+    const totalCount = Number(totalCountResult.rows[0].count);
 
     res.json({
       trade_date: tradeDate,
-      source: resolvedSource,
-      expected_source: expectedSource,
-      source_fallback_used: sourceFallbackUsed,
-      available_sources: sourceSummaries,
-      universe_label: universeLabel,
       total_count: totalCount,
-      ok_count: okCount,
-      partial_count: partialCount,
-      exclude_count: excludeCount,
       returned_count: rows.length,
       grade_counts: gradeCounts,
-      data_status_counts: dataStatusCounts,
-      universe_group_counts: universeGroupCounts,
       rows,
     });
   } catch (e) {
@@ -7962,118 +7744,6 @@ async function loadUsTradingAccountMetrics(tradeDate, accountId) {
     valuation_source: "trade_order_fallback",
   };
 }
-
-// KIS 해외계좌 실잔고 조회 (실시간 API 호출)
-app.get("/api/us/live/account", async (req, res) => {
-  try {
-    const https = require("https");
-    const BASE       = (process.env.KIS_BASE_URL || "").replace(/\/$/, "");
-    const APP_KEY    = process.env.KIS_US_APP_KEY || process.env.KIS_APP_KEY || "";
-    const APP_SECRET = process.env.KIS_US_APP_SECRET || process.env.KIS_APP_SECRET || "";
-    const CANO       = process.env.KIS_US_CANO || process.env.KIS_CANO || "";
-    const ACNT       = process.env.KIS_US_ACNT_PRDT_CD || process.env.KIS_ACNT_PRDT_CD || "01";
-
-    if (!BASE || !APP_KEY || !APP_SECRET || !CANO) {
-      return res.json({ ok: false, error: "KIS 해외계좌 환경변수가 설정되지 않았습니다.", cash_usd: null, positions: [] });
-    }
-
-    const callJson = (url, options, body) => new Promise((resolve, reject) => {
-      const req2 = https.request(url, options, (r) => {
-        let data = "";
-        r.on("data", (c) => { data += c; });
-        r.on("end", () => { try { resolve(JSON.parse(data)); } catch { reject(new Error("parse error")); } });
-      });
-      req2.on("error", reject);
-      req2.setTimeout(15000, () => { req2.destroy(); reject(new Error("timeout")); });
-      if (body) req2.write(body);
-      req2.end();
-    });
-
-    // Step 1: 토큰 발급
-    const tokenUrl = new URL(`${BASE}/oauth2/tokenP`);
-    const tokenBody = JSON.stringify({ grant_type: "client_credentials", appkey: APP_KEY, appsecret: APP_SECRET });
-    const tokenResp = await callJson(tokenUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(tokenBody) },
-    }, tokenBody);
-
-    const token = tokenResp.access_token || "";
-    if (!token) {
-      return res.json({ ok: false, error: `토큰 발급 실패: ${tokenResp.error_description || tokenResp.error_code || "unknown"}`, cash_usd: null, positions: [] });
-    }
-
-    // Step 2: 잔고 조회 (TTTS3012R) — OVRS_EXCG_CD 빈값으로 전체 조회
-    const balUrl = new URL(`${BASE}/uapi/overseas-stock/v1/trading/inquire-balance`);
-    balUrl.searchParams.set("CANO", CANO);
-    balUrl.searchParams.set("ACNT_PRDT_CD", ACNT);
-    balUrl.searchParams.set("OVRS_EXCG_CD", "");
-    balUrl.searchParams.set("TR_CRCY_CD", "USD");
-    balUrl.searchParams.set("CTX_AREA_FK200", "");
-    balUrl.searchParams.set("CTX_AREA_NK200", "");
-
-    const balResp = await callJson(balUrl, {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "appkey": APP_KEY,
-        "appsecret": APP_SECRET,
-        "tr_id": "TTTS3012R",
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (balResp.rt_cd !== "0") {
-      return res.json({ ok: false, error: balResp.msg1 || "잔고 조회 실패", cash_usd: null, positions: [] });
-    }
-
-    let out2 = balResp.output2 || {};
-    if (Array.isArray(out2)) out2 = out2[0] || {};
-
-    const safeNum = (v) => { const n = parseFloat(v); return isFinite(n) ? n : 0; };
-
-    // Log non-zero fields to help diagnose field mapping
-    const nonZero = Object.entries(out2).filter(([, v]) => v && v !== "0" && v !== "0.00" && v !== "0.000");
-    console.log("[live/account] output2 non-zero fields:", JSON.stringify(Object.fromEntries(nonZero)));
-
-    // 가용외화예수금: KIS output2 필드 후보 순서대로 시도
-    const cashUsd = safeNum(out2.frcr_dncl_amt_2)       // 외화예수금2
-      || safeNum(out2.frcr_use_amt)                      // 외화사용가능금액
-      || safeNum(out2.ovrs_ord_psbl_amt)                 // 해외주문가능금액
-      || safeNum(out2.frcr_evlu_amt2)
-      || safeNum(out2.tot_dncl_amt)
-      || 0;
-    const totalEvalKrw = safeNum(out2.tot_evlu_pfls_amt) || safeNum(out2.evlu_amt_smtl_2) || safeNum(out2.evlu_amt_smtl1);
-    const totalPnl     = safeNum(out2.ovrs_tot_pfls);
-
-    let out1 = balResp.output1 || [];
-    if (!Array.isArray(out1)) out1 = out1 ? [out1] : [];
-    const positions = out1
-      .filter((p) => p.ovrs_pdno && safeNum(p.ovrs_cblc_qty) > 0)
-      .map((p) => ({
-        symbol:       String(p.ovrs_pdno || ""),
-        qty:          safeNum(p.ovrs_cblc_qty),
-        avg_price:    safeNum(p.pchs_avg_pric),
-        current_price:safeNum(p.now_pric2),
-        market_value: safeNum(p.ovrs_stck_evlu_amt) || safeNum(p.ovrs_cblc_qty) * safeNum(p.now_pric2),
-        pnl:          safeNum(p.frcr_evlu_pfls_amt),
-        pnl_pct:      safeNum(p.evlu_pfls_rt),
-      }));
-
-    res.json({
-      ok: true,
-      account_no: CANO,
-      cash_usd: cashUsd,
-      total_eval_krw: totalEvalKrw,
-      total_pnl_usd: totalPnl,
-      position_count: positions.length,
-      positions,
-      fetched_at: new Date().toISOString(),
-    });
-  } catch (e) {
-    console.error("GET /api/us/live/account error", e);
-    res.json({ ok: false, error: String(e), cash_usd: null, positions: [] });
-  }
-});
 
 // 요약: 오늘 결론, 모드, 포지션 수, 최근 손익
 app.get("/api/us/trading/summary", async (req, res) => {

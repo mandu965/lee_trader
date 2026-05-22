@@ -312,6 +312,11 @@ def evaluate_common_buy_guard(order_context: dict[str, Any]) -> tuple[bool, list
     if _flag("GLOBAL_KILL_SWITCH", "0"):
         reasons.append("global_kill_switch_on")
 
+    # market_guard 서비스가 파일을 생성하면 매수 차단 (기존 코드 무관)
+    _market_guard_path = _resolve(os.getenv("MARKET_GUARD_FILE_PATH", "data/market_guard_kill.json"))
+    if _market_guard_path.exists():
+        reasons.append("market_guard_kill_active")
+
     if _flag("GLOBAL_BLOCK_BUY_ON_SYNC_STALE", "1"):
         max_age_minutes = _float_env("GLOBAL_SYNC_MAX_AGE_MINUTES", 30.0)
         if holdings_sync_age_minutes is None:
@@ -335,8 +340,23 @@ def evaluate_common_buy_guard(order_context: dict[str, Any]) -> tuple[bool, list
         if _same_symbol_buy_filled_today(fill_items, code, effective_trade_date):
             reasons.append("same_symbol_buy_already_filled_today")
 
-    daily_buy_limit = _float_env("GLOBAL_MAX_DAILY_BUY_AMOUNT", 500_000.0)
-    weekly_buy_limit = _float_env("GLOBAL_MAX_WEEKLY_BUY_AMOUNT", 1_500_000.0)
+    # 비율 기반 매수 한도: GLOBAL_MAX_DAILY_BUY_RATIO > 0이면 총자산 × 비율로 한도 계산
+    # 비율 미설정 또는 총자산 조회 실패 시 절대 금액(GLOBAL_MAX_DAILY_BUY_AMOUNT)으로 fallback
+    _current_total_assets = _derived_metric(balance_payload, "total_assets")
+    _daily_buy_ratio = _float_env("GLOBAL_MAX_DAILY_BUY_RATIO", 0.0)
+    _weekly_buy_ratio = _float_env("GLOBAL_MAX_WEEKLY_BUY_RATIO", 0.0)
+    if _daily_buy_ratio > 0 and _current_total_assets and _current_total_assets > 0:
+        daily_buy_limit = _current_total_assets * _daily_buy_ratio
+        _daily_limit_mode = "ratio"
+    else:
+        daily_buy_limit = _float_env("GLOBAL_MAX_DAILY_BUY_AMOUNT", 500_000.0)
+        _daily_limit_mode = "absolute"
+    if _weekly_buy_ratio > 0 and _current_total_assets and _current_total_assets > 0:
+        weekly_buy_limit = _current_total_assets * _weekly_buy_ratio
+        _weekly_limit_mode = "ratio"
+    else:
+        weekly_buy_limit = _float_env("GLOBAL_MAX_WEEKLY_BUY_AMOUNT", 1_500_000.0)
+        _weekly_limit_mode = "absolute"
     if order_amount is not None and daily_buy_amount_used + order_amount > daily_buy_limit:
         reasons.append("daily_buy_amount_limit_exceeded")
     if order_amount is not None and weekly_buy_amount_used + order_amount > weekly_buy_limit:
@@ -345,7 +365,8 @@ def evaluate_common_buy_guard(order_context: dict[str, Any]) -> tuple[bool, list
     daily_loss_limit = _float_env("GLOBAL_MAX_DAILY_LOSS_PCT", 0.01)
     weekly_loss_limit = _float_env("GLOBAL_MAX_WEEKLY_LOSS_PCT", 0.03)
     if daily_loss_pct is None:
-        reasons.append("daily_loss_pct_unavailable")
+        if _flag("GLOBAL_BLOCK_BUY_ON_DAILY_LOSS_UNAVAILABLE", "1"):
+            reasons.append("daily_loss_pct_unavailable")
     elif daily_loss_pct <= -abs(daily_loss_limit):
         reasons.append("daily_loss_limit_reached")
     if weekly_loss_pct is None:
@@ -368,8 +389,13 @@ def evaluate_common_buy_guard(order_context: dict[str, Any]) -> tuple[bool, list
         "global_kill_switch": _flag("GLOBAL_KILL_SWITCH", "0"),
         "daily_buy_amount_used": daily_buy_amount_used,
         "daily_buy_amount_limit": daily_buy_limit,
+        "daily_buy_limit_mode": _daily_limit_mode,
+        "daily_buy_ratio": _daily_buy_ratio if _daily_limit_mode == "ratio" else None,
         "weekly_buy_amount_used": weekly_buy_amount_used,
         "weekly_buy_amount_limit": weekly_buy_limit,
+        "weekly_buy_limit_mode": _weekly_limit_mode,
+        "weekly_buy_ratio": _weekly_buy_ratio if _weekly_limit_mode == "ratio" else None,
+        "current_total_assets": _current_total_assets,
         "daily_loss_pct": daily_loss_pct,
         "daily_loss_limit_pct": -abs(daily_loss_limit),
         "weekly_loss_pct": weekly_loss_pct,

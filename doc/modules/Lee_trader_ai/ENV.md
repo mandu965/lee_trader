@@ -48,6 +48,50 @@ This document summarizes environment variables used by the AI pipeline and live 
 | `AUTO_TRADE_BUY_APPROVAL_REQUIRED` | `0` | Require manual BUY approval | live auto trade | Operational safety gate |
 | `AUTO_TRADE_FORCE_RESUBMIT` | `0` | Ignore previous successful request ids | live auto trade | Use carefully |
 
+## KR AI 포지션 리스크 (ai_position_risk.py)
+
+| Variable | Default | 서버 권장 | Description | Scope |
+| --- | --- | --- | --- | --- |
+| `AI_MAX_HOLDING_DAYS` | `30` | `30` | 최대 보유일 — 초과 시 pnl < 0% 이면 청산, 0% 이상은 hard_cap까지 HOLD | `ai_position_risk.py` |
+| `AI_MAX_HOLDING_DAYS_HARD_CAP` | `45` | `45` | 하드캡 — pnl ≥ 0%여도 초과 시 강제 청산 | `ai_position_risk.py` |
+| `AI_TRAILING_STOP_PCT` | `0.05` | `0.10` | 고점 대비 하락률 임계값 (trailing stop 발동) | `ai_position_risk.py` |
+| `AI_TRAILING_STOP_MIN_PROFIT` | `0.03` | `0.08` | trailing stop 발동 최소 수익률 — 미달 시 trailing 미발동 | `ai_position_risk.py` |
+
+## 진입 갭 필터 (submit_live_orders.py)
+
+갭 필터는 코드 기본값으로 이미 작동 중. `.env` 미설정 시에도 아래 기본값이 적용됨.
+
+| Variable | Default | Description | Scope |
+| --- | --- | --- | --- |
+| `ENTRY_GAP_BLOCK_UP_PCT` | `0.03` | 갭 상승 +3% 이상 → 소프트 차단 (당일 체결 불가) | `submit_live_orders.py` |
+| `ENTRY_GAP_HARD_BLOCK_UP_PCT` | `0.05` | 갭 상승 +5% 이상 → 하드 차단 | `submit_live_orders.py` |
+| `ENTRY_GAP_BLOCK_DOWN_PCT` | `-0.04` | 갭 하락 -4% 이하 → 차단 | `submit_live_orders.py` |
+| `ENTRY_GAP_BLOCK_ON_LIVE_PRICE_MISSING` | `1` | 실시간 가격 미수신 시 차단 여부 | `submit_live_orders.py` |
+
+## Common Live Risk Guard (매수 안전 게이트)
+
+| Variable | Default | Description | Scope |
+| --- | --- | --- | --- |
+| `GLOBAL_MAX_DAILY_BUY_RATIO` | `0` (비활성) | 일일 매수 한도: 총자산 대비 비율. 설정 시 절대 금액보다 우선. 예: `0.30` = 총자산 30% | `common_live_risk_guard.py` |
+| `GLOBAL_MAX_WEEKLY_BUY_RATIO` | `0` (비활성) | 주간 매수 한도: 총자산 대비 비율. 예: `0.60` = 총자산 60% | `common_live_risk_guard.py` |
+| `GLOBAL_MAX_DAILY_BUY_AMOUNT` | `500000` | 일일 매수 한도 절대 금액 (RATIO 미설정 시 fallback) | `common_live_risk_guard.py` |
+| `GLOBAL_MAX_WEEKLY_BUY_AMOUNT` | `1500000` | 주간 매수 한도 절대 금액 (RATIO 미설정 시 fallback) | `common_live_risk_guard.py` |
+| `GLOBAL_BLOCK_BUY_ON_DAILY_LOSS_UNAVAILABLE` | `1` | 일일 손실률 조회 실패 시 매수 차단 여부. `0`으로 완화 가능 | `common_live_risk_guard.py` |
+| `GLOBAL_BLOCK_BUY_ON_WEEKLY_LOSS_UNAVAILABLE` | `1` | 주간 손실률 조회 실패 시 매수 차단 여부 | `common_live_risk_guard.py` |
+| `GLOBAL_MAX_DAILY_LOSS_PCT` | `0.01` | 일일 손실 한도 (1% 초과 시 매수 차단) | `common_live_risk_guard.py` |
+| `GLOBAL_MAX_WEEKLY_LOSS_PCT` | `0.03` | 주간 손실 한도 (3% 초과 시 매수 차단) | `common_live_risk_guard.py` |
+| `GLOBAL_KILL_SWITCH` | `0` | 전체 매수 긴급 차단 | `common_live_risk_guard.py` |
+| `GLOBAL_SYNC_MAX_AGE_MINUTES` | `30` | holdings/fills 동기화 최대 허용 경과 시간(분) | `common_live_risk_guard.py` |
+| `MARKET_GUARD_FILE_PATH` | `data/market_guard_kill.json` | Market Guard 킬스위치 파일 경로 (ROOT 기준 상대 경로 허용) | `common_live_risk_guard.py` |
+
+> **비율 기반 한도 사용 예시** (`.env`):
+> ```env
+> GLOBAL_MAX_DAILY_BUY_RATIO=0.30    # 총자산의 30%/일
+> GLOBAL_MAX_WEEKLY_BUY_RATIO=0.60   # 총자산의 60%/주
+> ```
+> 비율 설정 시 입출금으로 총자산이 변경돼도 한도가 자동 추적됩니다.  
+> 총자산 조회 실패 시 `GLOBAL_MAX_DAILY_BUY_AMOUNT` 절대 금액으로 자동 fallback합니다.
+
 ## Alerts (과제 4-B)
 
 설정된 채널에만 발송. 미설정 시 콘솔로 fallback. 파일 로그는 항상 기록.

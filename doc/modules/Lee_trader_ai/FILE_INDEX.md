@@ -62,4 +62,4 @@ AI 쪽은 배치, DB, 웹이 강하게 연결되어 있으므로 단일 파일�
 - `ranking_builder.py` 변경은 점수, 정렬, UI 노출, 주문 후보에 동시에 영향을 줍니다.
 - `submit_live_orders.py`와 `run_live_auto_trade_cycle.py`는 실주문 경로이므로 로그와 guard 중심으로만 변경합니다.
 - 웹 payload 관련 수정은 `sync_web_display_data.py`, `node/index.js`, 프론트 JS를 같이 확인합니다.
-- AI 일반 경로와 RULE 경로는 계좌, 앱키, 대시보드 payload를 분리해서 다룹니다.
+- KR Rule 자동매매는 2026-05-22 기준 운영 중단 (`RULE_LIVE_ENABLED=0`). AI 경로는 독립적으로 유지됨.

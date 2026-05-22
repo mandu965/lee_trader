@@ -26,7 +26,7 @@ ranking:
     feature_candidate: false
 
 buy_candidate:
-  min_confidence: 80.0
+  min_confidence: 76.0
   min_liquidity_score: 15.0
   min_trading_value: 5000000000.0
   sector_cap_ratio: 0.30

@@ -209,17 +209,6 @@ def build_ranking_context(row: pd.Series, intent_row: pd.Series | None = None) -
         "entry_quality_reasons": str(first("entry_quality_reasons") or "").strip() or None,
         "original_final_rank": _int_or_none(first("original_final_rank", "rank_final", "buy_rank")),
         "original_final_score": _num_or_none(first("original_final_score", "final_score", "live_score")),
-        "us_macro_applied": bool(first("us_macro_applied")) if first("us_macro_applied") is not None else False,
-        "us_macro_status": str(first("us_macro_status") or "").strip() or None,
-        "us_macro_us_trade_date": str(first("us_macro_us_trade_date") or "").strip() or None,
-        "us_macro_kr_apply_date": str(first("us_macro_kr_apply_date") or "").strip() or None,
-        "us_macro_adjustment": _num_or_none(first("us_macro_adjustment")),
-        "us_macro_order_score": _num_or_none(first("us_macro_order_score")),
-        "us_macro_order_rank": _int_or_none(first("us_macro_order_rank")),
-        "us_macro_buy_blocked": bool(first("us_macro_buy_blocked")) if first("us_macro_buy_blocked") is not None else False,
-        "us_macro_qty_scale": _num_or_none(first("us_macro_qty_scale")),
-        "us_macro_reason": str(first("us_macro_reason") or "").strip() or None,
-        "us_macro_target_weight_before_scale": _num_or_none(first("us_macro_target_weight_before_scale")),
     }
 
 
@@ -289,6 +278,10 @@ def _preview_expected_hold_reason(*, side: str, blocked_reason: str | None, fina
         return "Live price is below the allowed entry gap threshold, so the BUY order stays on preview only."
     if blocked == "holding_qty_missing":
         return "Live holding quantity is missing, so the SELL order cannot be submitted."
+    if blocked == "trim_weight_unavailable":
+        return "TRIM weight data is unavailable, so the ratio cannot be calculated. Submission held."
+    if blocked == "trim_ratio_zero":
+        return "TRIM target weight is at or above current weight, so no shares need to be sold. Submission skipped."
     if blocked == "non_executable_intent_type":
         return "This intent type is not submit-ready."
     if blocked and str(side or "").upper() == "BUY":
@@ -546,10 +539,18 @@ def build_order_requests(
                 if intent_type == "TRIM":
                     weight = pd.to_numeric(holding_row.get("weight"), errors="coerce")
                     target_weight = pd.to_numeric(row.get("target_weight"), errors="coerce")
-                    trim_ratio = 0.5
-                    if pd.notna(weight) and pd.notna(target_weight) and weight > 0:
+                    if not pd.notna(weight) or not pd.notna(target_weight) or float(weight) <= 0:
+                        # 비중 데이터 없이는 trim 비율을 계산할 수 없으므로 제출 보류
+                        blocked_reason = "trim_weight_unavailable"
+                        final_qty = 0
+                    else:
                         trim_ratio = max(min((float(weight) - float(target_weight)) / float(weight), 1.0), 0.0)
-                    final_qty = max(int(round(float(current_qty) * trim_ratio)), 1)
+                        if trim_ratio < 1e-4:
+                            # target_weight가 현재 비중 이상이면 실질적 매도가 없음 — 보류
+                            blocked_reason = "trim_ratio_zero"
+                            final_qty = 0
+                        else:
+                            final_qty = max(int(round(float(current_qty) * trim_ratio)), 1)
                 else:
                     final_qty = int(round(float(current_qty)))
                 planned_qty = final_qty

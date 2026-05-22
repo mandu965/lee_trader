@@ -147,15 +147,6 @@ const gateChipText = (value) => {
 const gateStatusChip = (ok, label, value, failTone = "warn") =>
   `<span class="chip ${ok ? "good" : failTone}">${escapeHtml(label)} ${escapeHtml(value)}</span>`;
 
-const usMacroChip = (row) => {
-  if (!row?.us_macro_applied) return `<span class="chip warn">macro off</span>`;
-  if (row?.us_macro_buy_blocked) return `<span class="chip bad">macro block</span>`;
-  const adj = Number(row?.us_macro_adjustment);
-  if (Number.isFinite(adj) && adj > 0) return `<span class="chip good">macro +${adj.toFixed(1)}</span>`;
-  if (Number.isFinite(adj) && adj < 0) return `<span class="chip watch">macro ${adj.toFixed(1)}</span>`;
-  return `<span class="chip warn">${escapeHtml(String(row?.us_macro_status || "macro neutral"))}</span>`;
-};
-
 const helpTip = (text) =>
   `<span class="help-tip" title="${escapeHtml(text)}">?</span>`;
 
@@ -381,7 +372,7 @@ function renderHero(summary, intents, preview, holdings, execution) {
     </article>
     <article class="hero-card">
       <div class="card-label">총자산 (AI 계좌)</div>
-      <div class="card-value">${escapeHtml(fmtWon(totalAssets))}</div>
+      <div class="card-value">${escapeHtml(Number.isFinite(Number(totalAssets)) ? fmtNum(totalAssets) + "원" : "-")}</div>
       <div class="card-detail">현금비중 ${escapeHtml(fmtPct(cashRatio, 1))} · 보유 ${fmtNum(holdings?.count ?? summary?.holding_count)}종목</div>
     </article>
     <article class="hero-card">
@@ -392,7 +383,7 @@ function renderHero(summary, intents, preview, holdings, execution) {
     <article class="hero-card">
       <div class="card-label">주간 손익 (AI 계좌)</div>
       <div class="card-value ${signedClass(weeklyPnl)}">${escapeHtml(fmtWon(weeklyPnl))}</div>
-      <div class="card-detail">손실률 ${escapeHtml(fmtPct(weeklyPct, 2))}</div>
+      <div class="card-detail">주간 손익률 ${escapeHtml(fmtPct(weeklyPct, 2))}</div>
     </article>
   `;
 }
@@ -422,7 +413,7 @@ function renderAccountDetails(summary, runtime) {
     },
     {
       label: "총자산",
-      valueHtml: escapeHtml(fmtWon(derived.total_assets ?? raw.tot_evlu_amt)),
+      valueHtml: escapeHtml(Number.isFinite(Number(derived.total_assets ?? raw.tot_evlu_amt)) ? fmtNum(derived.total_assets ?? raw.tot_evlu_amt) + "원" : "-"),
       valueClass: "",
       detail: `전일총자산 ${fmtNum(raw.bfdy_tot_asst_evlu_amt)} · 자산증감 ${fmtNum(raw.asst_icdc_amt)}`,
     },
@@ -442,7 +433,7 @@ function renderAccountDetails(summary, runtime) {
       label: "주간 손익",
       valueHtml: metricHtml(derived.weekly_total_pnl, fmtNum),
       valueClass: signedClass(derived.weekly_total_pnl),
-      detail: `손실률 ${fmtPct(derived.weekly_loss_pct, 2)} · execute ${policy.auto_trade_execute ? "ON" : "OFF"} · buy ${policy.auto_trade_allow_buy ? "ALLOW" : "BLOCK"}`,
+      detail: `주간 손익률 ${fmtPct(derived.weekly_loss_pct, 2)} · execute ${policy.auto_trade_execute ? "ON" : "OFF"} · buy ${policy.auto_trade_allow_buy ? "ALLOW" : "BLOCK"}`,
     },
   ];
 
@@ -613,7 +604,11 @@ function renderWhyNoTrade(diagnostics) {
   root.innerHTML = `
     <h3 class="explain-title">주문이 없었던 이유</h3>
     <div class="explain-body">
-      ${escapeHtml(summary.main_user_message_ko || "현재 화면에서 판단 근거를 확인하세요.")}
+      ${escapeHtml(summary.main_user_message_ko || (
+        (Number(summary.submit_allowed_count || 0) + Number(summary.sell_submit_allowed_count || 0)) > 0
+          ? `주문 후보 ${Number(summary.submit_allowed_count || 0) + Number(summary.sell_submit_allowed_count || 0)}건이 제출 가능 상태였습니다. 아래 실행 결과를 확인하세요.`
+          : "현재 화면에서 판단 근거를 확인하세요."
+      ))}
       ${summary.main_block_reason ? `<br>이유: ${escapeHtml(summary.main_block_reason)}` : ""}
       ${secondary?.raw_reason ? `<br>추가 이유: ${escapeHtml(secondary.raw_reason)}` : ""}
       ${primary?.recommended_action ? `<br>권장: ${escapeHtml(primary.recommended_action)}` : ""}
@@ -641,9 +636,6 @@ function renderIntents(intents) {
       <td class="right">${fmtNum(row.priority)}</td>
       <td class="right">${fmtPct(row.target_weight, 1)}</td>
       <td>${escapeHtml(row.reason || "-")}</td>
-      <td>${usMacroChip(row)}</td>
-      <td class="right">${fmtNum(row.us_macro_order_rank)}</td>
-      <td class="right">${fmtNum(row.us_macro_order_score, 2)}</td>
     </tr>
   `).join("");
 }
@@ -673,6 +665,26 @@ function translateBlockedReason(row) {
     return "보유수량 미확인 — 계좌 CSV 확인 필요";
   if (key === "invalid_final_request_qty")
     return "주문수량 0 이하 — 제출 불가";
+  if (key === "trim_weight_unavailable")
+    return "TRIM 비중 정보 없음 — 매도 수량 산출 불가";
+  if (key === "trim_ratio_zero")
+    return "TRIM 비율 0 — 목표비중이 현재비중 이상, 매도 불필요";
+  if (key === "market_guard_kill_active")
+    return "Market Guard 발동 — 시장 급락 감지로 매수 차단";
+  if (key === "kill_switch_active")
+    return "Kill Switch 활성 — 전체 매수 차단 중";
+  if (key === "sync_stale")
+    return "계좌 동기화 만료 — 최신 잔고 데이터 없음";
+  if (key === "daily_loss_pct_unavailable")
+    return "일간 손실률 미수신 — 안전을 위해 매수 차단";
+  if (key === "daily_loss_exceeded")
+    return "일간 손실 한도 초과 — 당일 매수 차단";
+  if (key === "weekly_loss_exceeded")
+    return "주간 손실 한도 초과 — 주간 매수 차단";
+  if (key === "daily_buy_limit_exceeded")
+    return "일간 매수 한도 초과";
+  if (key === "weekly_buy_limit_exceeded")
+    return "주간 매수 한도 초과";
   if (key.includes("gap_up"))
     return `가격 갭업 차단${gapStr}`;
   return key || "";
@@ -696,16 +708,6 @@ function buildPreviewBlockDetail(row) {
     parts.push(`실시간가: ${fmtNum(row.live_price)}`);
   if (row.quote_checked_at)
     parts.push(`시세 확인: ${fmtRuntimeDateTime(row.quote_checked_at)}`);
-  if (row.us_macro_status)
-    parts.push(`US macro: ${row.us_macro_status}`);
-  if (row.us_macro_order_score != null)
-    parts.push(`macro order score: ${fmtNum(row.us_macro_order_score, 2)}`);
-  if (row.us_macro_adjustment != null)
-    parts.push(`macro adj: ${fmtNum(row.us_macro_adjustment, 2)}`);
-  if (row.us_macro_qty_scale != null)
-    parts.push(`macro qty scale: ${fmtNum(row.us_macro_qty_scale, 2)}`);
-  if (row.us_macro_reason)
-    parts.push(`macro reason: ${row.us_macro_reason}`);
   const referenceNote = translateEntryReferenceNote(row.entry_reference_note);
   if (referenceNote)
     parts.push(referenceNote);
@@ -784,6 +786,7 @@ function describeExecutionReason(reason, row, runtime) {
     case "duplicate_request_id": return "이미 성공 처리된 요청 ID라 중복 제출을 건너뛰었습니다.";
     case "invalid_final_request_qty": return "최종 주문 수량이 0 이하라 제출하지 않았습니다.";
     case "holding_qty_missing": return "실계좌 보유수량을 찾지 못해 매도 주문을 만들지 못했습니다.";
+    case "buy_qty_zero_budget_below_one_share": return "예산 부족 — 목표 예산이 1주 가격 미달";
     default:
       if (key.includes("market_closed")) return "장 운영 시간이 아니어서 주문이 제출되지 않았습니다.";
       if (key.includes("LIVE_ORDER")) return "실주문 확인 문구가 맞지 않아 제출이 차단되었습니다.";
@@ -1183,7 +1186,16 @@ function renderHoldings(holdings) {
     document.getElementById("holdingsWrap").innerHTML = `<div class="empty-state">실계좌 보유 CSV가 아직 없습니다.</div>`;
     return;
   }
-  tbody.innerHTML = rows.map((row) => `
+  tbody.innerHTML = rows.map((row) => {
+    const peakPrice = Number(row.peak_price);
+    const currentPrice = Number(row.current_price);
+    let peakDrawdownHtml = "-";
+    if (peakPrice > 0 && currentPrice > 0) {
+      const drawdown = (currentPrice - peakPrice) / peakPrice;
+      const cls = drawdown <= -0.05 ? "neg" : drawdown < 0 ? "" : "pos";
+      peakDrawdownHtml = `<span class="${cls}">${drawdown >= 0 ? "+" : ""}${(drawdown * 100).toFixed(1)}%</span>`;
+    }
+    return `
     <tr>
       <td>${holdingStateChip(row)}</td>
       <td class="mono">${escapeHtml(row.code || "-")}</td>
@@ -1195,8 +1207,11 @@ function renderHoldings(holdings) {
       <td class="right ${Number(row.pnl_amount) >= 0 ? "pos" : "neg"}">${fmtNum(row.pnl_amount)}</td>
       <td class="right ${Number(row.pnl_pct) >= 0 ? "pos" : "neg"}">${fmtPct(row.pnl_pct, 2)}</td>
       <td class="right">${fmtPct(row.weight, 1)}</td>
-    </tr>
-  `).join("");
+      <td class="right">${row.holding_days != null ? fmtNum(row.holding_days) + "일" : "-"}</td>
+      <td>${row.entry_date ? escapeHtml(row.entry_date) : "-"}</td>
+      <td class="right">${peakDrawdownHtml}</td>
+    </tr>`;
+  }).join("");
 }
 
 // ── Analysis: feature importance ──────────────

@@ -4,6 +4,9 @@
 >
 > live safety baseline과 operator runbook을 상세하게 설명하는 문서다. 현재 운영 명령은 `OPERATIONS.md`와 함께 본다.
 
+> 상태 메모: 2026-05-22 기준 현재 운영 원칙상 US는 `paper-only` 유지다.
+> 따라서 이 runbook은 active live rollout 문서가 아니라, 향후 재검토용 참고 runbook으로 읽어야 한다.
+
 ## 1. Document Purpose
 
 This runbook consolidates the Phase 6 live-trading safety outputs into an operator-facing guide.

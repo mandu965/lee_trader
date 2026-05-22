@@ -26,13 +26,13 @@ from sqlalchemy import text
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from python.us.us_db import get_us_engine
+from python.us.us_db import ensure_us_financial_feature_reported_date_column, get_us_engine
 from python.us.us_model_train import (
     FEATURE_DAILY_TABLE,
     FEATURE_FINANCIAL_TABLE,
     FEATURE_RS_TABLE,
     FINANCIAL_FEATURE_COLS,
-    merge_financial_locf,
+    merge_financial_asof,
 )
 
 DATA_DIR = Path("data")
@@ -132,16 +132,31 @@ def load_features_for_date(engine, trade_date: date, feature_cols: list[str]) ->
     # Financial features (last available before trade_date)
     fin_cols_available = [c for c in FINANCIAL_FEATURE_COLS if c in feature_cols]
     if fin_cols_available:
+        ensure_us_financial_feature_reported_date_column()
         fin_q = text(f"""
-            SELECT ticker, fiscal_date, period_type, {", ".join(fin_cols_available)}
+            SELECT ticker, fiscal_date, reported_date, period_type, {", ".join(fin_cols_available)}
             FROM {FEATURE_FINANCIAL_TABLE}
-            WHERE period_type = 'annual' AND fiscal_date <= :td
+            WHERE period_type = 'annual' AND COALESCE(reported_date, fiscal_date) <= :td
         """)
         with engine.connect() as conn:
             fin_df = pd.read_sql(fin_q, conn, params={"td": td_str})
         if not fin_df.empty:
             fin_df["fiscal_date"] = pd.to_datetime(fin_df["fiscal_date"]).dt.date
-            daily_df = merge_financial_locf(daily_df, fin_df)
+            fin_df["reported_date"] = pd.to_datetime(fin_df["reported_date"], errors="coerce").dt.date
+            reported_ratio = float(fin_df["reported_date"].notna().mean())
+            logging.info(
+                "[US_PREDICT] financial feature coverage trade_date=%s reported_date_coverage=%.4f rows=%d",
+                td_str,
+                reported_ratio,
+                len(fin_df),
+            )
+            if reported_ratio < 1.0:
+                logging.warning(
+                    "[US_PREDICT] financial features missing reported_date trade_date=%s missing=%d",
+                    td_str,
+                    int(fin_df["reported_date"].isna().sum()),
+                )
+            daily_df = merge_financial_asof(daily_df, fin_df)
 
     logging.info("[US_PREDICT] Feature rows for %s: %d tickers", td_str, len(daily_df))
     return daily_df
@@ -213,38 +228,63 @@ def ensure_ml_columns(engine) -> None:
 def upsert_predictions(engine, rows: list[dict], source: str) -> int:
     if not rows:
         return 0
+    normalized_rows: list[dict[str, object]] = []
+    for row in rows:
+        normalized_rows.append(
+            {
+                "trade_date": row["trade_date"],
+                "symbol": row["symbol"],
+                "rank_no": row[ML_RANK_COL],
+                "recommend_grade": row[ML_GRADE_COL],
+                "total_score": row[ML_SCORE_COL],
+                "momentum_score": None,
+                "relative_strength_score": None,
+                "fundamental_score": None,
+                "growth_score": None,
+                "valuation_score": None,
+                "risk_score": 0.0,
+                "feature_quality_score": None,
+                "universe_group": None,
+                "company_name": None,
+                "sector": None,
+                "industry": None,
+                "market_cap": None,
+                "avg_volume": None,
+                "is_etf": False,
+                "is_active": True,
+                "data_status": "OK",
+                "exclude_reason": None,
+                "reason_summary": "ml_prediction_only",
+                "score_detail_json": None,
+                "source": source,
+                PRED_RET_20D_COL: row[PRED_RET_20D_COL],
+                PRED_RET_60D_COL: row[PRED_RET_60D_COL],
+                PROB_TOP20_20D_COL: row[PROB_TOP20_20D_COL],
+                PROB_TOP20_60D_COL: row[PROB_TOP20_60D_COL],
+                ML_SCORE_COL: row[ML_SCORE_COL],
+                ML_RANK_COL: row[ML_RANK_COL],
+                ML_GRADE_COL: row[ML_GRADE_COL],
+            }
+        )
 
-    with engine.begin() as conn:
-        # Check if source column exists
-        result = conn.execute(text(f"""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_schema='recommend' AND table_name='us_stock_rank_daily'
-        """))
-        existing_cols = {row[0] for row in result}
-
-    # Build dynamic upsert
-    sample = rows[0]
-    cols = [k for k in sample.keys()]
+    cols = list(normalized_rows[0].keys())
     placeholders = ", ".join(f":{c}" for c in cols)
     col_names = ", ".join(cols)
     update_set = ", ".join(
         f"{c} = EXCLUDED.{c}"
         for c in cols
-        if c not in {"ticker", "trade_date", "source"}
+        if c not in {"trade_date", "symbol", "source"}
     )
-
     sql = text(f"""
         INSERT INTO {RANK_TABLE} ({col_names})
         VALUES ({placeholders})
-        ON CONFLICT (ticker, trade_date, source) DO UPDATE SET
+        ON CONFLICT (trade_date, symbol, source) DO UPDATE SET
             {update_set},
             updated_at = now()
     """)
-
     with engine.begin() as conn:
-        conn.execute(sql, rows)
-
-    return len(rows)
+        conn.execute(sql, normalized_rows)
+    return len(normalized_rows)
 
 
 def run_prediction(
@@ -290,7 +330,7 @@ def run_prediction(
     for i, row in enumerate(df.itertuples(index=False)):
         score = float(scores[i])
         rows.append({
-            "ticker": row.ticker,
+            "symbol": row.ticker,
             "trade_date": trade_date,
             "source": source,
             PRED_RET_20D_COL: float(pred_ret_20d[i]),

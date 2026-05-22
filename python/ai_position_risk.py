@@ -9,8 +9,8 @@ stop_loss / trailing_stop / max_holding_days 기준으로 청산 신호를 반�
   AI_POSITION_STOP_LOSS_PCT     (기본 0.07)  — 7% 손절
   AI_TRAILING_STOP_PCT          (기본 0.05)  — 고점 대비 5% 하락 시 청산
   AI_TRAILING_STOP_MIN_PROFIT   (기본 0.03)  — trailing 발동 최소 수익 3%
-  AI_MAX_HOLDING_DAYS           (기본 15)    — 최대 보유일 (pnl < 2% 시 청산)
-  AI_MAX_HOLDING_DAYS_HARD_CAP  (기본 45)    — 하드캡: pnl >= 2%여도 초과 시 강제 청산
+  AI_MAX_HOLDING_DAYS           (기본 30)    — 최대 보유일 (pnl < 0% 시 청산, 0% 이상은 hard_cap까지 HOLD)
+  AI_MAX_HOLDING_DAYS_HARD_CAP  (기본 45)    — 하드캡: pnl >= 0%여도 초과 시 강제 청산
   AI_POSITION_TAKE_PROFIT_PCT   (기본 0.0)   — 익절 기준 (0=비활성)
 """
 from __future__ import annotations

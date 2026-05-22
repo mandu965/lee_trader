@@ -597,15 +597,9 @@ READ_MARKET_REGIME_ROWS_BETWEEN_SQL = text(
 
 READ_LATEST_MACRO_SNAPSHOT_SQL = text(
     """
-    SELECT
-        trade_date,
-        NULL::numeric AS vix_close,
-        NULL::numeric AS vix_ret_20d,
-        spy_return_20d AS spy_ret_20d,
-        NULL::boolean AS spy_above_ma200,
-        qqq_return_20d AS qqq_ret_20d,
-        market_regime
-    FROM research.us_market_regime_daily
+    SELECT trade_date, vix_close, vix_ret_20d, spy_ret_20d,
+           spy_above_ma200, qqq_ret_20d, market_regime
+    FROM feature.us_macro_daily
     WHERE trade_date <= :trade_date
     ORDER BY trade_date DESC
     LIMIT 1
@@ -696,6 +690,7 @@ READ_LATEST_FINANCIAL_FEATURE_SNAPSHOTS_SQL = text(
         market,
         period_type,
         fiscal_date,
+        reported_date,
         source,
         revenue,
         gross_profit,
@@ -750,9 +745,10 @@ READ_LATEST_FINANCIAL_FEATURE_SNAPSHOTS_SQL = text(
         financial_value_score
     FROM feature.us_stock_financial_feature
     WHERE ticker = ANY(:tickers)
-      AND fiscal_date <= :trade_date
+      AND COALESCE(reported_date, fiscal_date) <= :trade_date
     ORDER BY
         ticker,
+        COALESCE(reported_date, fiscal_date) DESC,
         fiscal_date DESC,
         CASE period_type
             WHEN 'ttm' THEN 1
@@ -867,6 +863,7 @@ UPSERT_FINANCIAL_FEATURE_SQL = text(
         market,
         period_type,
         fiscal_date,
+        reported_date,
         source,
         revenue,
         gross_profit,
@@ -929,6 +926,7 @@ UPSERT_FINANCIAL_FEATURE_SQL = text(
         :market,
         :period_type,
         :fiscal_date,
+        :reported_date,
         :source,
         :revenue,
         :gross_profit,
@@ -989,6 +987,7 @@ UPSERT_FINANCIAL_FEATURE_SQL = text(
     )
     ON CONFLICT (ticker, period_type, fiscal_date, source) DO UPDATE SET
         market = EXCLUDED.market,
+        reported_date = EXCLUDED.reported_date,
         revenue = EXCLUDED.revenue,
         gross_profit = EXCLUDED.gross_profit,
         operating_income = EXCLUDED.operating_income,
@@ -4576,6 +4575,7 @@ def fetch_latest_relative_strength_snapshots(tickers: list[str], *, trade_date: 
 def fetch_latest_financial_feature_snapshots(tickers: list[str], *, trade_date: date) -> dict[str, dict[str, object]]:
     if not tickers or not relation_exists("feature.us_stock_financial_feature"):
         return {}
+    ensure_us_financial_feature_reported_date_column()
     engine = get_us_engine()
     with engine.connect() as conn:
         rows = conn.execute(
@@ -4586,7 +4586,7 @@ def fetch_latest_financial_feature_snapshots(tickers: list[str], *, trade_date: 
 
 
 def fetch_latest_macro_snapshot(*, trade_date: date) -> dict[str, object] | None:
-    if not relation_exists("research.us_market_regime_daily"):
+    if not relation_exists("feature.us_macro_daily"):
         return None
     engine = get_us_engine()
     with engine.connect() as conn:
@@ -5022,6 +5022,21 @@ def relation_exists(relation_name: str) -> bool:
     return value is not None
 
 
+def ensure_us_financial_feature_reported_date_column() -> None:
+    if not relation_exists("feature.us_stock_financial_feature"):
+        return
+    engine = get_us_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                ALTER TABLE feature.us_stock_financial_feature
+                ADD COLUMN IF NOT EXISTS reported_date DATE
+                """
+            )
+        )
+
+
 def get_active_us_stock_universe(
     *,
     min_market_cap: float,
@@ -5304,6 +5319,7 @@ def upsert_financial_feature_rows(rows: Iterable[dict[str, object]]) -> int:
     rows = list(rows)
     if not rows:
         return 0
+    ensure_us_financial_feature_reported_date_column()
     engine = get_us_engine()
     with engine.begin() as conn:
         conn.execute(UPSERT_FINANCIAL_FEATURE_SQL, rows)

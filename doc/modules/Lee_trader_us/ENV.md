@@ -8,6 +8,14 @@
 
 This document describes the environment variables reserved for Project C US stock preparation.
 
+## Current Operating Rule (2026-05-22)
+
+Current US operation is `paper-only`.
+
+- `US_LIVE_*` and `US_MICRO_*` variables are preserved as design/reference flags
+- they must remain disabled by default
+- changing these values is not part of the current operating plan unless a separate live-review decision is made
+
 | Variable | Default | Description | Scope | Note |
 | --- | --- | --- | --- | --- |
 | `US_STOCK_ENABLED` | `false` | Master switch for the US stock pipeline | US-only pipeline | `run_us_daily_pipeline.py` skips unless `--force` is provided |
@@ -30,6 +38,7 @@ This document describes the environment variables reserved for Project C US stoc
 - `--force` is only a manual override for standalone execution.
 - `US_PAPER_TRADING_ENABLED` is ignored in this phase.
 - `US_LIVE_TRADING_ENABLED` is ignored in this phase and must not trigger any order function.
+- as of 2026-05-22, operational intent is still paper-only even if later-phase flags exist in the repository
 
 ## Phase 3-1 Universe Filter Variables
 

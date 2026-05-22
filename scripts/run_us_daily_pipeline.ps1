@@ -31,15 +31,7 @@ try {
     Write-Host ("[US_SCHEDULER] Started trade_date={0}" -f $tradeDate)
 
     Invoke-Step -Name "1_pipeline_incremental" -Action {
-        & $python python/us/run_us_daily_pipeline.py --mode incremental
-    }
-
-    Invoke-Step -Name "2_relative_strength" -Action {
-        & $python python/us/build_us_relative_strength_features.py
-    }
-
-    Invoke-Step -Name "3_rule_scores" -Action {
-        & $python python/us/calculate_us_stock_rule_scores.py --trade-date $tradeDate
+        & $python python/us/run_us_daily_pipeline.py --incremental
     }
 
     Write-Host ("[US_SCHEDULER] DONE all steps completed trade_date={0}" -f $tradeDate)

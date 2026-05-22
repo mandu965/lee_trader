@@ -42,6 +42,7 @@ class USDatasetValidationResult:
     label_null_ratio_summary: dict[str, float]
     label_distribution: dict[str, dict[str, float]]
     duplicate_key_count: int
+    financial_reported_date_null_ratio: float | None
     leakage_risk_notes: list[str]
     report_path: Path
 
@@ -91,6 +92,7 @@ def _write_report(path: Path, *, result: USDatasetValidationResult, financial_ro
         f"- feature_row_count: {result.feature_row_count}",
         f"- relative_strength_row_count: {rs_row_count}",
         f"- financial_feature_row_count: {financial_row_count}",
+        f"- financial_reported_date_null_ratio: {result.financial_reported_date_null_ratio}",
         f"- label_row_count: {result.label_row_count}",
         f"- joined_row_count: {result.joined_row_count}",
         f"- ticker_count: {result.ticker_count}",
@@ -126,7 +128,7 @@ def validate_us_stock_ml_dataset(
 ) -> USDatasetValidationResult:
     if not cfg.enabled:
         LOGGER.info("[US_DATASET] US_DATASET_VALIDATE_ENABLED=0. Skip validator.")
-        return USDatasetValidationResult(0, 0, 0, 0, None, None, {}, {}, {}, 0, [], cfg.report_path)
+        return USDatasetValidationResult(0, 0, 0, 0, None, None, {}, {}, {}, 0, None, [], cfg.report_path)
     if cfg.feature_table not in SUPPORTED_FEATURE_TABLES:
         raise ValueError(f"Unsupported feature table '{cfg.feature_table}'.")
     if cfg.financial_feature_table not in SUPPORTED_FINANCIAL_TABLES:
@@ -141,7 +143,7 @@ def validate_us_stock_ml_dataset(
         tickers = tickers[:limit]
     if not tickers:
         LOGGER.info("[US_DATASET] No active tickers found. universe=%s", universe_tag)
-        return USDatasetValidationResult(0, 0, 0, 0, None, None, {}, {}, {}, 0, [], cfg.report_path)
+        return USDatasetValidationResult(0, 0, 0, 0, None, None, {}, {}, {}, 0, None, [], cfg.report_path)
 
     feature_rows = feature_fetcher(tickers)
     rs_rows = rs_fetcher(tickers)
@@ -161,6 +163,8 @@ def validate_us_stock_ml_dataset(
         label_df["trade_date"] = pd.to_datetime(label_df["trade_date"], errors="coerce").dt.date
     if not financial_df.empty:
         financial_df["fiscal_date"] = pd.to_datetime(financial_df["fiscal_date"], errors="coerce").dt.date
+        if "reported_date" in financial_df.columns:
+            financial_df["reported_date"] = pd.to_datetime(financial_df["reported_date"], errors="coerce").dt.date
 
     feature_duplicates = 0 if feature_df.empty else int(feature_df.duplicated(subset=["ticker", "trade_date"]).sum())
     rs_duplicates = 0 if rs_df.empty else int(rs_df.duplicated(subset=["ticker", "trade_date", "source"]).sum())
@@ -191,13 +195,20 @@ def validate_us_stock_ml_dataset(
 
     trade_date_min = None if joined.empty else str(joined["trade_date"].min())
     trade_date_max = None if joined.empty else str(joined["trade_date"].max())
+    financial_reported_date_null_ratio = None
+    if not financial_df.empty and "reported_date" in financial_df.columns:
+        financial_reported_date_null_ratio = round(float(financial_df["reported_date"].isna().mean()), 4)
     leakage_notes = [
         "feature rows must use trade_date or earlier information only",
         "labels use future trading-day prices only",
-        "financial features are not auto-joined here because reported_date-aware as-of join is not implemented",
-        "if reported_date is missing, joining financial fiscal_date directly to daily trade_date can leak future information",
+        "financial features are joined in train/predict with reported_date-aware as-of logic when available",
+        "if reported_date is missing, the system currently falls back to fiscal_date and residual leakage risk remains",
         "recent rows near the dataset tail are expected to have null forward-return labels",
     ]
+    if financial_reported_date_null_ratio is not None and financial_reported_date_null_ratio > 0:
+        leakage_notes.append(
+            f"financial reported_date is missing for {financial_reported_date_null_ratio:.4f} of rows; collector/source enrichment is still needed"
+        )
 
     result = USDatasetValidationResult(
         feature_row_count=len(feature_df) + len(rs_df),
@@ -210,6 +221,7 @@ def validate_us_stock_ml_dataset(
         label_null_ratio_summary=label_null_summary,
         label_distribution=distribution,
         duplicate_key_count=feature_duplicates + rs_duplicates + label_duplicates,
+        financial_reported_date_null_ratio=financial_reported_date_null_ratio,
         leakage_risk_notes=leakage_notes,
         report_path=cfg.report_path,
     )
@@ -223,6 +235,7 @@ def validate_us_stock_ml_dataset(
     LOGGER.info("[US_DATASET] feature_null_ratio_summary=%s", result.feature_null_ratio_summary)
     LOGGER.info("[US_DATASET] label_null_ratio_summary=%s", result.label_null_ratio_summary)
     LOGGER.info("[US_DATASET] label_distribution=%s", result.label_distribution)
+    LOGGER.info("[US_DATASET] financial_reported_date_null_ratio=%s", result.financial_reported_date_null_ratio)
     LOGGER.info("[US_DATASET] duplicate_key_count=%s", result.duplicate_key_count)
     LOGGER.info("[US_DATASET] dataset validation finished report=%s", cfg.report_path)
     return result

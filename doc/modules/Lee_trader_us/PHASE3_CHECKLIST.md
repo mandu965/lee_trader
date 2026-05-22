@@ -1,5 +1,8 @@
 # Phase 3 Checklist
 
+> 상태 메모: 2026-05-22 기준 이 문서는 ranking v1 구축 당시의 short-form checklist다.  
+> 현재는 closure checklist 자체보다 ranking / backtest / paper lifecycle 검증 문맥에서 참고용으로 사용한다.
+
 This is the short-form Phase 3 closure checklist for Project C US stock ranking v1.
 
 ## Checklist

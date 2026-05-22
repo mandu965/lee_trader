@@ -428,6 +428,7 @@ def _frame_to_feature_rows(frame: pd.DataFrame) -> list[dict[str, object]]:
         "market",
         "period_type",
         "fiscal_date",
+        "reported_date",
         "source",
         "revenue",
         "gross_profit",
@@ -607,6 +608,13 @@ def build_us_financial_features(
     if not final_frame.empty:
         period_counts = final_frame["period_type"].value_counts().to_dict()
         LOGGER.info("[US_FIN_FEATURE] period_type_counts=%s", period_counts)
+        reported_ratio = float(final_frame["reported_date"].notna().mean()) if "reported_date" in final_frame.columns else 0.0
+        LOGGER.info("[US_FIN_FEATURE] reported_date_coverage=%s", round(reported_ratio, 4))
+        if reported_ratio < 1.0:
+            LOGGER.info(
+                "[US_FIN_FEATURE] reported_date_missing_rows=%s",
+                int(final_frame["reported_date"].isna().sum()) if "reported_date" in final_frame.columns else len(final_frame),
+            )
     LOGGER.info("[US_FIN_FEATURE] built_rows=%s upserted_rows=%s skipped_rows=%s", built_rows, upserted_rows, skipped_rows)
     LOGGER.info("[US_FIN_FEATURE] null_ratio_summary=%s", null_summary)
     LOGGER.info("[US_FIN_FEATURE] duplicate_key_count=%s", duplicate_key_count)

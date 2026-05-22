@@ -28,7 +28,7 @@ from sqlalchemy import text
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from python.us.us_db import get_us_engine
+from python.us.us_db import ensure_us_financial_feature_reported_date_column, get_us_engine
 
 DATA_DIR = Path("data")
 MODEL_PKL = DATA_DIR / "us_model.pkl"
@@ -157,8 +157,9 @@ def load_rs_features(engine) -> pd.DataFrame:
 
 
 def load_financial_features(engine) -> pd.DataFrame:
-    """Load latest annual financial snapshot per ticker. Use fiscal_date as reference."""
+    """Load annual financial features for reported-date-aware as-of joins."""
     logging.info("[US_TRAIN] Loading financial features from %s", FEATURE_FINANCIAL_TABLE)
+    ensure_us_financial_feature_reported_date_column()
     available_cols = []
     with engine.connect() as conn:
         result = conn.execute(
@@ -173,35 +174,53 @@ def load_financial_features(engine) -> pd.DataFrame:
         logging.warning("[US_TRAIN] No financial feature columns found, skipping financial features")
         return pd.DataFrame()
 
-    cols = ", ".join(f'"{c}"' for c in ["ticker", "fiscal_date", "period_type"] + available_cols)
+    cols = ", ".join(f'"{c}"' for c in ["ticker", "fiscal_date", "reported_date", "period_type"] + available_cols)
     query = f"SELECT {cols} FROM {FEATURE_FINANCIAL_TABLE} WHERE period_type = 'annual'"
     df = pd.read_sql(text(query), engine)
     if df.empty:
         logging.warning("[US_TRAIN] No annual financial features found")
         return df
     df["fiscal_date"] = pd.to_datetime(df["fiscal_date"]).dt.date
+    df["reported_date"] = pd.to_datetime(df["reported_date"], errors="coerce").dt.date
     df = df.sort_values(["ticker", "fiscal_date"])
-    logging.info("[US_TRAIN] financial features rows=%d tickers=%d", len(df), df["ticker"].nunique())
+    reported_ratio = 0.0 if df.empty else float(df["reported_date"].notna().mean())
+    logging.info(
+        "[US_TRAIN] financial features rows=%d tickers=%d reported_date_coverage=%.4f",
+        len(df),
+        df["ticker"].nunique(),
+        reported_ratio,
+    )
+    if reported_ratio < 1.0:
+        logging.warning(
+            "[US_TRAIN] financial features have missing reported_date rows=%d missing=%d",
+            len(df),
+            int(df["reported_date"].isna().sum()),
+        )
     return df
 
 
-def merge_financial_locf(daily_df: pd.DataFrame, fin_df: pd.DataFrame) -> pd.DataFrame:
-    """Left join financial features using last-observation-carry-forward by ticker via merge_asof."""
+def merge_financial_asof(daily_df: pd.DataFrame, fin_df: pd.DataFrame) -> pd.DataFrame:
+    """Left join financial features by ticker using reported_date-aware as-of merge."""
     if fin_df.empty:
         logging.info("[US_TRAIN] Skipping financial feature merge (empty)")
         return daily_df
 
-    fin_cols = [c for c in fin_df.columns if c not in {"ticker", "fiscal_date", "period_type"}]
-    fin_narrow = fin_df[["ticker", "fiscal_date"] + fin_cols].copy()
+    fin_cols = [c for c in fin_df.columns if c not in {"ticker", "fiscal_date", "reported_date", "period_type"}]
+    fin_narrow = fin_df[["ticker", "fiscal_date", "reported_date"] + fin_cols].copy()
+    fin_narrow["effective_date"] = fin_narrow["reported_date"].where(fin_narrow["reported_date"].notna(), fin_narrow["fiscal_date"])
+    fin_narrow = fin_narrow[fin_narrow["effective_date"].notna()].copy()
+    if fin_narrow.empty:
+        logging.info("[US_TRAIN] Skipping financial feature merge (no effective financial dates)")
+        return daily_df
 
     # merge_asof requires datetime for the keys
     daily_sorted = daily_df.copy()
     daily_sorted["_td"] = pd.to_datetime(daily_sorted["trade_date"])
-    daily_sorted = daily_sorted.sort_values("_td")
+    daily_sorted = daily_sorted.sort_values(["ticker", "_td"])
 
     fin_sorted = fin_narrow.copy()
-    fin_sorted["_fd"] = pd.to_datetime(fin_sorted["fiscal_date"])
-    fin_sorted = fin_sorted.sort_values("_fd")
+    fin_sorted["_fd"] = pd.to_datetime(fin_sorted["effective_date"])
+    fin_sorted = fin_sorted.sort_values(["ticker", "_fd", "fiscal_date"])
 
     out = pd.merge_asof(
         daily_sorted,
@@ -211,8 +230,13 @@ def merge_financial_locf(daily_df: pd.DataFrame, fin_df: pd.DataFrame) -> pd.Dat
         direction="backward",
     )
     out = out.drop(columns=["_td"])
-    logging.info("[US_TRAIN] After financial LOCF merge: rows=%d", len(out))
+    logging.info("[US_TRAIN] After financial as-of merge: rows=%d", len(out))
     return out
+
+
+def merge_financial_locf(daily_df: pd.DataFrame, fin_df: pd.DataFrame) -> pd.DataFrame:
+    """Backward-compatible alias for reported-date-aware financial merge."""
+    return merge_financial_asof(daily_df, fin_df)
 
 
 def load_labels(engine) -> pd.DataFrame:
@@ -239,8 +263,8 @@ def build_merged_dataset(
         merged = pd.merge(daily_df, rs_df, on=["ticker", "trade_date"], how="left")
     logging.info("[US_TRAIN] After RS merge: rows=%d", len(merged))
 
-    logging.info("[US_TRAIN] Merging financial features (LOCF)...")
-    merged = merge_financial_locf(merged, fin_df)
+    logging.info("[US_TRAIN] Merging financial features (as-of)...")
+    merged = merge_financial_asof(merged, fin_df)
 
     logging.info("[US_TRAIN] Merging labels...")
     merged = pd.merge(merged, label_df, on=["ticker", "trade_date"], how="inner")

@@ -6,11 +6,18 @@
 
 ## Purpose
 
-`Lee_trader_us` is the Project C module for a US-stock recommendation, paper-trading, and tightly gated Micro Live review track.
+`Lee_trader_us` is the Project C module for a US-stock recommendation and paper-trading track.
+
+As of 2026-05-22, the operating principle is:
+
+- US remains `paper-only`
+- real-capital rollout is `not` an active goal in the current operating plan
+- live / Micro Live documents are retained as reference artifacts only
 
 ## Current Status
 
-The codebase is now effectively through Phase 8-6 design and validation work.
+The codebase contains documents and code up through Phase 8-6 design / validation work.
+However, the **current operating mode** is narrower than the full design history.
 
 Implemented layers:
 
@@ -20,9 +27,17 @@ Implemented layers:
 - Phase 4: backtest, regime analysis, weight experiments, forward test
 - Phase 5: paper-trading account, orders, fills, snapshot, rebalance, validation
 - Phase 6: live safety policy, risk policy, pre-trade check, kill switch, approval flow
-- Phase 7: Micro Live mock/sandbox/live-gated order review, status sync, fill sync, reconciliation, operations report, incident runbook
+- Phase 7: Micro Live mock/sandbox/live-gated review artifacts, status sync, fill sync, reconciliation, operations report, incident runbook
 - Phase 8-1 to 8-5: limited BUY automation design, SHADOW/PAPER evaluation, reporting, scheduler integration, readiness evaluation
 - Phase 8-6: limited SELL / Exit design
+
+Current practical focus:
+
+- ranking quality
+- backtest reproducibility
+- paper-trading lifecycle
+- buy/sell policy validation
+- scheduler / report stability
 
 ## Safety Boundary
 
@@ -30,6 +45,7 @@ This module is still not unrestricted live auto-trading.
 
 Current boundary:
 
+- paper trading is the only active operating mode
 - no automatic real-order rollout
 - no automatic re-order
 - no automatic position correction
@@ -40,6 +56,7 @@ Current boundary:
 
 ## Primary Documents
 
+- [CURRENT_DOC_PRIORITY.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/CURRENT_DOC_PRIORITY.md)
 - [CONTEXT.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/CONTEXT.md)
 - [ARCHITECTURE.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/ARCHITECTURE.md)
 - [FILE_INDEX.md](/d:/ai/lee_trader/doc/modules/Lee_trader_us/FILE_INDEX.md)
@@ -63,7 +80,8 @@ Use the documents in this order.
 | Document | Role | When To Read |
 | --- | --- | --- |
 | `README.md` | current entry document | start here |
-| `PHASE7_SUMMARY.md` | current phase handoff summary | when preparing the next step |
+| `CURRENT_DOC_PRIORITY.md` | active-vs-historical reading guide | before diving into detailed docs |
+| `PHASE7_SUMMARY.md` | historical phase handoff summary | when reviewing Micro Live design history |
 | `FLOW.md` | current end-to-end runtime flow | when you need the big picture |
 | `CONTEXT.md` | architecture boundary and phase extension history | when you need why the structure exists |
 | `ARCHITECTURE.md` | current runtime integration map | when you need exact hook locations |
@@ -75,11 +93,18 @@ Use the documents in this order.
 | `FILE_INDEX.md` | code and script map | when locating implementation files |
 | `US_STOCK_*` detailed docs | detailed reference documents | when working inside a specific phase/domain |
 
-## Next Step
+## Current Next Step
 
-The next step is Phase 8-7: SELL / HOLD / REVIEW_REQUIRED skeleton implementation and Paper position lifecycle wiring.
+The next step is not live rollout.
 
-That phase must remain constrained:
+The current next-step focus is:
+
+- paper 30-trading-day accumulation
+- buy/sell lifecycle validation
+- current-policy gross / net verification
+- paper-first SELL / HOLD / REVIEW_REQUIRED refinement
+
+Any next implementation must remain constrained:
 
 - no real SELL order submission
 - Paper position first
@@ -96,3 +121,4 @@ That phase must remain constrained:
 - Phase 8-5 readiness evaluation and promotion-policy layer is implemented
 - Phase 8-6 SELL / Exit policy design is documented
 - `LIVE` remains blocked and non-executable
+- current operating plan does not promote US into live trading

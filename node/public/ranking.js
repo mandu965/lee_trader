@@ -137,7 +137,7 @@ function getManualOverlay(code) {
 function buildStatusMeta(code) {
   const meta = getBuyEligibilityMeta(code);
   if (!meta || !meta.status) {
-    return { label: "상태 없음", cls: "neutral", title: "" };
+    return { label: "", cls: "", title: "" };
   }
   const label = buyEligibilityLabel(meta.status) || meta.status;
   const cls = meta.status === "BUY_ALLOWED" ? "good" : meta.status === "WATCH" ? "warn" : "bad";
@@ -377,6 +377,7 @@ function buildStatCard(label, value, detail, cls = "") {
 }
 
 function buildChip(label, cls = "neutral", title = "") {
+  if (!label) return "";
   const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
   return `<span class="chip ${escapeHtml(cls)}"${titleAttr}>${escapeHtml(label)}</span>`;
 }
@@ -520,7 +521,6 @@ function buildTableRow(row, index) {
           <div class="name-sub">${escapeHtml(`${(row.market || "").toUpperCase() || "-"} / ${row.sector || "-"}`)}</div>
         </div>
       </td>
-      <td>${buildChip(statusMeta.label, statusMeta.cls, statusMeta.title)}</td>
       <td>
         <div class="metric-stack">
           <div class="score-value">${fmtScore(row.live_score ?? row.final_score)}</div>

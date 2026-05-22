@@ -155,6 +155,22 @@ def load_buy_candidates(
                 "candidates": [],
                 "events": [{"severity": "WARNING", "reason_code": "RANKING_DATA_MISSING", "detail": "No ranking rows were found for the requested source/date."}],
             }
+        if requested_trade_date is not None and trade_date != requested_trade_date:
+            return {
+                "trade_date": trade_date,
+                "candidates": [],
+                "events": [
+                    {
+                        "severity": "ERROR",
+                        "reason_code": "RANKING_DATA_STALE",
+                        "detail": (
+                            f"Ranking source {cfg.ranking_source} is stale. "
+                            f"requested_trade_date={requested_trade_date.isoformat()} "
+                            f"latest_trade_date={trade_date.isoformat()}"
+                        ),
+                    }
+                ],
+            }
 
         rank_rows = fetch_rank_component_rows_between(start_date=trade_date, end_date=trade_date, source=cfg.ranking_source)
         rank_rows = sorted(rank_rows, key=lambda row: (int(row.get("rank_no") or 999999), str(row.get("symbol") or "")))

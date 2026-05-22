@@ -1,8 +1,11 @@
 # Phase 7 Summary
 
-> 문서 역할: `현재 기준 문서`
+> 문서 역할: `상세 참고 문서`
 >
-> 다음 단계 설계 전에 현재 상태를 빠르게 파악하기 위한 요약 문서다.
+> 현재 상태를 빠르게 파악하기 위한 과거 phase handoff 요약 문서다.
+
+> 상태 메모: 2026-05-22 기준 이 문서는 historical handoff 문서다.  
+> 현재 운영 원칙상 US는 `paper-only` 유지이며, Phase 7 / Micro Live는 active rollout 대상이 아니라 보존된 설계 이력이다.
 
 ## Purpose
 

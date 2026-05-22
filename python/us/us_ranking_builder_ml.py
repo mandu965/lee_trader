@@ -35,7 +35,7 @@ from sqlalchemy import text
 if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
-from python.us.us_db import get_us_engine, upsert_us_rank_rows
+from python.us.us_db import ensure_us_financial_feature_reported_date_column, get_us_engine, upsert_us_rank_rows
 from python.us.us_model_predict import (
     ML_GRADE_COL,
     ML_RANK_COL,
@@ -55,7 +55,7 @@ from python.us.us_model_train import (
     FEATURE_FINANCIAL_TABLE,
     FEATURE_RS_TABLE,
     FINANCIAL_FEATURE_COLS,
-    merge_financial_locf,
+    merge_financial_asof,
 )
 
 RANK_TABLE = "recommend.us_stock_rank_daily"
@@ -213,16 +213,30 @@ def load_all_features(engine, start_date: date, end_date: date, feature_cols: li
     logging.info("[US_ML_RANK] Loading financial features (all annual)...")
     fin_cols_available = [c for c in FINANCIAL_FEATURE_COLS if c in feature_cols]
     if fin_cols_available:
+        ensure_us_financial_feature_reported_date_column()
         fin_q = text(f"""
-            SELECT ticker, fiscal_date, period_type, {", ".join(fin_cols_available)}
+            SELECT ticker, fiscal_date, reported_date, period_type, {", ".join(fin_cols_available)}
             FROM {FEATURE_FINANCIAL_TABLE}
             WHERE period_type = 'annual'
-            ORDER BY ticker, fiscal_date
+            ORDER BY ticker, COALESCE(reported_date, fiscal_date), fiscal_date
         """)
         with engine.connect() as conn:
             fin_df = pd.read_sql(fin_q, conn)
         fin_df["fiscal_date"] = pd.to_datetime(fin_df["fiscal_date"]).dt.date
-        daily_df = merge_financial_locf(daily_df, fin_df)
+        fin_df["reported_date"] = pd.to_datetime(fin_df["reported_date"], errors="coerce").dt.date
+        reported_ratio = float(fin_df["reported_date"].notna().mean()) if not fin_df.empty else 0.0
+        logging.info(
+            "[US_ML_RANK] Financial feature reported_date_coverage=%.4f rows=%d",
+            reported_ratio,
+            len(fin_df),
+        )
+        if reported_ratio < 1.0:
+            logging.warning(
+                "[US_ML_RANK] Financial features missing reported_date rows=%d missing=%d",
+                len(fin_df),
+                int(fin_df["reported_date"].isna().sum()),
+            )
+        daily_df = merge_financial_asof(daily_df, fin_df)
 
     return daily_df
 

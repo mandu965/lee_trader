@@ -13,17 +13,26 @@ if __package__ in {None, ""}:
     sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from python.us.build_us_features import FeatureBuildResult, build_us_features
 from python.us.build_us_macro_features import build_us_macro_features
+from python.us.build_us_relative_strength_features import build_us_relative_strength_features
 from python.us.build_us_sector_features import build_us_sector_features
 from python.us.buy_automation.scheduler_job import run_buy_scheduler_job
+from python.us.calculate_us_stock_rule_scores import calculate_rule_scores
 from python.us.download_us_prices import PriceCollectResult, collect_us_prices
 from python.us.load_us_universe import UniverseLoadResult, load_universe
 from python.us.trade_orchestration.config import load_trade_orchestration_config
 from python.us.trade_orchestration.scheduler_job import run_trade_scheduler_job
-from python.us.us_config import load_us_stock_config, parse_iso_date, resolve_universe_csv_path
+from python.us.us_config import (
+    load_us_relative_strength_config,
+    load_us_rule_ranking_config,
+    load_us_stock_config,
+    parse_iso_date,
+    resolve_universe_csv_path,
+)
 from python.us.validate_us_price_data import ValidationResult, validate_and_save_quality_report
 
 _ML_RANKING_ENABLED_ENV = "US_ML_RANKING_ENABLED"
@@ -126,6 +135,7 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     final_status = "SUCCESS"
 
     as_of_date = parse_iso_date(args.end_date, field_name="end_date") or date.today()
+    scheduler_trade_date = as_of_date
 
     if args.skip_universe:
         LOGGER.info("[US_PIPELINE] Step 1/4 Load Universe skipped")
@@ -217,7 +227,6 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         if feature_result.failed_count > 0 and final_status != "FAILED":
             final_status = "WARN"
 
-    # Macro features (VIX/SPY/QQQ regime context) — lightweight, always runs after feature build
     if should_run_features and not args.skip_features:
         LOGGER.info("[US_PIPELINE] Step 4b/4 Build Macro Features started")
         try:
@@ -228,22 +237,69 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
         except Exception as exc:
             LOGGER.warning("[US_PIPELINE] Step 4b/4 Build Macro Features failed (non-fatal): %s", exc)
 
-    # Sector relative strength — runs after feature build, batch across all tickers
     if should_run_features and not args.skip_features:
-        LOGGER.info("[US_PIPELINE] Step 4c/4 Build Sector Features started")
+        LOGGER.info("[US_PIPELINE] Step 4c/4 Build Relative Strength Features started")
+        try:
+            rs_cfg = load_us_relative_strength_config()
+            rs_result = build_us_relative_strength_features(
+                cfg=rs_cfg,
+                universe_tag=universe_tag,
+                limit=args.limit,
+            )
+            LOGGER.info(
+                "[US_PIPELINE] Step 4c/4 Build Relative Strength Features completed rows=%s",
+                rs_result.upserted_rows,
+            )
+        except Exception as exc:
+            LOGGER.warning("[US_PIPELINE] Step 4c/4 Build Relative Strength Features failed: %s", exc)
+            final_status = "FAILED"
+
+    if should_run_features and not args.skip_features:
+        LOGGER.info("[US_PIPELINE] Step 4d/4 Build Sector Features started")
         try:
             sector_rows = build_us_sector_features(
                 universe_tag=universe_tag,
                 end_date=parse_iso_date(args.end_date, field_name="end_date"),
             )
-            LOGGER.info("[US_PIPELINE] Step 4c/4 Build Sector Features completed rows=%s", sector_rows)
+            LOGGER.info("[US_PIPELINE] Step 4d/4 Build Sector Features completed rows=%s", sector_rows)
         except Exception as exc:
-            LOGGER.warning("[US_PIPELINE] Step 4c/4 Build Sector Features failed (non-fatal): %s", exc)
+            LOGGER.warning("[US_PIPELINE] Step 4d/4 Build Sector Features failed (non-fatal): %s", exc)
 
-    # ML ranking — runs if US_ML_RANKING_ENABLED=1 and features were built
+    if should_run_features and not args.skip_features and final_status != "FAILED":
+        LOGGER.info("[US_PIPELINE] Step 4e/4 Rule Ranking started")
+        try:
+            rank_cfg = load_us_rule_ranking_config()
+            rank_result = calculate_rule_scores(
+                trade_date=as_of_date,
+                symbols=None,
+                dry_run=False,
+                top_n=20,
+                source=str(rank_cfg.source or "rule_v1").strip() or "rule_v1",
+                cfg=rank_cfg,
+            )
+            LOGGER.info(
+                "[US_PIPELINE] Step 4e/4 Rule Ranking completed trade_date=%s written=%s evaluated=%s",
+                rank_result.trade_date,
+                rank_result.written_row_count,
+                rank_result.evaluated_symbol_count,
+            )
+            scheduler_trade_date = rank_result.trade_date
+            if rank_result.trade_date != as_of_date:
+                LOGGER.info(
+                    "[US_PIPELINE] Step 4e/4 Rule Ranking resolved effective_trade_date=%s requested_date=%s",
+                    rank_result.trade_date,
+                    as_of_date,
+                )
+            if rank_result.written_row_count <= 0:
+                LOGGER.warning("[US_PIPELINE] Step 4e/4 Rule Ranking wrote zero rows")
+                final_status = "FAILED"
+        except Exception as exc:
+            LOGGER.warning("[US_PIPELINE] Step 4e/4 Rule Ranking failed: %s", exc)
+            final_status = "FAILED"
+
     _ml_ranking_enabled = str(os.environ.get(_ML_RANKING_ENABLED_ENV, "0")).strip().lower() in {"1", "true", "yes"}
     if _ml_ranking_enabled and should_run_features and not args.skip_features:
-        LOGGER.info("[US_PIPELINE] Step 4d/4 ML Ranking started")
+        LOGGER.info("[US_PIPELINE] Step 4f/4 ML Ranking started")
         try:
             from python.us.us_ranking_builder_ml import (
                 build_rank_rows,
@@ -252,41 +308,37 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
                 load_all_features,
                 resolve_model_path,
             )
+            from python.us.us_db import get_us_engine, upsert_us_rank_rows
             from python.us.us_model_predict import load_model
-            from python.us.us_db import upsert_us_rank_rows, get_us_engine
-            from pathlib import Path as _Path
 
-            _ml_engine = get_us_engine()
-            _ml_model_path = resolve_model_path(None)
-            if _ml_model_path.exists():
-                _ml_model = load_model(_ml_model_path)
-                ensure_source_in_pk(_ml_engine)
-                _ml_meta = fetch_universe_meta(_ml_engine)
-                _ml_td = parse_iso_date(args.end_date, field_name="end_date") or date.today()
-                _ml_features = load_all_features(_ml_engine, _ml_td, _ml_td, _ml_model["features"])
-                _ml_rows = build_rank_rows(_ml_features, trade_date=_ml_td, model_pack=_ml_model, meta_df=_ml_meta, source="ml_v1")
-                _ml_written = upsert_us_rank_rows(_ml_rows) if _ml_rows else 0
-                LOGGER.info("[US_PIPELINE] Step 4d/4 ML Ranking completed rows=%s date=%s", _ml_written, _ml_td)
+            ml_engine = get_us_engine()
+            ml_model_path = resolve_model_path(None)
+            if ml_model_path.exists():
+                ml_model = load_model(ml_model_path)
+                ensure_source_in_pk(ml_engine)
+                ml_meta = fetch_universe_meta(ml_engine)
+                ml_td = parse_iso_date(args.end_date, field_name="end_date") or date.today()
+                ml_features = load_all_features(ml_engine, ml_td, ml_td, ml_model["features"])
+                ml_rows = build_rank_rows(ml_features, trade_date=ml_td, model_pack=ml_model, meta_df=ml_meta, source="ml_v1")
+                ml_written = upsert_us_rank_rows(ml_rows) if ml_rows else 0
+                LOGGER.info("[US_PIPELINE] Step 4f/4 ML Ranking completed rows=%s date=%s", ml_written, ml_td)
             else:
-                LOGGER.info("[US_PIPELINE] Step 4d/4 ML Ranking skipped (model not found at %s)", _ml_model_path)
+                LOGGER.info("[US_PIPELINE] Step 4f/4 ML Ranking skipped (model not found at %s)", ml_model_path)
         except Exception as exc:
-            LOGGER.warning("[US_PIPELINE] Step 4d/4 ML Ranking failed (non-fatal): %s", exc)
+            LOGGER.warning("[US_PIPELINE] Step 4f/4 ML Ranking failed (non-fatal): %s", exc)
     elif not _ml_ranking_enabled:
-        LOGGER.info("[US_PIPELINE] Step 4d/4 ML Ranking skipped (%s=0)", _ML_RANKING_ENABLED_ENV)
+        LOGGER.info("[US_PIPELINE] Step 4f/4 ML Ranking skipped (%s=0)", _ML_RANKING_ENABLED_ENV)
 
     trade_cfg = load_trade_orchestration_config()
     should_run_trade_scheduler = trade_cfg.scheduler_enabled
-    disable_buy_scheduler = (
-        should_run_trade_scheduler
-        and trade_cfg.disable_buy_only_scheduler_when_orchestration
-    )
+    disable_buy_scheduler = should_run_trade_scheduler and trade_cfg.disable_buy_only_scheduler_when_orchestration
 
-    # US Trade Orchestration must run after ranking/score generation.
-    # This stage is SHADOW/PAPER only. Live order execution is prohibited.
-    if should_run_trade_scheduler:
+    if final_status == "FAILED":
+        LOGGER.info("[US_PIPELINE] Step 5/6 US Trade Scheduler Job skipped reason=UPSTREAM_FAILURE")
+    elif should_run_trade_scheduler:
         LOGGER.info("[US_PIPELINE] Step 5/6 US Trade Scheduler Job started")
         trade_scheduler_result = run_trade_scheduler_job(
-            trade_date=args.end_date or str(as_of_date),
+            trade_date=str(scheduler_trade_date),
             emit_console=False,
         )
         if trade_scheduler_result.get("success"):
@@ -310,12 +362,14 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     else:
         LOGGER.info("[US_PIPELINE] Step 5/6 US Trade Scheduler Job skipped")
 
-    if disable_buy_scheduler:
+    if final_status == "FAILED":
+        LOGGER.info("[US_PIPELINE] Step 6/6 US BUY Scheduler Job skipped reason=UPSTREAM_FAILURE")
+    elif disable_buy_scheduler:
         LOGGER.info("[US_PIPELINE] Step 6/6 US BUY Scheduler Job skipped reason=ORCHESTRATION_ENABLED")
     else:
         LOGGER.info("[US_PIPELINE] Step 6/6 US BUY Scheduler Job started")
         buy_scheduler_result = run_buy_scheduler_job(
-            trade_date=args.end_date or str(as_of_date),
+            trade_date=str(scheduler_trade_date),
             emit_console=False,
         )
         if not buy_scheduler_result.get("enabled"):
@@ -351,13 +405,15 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
     LOGGER.info("[US_PIPELINE] Summary mode=%s", mode)
     LOGGER.info(
         "[US_PIPELINE] Summary universe_load=%s",
-        "skipped" if universe_result is None and args.skip_universe else (
-            f"inserted={universe_result.inserted} updated={universe_result.updated}" if universe_result else "not_run"
-        ),
+        "skipped"
+        if universe_result is None and args.skip_universe
+        else (f"inserted={universe_result.inserted} updated={universe_result.updated}" if universe_result else "not_run"),
     )
     LOGGER.info(
         "[US_PIPELINE] Summary price_collect=%s",
-        "skipped" if price_result is None and args.skip_prices else (
+        "skipped"
+        if price_result is None and args.skip_prices
+        else (
             f"success={price_result.success_count} failed={price_result.failed_count} skipped={price_result.skipped_count}"
             if price_result
             else "not_run"

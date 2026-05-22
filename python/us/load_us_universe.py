@@ -152,6 +152,8 @@ def load_universe(
     data_source: str = "static_csv",
 ) -> UniverseLoadResult:
     universe_tag = _normalize_text(universe_tag).upper()
+    if universe_tag != "NASDAQ100":
+        raise ValueError("Phase 1-2 supports only NASDAQ100.")
 
     LOGGER.info("[US_UNIVERSE] Loading universe=%s", universe_tag)
     LOGGER.info("[US_UNIVERSE] source=%s", csv_path)

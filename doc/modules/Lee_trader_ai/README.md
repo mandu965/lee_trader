@@ -15,12 +15,14 @@
 ## Main Files
 
 - `python/run_pipeline.py`
-- `python/model_train.py`
+- `python/model_train.py` — Sample Weight (지수감쇠 halflife 3yr) + Isotonic Calibration 적용 (KR-E, 2026-05-21)
 - `python/model_predict.py`
 - `python/ranking_builder.py`
 - `python/run_operational_refresh.py`
 - `python/run_live_auto_trade_cycle.py`
-- `python/submit_live_orders.py`
+- `python/submit_live_orders.py` — 진입 갭 필터 내장 (ENTRY_GAP_BLOCK_UP_PCT 3%/5%, DOWN -4%)
+- `python/ai_position_risk.py` — AI_MAX_HOLDING_DAYS=30, 하드캡=45, trailing stop 파라미터화 (KR-G, 2026-05-22)
+- `python/apply_execution_policy.py` — min_hold_days_before_replace=10 영업일 (KR-G, 2026-05-22)
 - `python/sync_live_account_holdings.py`
 - `python/sync_live_order_fills.py`
 - `python/sync_web_display_data.py`
@@ -34,7 +36,7 @@
 | `python/fetch_fundamentals_dart.py` | DART 연간 재무 수집 | `data/fundamentals.csv` |
 | `python/fetch_short_interest.py` | 공매도 잔고 비율 수집 (pykrx, C-1) | `data/short_interest.csv` |
 
-## Financial Momentum (Phase 1~4 완료, 2026-05-15)
+## Financial Momentum (Phase 1~4 완료 / Phase 5~8 서버 대기)
 
 분기 재무 모멘텀 기능. 설계 문서: [FINANCIAL_MOMENTUM_DESIGN.md](FINANCIAL_MOMENTUM_DESIGN.md)
 

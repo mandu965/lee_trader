@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS feature.us_stock_financial_feature (
     market                      TEXT,
     period_type                 TEXT        NOT NULL,
     fiscal_date                 DATE        NOT NULL,
+    reported_date               DATE,
     source                      TEXT        NOT NULL,
     revenue                     NUMERIC,
     gross_profit                NUMERIC,

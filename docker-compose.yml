@@ -81,7 +81,7 @@ services:
   scheduler-recovery:
     <<: *python-runtime
     container_name: lee_trader_scheduler_recovery
-    restart: "no"
+    restart: unless-stopped
     command: ["python", "python/run_daily_scheduler.py"]
     volumes:
       - ./data:/app/data
@@ -322,6 +322,37 @@ services:
       US_BUY_TOP_N: ${US_BUY_TOP_N:-10}
       US_BUY_MIN_GRADE: ${US_BUY_MIN_GRADE:-BUY}
       US_BUY_AUTOMATION_ACCOUNT_ID: ${US_BUY_AUTOMATION_ACCOUNT_ID:-US_TRADE_PAPER}
+
+  # ── Service B: 시장 급락 감시 (Kill Switch) ───────────────────────
+  scheduler-market-guard:
+    <<: *python-runtime
+    container_name: lee_trader_market_guard
+    restart: unless-stopped
+    command: ["python", "python/run_daily_scheduler.py"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./outputs:/app/outputs
+      - ./python:/app/python
+    environment:
+      DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
+      TZ: Asia/Seoul
+      SCHEDULER_TIMEZONE: Asia/Seoul
+      SCHEDULER_COMMAND_SET: market_guard
+      SCHEDULER_DAILY_TIMES: ${SCHEDULER_MARKET_GUARD_TIMES:-09:10,14:00}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_MARKET_GUARD_POLL_SECONDS:-60}
+      SCHEDULER_SKIP_CATCHUP_ON_START: "1"
+      SCHEDULER_RUN_POLICY: always
+      SCHEDULER_STATUS_PATH: outputs/market_guard_scheduler_status.json
+      SCHEDULER_LOG_PATH: logs/market_guard_scheduler.log
+      MARKET_GUARD_ENABLED: ${MARKET_GUARD_ENABLED:-0}
+      MARKET_GUARD_DRY_RUN: ${MARKET_GUARD_DRY_RUN:-1}
+      MARKET_GUARD_KOSPI_1D_THRESHOLD: ${MARKET_GUARD_KOSPI_1D_THRESHOLD:--0.03}
+      MARKET_GUARD_KOSPI_5D_THRESHOLD: ${MARKET_GUARD_KOSPI_5D_THRESHOLD:--0.07}
+      MARKET_GUARD_KOSPI_10D_THRESHOLD: ${MARKET_GUARD_KOSPI_10D_THRESHOLD:--0.10}
+      MARKET_GUARD_TELEGRAM_TOKEN: ${MARKET_GUARD_TELEGRAM_TOKEN:-}
+      MARKET_GUARD_TELEGRAM_CHAT_ID: ${MARKET_GUARD_TELEGRAM_CHAT_ID:-}
+      MARKET_GUARD_US_ACCOUNT_ID: ${MARKET_GUARD_US_ACCOUNT_ID:-US_TRADE_PAPER}
 
   node-api:
     build:

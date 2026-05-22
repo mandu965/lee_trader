@@ -323,11 +323,28 @@ function buildPositionsTable(items) {
   }
   const statusChip = (row) => {
     if (row.system_review_status === "BLOCK") return '<span class="chip is-loss">차단</span>';
+    if (row.system_review_status === "FULL_SELL") return '<span class="chip is-loss">전량청산</span>';
+    if (row.system_review_status === "PARTIAL_SELL") return '<span class="chip is-near">부분청산</span>';
     if (row.system_review_status === "EXIT_REVIEW") return '<span class="chip is-near">청산검토</span>';
     if (row.system_review_status === "REVIEW") return '<span class="chip is-watch">점검필요</span>';
     if (row.remaining_days !== null && row.remaining_days <= 5) return '<span class="chip is-near">곧 마감</span>';
     if (row.held_days !== null && row.held_days <= 1) return '<span class="chip is-new">신규</span>';
     return '<span class="chip is-hold">보유중</span>';
+  };
+  const sellDecisionHtml = (row) => {
+    const code = row.current_action_code || row.holding_policy_code || "";
+    const reason = row.current_action_reason || row.entry_action_reason || "";
+    if (!code) return '-';
+    const chipCls = ["FULL_SELL", "BLOCK"].includes(code) ? "is-loss"
+      : ["PARTIAL_SELL", "EXIT_REVIEW"].includes(code) ? "is-near"
+      : ["REVIEW", "REVIEW_REQUIRED"].includes(code) ? "is-watch"
+      : "is-hold";
+    const label = {
+      FULL_SELL: "전량청산", PARTIAL_SELL: "부분청산", HOLD: "보유유지",
+      REVIEW_REQUIRED: "점검필요", EXIT_REVIEW: "청산검토", BLOCK: "차단",
+    }[code] || code;
+    const title = reason ? ` title="${reason.replace(/"/g, "&quot;")}"` : "";
+    return `<span class="chip ${chipCls}"${title}>${label}</span>`;
   };
   const clr = (s) => STRATEGY_COLORS[s] || "";
   tbody.innerHTML = items.map((row) => `
@@ -346,6 +363,7 @@ function buildPositionsTable(items) {
       <td class="right ${getToneClass(row.current_return || row.net_return)}">${fmtPct(row.current_return ?? row.net_return)}</td>
       <td class="right">${fmtNum(row.confidence_score, 1)}</td>
       <td class="right">${fmtNum(row.final_score, 1)}</td>
+      <td>${sellDecisionHtml(row)}</td>
     </tr>
   `).join("");
 }

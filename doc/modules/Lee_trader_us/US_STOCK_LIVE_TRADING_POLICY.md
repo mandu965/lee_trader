@@ -4,6 +4,9 @@
 >
 > 현재 운영 명령 문서가 아니라, Micro Live 이전과 이후를 관통하는 live safety baseline policy 문서다.
 
+> 상태 메모: 2026-05-22 기준 현재 운영 원칙상 US는 `paper-only` 유지다.
+> 이 문서는 active rollout guide가 아니라, 향후 재검토 시 참조할 live safety baseline 정책 문서다.
+
 ## 1. Document Purpose
 
 This document defines the safety-first policy that must exist before any US stock live-trading implementation is considered.

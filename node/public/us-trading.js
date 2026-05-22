@@ -461,86 +461,6 @@ function renderGuards(rows) {
     </div>`).join("");
 }
 
-// ── 실계좌 현황 ────────────────────────────────────────
-async function loadLiveAccount() {
-  try {
-    const res = await fetch("/api/us/live/account");
-    if (!res.ok) return null;
-    return await res.json();
-  } catch { return null; }
-}
-
-function renderLiveAccount(data) {
-  const content = document.getElementById("liveAcctContent");
-  const acctNoEl = document.getElementById("liveAcctAccountNo");
-  const fetchedEl = document.getElementById("liveAcctFetched");
-
-  if (!data || !data.ok) {
-    content.innerHTML = `<div class="live-acct-error">계좌 조회 실패: ${esc(data?.error || "연결 오류")}</div>`;
-    return;
-  }
-
-  if (data.account_no) acctNoEl.textContent = `(${data.account_no})`;
-  if (data.fetched_at) {
-    const dt = new Date(data.fetched_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" });
-    fetchedEl.textContent = `갱신: ${dt.slice(0, 16)}`;
-  }
-
-  const cashUsd = data.cash_usd != null ? "$" + Number(data.cash_usd).toFixed(2) : "—";
-  const totalKrw = data.total_eval_krw != null
-    ? Number(data.total_eval_krw).toLocaleString("ko-KR") + "원" : "—";
-  const pnlStr = data.total_pnl_usd != null ? fmtUsd(data.total_pnl_usd) : "—";
-  const pnlClass = (data.total_pnl_usd ?? 0) >= 0 ? "pos" : "neg";
-
-  const statsHtml = `
-    <div class="live-acct-stats">
-      <div class="live-acct-stat">
-        <div class="live-acct-stat-label">가용 현금 (USD)</div>
-        <div class="live-acct-stat-value">${esc(cashUsd)}</div>
-      </div>
-      <div class="live-acct-stat">
-        <div class="live-acct-stat-label">보유 포지션</div>
-        <div class="live-acct-stat-value">${data.position_count ?? 0}개</div>
-      </div>
-      <div class="live-acct-stat">
-        <div class="live-acct-stat-label">총평가 / 손익</div>
-        <div class="live-acct-stat-value" style="font-size:16px;">${esc(totalKrw)}</div>
-        <div style="font-size:12px;margin-top:2px;" class="${pnlClass}">${esc(pnlStr)}</div>
-      </div>
-    </div>`;
-
-  let posHtml = "";
-  if (data.positions && data.positions.length > 0) {
-    posHtml = `
-      <div class="table-wrap"><table>
-        <thead><tr>
-          <th>심볼</th>
-          <th class="right">수량</th>
-          <th class="right">평균단가(USD)</th>
-          <th class="right">현재가(USD)</th>
-          <th class="right">평가금액(USD)</th>
-          <th class="right">손익(USD)</th>
-          <th class="right">수익률</th>
-        </tr></thead>
-        <tbody>
-          ${data.positions.map((p) => `<tr>
-            <td><strong>${esc(p.symbol)}</strong></td>
-            <td class="right">${p.qty ?? "—"}</td>
-            <td class="right">$${fmt(p.avg_price, 2)}</td>
-            <td class="right">$${fmt(p.current_price, 2)}</td>
-            <td class="right">${fmtMoney(p.market_value)}</td>
-            <td class="right ${posneg(p.pnl)}">${fmtUsd(p.pnl)}</td>
-            <td class="right ${posneg(p.pnl_pct)}">${fmtPct(p.pnl_pct)}</td>
-          </tr>`).join("")}
-        </tbody>
-      </table></div>`;
-  } else {
-    posHtml = '<div style="font-size:12px;color:var(--color-text-secondary);padding:6px 0;">보유 포지션 없음</div>';
-  }
-
-  content.innerHTML = statsHtml + posHtml;
-}
-
 // ── 날짜 드롭다운 ───────────────────────────────────────
 async function loadOrderDates() {
   try {
@@ -616,11 +536,10 @@ async function refreshOrders() {
 
 // ── 전체 초기화 ─────────────────────────────────────────
 async function init() {
-  const [summary, posData, guardData, liveAcct] = await Promise.all([
+  const [summary, posData, guardData] = await Promise.all([
     loadSummary(),
     loadPositions(),
     loadGuards(),
-    loadLiveAccount(),
   ]);
 
   state.summary = summary;
@@ -629,7 +548,6 @@ async function init() {
 
   updateBanner(summary);
   renderOverview(summary);
-  renderLiveAccount(liveAcct);
   renderPositionPreview(state.positions.slice(0, 5));
   renderPositions(state.positions, posData?.snapshot_date);
   renderGuards(state.guards);
@@ -642,10 +560,5 @@ async function init() {
 // ── 이벤트 바인딩 ───────────────────────────────────────
 document.getElementById("btnRefreshOrders")?.addEventListener("click", refreshOrders);
 document.getElementById("filterOrderDate")?.addEventListener("change", refreshOrders);
-document.getElementById("btnRefreshLiveAcct")?.addEventListener("click", async () => {
-  document.getElementById("liveAcctContent").innerHTML = '<div class="live-acct-error">불러오는 중…</div>';
-  const data = await loadLiveAccount();
-  renderLiveAccount(data);
-});
 
 document.addEventListener("DOMContentLoaded", init);
