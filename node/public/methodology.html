@@ -40,17 +40,17 @@
       <section class="page-hero">
         <p class="section__eyebrow">Methodology</p>
         <h1>Lee Trader Lab의 방법론</h1>
-        <p>이 사이트는 상위 종목을 보여주는 데서 끝나지 않고, 점수와 행동 강도를 분리해서 해석합니다. 즉 종목 매력, 시장 환경, 리스크 허용 범위를 각각 따로 본 뒤 종합적으로 설명합니다.</p>
+        <p>이 사이트는 상위 종목을 보여주는 데서 끝나지 않고, 점수와 행동 강도를 분리해서 해석합니다. 즉 종목 매력, 시장 환경, 검증 상태, 리스크 허용 범위를 각각 따로 본 뒤 종합적으로 설명합니다.</p>
         <div class="callout-box">
           <strong>핵심 구조</strong>
-          <p><span class="term">점수</span>는 상대 비교이고, <span class="term term--accent">시장 국면</span>과 <span class="term term--good">매수 가드</span>는 실제 행동 강도를 조절하는 장치입니다.</p>
+          <p><span class="term">점수</span>는 상대 비교이고, <span class="term term--accent">시장 국면</span>, <span class="term term--good">매수 가드</span>, <span class="term">walk-forward 검증</span>은 실제 행동 강도를 조절하는 장치입니다.</p>
         </div>
       </section>
 
       <section class="section grid-4">
         <article class="site-card">
           <h3>1. 종목 점수</h3>
-          <p>수급, 기술적 구조, 최근 변동, 손익비 같은 요소를 합쳐 상대적인 우선순위를 정리합니다.</p>
+          <p>수급, 기술적 구조, 최근 변동, 기대수익 대비 위험 같은 요소를 합쳐 상대적인 우선순위를 정리합니다.</p>
         </article>
         <article class="site-card">
           <h3>2. 시장 국면</h3>
@@ -58,11 +58,11 @@
         </article>
         <article class="site-card">
           <h3>3. 매수 가드</h3>
-          <p>상위 종목이라도 과열, 손절 간격 확대, 포지션 집중 위험이 크면 행동 강도를 낮춥니다.</p>
+          <p>상위 종목이라도 과열, 손절 간격 확대, 포지션 집중 위험, gate 차단 사유가 크면 행동 강도를 낮춥니다.</p>
         </article>
         <article class="site-card">
           <h3>4. 검증 절차</h3>
-          <p>단기 성과보다 반복 가능성을 우선합니다. 검증이 덜 끝난 해석은 관찰 단계로 남깁니다.</p>
+          <p>단기 성과보다 반복 가능성을 우선합니다. walk-forward나 confidence 검증이 덜 끝난 해석은 관찰 단계로 남깁니다.</p>
         </article>
       </section>
 
@@ -74,11 +74,11 @@
           </article>
           <article class="summary-card">
             <h3>시장 국면</h3>
-            <p>지금이 추격 매수 구간인지, 관찰 우선 구간인지 판단하는 배경 정보입니다.</p>
+            <p>지금이 추격 매수 구간인지, 관찰 우선 구간인지 판단하는 배경 정보입니다. breadth와 변동성도 함께 봅니다.</p>
           </article>
           <article class="summary-card">
             <h3>검증</h3>
-            <p>과거 한 구간의 성과보다 앞으로도 유사하게 작동할 가능성을 더 중요하게 봅니다.</p>
+            <p>과거 한 구간의 성과보다 앞으로도 유사하게 작동할 가능성을 더 중요하게 봅니다. ACCEPTED가 아니면 승격을 서두르지 않습니다.</p>
           </article>
         </div>
       </section>
@@ -87,8 +87,8 @@
         <div class="page-hero article-body">
           <p class="section__eyebrow">How To Read</p>
           <h2>독자는 이 구조를 어떻게 활용하면 좋을까요</h2>
-          <p>먼저 시장 해설에서 오늘의 국면을 읽고, 다음으로 블로그에서 점수와 행동의 차이를 이해하는 흐름이 좋습니다. 이 순서를 따르면 랭킹이나 보유 화면을 보더라도 “왜 지금은 조심해야 하는지”를 먼저 생각하게 됩니다.</p>
-          <p>특히 개인 투자자는 종목 분석보다 포지션 관리에서 손실을 키우는 경우가 많습니다. 그래서 Lee Trader Lab은 리스크 관리, 분산, 손절 간격 같은 운영 원칙을 별도의 콘텐츠로 공개합니다.</p>
+          <p>먼저 시장 해설에서 오늘의 국면을 읽고, 다음으로 블로그에서 점수와 행동의 차이를 이해하는 흐름이 좋습니다. 이 순서를 따르면 랭킹이나 보유 화면을 보더라도 왜 지금은 WATCH인지, 왜 BUY_ALLOWED가 아닌지를 먼저 생각하게 됩니다.</p>
+          <p>특히 개인 투자자는 종목 분석보다 포지션 관리에서 손실을 키우는 경우가 많습니다. 그래서 Lee Trader Lab은 리스크 관리, 분산, 손절 간격, gate 해석 같은 운영 원칙을 별도의 콘텐츠로 공개합니다.</p>
           <p>보다 쉬운 용어 설명이 필요하다면 <a class="text-link" href="/glossary">용어 해설</a>, 실제 공개 범위가 궁금하다면 <a class="text-link" href="/operator-note">운영 안내</a>를 함께 읽어보세요.</p>
         </div>
       </section>

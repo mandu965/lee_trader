@@ -4,6 +4,13 @@ import pickle
 from pathlib import Path
 from typing import Dict, Any
 
+try:
+    from calibrated_classifier import BinaryIsotonicCalibratedClassifier
+except Exception:  # pragma: no cover - package import path
+    from .calibrated_classifier import BinaryIsotonicCalibratedClassifier
+# Backward-compat alias for model.pkl saved by older Docker image
+_IsotonicCalibratedClassifier = BinaryIsotonicCalibratedClassifier
+
 import numpy as np
 import pandas as pd
 import sqlite3

@@ -36,6 +36,7 @@ US_RANKING_SOURCE_TABLE = "recommend.us_stock_rank_daily"
 US_RANKING_SYNC_DATES = 60
 KR_RANKING_SYNC_DATES = 60
 US_RANKING_INSERT_BATCH_SIZE = 2000
+FLOW_DAILY_SYNC_DATES = 60
 US_TRADE_DDL_PATH = ROOT / "postgres" / "us_trade_tables.sql"
 US_STOCK_DDL_PATH = ROOT / "postgres" / "us_stock_tables.sql"
 
@@ -1360,6 +1361,139 @@ def _ensure_us_macro_tables(conn) -> None:
     """))
 
 
+def _ensure_flow_daily_table(conn) -> None:
+    conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS public.flow_daily (
+                date            DATE    NOT NULL,
+                code            TEXT    NOT NULL,
+                investor_type   TEXT    NOT NULL,
+                net_buy_amount  DOUBLE PRECISION,
+                net_buy_volume  DOUBLE PRECISION,
+                fetch_status    TEXT,
+                PRIMARY KEY (date, code, investor_type)
+            )
+            """
+        )
+    )
+    conn.execute(
+        text(
+            """
+            CREATE INDEX IF NOT EXISTS idx_flow_daily_code_date
+                ON public.flow_daily (code, date DESC)
+            """
+        )
+    )
+    # 웹DB 기존 테이블에 NOT NULL 컬럼이 있을 수 있으므로 nullable로 완화
+    conn.execute(text("""
+        DO $$
+        DECLARE col TEXT;
+        BEGIN
+            FOR col IN
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'flow_daily'
+                  AND is_nullable = 'NO'
+                  AND column_name NOT IN ('date', 'code', 'investor_type')
+            LOOP
+                EXECUTE format('ALTER TABLE public.flow_daily ALTER COLUMN %I DROP NOT NULL', col);
+            END LOOP;
+        END $$;
+    """))
+
+
+def sync_flow_daily_table(source_database_url: str) -> None:
+    source_url = str(source_database_url or "").strip()
+    target_url = str(os.environ.get("DATABASE_URL", "")).strip()
+    if not source_url:
+        logging.info("Skip flow_daily sync: source DATABASE_URL not set")
+        return
+    if not target_url:
+        logging.info("Skip flow_daily sync: target DATABASE_URL not set")
+        return
+    if source_url == target_url:
+        logging.info("Skip flow_daily sync: source and target DB are identical")
+        return
+
+    source_engine = create_engine(source_url, future=True)
+    target_engine = get_engine()
+    try:
+        with source_engine.connect() as conn:
+            source_exists = bool(conn.execute(text("SELECT to_regclass('public.flow_daily')")).scalar())
+            if not source_exists:
+                logging.info("Skip flow_daily sync: source table not found")
+                return
+
+            scoped_dates = [
+                row[0]
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT date FROM (
+                            SELECT DISTINCT date FROM public.flow_daily
+                            ORDER BY date DESC LIMIT :limit
+                        ) recent ORDER BY date
+                        """
+                    ),
+                    {"limit": FLOW_DAILY_SYNC_DATES},
+                ).fetchall()
+            ]
+            if not scoped_dates:
+                logging.info("Skip flow_daily sync: no source dates found")
+                return
+
+            rows = [
+                dict(row)
+                for row in conn.execute(
+                    text(
+                        """
+                        SELECT date, code, investor_type, net_buy_amount, net_buy_volume, fetch_status
+                        FROM public.flow_daily
+                        WHERE date = ANY(:scoped_dates)
+                          AND fetch_status = 'success'
+                          AND investor_type IN ('foreign', 'institution')
+                        ORDER BY date DESC, code, investor_type
+                        """
+                    ),
+                    {"scoped_dates": scoped_dates},
+                ).mappings()
+            ]
+
+        with target_engine.begin() as conn:
+            _ensure_flow_daily_table(conn)
+            conn.execute(
+                text("DELETE FROM public.flow_daily WHERE date = ANY(:scoped_dates)"),
+                {"scoped_dates": scoped_dates},
+            )
+            if rows:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO public.flow_daily (
+                            date, code, investor_type, net_buy_amount, net_buy_volume, fetch_status
+                        ) VALUES (
+                            :date, :code, :investor_type, :net_buy_amount, :net_buy_volume, :fetch_status
+                        )
+                        ON CONFLICT (date, code, investor_type) DO UPDATE SET
+                            net_buy_amount = EXCLUDED.net_buy_amount,
+                            net_buy_volume = EXCLUDED.net_buy_volume,
+                            fetch_status   = EXCLUDED.fetch_status
+                        """
+                    ),
+                    rows,
+                )
+
+        logging.info(
+            "Synced flow_daily rows=%d dates=%d latest=%s",
+            len(rows),
+            len(scoped_dates),
+            scoped_dates[-1].isoformat() if hasattr(scoped_dates[-1], "isoformat") else str(scoped_dates[-1]),
+        )
+    finally:
+        source_engine.dispose()
+        target_engine.dispose()
+
+
 def sync_us_macro_signal_tables(source_database_url: str) -> None:
     source_url = str(source_database_url or "").strip()
     target_url = str(os.environ.get("DATABASE_URL", "")).strip()
@@ -1562,6 +1696,7 @@ def main() -> int:
         logging.info("Skip trades.csv -> web trades sync; web public.trades is treated as source of truth")
     if not args.skip_meaningfulness_review:
         sync_meaningfulness_review_notes(source_database_url)
+    sync_flow_daily_table(source_database_url)
     sync_us_macro_signal_tables(source_database_url)
     logging.info("Web display sync completed")
     return 0

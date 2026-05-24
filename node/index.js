@@ -244,6 +244,167 @@ function readHomepageContent() {
   });
 }
 
+function formatHomepageStatusLabel(status) {
+  const value = String(status || "").toUpperCase();
+  if (value === "BUY_ALLOWED") return "신규 진입 검토 가능";
+  if (value === "WATCH") return "선별 관찰";
+  if (value === "BLOCK") return "보수 접근";
+  if (value === "ACCEPTED") return "검증 통과";
+  if (value === "REJECTED") return "검증 보류";
+  if (value === "WAIT") return "사이클 대기";
+  return value || "-";
+}
+
+function formatHomepageThemeTag(item) {
+  const dominantTheme = String(item?.security?.dominant_theme || "").trim();
+  if (dominantTheme && dominantTheme !== "(none)") return dominantTheme;
+  const sector = String(item?.security?.sector || "").trim();
+  if (sector) return sector;
+  const regime = String(item?.market_signals?.regime || "").trim();
+  if (regime === "bull") return "추세 확인";
+  if (regime === "neutral") return "선별 관찰";
+  if (regime === "defensive") return "방어 우선";
+  return "관찰 후보";
+}
+
+function formatHomepageTagTone(item) {
+  const confidenceState = String(item?.scores?.confidence_state_v2 || "").toUpperCase();
+  if (confidenceState === "TRUSTED") return "good";
+  if (confidenceState === "PROVISIONAL") return "accent";
+  return "neutral";
+}
+
+function buildHomepagePickLead(item) {
+  const status = String(item?.selection?.buyability_status || item?.buy_eligibility?.status || "").toUpperCase();
+  const predReturn = toNum(item?.market_signals?.pred_return_60d);
+  const confidence = toNum(item?.scores?.confidence_score);
+  const confidenceState = String(item?.scores?.confidence_state_v2 || "").toUpperCase();
+
+  const statusText =
+    status === "BUY_ALLOWED" ? "현재 실행 후보로 볼 수 있는 종목입니다." :
+    status === "WATCHLIST" ? "지금은 즉시 매수보다 관찰 우선으로 보는 후보입니다." :
+    "현재는 보수적으로 다시 확인해야 하는 후보입니다.";
+
+  const extras = [];
+  if (Number.isFinite(predReturn)) extras.push(`60일 기대수익 ${formatPct(predReturn, 1)}`);
+  if (Number.isFinite(confidence)) extras.push(`신뢰도 ${confidence.toFixed(1)}점`);
+  if (confidenceState) extras.push(`confidence ${confidenceState}`);
+  return `${statusText} ${extras.join(" · ")}`.trim();
+}
+
+function buildHomepagePickReasons(item) {
+  const reasons = [];
+  const finalScore = toNum(item?.scores?.final_score);
+  const probTop20 = toNum(item?.market_signals?.prob_top20_60d);
+  const predReturn = toNum(item?.market_signals?.pred_return_60d);
+  const predMdd = toNum(item?.market_signals?.pred_mdd_60d);
+  const confidenceState = String(item?.scores?.confidence_state_v2 || "").toUpperCase();
+  const selectionStage = String(item?.selection?.selection_stage || "").trim();
+
+  if (Number.isFinite(finalScore)) {
+    reasons.push(`final score ${finalScore.toFixed(1)}점으로 현재 후보군 상단에 위치합니다.`);
+  }
+  if (Number.isFinite(predReturn) || Number.isFinite(probTop20)) {
+    reasons.push(`예상 60일 수익은 ${Number.isFinite(predReturn) ? formatPct(predReturn, 1) : "-"}, 상위권 진입 확률은 ${Number.isFinite(probTop20) ? formatPct(probTop20, 1) : "-"} 수준입니다.`);
+  }
+  if (confidenceState) {
+    reasons.push(`confidence 상태는 ${confidenceState}이며 ${confidenceState === "TRUSTED" ? "신호 정합성이 상대적으로 낫습니다." : "아직 보수적으로 해석해야 합니다."}`);
+  }
+  if (selectionStage) {
+    reasons.push(`${selectionStage} 규칙을 통과해 후보군에 올랐습니다.`);
+  }
+  if (Number.isFinite(predMdd)) {
+    reasons.push(`예상 MDD는 ${formatPct(predMdd, 1)}로, 수익 기대와 함께 손실 폭도 같이 봐야 합니다.`);
+  }
+  return reasons.slice(0, 3);
+}
+
+function buildHomepagePickRisk(item, walkforwardStatus) {
+  const translatedHard = translateBuyEligibilityReasons(item?.buy_eligibility?.hard_block_reasons);
+  const translatedCaution = translateBuyEligibilityReasons(item?.buy_eligibility?.caution_reasons);
+  const blockingReasons = Array.isArray(item?.selection?.buyability_blocking_reasons)
+    ? item.selection.buyability_blocking_reasons.map((reason) => String(reason || "").replace(/_/g, " "))
+    : [];
+
+  if (translatedHard.length) return translatedHard[0];
+  if (translatedCaution.length) return translatedCaution[0];
+  if (blockingReasons.length) return `운영 차단 사유: ${blockingReasons[0]}.`;
+  if (String(walkforwardStatus || "").toUpperCase() === "REJECTED") {
+    return "walk-forward acceptance가 아직 REJECTED라 실제 승격 전 단계로 봐야 합니다.";
+  }
+  return "실제 진입 전에는 시장 상태와 포지션 중복을 다시 확인해야 합니다.";
+}
+
+async function buildHomepageContent() {
+  const fallback = readHomepageContent();
+  const [gate, walkforwardAcceptance, daily] = await Promise.all([
+    readJsonPayloadDbFirst("operational_buy_gate", [path.join(OUTPUTS_DIR, "operational_buy_gate.json")]),
+    readJsonPayloadDbFirst("walkforward_acceptance", [path.join(OUTPUTS_DIR, "walkforward_acceptance.json")]),
+    readJsonPayloadDbFirst("daily_recommendations", [path.join(SERVING_DIR, "daily_recommendations.json")]),
+  ]);
+
+  const dailyItems = Array.isArray(daily.items) ? daily.items : [];
+  const regime = gate.market_regime || {};
+  const regimeInterpretation = buildMarketRegimeInterpretation(regime);
+  const gateStatus = gate.overall_status || daily.gate_overall_status || null;
+  const walkforwardStatus = walkforwardAcceptance.status || daily.walkforward_acceptance_status || null;
+  const tone = getManualTradingTone(gateStatus, walkforwardStatus);
+  const breadth = toNum(regime.breadth_20d);
+  const vol5d = toNum(regime.volatility_5d);
+  const recentReturn = toNum(regime.recent_20d_return);
+
+  if (!dailyItems.length && !gateStatus && !walkforwardStatus) {
+    return fallback;
+  }
+
+  const criticalReasons = Array.isArray(gate?.interpretation?.critical_reasons)
+    ? gate.interpretation.critical_reasons.filter(Boolean)
+    : [];
+  const walkforwardReasons = Array.isArray(walkforwardAcceptance.reason_codes)
+    ? walkforwardAcceptance.reason_codes
+      .map((code) => mapWalkforwardReasonCode(code, walkforwardAcceptance))
+      .filter(Boolean)
+    : [];
+
+  const marketSummary = {
+    as_of_date: gate.asof_date || daily.asof_date || fallback.marketSummary?.as_of_date || null,
+    headline:
+      gateStatus === "BUY_ALLOWED" && String(walkforwardStatus || "").toUpperCase() === "ACCEPTED"
+        ? "현재는 신규 진입을 선별적으로 검토할 수 있는 구간입니다."
+        : gateStatus === "WATCH"
+        ? "현재는 신규 매수 확대보다 선별 관찰이 우선입니다."
+        : "현재는 관찰과 방어를 우선해야 하는 구간입니다.",
+    summary:
+      regime.available
+        ? `시장 레짐은 ${String(regime.regime || "neutral").toUpperCase()}이며, KOSPI 추세는 살아 있지만 breadth ${Number.isFinite(breadth) ? formatPct(breadth, 1) : "-"}와 5일 변동성 ${Number.isFinite(vol5d) ? formatPct(vol5d, 1) : "-"} 때문에 공격적으로 해석하지 않습니다.`
+        : (fallback.marketSummary?.summary || "운영 산출물이 준비되면 오늘 시장 요약을 자동 반영합니다."),
+    market_mood_title: "오늘 운영 결론",
+    market_mood: `${formatHomepageStatusLabel(gateStatus)} · ${formatHomepageStatusLabel(walkforwardStatus)}. ${tone.note}`,
+    watchpoints_title: "지금 확인할 것",
+    watchpoints: []
+      .concat(
+        Number.isFinite(recentReturn) ? [`최근 20일 수익률은 ${formatPct(recentReturn, 1)}입니다.`] : [],
+        regimeInterpretation.action_items || [],
+        criticalReasons.slice(0, 2),
+        walkforwardReasons.slice(0, 1)
+      )
+      .slice(0, 4)
+      .join(" "),
+  };
+
+  const picks = dailyItems.slice(0, 3).map((item) => ({
+    ticker: item?.security?.code || "-",
+    name: item?.security?.name || "-",
+    tag: formatHomepageThemeTag(item),
+    tag_tone: formatHomepageTagTone(item),
+    lead: buildHomepagePickLead(item),
+    reasons: buildHomepagePickReasons(item),
+    risk: buildHomepagePickRisk(item, walkforwardStatus),
+  }));
+
+  return { marketSummary, picks };
+}
+
 function readMarkdownEntries(sectionDir, section) {
   if (!fs.existsSync(sectionDir)) return [];
   return fs.readdirSync(sectionDir)
@@ -4678,8 +4839,8 @@ app.get("/sitemap.xml", (req, res) => {
 app.get("/api/site-library", (req, res) => {
   res.json({ items: readSiteLibrary() });
 });
-app.get("/api/homepage-content", (req, res) => {
-  res.json(readHomepageContent());
+app.get("/api/homepage-content", async (req, res) => {
+  res.json(await buildHomepageContent());
 });
 app.get("/api/operator-auth/status", operatorAccess.status);
 app.post("/api/operator-auth/login", operatorAccess.login);

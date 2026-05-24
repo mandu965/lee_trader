@@ -16,6 +16,11 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 from sqlalchemy import text
 
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+
 from performance_profiling import log_profile_result, profile_begin
 from production_config import get_production_config_value, is_operational_runtime_mode
 
@@ -27,6 +32,7 @@ except Exception:
     create_research_model_run = None
 
 DATA_DIR = Path("data")
+ROOT_DIR = Path(__file__).resolve().parents[1]
 DB_PATH = DATA_DIR / "lee_trader.db"
 OUTPUT_DIR = Path("output")
 FUNDAMENTALS_CSV = DATA_DIR / "fundamentals.csv"
@@ -241,6 +247,18 @@ def setup_logging() -> None:
     )
 
 
+def load_runtime_env() -> None:
+    if load_dotenv is None:
+        logging.info("python-dotenv unavailable -> keep existing process environment")
+        return
+    env_path = ROOT_DIR / ".env"
+    if not env_path.exists():
+        logging.info(".env not found at %s -> keep existing process environment", env_path)
+        return
+    load_dotenv(dotenv_path=env_path, override=True)
+    logging.info("Loaded runtime .env from %s", env_path)
+
+
 def parse_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the daily Lee_trader pipeline.")
     parser.add_argument(
@@ -411,7 +429,7 @@ def run_step(name: str, script: str, *, run_id: str) -> float:
     _log_run_id_event(run_id, f"==> Running step: {name} ({script_path})")
     env = os.environ.copy()
     env["RUN_ID"] = str(run_id)
-    result = subprocess.run([sys.executable, str(script_path)], check=True, env=env)
+    result = subprocess.run([sys.executable, str(script_path)], check=True, env=env, cwd=ROOT_DIR)
     elapsed = time.perf_counter() - start_ts
     if result.returncode != 0:
         raise RuntimeError(f"Step {name} failed with return code {result.returncode}")
@@ -437,7 +455,7 @@ def run_command_step(name: str, command: list[str], *, run_id: str) -> float:
     _log_run_id_event(run_id, f"==> Running step: {name} ({' '.join(command)})")
     env = os.environ.copy()
     env["RUN_ID"] = str(run_id)
-    result = subprocess.run(command, check=True, env=env)
+    result = subprocess.run(command, check=True, env=env, cwd=ROOT_DIR)
     elapsed = time.perf_counter() - start_ts
     if result.returncode != 0:
         raise RuntimeError(f"Step {name} failed with return code {result.returncode}")
@@ -1239,6 +1257,7 @@ def append_backtest_outcome(run_id: str) -> None:
 def main() -> None:
     args = parse_cli_args()
     setup_logging()
+    load_runtime_env()
     ensure_data_dir()
     apply_schema_if_available()
     market_date = _resolve_pipeline_market_date()

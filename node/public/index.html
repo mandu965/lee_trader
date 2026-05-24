@@ -933,6 +933,7 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         manualTradingSummary = await res.json();
         manualReviewMap = buildManualReviewMap(manualTradingSummary);
+        updateMarketBannerRegime();
       } catch (e) {
         console.warn("manual trading summary load fail", e);
         manualTradingSummary = null;
@@ -1070,16 +1071,46 @@
         const res = await fetch(api("/api/market/status"));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         marketStatus = await res.json();
-        const lines = [];
-        if (marketStatus.status_date) lines.push(`${displayBaseDate(marketStatus.status_date)} 기준`);
-        if (Number.isFinite(marketStatus.kospi_close) && Number.isFinite(marketStatus.kospi_ma20)) lines.push(`KOSPI ${Number(marketStatus.kospi_close).toLocaleString()} / MA20 ${Number(marketStatus.kospi_ma20).toLocaleString()}`);
+        const meta = [];
+        if (marketStatus.status_date) meta.push(`${displayBaseDate(marketStatus.status_date)} 기준`);
+        if (Number.isFinite(marketStatus.kospi_close) && Number.isFinite(marketStatus.kospi_ma20))
+          meta.push(`KOSPI ${Number(marketStatus.kospi_close).toLocaleString()} / MA20 ${Number(marketStatus.kospi_ma20).toLocaleString()}`);
         const tag = marketStatus.market_up === true ? '<span class="tag good">상방 우위 구간</span>' : '<span class="tag bad">방어 우위 구간</span>';
-        box.innerHTML = `${tag}<div class="lines">${lines.join("<br>")}</div>`;
+        box.innerHTML = `<div class="ma-header">${tag}<div class="lines">${meta.join(" &nbsp;·&nbsp; ")}</div></div><div class="ma-checklist"></div>`;
         box.classList.toggle("hidden", alertHidden);
       } catch (e) {
         console.warn("market status load fail", e);
         box.classList.add("hidden");
       }
+    }
+
+    function updateMarketBannerRegime() {
+      const box = $("#marketAlert");
+      if (!box) return;
+      const regime = manualTradingSummary?.market_regime;
+      if (!regime) return;
+      const checklist = box.querySelector(".ma-checklist");
+      if (!checklist) return;
+      const fp = (v) => v != null ? (v * 100).toFixed(1) + "%" : "-";
+      const structureChecks = [
+        { label: "KOSPI > MA20", pass: regime.close_gt_ma20 },
+        { label: "MA20 > MA60", pass: regime.ma20_gt_ma60 },
+      ];
+      const conditionChecks = [
+        { label: `20일 수익 ${fp(regime.recent_20d_return)}`, pass: regime["recent_20d_return_gt_0.03"] },
+        {
+          label: `breadth ${fp(regime.breadth_20d)}`,
+          pass: regime["breadth_20d_gt_0.55"],
+          title: "breadth는 20일선 위에 있는 종목 비율입니다. 높을수록 상승이 시장 전체로 퍼진 상태입니다.",
+        },
+        { label: `변동성 ${fp(regime.volatility_5d)}`, pass: !regime.volatility_risk_flag },
+      ];
+      const renderCheck = (c) =>
+        `<span class="ma-check ${c.pass ? "pass" : "fail"}"${c.title ? ` title="${escapeHtml(c.title)}"` : ""}>${c.pass ? "✅" : "❌"} ${c.label}</span>`;
+      checklist.innerHTML = [
+        `<div class="ma-check-group"><span class="ma-check-group__label">구조 신호</span><div class="ma-check-group__items">${structureChecks.map(renderCheck).join("")}</div></div>`,
+        `<div class="ma-check-group"><span class="ma-check-group__label">부담 / 확산</span><div class="ma-check-group__items">${conditionChecks.map(renderCheck).join("")}</div></div>`,
+      ].join("");
     }
 
     function initTrustBand() {

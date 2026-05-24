@@ -5,7 +5,7 @@ import os
 from datetime import datetime
 import json  # 튜닝 파라미터 로딩용
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -13,6 +13,14 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, roc_auc_sco
 from sklearn.model_selection import TimeSeriesSplit
 from lightgbm import LGBMRegressor, LGBMClassifier
 from sklearn.calibration import CalibratedClassifierCV
+try:
+    from calibrated_classifier import BinaryIsotonicCalibratedClassifier
+except Exception:  # pragma: no cover - package import path
+    from .calibrated_classifier import BinaryIsotonicCalibratedClassifier
+try:
+    from sklearn.frozen import FrozenEstimator
+except Exception:  # pragma: no cover - older scikit-learn
+    FrozenEstimator = None
 
 # ---------------------------------------------------------------------
 # Paths & constants
@@ -22,6 +30,7 @@ DATA_DIR = Path("data")
 FEATURES_CSV = DATA_DIR / "features.csv"
 LABELS_CSV = DATA_DIR / "labels.csv"
 MODEL_PKL = DATA_DIR / "model.pkl"
+MODEL_FEATURE_IMPORTANCE_DIR = DATA_DIR / "model_feature_importance"
 
 # (추가) 튜닝된 LightGBM 파라미터 JSON 경로
 MODELS_DIR = Path("models")
@@ -252,7 +261,10 @@ def time_series_folds(dates: np.ndarray, n_splits: int) -> List[Tuple[np.ndarray
     """
     dates 배열(중복 허용)에 대해 date 레벨에서 TimeSeriesSplit 수행.
     """
-    uniq = np.array(sorted(pd.Series(dates).dropna().unique()))
+    uniq = np.array(
+        sorted(pd.Series(pd.to_datetime(dates)).dropna().unique()),
+        dtype="datetime64[ns]",
+    )
     if uniq.size < 10:
         # 너무 적으면 CV 생략
         return []
@@ -264,6 +276,137 @@ def time_series_folds(dates: np.ndarray, n_splits: int) -> List[Tuple[np.ndarray
         va_dates = uniq[va_idx]
         folds.append((tr_dates, va_dates))
     return folds
+
+
+def _unwrap_feature_importance_model(model: object) -> object:
+    estimator = getattr(model, "estimator", None)
+    if estimator is not None:
+        return estimator
+    base_estimator = getattr(model, "base_estimator", None)
+    if base_estimator is not None:
+        return base_estimator
+    return model
+
+
+def _build_feature_importance_frame(
+    model: object,
+    feature_cols: List[str],
+    *,
+    target: str,
+    model_group: str,
+    model_version: str,
+    trained_at: str,
+    train_end_date: str | None,
+) -> pd.DataFrame:
+    base_model = _unwrap_feature_importance_model(model)
+    split_values = getattr(base_model, "feature_importances_", None)
+    booster = getattr(base_model, "booster_", None)
+    if split_values is None and booster is None:
+        return pd.DataFrame()
+
+    if split_values is None:
+        split_values = booster.feature_importance(importance_type="split")
+    gain_values = None
+    if booster is not None:
+        gain_values = booster.feature_importance(importance_type="gain")
+
+    split_arr = np.asarray(split_values, dtype=float)
+    if split_arr.shape[0] != len(feature_cols):
+        logging.warning(
+            "Skipping feature importance export for %s: feature length mismatch (%d != %d)",
+            target,
+            split_arr.shape[0],
+            len(feature_cols),
+        )
+        return pd.DataFrame()
+    gain_arr = np.asarray(gain_values, dtype=float) if gain_values is not None else np.full(len(feature_cols), np.nan)
+
+    frame = pd.DataFrame(
+        {
+            "target": target,
+            "model_group": model_group,
+            "feature": feature_cols,
+            "importance_split": split_arr,
+            "importance_gain": gain_arr,
+            "model_version": model_version,
+            "trained_at": trained_at,
+            "train_end_date": train_end_date or "",
+        }
+    )
+    split_total = float(frame["importance_split"].sum())
+    gain_non_null = frame["importance_gain"].dropna()
+    gain_total = float(gain_non_null.sum()) if not gain_non_null.empty else 0.0
+    frame["importance_split_pct"] = frame["importance_split"] / split_total if split_total > 0 else 0.0
+    frame["importance_gain_pct"] = frame["importance_gain"] / gain_total if gain_total > 0 else np.nan
+    frame = frame.sort_values(["importance_gain", "importance_split"], ascending=False, na_position="last").reset_index(drop=True)
+    frame["rank"] = np.arange(1, len(frame) + 1)
+    return frame
+
+
+def export_feature_importance_reports(
+    *,
+    reg_models: Dict[str, object],
+    cls_models: Dict[str, object],
+    feature_cols: List[str],
+    output_dir: Path,
+    model_version: str,
+    trained_at: str,
+    train_end_date: str | None,
+) -> list[Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    written_paths: list[Path] = []
+    frames: list[pd.DataFrame] = []
+
+    for model_group, models in (("regression", reg_models), ("classification", cls_models)):
+        for target, model in models.items():
+            frame = _build_feature_importance_frame(
+                model,
+                feature_cols,
+                target=target,
+                model_group=model_group,
+                model_version=model_version,
+                trained_at=trained_at,
+                train_end_date=train_end_date,
+            )
+            if frame.empty:
+                continue
+            path = output_dir / f"{target}_feature_importance.csv"
+            frame.to_csv(path, index=False, encoding="utf-8")
+            written_paths.append(path)
+            frames.append(frame)
+
+    if not frames:
+        logging.warning("No feature importance reports were generated.")
+        return written_paths
+
+    combined = pd.concat(frames, ignore_index=True)
+    combined_path = output_dir / "feature_importance_all_targets.csv"
+    combined.to_csv(combined_path, index=False, encoding="utf-8")
+    written_paths.append(combined_path)
+
+    summary = (
+        combined.assign(
+            split_pct_filled=combined["importance_split_pct"].fillna(0.0),
+            gain_pct_filled=combined["importance_gain_pct"].fillna(0.0),
+        )
+        .groupby("feature", as_index=False)
+        .agg(
+            target_count=("target", "nunique"),
+            mean_split_pct=("split_pct_filled", "mean"),
+            mean_gain_pct=("gain_pct_filled", "mean"),
+            total_split=("importance_split", "sum"),
+            total_gain=("importance_gain", "sum"),
+        )
+    )
+    summary["composite_score"] = (summary["mean_split_pct"] + summary["mean_gain_pct"]) / 2.0
+    summary = summary.sort_values(["composite_score", "target_count", "total_gain"], ascending=False).reset_index(drop=True)
+    summary["rank"] = np.arange(1, len(summary) + 1)
+    summary_path = output_dir / "feature_importance_summary.csv"
+    summary.to_csv(summary_path, index=False, encoding="utf-8")
+    written_paths.append(summary_path)
+
+    logging.info("Saved %d feature importance report files under %s", len(written_paths), output_dir.resolve())
+    return written_paths
 
 
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -479,9 +622,21 @@ def train_classifiers(
             if calibrate and last_va_mask is not None and int(last_va_mask.sum()) >= 20:
                 X_cal = X[last_va_mask]
                 y_cal = y[last_va_mask]
-                cal = CalibratedClassifierCV(cls, method="isotonic", cv="prefit")
+                if FrozenEstimator is not None:
+                    cal = CalibratedClassifierCV(FrozenEstimator(cls), method="isotonic", cv=None)
+                else:
+                    cal = CalibratedClassifierCV(cls, method="isotonic", cv="prefit")
                 cal.fit(X_cal, y_cal)
-                cls_models[target] = cal
+                calibrated_list = getattr(cal, "calibrated_classifiers_", None) or []
+                calibrators = getattr(calibrated_list[0], "calibrators", []) if calibrated_list else []
+                if len(calibrators) != 1:
+                    raise ValueError(
+                        f"Expected exactly one binary isotonic calibrator for {target}, got {len(calibrators)}"
+                    )
+                cls_models[target] = BinaryIsotonicCalibratedClassifier(
+                    estimator=cls,
+                    calibrator=calibrators[0],
+                )
                 logging.info(
                     "  [%s] isotonic calibration applied (last-fold n_cal=%d)",
                     target, int(last_va_mask.sum()),
@@ -535,6 +690,7 @@ def main() -> None:
     )
 
     train_end_date = cutoff.strftime("%Y-%m-%d") if cutoff is not None else None
+    trained_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     pack = {
         "features": feature_cols,
         "reg_models": reg_models,
@@ -543,8 +699,18 @@ def main() -> None:
         "cls_targets": list(cls_models.keys()),
         "model_version": args.model_version,
         "train_end_date": train_end_date,
-        "trained_at": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "trained_at": trained_at,
     }
+
+    export_feature_importance_reports(
+        reg_models=reg_models,
+        cls_models=cls_models,
+        feature_cols=feature_cols,
+        output_dir=MODEL_FEATURE_IMPORTANCE_DIR,
+        model_version=args.model_version,
+        trained_at=trained_at,
+        train_end_date=train_end_date,
+    )
 
     args.output_pkl.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output_pkl, "wb") as f:

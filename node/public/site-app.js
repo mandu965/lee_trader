@@ -142,7 +142,7 @@
 
     picksRoot.innerHTML = picks.length
       ? picks.map(buildPickCard).join("")
-      : '<article class="pick-card"><h3>추천 종목 준비 중</h3><p class="pick-card__lead">운영 데이터가 준비되면 이 영역에 자동 반영됩니다.</p></article>';
+      : '<article class="pick-card"><h3>관찰 후보 준비 중</h3><p class="pick-card__lead">운영 데이터가 준비되면 이 영역에 자동 반영됩니다.</p></article>';
   }
 
   function renderHome() {
