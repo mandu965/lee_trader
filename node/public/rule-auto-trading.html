@@ -1,18 +1,13 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>RULE 자동매매 운영</title>
-    <link rel="stylesheet" href="./styles.css?v=20260525-ops-nav" />
+    <title>수동매매 모니터링 - Lee Trader</title>
+    <link rel="stylesheet" href="./styles.css?v=20260526-manual" />
     <style>
       /* ── 레이아웃 ── */
       .rule-page { max-width: 1480px; margin: 0 auto; padding: 24px 20px 60px; }
-
-      /* ── 상단 내비 ── */
-      .page-nav { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
-      .page-nav button { font-size: 13px; padding: 7px 14px; }
-      .page-nav button.is-active { border-color: rgba(34,197,94,.44); background: rgba(34,197,94,.12); color: #86efac; }
 
       /* ── Safety 배너 ── */
       .safety-banner {
@@ -21,13 +16,13 @@
         border: 1px solid; margin-bottom: 20px;
         font-size: 14px; font-weight: 600;
       }
-      .safety-banner.ok  { border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.08); color: #86efac; }
-      .safety-banner.bad { border-color: rgba(248,113,113,.35); background: rgba(248,113,113,.08); color: #fca5a5; }
-      .safety-banner.warn{ border-color: rgba(250,204,21,.35); background: rgba(250,204,21,.08); color: #fde68a; }
+      .safety-banner.ok   { border-color: rgba(34,197,94,.35); background: rgba(34,197,94,.08); color: #86efac; }
+      .safety-banner.warn { border-color: rgba(250,204,21,.35); background: rgba(250,204,21,.08); color: #fde68a; }
+      .safety-banner.bad  { border-color: rgba(248,113,113,.35); background: rgba(248,113,113,.08); color: #fca5a5; }
       .safety-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
       .safety-banner.ok  .safety-dot { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
-      .safety-banner.bad .safety-dot { background: #f87171; box-shadow: 0 0 6px #f87171; }
       .safety-banner.warn .safety-dot { background: #facc15; box-shadow: 0 0 6px #facc15; }
+      .safety-banner.bad  .safety-dot { background: #f87171; box-shadow: 0 0 6px #f87171; }
       .safety-detail { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--color-text-secondary); }
 
       /* ── 히어로 카드 ── */
@@ -111,69 +106,68 @@
       /* ── 하단 상태줄 ── */
       .status-bar { margin-top: 24px; font-size: 12px; color: var(--color-text-secondary); text-align: right; }
 
-      /* ── 주문 서브탭 ── */
-      .subtab-nav { display: flex; gap: 4px; margin-bottom: 16px; }
-      .subtab-btn {
-        padding: 6px 14px; font-size: 13px; font-weight: 600; border-radius: var(--radius-lg);
-        background: rgba(255,255,255,.05); border: 1px solid var(--border);
-        color: var(--color-text-secondary); cursor: pointer; transition: background .15s, color .15s;
+      /* ── 보유종목 카드 (계좌 탭) ── */
+      .holding-card {
+        border: 1px solid var(--border); border-radius: var(--radius-lg);
+        background: rgba(255,255,255,.02); padding: 16px 20px;
+        margin-bottom: 10px; cursor: pointer; transition: background .12s;
       }
-      .subtab-btn:hover { background: rgba(255,255,255,.08); color: var(--color-text-primary); }
-      .subtab-btn.active { background: rgba(96,165,250,.12); border-color: rgba(96,165,250,.3); color: #93c5fd; }
-      .subtab-pane { display: none; }
-      .subtab-pane.active { display: block; }
+      .holding-card:hover { background: rgba(255,255,255,.04); }
+      .holding-card-top { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+      .holding-stock { min-width: 140px; }
+      .holding-stock-name { font-size: 15px; font-weight: 700; }
+      .holding-stock-meta { font-size: 11px; color: var(--color-text-secondary); margin-top: 3px; }
+      .holding-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+      .review-badge {
+        display: inline-flex; align-items: center; padding: 3px 10px;
+        border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid;
+      }
+      .review-badge.KEEP       { color: #86efac; border-color: rgba(34,197,94,.4);  background: rgba(34,197,94,.10); }
+      .review-badge.REVIEW     { color: #fde68a; border-color: rgba(250,204,21,.4); background: rgba(250,204,21,.10); }
+      .review-badge.EXIT_REVIEW{ color: #fca5a5; border-color: rgba(248,113,113,.4); background: rgba(248,113,113,.10); }
+      .score-badge {
+        display: inline-flex; align-items: center; padding: 3px 10px;
+        border-radius: 999px; font-size: 11px; font-weight: 700;
+        border: 1px solid rgba(96,165,250,.3); background: rgba(96,165,250,.10); color: #93c5fd;
+      }
+      .holding-metrics { display: flex; gap: 28px; flex-wrap: wrap; margin-top: 10px; }
+      .metric { min-width: 80px; }
+      .metric-label { font-size: 10px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: .05em; }
+      .metric-value { font-size: 15px; font-weight: 700; margin-top: 2px; }
+      .holding-reasons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+      .holding-action { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; }
+      .priority-bar {
+        display: flex; align-items: center; gap: 8px; font-size: 11px;
+        color: var(--color-text-secondary); margin-top: 8px;
+      }
+      .priority-fill {
+        height: 4px; border-radius: 2px; background: var(--border); flex: 1; overflow: hidden;
+      }
+      .priority-fill-inner { height: 100%; border-radius: 2px; }
+
+      /* ── 개요 탭 요약 카드 ── */
+      .overview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+      .status-summary-card {
+        border: 1px solid var(--border); border-radius: var(--radius-lg);
+        background: rgba(255,255,255,.02); padding: 14px 16px;
+        display: flex; flex-direction: column; gap: 4px;
+      }
+      .status-summary-label { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: .05em; }
+      .status-summary-value { font-size: 22px; font-weight: 800; }
+      .status-summary-sub { font-size: 11px; color: var(--color-text-secondary); }
 
       /* ── 반응형 ── */
       @media (max-width: 1100px) {
         .hero-grid { grid-template-columns: repeat(2, 1fr); }
         .two-col { grid-template-columns: 1fr; }
+        .overview-grid { grid-template-columns: repeat(2, 1fr); }
       }
       @media (max-width: 640px) {
         .rule-page { padding: 14px 12px 40px; }
         .hero-grid { grid-template-columns: repeat(2, 1fr); }
         .hero-value { font-size: 22px; }
         .tab-btn { padding: 8px 14px; font-size: 13px; }
-        .page-nav { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
-      }
-
-      /* ── 시그널 테이블 개선 ── */
-      .rank-badge {
-        display: inline-flex; align-items: center; justify-content: center;
-        width: 22px; height: 22px; border-radius: 50%;
-        font-size: 11px; font-weight: 700;
-        background: rgba(255,255,255,.07); color: var(--color-text-secondary);
-      }
-      .rank-badge.top { background: rgba(250,204,21,.15); color: #fde68a; }
-      .score-hi { color: #86efac; font-weight: 700; }
-      .score-lo { color: #fde68a; }
-
-      /* Strong 시그널 테이블 */
-      #strongTable { min-width: 820px; }
-      #strongTable thead th, #entryTable thead th {
-        position: sticky; top: 0; z-index: 2;
-        background: #0c1628;
-        box-shadow: 0 1px 0 var(--border);
-      }
-      #strongTable th:nth-child(1) { width: 40px; text-align: center; }
-      #strongTable td:nth-child(1) { text-align: center; }
-      #strongTable th:nth-child(2) { width: 78px; }
-      #strongTable th:nth-child(5), #strongTable th:nth-child(6) { width: 90px; }
-      #strongTable th:nth-child(7) { width: 100px; }
-      #strongTable th:nth-child(8) { width: 80px; }
-      #strongTable th:nth-child(9) { width: 130px; text-align: center; }
-      #strongTable td:nth-child(9) { text-align: center; }
-
-      /* Entry 시그널 테이블 */
-      #entryTable { min-width: 800px; }
-      #entryTable th:nth-child(1) { width: 72px; text-align: center; }
-      #entryTable td:nth-child(1) { text-align: center; }
-      #entryTable th:nth-child(2) { width: 78px; }
-      #entryTable th:nth-child(5), #entryTable th:nth-child(6) { width: 90px; }
-      #entryTable th:nth-child(7) { width: 110px; }
-
-      /* 섹터 컬럼 말줄임 */
-      #strongTable td:nth-child(4), #entryTable td:nth-child(4) {
-        max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        .overview-grid { grid-template-columns: 1fr 1fr; }
       }
     </style>
   </head>
@@ -184,328 +178,122 @@
       <div data-unified-ops-nav data-nav-active="rule-auto-trading"></div>
 
       <!-- Safety 배너 -->
-      <div class="safety-banner" id="safetyBanner">
+      <div class="safety-banner ok" id="safetyBanner">
         <div class="safety-dot"></div>
-        <span id="safetyText">상태 확인 중…</span>
+        <span id="safetyText">데이터 불러오는 중…</span>
         <span class="safety-detail" id="safetyDetail"></span>
       </div>
 
       <!-- 히어로 카드 -->
       <div class="hero-grid" id="heroGrid">
-        <div class="hero-card"><div class="hero-label">기준일</div><div class="hero-value">-</div></div>
-        <div class="hero-card"><div class="hero-label">후보 종목</div><div class="hero-value">-</div></div>
-        <div class="hero-card"><div class="hero-label">계좌 현황</div><div class="hero-value">-</div></div>
-        <div class="hero-card"><div class="hero-label">Strong D+20 수익</div><div class="hero-value">-</div></div>
+        <div class="hero-card">
+          <div class="hero-label">기준일</div>
+          <div class="hero-value" id="heroDate">-</div>
+          <div class="hero-sub" id="heroDateSub">마지막 랭킹 갱신일</div>
+        </div>
+        <div class="hero-card">
+          <div class="hero-label">보유 종목</div>
+          <div class="hero-value" id="heroCount">-</div>
+          <div class="hero-sub" id="heroCountSub">-</div>
+        </div>
+        <div class="hero-card">
+          <div class="hero-label">총 평가금액</div>
+          <div class="hero-value" id="heroValue">-</div>
+          <div class="hero-sub" id="heroValueSub">-</div>
+        </div>
+        <div class="hero-card">
+          <div class="hero-label">평가손익</div>
+          <div class="hero-value" id="heroPnl">-</div>
+          <div class="hero-sub" id="heroPnlSub">-</div>
+        </div>
       </div>
 
       <!-- 탭 -->
       <nav class="tab-nav">
         <button class="tab-btn active" data-tab="overview">개요</button>
-        <button class="tab-btn" data-tab="signals">시그널 <span class="tab-badge" id="badgeSignals">-</span></button>
-        <button class="tab-btn" data-tab="orders">주문 <span class="tab-badge" id="badgeOrders">-</span></button>
         <button class="tab-btn" data-tab="account">계좌 <span class="tab-badge" id="badgeAccount">-</span></button>
         <button class="tab-btn" data-tab="analysis">분석</button>
       </nav>
 
       <!-- ── 탭 1: 개요 ── -->
       <div class="tab-pane active" id="tab-overview">
-        <div class="two-col">
-          <div class="section">
-            <div class="section-head">
-              <div>
-                <h2 class="section-title">시스템 안전 상태</h2>
-                <div class="section-note">실매매 가능 여부와 주간 손익 차단 상태입니다.</div>
-              </div>
-            </div>
-            <div class="panel-card">
-              <div class="kv" id="systemStatusKv"></div>
-            </div>
-          </div>
-          <div class="section">
-            <div class="section-head">
-              <div>
-                <h2 class="section-title">주문이 없었던 이유</h2>
-                <div class="section-note">가장 큰 차단 원인을 자동으로 요약합니다.</div>
-              </div>
-            </div>
-            <div class="panel-card">
-              <div class="kv" id="whyNoTradeKv"></div>
-              <div class="chip-row" id="diagnosticChips"></div>
-            </div>
-          </div>
-        </div>
-        <div class="two-col">
-          <div class="section">
-            <div class="section-head">
-              <div>
-                <h2 class="section-title">차단 사유 분포</h2>
-                <div class="section-note">후보 종목이 진입하지 못한 이유입니다.</div>
-              </div>
-            </div>
-            <div class="panel-card">
-              <div class="kv" id="blockReasonKv"></div>
-            </div>
-          </div>
-          <div class="section">
-            <div class="section-head">
-              <div>
-                <h2 class="section-title">백테스트 요약</h2>
-                <div class="section-note">현재 임계값 기준의 과거 성과입니다.</div>
-              </div>
-            </div>
-            <div class="panel-card">
-              <div class="kv" id="backtestKv"></div>
-              <div class="chip-row" id="backtestChips"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ── 탭 2: 시그널 ── -->
-      <div class="tab-pane" id="tab-signals">
         <div class="section">
           <div class="section-head">
             <div>
-              <h2 class="section-title">Strong 후보</h2>
-              <div class="section-note">강한 진입 신호가 감지된 종목입니다. (상위 10개)</div>
+              <h2 class="section-title">포트폴리오 현황</h2>
+              <div class="section-note">보유 종목 기준 손익 요약입니다.</div>
             </div>
           </div>
-          <div class="table-wrap">
-            <table id="strongTable">
-              <thead>
-                <tr>
-                  <th class="center">#</th>
-                  <th>코드</th>
-                  <th>종목명</th>
-                  <th>섹터</th>
-                  <th class="right">RULE 점수</th>
-                  <th class="right">점수 v3</th>
-                  <th class="right">예상 진입가</th>
-                  <th class="right">예상 갭</th>
-                  <th class="center">포트폴리오 판단</th>
-                </tr>
-              </thead>
-              <tbody id="strongSignalsTbody"></tbody>
-            </table>
+          <div class="panel-card">
+            <div class="kv" id="overviewPnlKv"></div>
           </div>
         </div>
+
         <div class="section">
           <div class="section-head">
             <div>
-              <h2 class="section-title">Entry 후보</h2>
-              <div class="section-note">진입 신호 종목 전체 목록입니다. (상위 20개)</div>
+              <h2 class="section-title">시스템 점검 현황</h2>
+              <div class="section-note">AI 모델 기준 보유 종목 검토 상태 분포입니다.</div>
             </div>
           </div>
-          <div class="table-wrap">
-            <table id="entryTable">
-              <thead>
-                <tr>
-                  <th class="center">강도</th>
-                  <th>코드</th>
-                  <th>종목명</th>
-                  <th>섹터</th>
-                  <th class="right">RULE 점수</th>
-                  <th class="right">점수 v3</th>
-                  <th class="right">거래대금 MA20</th>
-                  <th>차단 포인트</th>
-                </tr>
-              </thead>
-              <tbody id="entrySignalsTbody"></tbody>
-            </table>
+          <div class="overview-grid" id="overviewStatusGrid"></div>
+        </div>
+
+        <div class="section">
+          <div class="section-head">
+            <div>
+              <h2 class="section-title">즉시 검토 필요 종목</h2>
+              <div class="section-note">EXIT_REVIEW 또는 REVIEW 상태 종목 요약입니다.</div>
+            </div>
           </div>
+          <div id="overviewAlertList"></div>
         </div>
       </div>
 
-      <!-- ── 탭 3: 주문 ── -->
-      <div class="tab-pane" id="tab-orders">
-        <!-- 서브탭 -->
-        <nav class="subtab-nav">
-          <button class="subtab-btn active" data-subtab="execution">실행 결과 <span class="tab-badge" id="badgeExecution">-</span></button>
-          <button class="subtab-btn" data-subtab="preview">주문 초안 <span class="tab-badge" id="badgePreview">-</span></button>
-          <button class="subtab-btn" data-subtab="portfolio">포트폴리오 <span class="tab-badge" id="badgePortfolio">-</span></button>
-        </nav>
-
-        <!-- 서브탭: 실행 결과 -->
-        <div class="subtab-pane active" id="subtab-execution">
-          <div class="section">
-            <div class="section-head">
-              <div>
-                <h2 class="section-title">개장 전 실행 결과</h2>
-                <div class="section-note">전일 미리보기 기반으로 시가 검증 후 simulated 실행 결과입니다.</div>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>상태</th>
-                    <th>코드</th>
-                    <th>종목명</th>
-                    <th>방향</th>
-                    <th class="right">체결 수량</th>
-                    <th class="right">평균 체결가</th>
-                    <th class="right">실제 갭</th>
-                    <th>차단 사유</th>
-                  </tr>
-                </thead>
-                <tbody id="executionTbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- 서브탭: 주문 초안 -->
-        <div class="subtab-pane" id="subtab-preview">
-          <div class="section">
-            <div class="section-head">
-              <div>
-                <h2 class="section-title">주문 미리보기</h2>
-                <div class="section-note">차단되지 않은 항목만 실제 제출 후보로 넘어갑니다.</div>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>상태</th>
-                    <th>코드</th>
-                    <th>종목명</th>
-                    <th>방향</th>
-                    <th class="right">예상 체결가</th>
-                    <th class="right">주문 금액</th>
-                    <th class="right">수량</th>
-                    <th>차단 사유</th>
-                  </tr>
-                </thead>
-                <tbody id="previewTbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- 서브탭: 포트폴리오 계획 -->
-        <div class="subtab-pane" id="subtab-portfolio">
-          <div class="section">
-            <div class="section-head">
-              <div>
-                <h2 class="section-title">포트폴리오 계획</h2>
-                <div class="section-note">매수 / 보유 / 축소 / 청산 / 스킵 판단 결과입니다.</div>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>액션</th>
-                    <th>코드</th>
-                    <th>종목명</th>
-                    <th>섹터</th>
-                    <th class="right">목표 비중</th>
-                    <th class="right">현재 비중</th>
-                    <th class="right">목표 금액</th>
-                    <th>사유</th>
-                  </tr>
-                </thead>
-                <tbody id="portfolioTbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ── 탭 4: 계좌 ── -->
+      <!-- ── 탭 2: 계좌 ── -->
       <div class="tab-pane" id="tab-account">
         <div class="section">
           <div class="section-head">
             <div>
-              <h2 class="section-title">계좌 요약</h2>
-              <div class="section-note">보유 포지션 기준 손익 현황입니다.</div>
-            </div>
-          </div>
-          <div class="panel-card" id="accountSummary"></div>
-        </div>
-        <div class="section">
-          <div class="section-head">
-            <div>
               <h2 class="section-title">보유 종목</h2>
-              <div class="section-note">현재 계좌의 보유 종목 및 손익입니다.</div>
+              <div class="section-note">AI 랭킹 기준 점수와 손익을 함께 표시합니다. 클릭하면 상세 분석으로 이동합니다.</div>
             </div>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>코드</th>
-                  <th>종목명</th>
-                  <th class="right">수량</th>
-                  <th class="right">진입가</th>
-                  <th class="right">매수금액</th>
-                  <th class="right">현재가</th>
-                  <th class="right">평가금액</th>
-                  <th class="right">수익률</th>
-                  <th class="right">평가손익</th>
-                  <th class="right">비중</th>
-                </tr>
-              </thead>
-              <tbody id="positionsTbody"></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="section">
-          <div class="section-head">
             <div>
-              <h2 class="section-title">최근 거래</h2>
-              <div class="section-note">최근 6건의 체결 내역입니다.</div>
+              <a href="/trade-history.html" style="font-size:12px;color:var(--color-text-secondary);text-decoration:none;border:1px solid var(--border);border-radius:6px;padding:5px 10px;">
+                매매 이력
+              </a>
             </div>
           </div>
-          <div class="chip-row" id="recentTrades"></div>
+          <div id="holdingsList"></div>
         </div>
       </div>
 
-      <!-- ── 탭 5: 분석 ── -->
+      <!-- ── 탭 3: 분석 ── -->
       <div class="tab-pane" id="tab-analysis">
         <div class="section">
           <div class="section-head">
             <div>
-              <h2 class="section-title">시그널 점수 분포 (rule_score_v3)</h2>
-              <div class="section-note">오늘 후보 종목의 점수 분포입니다 (v3 우선, 없으면 v2 표시). entry ≥65, strong ≥70.</div>
-            </div>
-          </div>
-          <div class="panel-card" id="scoreDistPanel"></div>
-        </div>
-        <div class="section">
-          <div class="section-head">
-            <div>
               <h2 class="section-title">보유 종목 수급 추이 (최근 20일)</h2>
-              <div class="section-note">RULE 계좌 보유 종목의 외국인·기관 순매수 금액 추이입니다.</div>
+              <div class="section-note">외국인·기관 순매수 금액 추이입니다.</div>
             </div>
           </div>
-          <div class="panel-card" id="ruleFlowHistoryPanel"></div>
+          <div class="panel-card" id="flowHistoryPanel"></div>
         </div>
         <div class="section">
           <div class="section-head">
             <div>
               <h2 class="section-title">US Macro 레짐 히스토리</h2>
-              <div class="section-note">최근 30일 레짐 변화입니다. RISK_OFF 기간에는 max_positions 3으로 축소됩니다.</div>
+              <div class="section-note">최근 30일 레짐 변화입니다.</div>
             </div>
           </div>
-          <div class="panel-card" id="ruleRegimeHistoryPanel"></div>
-        </div>
-        <div class="section">
-          <div class="section-head">
-            <div>
-              <h2 class="section-title">백테스트 상세 성과</h2>
-              <div class="section-note">전략 버전별 백테스트 결과 요약입니다.</div>
-            </div>
-          </div>
-          <div class="panel-card" id="ruleBacktestDetailPanel"></div>
+          <div class="panel-card" id="regimeHistoryPanel"></div>
         </div>
       </div>
 
       <div class="status-bar" id="statusBar">데이터 불러오는 중…</div>
     </div>
 
-    <script src="./ops-unified-nav.js?v=20260525-ops-nav-compact"></script>
-    <script src="./rule-auto-trading.js?v=20260518a"></script>
+    <script src="./ops-unified-nav.js?v=20260526-manual"></script>
+    <script src="./rule-auto-trading.js?v=20260526-manual"></script>
   </body>
 </html>

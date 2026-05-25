@@ -406,6 +406,34 @@ def export_feature_importance_reports(
     written_paths.append(summary_path)
 
     logging.info("Saved %d feature importance report files under %s", len(written_paths), output_dir.resolve())
+
+    # Generate model_feature_importance.json for web display (read by node/index.js)
+    primary_target = "target_60d_top20"
+    primary_frame = next(
+        (f for f in frames if f["target"].iloc[0] == primary_target if not f.empty),
+        frames[0] if frames else None,
+    )
+    if primary_frame is not None and not primary_frame.empty:
+        pf = primary_frame.sort_values("importance_split", ascending=False).reset_index(drop=True)
+        max_split = float(pf["importance_split"].iloc[0]) if len(pf) > 0 else 1.0
+        json_features = [
+            {
+                "name": str(row["feature"]),
+                "importance": int(row["importance_split"]),
+                "pct": int(round(row["importance_split"] / max_split * 100)) if max_split > 0 else 0,
+            }
+            for _, row in pf.iterrows()
+        ]
+        json_payload = {
+            "model_version": model_version,
+            "trained_at": trained_at,
+            "target": primary_target,
+            "features": json_features,
+        }
+        json_path = output_dir.parent / "model_feature_importance.json"
+        json_path.write_text(json.dumps(json_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        logging.info("Saved model_feature_importance.json (target=%s, features=%d)", primary_target, len(json_features))
+
     return written_paths
 
 

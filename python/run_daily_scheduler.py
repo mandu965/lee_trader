@@ -212,6 +212,7 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
         return [
             ("sync_live_account_holdings", _live_account_sync_command()),
             ("sync_live_order_fills", _live_order_fills_sync_command()),
+            ("sync_rule_account_holdings", [sys.executable, str(ROOT / "python" / "sync_rule_account_holdings.py")]),
             ("sync_rule_live_account_snapshot", [sys.executable, str(ROOT / "python" / "rule_live_account_snapshot.py")]),
             ("build_live_trade_consistency_report", _live_trade_consistency_command()),
             ("build_live_trade_review", _live_trade_review_command()),

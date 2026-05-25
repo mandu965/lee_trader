@@ -67,6 +67,7 @@ JSON_PAYLOADS: list[tuple[str, Path, str | None]] = [
     ("auto_ops_recovery_scheduler_status", OUTPUT_DIR / "auto_ops_recovery_scheduler_status.json", None),
     ("operational_daily_cycle_status", OUTPUT_DIR / "operational_daily_cycle_status.json", None),
     ("ops_operator_notes", OUTPUT_DIR / "ops_operator_notes.json", None),
+    ("model_feature_importance", DATA_DIR / "model_feature_importance.json", None),
     ("score_kpi_monitor", DATA_DIR / "score_kpi_monitor.json", "asof_date"),
     ("top20_meaningfulness_report", OUTPUT_DIR / "top20_meaningfulness_report.json", "asof_date"),
     ("top20_buyability_report", OUTPUT_DIR / "top20_buyability_report.json", "asof_date"),
@@ -841,6 +842,9 @@ def ensure_us_ranking_table(conn) -> None:
 
 
 def sync_us_ranking_table(source_database_url: str) -> None:
+    if str(os.environ.get("SYNC_WEB_US_RANKING", "1")).strip() in ("0", "false", "no"):
+        logging.info("Skip US ranking sync: SYNC_WEB_US_RANKING=0")
+        return
     source_url = str(source_database_url or "").strip()
     target_url = str(os.environ.get("DATABASE_URL", "")).strip()
     if not source_url:

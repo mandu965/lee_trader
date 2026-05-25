@@ -5,7 +5,7 @@
     { key: "score-check", label: "\uC810\uC218 \uAC80\uC99D", href: "/score-check" },
     { key: "alerts", label: "\uC54C\uB9BC \uB85C\uADF8", href: "/alerts.html" },
     { key: "live-auto-trading", label: "AI \uC2E4\uC790\uB3D9\uB9E4\uB9E4", href: "/live-auto-trading.html" },
-    { key: "rule-auto-trading", label: "RULE \uC790\uB3D9\uB9E4\uB9E4", href: "/rule-auto-trading.html" },
+    { key: "rule-auto-trading", label: "\uC218\uB3D9\uB9E4\uB9E4", href: "/rule-auto-trading.html" },
     { key: "paper-trading", label: "\uBAA8\uC758\uD22C\uC790", href: "/paper-trading.html" },
     { key: "ranking", label: "\uB7AD\uD0B9 \uBD84\uC11D", href: "/ranking.html" },
     { key: "us-ranking", label: "US \uB7AD\uD0B9", href: "/us-ranking" },

@@ -4503,8 +4503,8 @@ function buildHoldings(trades, latestRankByCode) {
       setReview("risk_penalty_high");
     }
 
-    if (Number.isFinite(holdingDays) && holdingDays >= 20 && priority < 3) {
-      setReview("hold_day_20_reached");
+    if (Number.isFinite(holdingDays) && holdingDays >= 60 && priority < 3) {
+      setReview("hold_day_60_reached");
     }
 
     if (Number.isFinite(unrealizedPct) && unrealizedPct >= 15 && priority < 3) {
@@ -4522,7 +4522,7 @@ function buildHoldings(trades, latestRankByCode) {
     let sellPriorityScore = 22;
     if (status === "REVIEW") sellPriorityScore = 58;
     if (status === "EXIT_REVIEW") sellPriorityScore = 82;
-    if (Number.isFinite(holdingDays) && holdingDays >= 20) sellPriorityScore += 8;
+    if (Number.isFinite(holdingDays) && holdingDays >= 60) sellPriorityScore += 8;
     if (Number.isFinite(unrealizedPct) && unrealizedPct >= 15) sellPriorityScore += 6;
     if (Number.isFinite(unrealizedPct) && unrealizedPct <= -8) sellPriorityScore += 10;
     if (!inGracePeriod && Number.isFinite(finalScore) && finalScore < 45) sellPriorityScore += 10;
@@ -4547,8 +4547,8 @@ function buildHoldings(trades, latestRankByCode) {
     } else if (status === "REVIEW") {
       if (hasReason("profit_above_15pct")) {
         actionNote = "수익 구간 점검 대상입니다. 추가 매수보다 이익 보호 여부를 먼저 검토합니다.";
-      } else if (hasReason("hold_day_20_reached")) {
-        actionNote = "보유 20일 점검 시점입니다. ret/prob/confidence 지지가 유지되는지 다시 확인합니다.";
+      } else if (hasReason("hold_day_60_reached")) {
+        actionNote = "보유 60일 점검 시점입니다. 장기 보유 근거가 유지되는지 다시 확인합니다.";
       } else if (hasReason("confidence_low") || hasReason("ret_score_weak") || hasReason("prob_score_weak")) {
         actionNote = "지지 점수가 약해졌습니다. 다른 행동보다 보유 근거 재확인이 우선입니다.";
       } else if (hasReason("risk_penalty_high")) {
@@ -6277,6 +6277,181 @@ app.get("/api/holdings", async (req, res) => {
   } catch (e) {
     console.error("api/holdings error", e);
     res.status(500).json({ error: "failed to build holdings", detail: String(e) });
+  }
+});
+
+// RULE(수동매매) account holdings — reads data/rule_account_holdings.csv synced from KIS
+app.get("/api/rule-holdings", async (req, res) => {
+  try {
+    const csvPath = path.join(DATA_DIR, "rule_account_holdings.csv");
+    const rows = readCsv(csvPath) || [];
+
+    // 예수금/계좌 요약 읽기
+    let cashBalance = null;
+    let totalAccountValue = null;
+    let summaryGeneratedAt = null;
+    try {
+      const summaryPath = path.join(OUTPUTS_DIR, "rule_account_holdings_summary.json");
+      if (fs.existsSync(summaryPath)) {
+        const summary = JSON.parse(fs.readFileSync(summaryPath, "utf8"));
+        cashBalance = summary?.cash_summary?.dnca_tot_amt ?? null;
+        totalAccountValue = summary?.cash_summary?.tot_evlu_amt ?? null;
+        summaryGeneratedAt = summary?.generated_at ?? null;
+      }
+    } catch (_) {}
+
+    if (!rows.length) return res.json({
+      count: 0, items: [], source: "rule_account_holdings.csv",
+      cash_balance: cashBalance, total_account_value: totalAccountValue, synced_at: summaryGeneratedAt,
+    });
+
+    const latestRankByCode = await getRankingLatestByCode();
+    const today = new Date().toISOString().slice(0, 10);
+
+    let totalValue = 0;
+    let totalCost = 0;
+
+    const items = rows
+      .filter((r) => Number(r.qty) > 0)
+      .map((r) => {
+        const code = String(r.code || "").trim().padStart(6, "0");
+        const rankRow = latestRankByCode.get(code) || {};
+        const qty = Number(r.qty) || 0;
+        const avgBuyPrice = Number(r.avg_price) || null;
+        const currentPrice = toNum(rankRow.close) ?? Number(r.current_price) ?? null;
+        const currentValue = currentPrice != null ? currentPrice * qty : null;
+        const costBasis = avgBuyPrice != null ? avgBuyPrice * qty : null;
+        const unrealized = currentValue != null && costBasis != null ? currentValue - costBasis : null;
+        const unrealizedPct = currentValue != null && costBasis != null && costBasis > 0
+          ? (currentValue / costBasis - 1) * 100 : null;
+
+        const latestRankDate = toIsoDate(rankRow.date || "") || today;
+        const finalScore = getLiveScore(rankRow);
+        const scoreDelta = toNum(rankRow.score_delta) ?? toNum(rankRow.final_score_delta) ?? null;
+        const retScore = toNum(rankRow.ret_score);
+        const probScore = toNum(rankRow.prob_score);
+        const riskPenalty = toNum(rankRow.risk_penalty);
+        const confidenceScore = toNum(rankRow.confidence_score) ?? toNum(rankRow.raw_confidence_v2) ?? null;
+
+        // 보유일: csv에 first_buy_date 없으므로 0일로 처리 (신규 유예 없음)
+        const holdingDays = null;
+
+        // 20% 목표가
+        const targetPrice = avgBuyPrice != null ? avgBuyPrice * 1.2 : null;
+        let progressToTarget = null;
+        if (currentPrice != null && avgBuyPrice != null && targetPrice != null && targetPrice > avgBuyPrice) {
+          progressToTarget = Math.min(100, Math.max(0, (currentPrice - avgBuyPrice) / (targetPrice - avgBuyPrice) * 100));
+        }
+
+        // KEEP/REVIEW/EXIT_REVIEW 분류 (buildHoldings와 동일 로직)
+        const reasons = [];
+        let status = "KEEP";
+        let label = "계속보유";
+        let priority = 1;
+
+        const pushReason = (c) => { if (c && !reasons.includes(c)) reasons.push(c); };
+        const setReview = (reason) => {
+          if (priority < 2) { status = "REVIEW"; label = "점검필요"; priority = 2; }
+          pushReason(reason);
+        };
+        const setExit = (reason) => {
+          status = "EXIT_REVIEW"; label = "매도검토"; priority = 3;
+          pushReason(reason);
+        };
+
+        if (currentPrice == null || !latestRankDate) pushReason("latest_price_missing");
+        if (Number.isFinite(unrealizedPct) && unrealizedPct <= -8) setExit("loss_below_minus_8pct");
+        if (Number.isFinite(finalScore) && finalScore < 45) setExit("final_score_weak");
+        if (Number.isFinite(scoreDelta) && scoreDelta <= -5) setReview("score_delta_down");
+        if (Number.isFinite(retScore) && retScore < 55) setReview("ret_score_weak");
+        if (Number.isFinite(probScore) && probScore < 55) setReview("prob_score_weak");
+        if (Number.isFinite(confidenceScore) && confidenceScore < 70) setReview("confidence_low");
+        if (Number.isFinite(riskPenalty) && riskPenalty >= 3) setReview("risk_penalty_high");
+        if (Number.isFinite(unrealizedPct) && unrealizedPct >= 15 && priority < 3) setReview("profit_above_15pct");
+        if (!reasons.length) pushReason("holding_support_maintained");
+
+        let sellPriorityScore = 22;
+        if (status === "REVIEW") sellPriorityScore = 58;
+        if (status === "EXIT_REVIEW") sellPriorityScore = 82;
+        if (Number.isFinite(unrealizedPct) && unrealizedPct >= 15) sellPriorityScore += 6;
+        if (Number.isFinite(unrealizedPct) && unrealizedPct <= -8) sellPriorityScore += 10;
+        if (Number.isFinite(finalScore) && finalScore < 45) sellPriorityScore += 10;
+        if (currentPrice == null || !latestRankDate) sellPriorityScore += 6;
+        if (Number.isFinite(confidenceScore) && confidenceScore < 70) sellPriorityScore += 5;
+        if (Number.isFinite(retScore) && retScore < 55) sellPriorityScore += 4;
+        if (Number.isFinite(probScore) && probScore < 55) sellPriorityScore += 4;
+        if (Number.isFinite(riskPenalty) && riskPenalty >= 3) sellPriorityScore += 4;
+        if (Number.isFinite(scoreDelta) && scoreDelta <= -5) sellPriorityScore += 4;
+        sellPriorityScore = Math.max(0, Math.min(99, sellPriorityScore));
+
+        const hasReason = (c) => reasons.includes(c);
+        let actionNote = "보유 근거가 유지되고 있습니다.";
+        if (status === "EXIT_REVIEW") {
+          if (hasReason("loss_below_minus_8pct")) actionNote = "손실 관리 기준을 이탈했습니다. 매수 근거를 다시 점검해야 합니다.";
+          else if (hasReason("final_score_weak")) actionNote = "종합 점수가 크게 약화되었습니다. 매도 검토 우선순위가 높습니다.";
+          else actionNote = "리스크 신호가 겹쳤습니다. 이 포지션을 계속 보유할지 다시 판단해야 합니다.";
+        } else if (status === "REVIEW") {
+          if (hasReason("profit_above_15pct")) actionNote = "수익 구간 점검 대상입니다. 이익 보호 여부를 먼저 검토합니다.";
+          else if (hasReason("confidence_low") || hasReason("ret_score_weak") || hasReason("prob_score_weak")) actionNote = "지지 점수가 약해졌습니다. 보유 근거 재확인이 우선입니다.";
+          else if (hasReason("risk_penalty_high")) actionNote = "리스크 패널티가 높습니다. 변동성 확대 여부를 먼저 봐야 합니다.";
+          else actionNote = "관찰 구간입니다. 현재 보유 근거를 다시 확인합니다.";
+        }
+
+        if (Number.isFinite(currentValue)) totalValue += currentValue;
+        if (Number.isFinite(costBasis)) totalCost += costBasis;
+
+        return {
+          code,
+          name: String(r.name || rankRow.name || getName(code) || code),
+          market: rankRow.market || getMarket(code) || null,
+          sector: rankRow.sector || getSector(code) || null,
+          current_qty: qty,
+          avg_buy_price: avgBuyPrice,
+          current_price: currentPrice,
+          current_value: currentValue,
+          cost_basis: costBasis,
+          unrealized_pnl: unrealized,
+          unrealized_pnl_pct: unrealizedPct,
+          realized_pnl: 0,
+          target_price: targetPrice,
+          progress_to_target: progressToTarget,
+          final_score: finalScore,
+          score_delta: scoreDelta,
+          ret_score: retScore,
+          prob_score: probScore,
+          risk_penalty: riskPenalty,
+          confidence_score: confidenceScore,
+          latest_rank_date: latestRankDate,
+          holding_days: holdingDays,
+          live_score_source: getLiveScoreSource(rankRow),
+          system_review_status: status,
+          system_review_label: label,
+          system_review_priority: priority,
+          sell_priority_score: sellPriorityScore,
+          system_review_reasons: reasons,
+          system_action_note: actionNote,
+        };
+      });
+
+    // 매도 우선순위 내림차순 정렬
+    items.sort((a, b) => (Number(b.sell_priority_score) || 0) - (Number(a.sell_priority_score) || 0));
+
+    const totalUnrealized = totalValue - totalCost;
+    res.json({
+      count: items.length,
+      total_cost: totalCost,
+      total_value: totalValue,
+      total_unrealized_pnl: totalUnrealized,
+      total_unrealized_pnl_pct: totalCost > 0 ? (totalUnrealized / totalCost) * 100 : null,
+      cash_balance: cashBalance,
+      total_account_value: totalAccountValue,
+      synced_at: summaryGeneratedAt,
+      source: "rule_account_holdings.csv",
+      items,
+    });
+  } catch (e) {
+    console.error("/api/rule-holdings error", e);
+    res.status(500).json({ error: "failed to build rule holdings", detail: String(e) });
   }
 });
 

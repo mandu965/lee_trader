@@ -255,7 +255,7 @@ def load_runtime_env() -> None:
     if not env_path.exists():
         logging.info(".env not found at %s -> keep existing process environment", env_path)
         return
-    load_dotenv(dotenv_path=env_path, override=True)
+    load_dotenv(dotenv_path=env_path, override=False)
     logging.info("Loaded runtime .env from %s", env_path)
 
 
@@ -640,6 +640,34 @@ def maybe_run_short_interest_ingestion(run_id: str) -> None:
     )
 
 
+def maybe_sync_rule_account_holdings(run_id: str) -> None:
+    """RULE 계좌(KIS_RULE_CANO) 잔고를 data/rule_account_holdings.csv로 동기화.
+
+    KIS_RULE_CANO 또는 KIS_RULE_ACNT_PRDT_CD 미설정 시 자동 스킵.
+    RUN_PIPELINE_SKIP_RULE_HOLDINGS=1 로 비활성화 가능.
+    """
+    if _env_flag("RUN_PIPELINE_SKIP_RULE_HOLDINGS", "0"):
+        _log_run_id_event(run_id, "RUN_PIPELINE_SKIP_RULE_HOLDINGS enabled -> skip rule holdings sync")
+        return
+
+    cano = (os.environ.get("KIS_RULE_CANO") or "").strip()
+    acnt = (os.environ.get("KIS_RULE_ACNT_PRDT_CD") or "").strip()
+    if not cano or not acnt:
+        logging.info("KIS_RULE_CANO/KIS_RULE_ACNT_PRDT_CD not set -> skip rule holdings sync")
+        return
+
+    script = Path("python") / "sync_rule_account_holdings.py"
+    if not script.exists():
+        logging.info("sync_rule_account_holdings.py not found -> skip")
+        return
+
+    run_optional_command_step(
+        "sync_rule_account_holdings",
+        [sys.executable, str(script)],
+        run_id=run_id,
+    )
+
+
 def maybe_run_flow_ingestion(run_id: str) -> None:
     if _env_flag("RUN_PIPELINE_SKIP_FLOW_INGESTION", "0"):
         _log_run_id_event(run_id, "RUN_PIPELINE_SKIP_FLOW_INGESTION enabled -> skip optional flow ingestion")
@@ -998,6 +1026,10 @@ def append_ranking_history(run_id: str) -> None:
             return
 
         as_of = _latest_as_of_date(ranking, "date")
+        ranking = ranking[ranking["date"] == as_of].copy()
+        if ranking.empty:
+            logging.warning("daily_ranking has no rows for as_of=%s -> skip ranking_history append", as_of)
+            return
         ranking["as_of_date"] = as_of
         sort_col = "live_score" if "live_score" in ranking.columns else "final_score"
         ranking = ranking.sort_values(["date", sort_col], ascending=[False, False]).copy()
@@ -1007,7 +1039,7 @@ def append_ranking_history(run_id: str) -> None:
             ranking["rank"] = ranking.groupby("date")[sort_col].rank(method="first", ascending=False)
         ranking["rank"] = ranking["rank"].fillna(
             ranking.groupby("date")[sort_col].rank(method="first", ascending=False)
-        ).astype(int)
+        ).fillna(9999).astype(int)
         ranking["in_top_n"] = ranking["rank"] <= top_n
         ranking["top_n"] = top_n
         ranking["run_id"] = run_id_num
@@ -1341,6 +1373,7 @@ def main() -> None:
             walkforward_sample = profile_begin()
             maybe_run_flow_ingestion(run_id)
             maybe_run_short_interest_ingestion(run_id)
+            maybe_sync_rule_account_holdings(run_id)
             maybe_run_theme_validation(run_id, theme_cfg)
             maybe_sync_csv_db_parity(run_id)
 
