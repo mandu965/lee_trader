@@ -32,7 +32,7 @@
     .container { max-width: 1400px; margin: 24px auto; padding: 0 16px 32px; }
     .top { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
     .top-actions { display: grid; gap: 10px; justify-items: end; }
-    .top-nav-links, .top-trade-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .top-nav-links, .top-trade-actions, .top-meta-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
     .top-nav-more { display: contents; }
     .top-nav-more summary { display: none; }
     .title { margin: 0; font-size: 22px; }
@@ -55,6 +55,11 @@
     .action-btn.buy { border-color: rgba(34,197,94,.28); background: rgba(34,197,94,.12); color: #86efac; }
     .action-btn.sell { border-color: rgba(239,68,68,.28); background: rgba(239,68,68,.12); color: #fca5a5; }
     .action-btn.nav-active { border-color: rgba(96,165,250,.34); background: rgba(96,165,250,.12); color: #bfdbfe; }
+    .context-badge {
+      border-color: rgba(96,165,250,.28);
+      background: rgba(96,165,250,.10);
+      color: #bfdbfe;
+    }
     .layout { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 16px; align-items: start; }
     .col { display: grid; gap: 16px; align-content: start; }
     .panel { background: linear-gradient(135deg, var(--s) 0, var(--s2) 100%); border: 1px solid rgba(255,255,255,.05); border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px rgba(2,6,23,.45); align-self: start; }
@@ -266,14 +271,14 @@
       .factor-item { grid-template-columns: 1fr 54px; }
       .legend { gap: 8px; }
       .top-actions { justify-items: stretch; }
-      .top-nav-links, .top-trade-actions {
+      .top-nav-links, .top-trade-actions, .top-meta-actions {
         justify-content: flex-start;
         flex-wrap: nowrap;
         overflow-x: auto;
         padding-bottom: 4px;
         -webkit-overflow-scrolling: touch;
       }
-      .top-nav-links > *, .top-trade-actions > * { flex: 0 0 auto; }
+      .top-nav-links > *, .top-trade-actions > *, .top-meta-actions > * { flex: 0 0 auto; }
       .top-nav-more {
         display: block;
         width: 100%;
@@ -329,8 +334,8 @@
         <details class="top-nav-more" open>
           <summary>화면 이동</summary>
           <div class="top-nav-links" data-unified-ops-nav data-nav-element="a" data-nav-class="action-btn" data-nav-active-class="nav-active" data-nav-secondary-class="" data-nav-secondary-keys=""></div>
-          <div class="top-nav-links" style="margin-top:8px;">
-            <span class="action-btn nav-active">상세</span>
+          <div class="top-meta-actions" style="margin-top:8px;">
+            <span class="badge context-badge">현재 화면: 종목 상세</span>
             <button id="detailOperatorLoginBtn" class="action-btn" type="button" style="display:none;">운영자 로그인</button>
           </div>
         </details>
@@ -633,7 +638,7 @@
   </div>
 
   <script src="./ui-components.js"></script>
-<script src="./ops-unified-nav.js?v=20260518-nav-fix"></script>
+<script src="./ops-unified-nav.js?v=20260525-ops-nav-compact"></script>
   <script>
     const $ = (s) => document.querySelector(s);
     const q = (n) => new URLSearchParams(location.search).get(n);

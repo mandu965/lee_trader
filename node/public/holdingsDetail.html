@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="./styles.css?v=20260525-ops-nav" />
   <title>종목 상세 - Lee Trader</title>
   <style>
     :root {
@@ -240,11 +241,8 @@
         <h1>종목 상세 리포트</h1>
         <div class="summary-sub">보유 종목과 모델 정보를 한 화면에서 확인할 수 있습니다.</div>
       </div>
-      <div class="toolbar">
-        <button onclick="location.href='holdings.html'">← 보유 종목</button>
-        <button onclick="location.href='index.html'" class="btn-accent">랭킹 보기</button>
-      </div>
     </header>
+    <div data-unified-ops-nav data-nav-active="holdings"></div>
 
     <!-- 상단 요약 패널 -->
     <div class="panel-row">
@@ -363,6 +361,7 @@
     </div>
   </div>
 
+  <script src="./ops-unified-nav.js?v=20260525-ops-nav-compact"></script>
   <script>
     // ===== 공통 포맷 함수 =====
     function fmtNumber(v) {

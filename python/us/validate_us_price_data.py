@@ -16,6 +16,7 @@ from python.us.us_config import load_us_stock_config, parse_iso_date
 from python.us.us_db import (
     fetch_active_tickers,
     fetch_anomaly_stats,
+    fetch_latest_price_trade_date,
     fetch_orphan_tickers,
     fetch_price_stats,
     fetch_universe_counts,
@@ -75,7 +76,8 @@ def _format_ticker_sample(tickers: list[str], *, limit: int = SUMMARY_LIMIT) -> 
 
 def _build_summary(
     *,
-    as_of_date: date,
+    requested_as_of_date: date,
+    effective_as_of_date: date,
     stale_days_limit: int,
     missing_tickers: list[str],
     stale_tickers: list[str],
@@ -85,7 +87,8 @@ def _build_summary(
 ) -> str:
     # Stale is based on calendar-day difference, which can overstate issues around US weekends/holidays.
     parts = [
-        f"as_of_date={as_of_date.isoformat()}",
+        f"requested_as_of_date={requested_as_of_date.isoformat()}",
+        f"effective_as_of_date={effective_as_of_date.isoformat()}",
         f"stale_days_limit={stale_days_limit}",
         f"missing={len(missing_tickers)} [{_format_ticker_sample(missing_tickers)}]",
         f"stale={len(stale_tickers)} [{_format_ticker_sample(stale_tickers)}]",
@@ -149,9 +152,25 @@ def validate_price_data(*, universe_tag: str, as_of_date: date, verbose: bool) -
             summary=f"as_of_date={as_of_date.isoformat()} | no_active_tickers=true",
         )
 
-    price_stats = fetch_price_stats(active_tickers, as_of_date=as_of_date, data_source=cfg.data_source)
-    anomaly_stats = fetch_anomaly_stats(active_tickers, as_of_date=as_of_date, data_source=cfg.data_source)
-    orphan_tickers = fetch_orphan_tickers(universe_tag=universe_tag, as_of_date=as_of_date, data_source=cfg.data_source)
+    effective_as_of_date = fetch_latest_price_trade_date(
+        active_tickers,
+        as_of_date=as_of_date,
+        data_source=cfg.data_source,
+    ) or as_of_date
+    if effective_as_of_date != as_of_date:
+        LOGGER.info(
+            "[US_QUALITY] requested_as_of_date=%s effective_as_of_date=%s (capped to latest available price date)",
+            as_of_date.isoformat(),
+            effective_as_of_date.isoformat(),
+        )
+
+    price_stats = fetch_price_stats(active_tickers, as_of_date=effective_as_of_date, data_source=cfg.data_source)
+    anomaly_stats = fetch_anomaly_stats(active_tickers, as_of_date=effective_as_of_date, data_source=cfg.data_source)
+    orphan_tickers = fetch_orphan_tickers(
+        universe_tag=universe_tag,
+        as_of_date=effective_as_of_date,
+        data_source=cfg.data_source,
+    )
 
     missing_tickers: list[str] = []
     stale_tickers: list[str] = []
@@ -175,7 +194,7 @@ def validate_price_data(*, universe_tag: str, as_of_date: date, verbose: bool) -
             missing_tickers.append(ticker)
             continue
 
-        stale_days = (as_of_date - last_trade_date).days
+        stale_days = (effective_as_of_date - last_trade_date).days
         if stale_days > stale_days_limit:
             stale_tickers.append(ticker)
             continue
@@ -194,7 +213,8 @@ def validate_price_data(*, universe_tag: str, as_of_date: date, verbose: bool) -
     )
 
     summary = _build_summary(
-        as_of_date=as_of_date,
+        requested_as_of_date=as_of_date,
+        effective_as_of_date=effective_as_of_date,
         stale_days_limit=stale_days_limit,
         missing_tickers=missing_tickers,
         stale_tickers=stale_tickers,
@@ -228,7 +248,7 @@ def validate_price_data(*, universe_tag: str, as_of_date: date, verbose: bool) -
     long_stale = [
         ticker
         for ticker in stale_tickers
-        if (as_of_date - price_stats[ticker]["last_trade_date"]).days >= LONG_STALE_DAYS
+        if (effective_as_of_date - price_stats[ticker]["last_trade_date"]).days >= LONG_STALE_DAYS
     ]
     if long_stale:
         LOGGER.info("[US_QUALITY] long stale tickers(>=30d): %s", _format_ticker_sample(long_stale))

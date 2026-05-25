@@ -731,6 +731,15 @@ def main():
         logging.exception("Failed to fetch KOSPI top: %s", e)
         kospi_top = pd.DataFrame(columns=["code", "name", "market"])
 
+    # KIS KOSPI 실패 시 Naver Finance 폴백
+    if use_kis and len(kospi_top) == 0:
+        logging.warning("KIS KOSPI fetch returned 0 rows; falling back to Naver Finance KOSPI top")
+        try:
+            kospi_top = top_by_market(ymd, "KOSPI", top_n=100)
+            logging.info("KOSPI top (Naver fallback): %d", len(kospi_top))
+        except Exception as e2:
+            logging.exception("KOSPI Naver fallback failed: %s", e2)
+
     # ── KOSDAQ Top100 ─────────────────────────────────────────────────────────
     try:
         if use_kis:
@@ -741,6 +750,15 @@ def main():
     except Exception as e:
         logging.exception("Failed to fetch KOSDAQ top: %s", e)
         kosdaq_top = pd.DataFrame(columns=["code", "name", "market"])
+
+    # KIS KOSDAQ 실패 시 Naver Finance 폴백 — KIS 토큰 레이트리밋(1분 1회) 대응
+    if use_kis and len(kosdaq_top) == 0:
+        logging.warning("KIS KOSDAQ fetch returned 0 rows; falling back to Naver Finance KOSDAQ top")
+        try:
+            kosdaq_top = top_by_market(ymd, "KOSDAQ", top_n=100)
+            logging.info("KOSDAQ top (Naver fallback): %d", len(kosdaq_top))
+        except Exception as e2:
+            logging.exception("KOSDAQ Naver fallback failed: %s", e2)
 
     # ── 합치기 & 중복 제거 ───────────────────────────────────────────────────
     uni = pd.concat([kospi_top, kosdaq_top], ignore_index=True)

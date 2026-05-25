@@ -4,17 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>운영자 페이지</title>
-    <link rel="stylesheet" href="./styles.css?v=20260508c" />
+    <link rel="stylesheet" href="./styles.css?v=20260525-ops-nav" />
     <style>
       /* ── 레이아웃 ── */
       .ops-page { max-width: 1480px; margin: 0 auto; padding: 20px 20px 60px; }
-
-      /* ── 상단 내비 ── */
-      .page-nav { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-      .page-nav-title { font-size: 18px; font-weight: 800; letter-spacing: -.02em; margin-right: 8px; white-space: nowrap; }
-      .page-nav a { display: inline-flex; align-items: center; min-height: 34px; padding: 4px 12px; border-radius: 8px; border: 1px solid rgba(71,85,105,.6); background: rgba(30,41,59,.85); color: #f8fafc; font-size: 13px; font-weight: 600; text-decoration: none; }
-      .page-nav a:hover { background: rgba(51,65,85,.9); }
-      .page-nav a.is-active { border-color: rgba(96,165,250,.4); background: rgba(96,165,250,.1); color: #bae6fd; }
 
       /* ── Safety 배너 ── */
       .safety-banner { display: flex; align-items: center; gap: 12px; padding: 11px 18px; border-radius: 12px; border: 1px solid; margin-bottom: 14px; font-size: 14px; font-weight: 600; transition: background .3s; }
@@ -120,19 +113,25 @@
       .candidate-name  { margin: 0; font-size: 17px; }
       .candidate-meta  { margin-top: 5px; font-size: 12px; color: #94a3b8; }
       .candidate-score { font-size: 22px; font-weight: 800; }
+      .account-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-bottom: 14px; }
+      .summary-link-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+      .summary-link-card { border: 1px solid rgba(71,85,105,.5); border-radius: 12px; background: rgba(255,255,255,.025); padding: 14px; display: grid; gap: 10px; }
+      .summary-link-card h3 { margin: 0; font-size: 15px; }
+      .summary-link-card p { margin: 0; font-size: 12px; line-height: 1.6; color: #94a3b8; }
+      .summary-link-card a { width: fit-content; }
 
       /* ── 반응형 ── */
       @media (max-width: 1100px) {
         .hero-grid { grid-template-columns: repeat(2,1fr); }
         .g3 { grid-template-columns: 1fr 1fr; }
         .gf { grid-template-columns: 1fr; }
+        .account-grid, .summary-link-grid { grid-template-columns: 1fr 1fr; }
       }
       @media (max-width: 640px) {
         .ops-page { padding: 12px 12px 40px; }
-        .g2,.g3,.gf,.hero-grid,.candidate-grid { grid-template-columns: 1fr; }
+        .g2,.g3,.gf,.hero-grid,.candidate-grid,.account-grid,.summary-link-grid { grid-template-columns: 1fr; }
         .hero-value { font-size: 22px; }
         .tab-btn { padding: 8px 12px; font-size: 12px; }
-        .page-nav { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 4px; }
         .note-actions { flex-direction: column; align-items: stretch; }
       }
       @media (max-width: 390px) {
@@ -145,19 +144,7 @@
     <div class="ops-page">
 
       <!-- 상단 내비 -->
-      <nav class="page-nav">
-        <span class="page-nav-title">운영자 페이지</span>
-        <a href="/app">메인</a>
-        <a href="/ops-readiness.html" class="is-active">운영자</a>
-        <a href="/alerts.html">알림 로그</a>
-        <a href="/rule-auto-trading.html">RULE 자동매매</a>
-        <a href="/live-auto-trading.html">AI 자동매매</a>
-        <a href="/ranking.html">리서치랭킹</a>
-        <a href="/meaningfulness.html">리서치리뷰</a>
-        <a href="/holdings.html">보유종목</a>
-        <a href="/paper-trading.html">모의투자</a>
-        <a href="/trade-history.html">매매기록</a>
-      </nav>
+      <div data-unified-ops-nav data-nav-active="ops-readiness"></div>
 
       <!-- Safety 배너 -->
       <div class="safety-banner loading" id="safetyBanner">
@@ -177,10 +164,11 @@
       <!-- 탭 내비 -->
       <nav class="tab-nav">
         <button class="tab-btn active" data-tab="today">오늘 <span class="tab-badge" id="badgeToday"></span></button>
-        <button class="tab-btn" data-tab="ops">운영</button>
-        <button class="tab-btn" data-tab="usmacro">US Macro</button>
-        <button class="tab-btn" data-tab="rule">RULE</button>
-        <button class="tab-btn" data-tab="ref">참고</button>
+        <button class="tab-btn" data-tab="ops">시스템</button>
+        <button class="tab-btn" data-tab="schedule">스케줄</button>
+        <button class="tab-btn" data-tab="accounts">계정 / 포지션</button>
+        <button class="tab-btn" data-tab="strategy">전략 실행</button>
+        <button class="tab-btn" data-tab="ref">분석 / 참고</button>
       </nav>
 
       <!-- ═══ 탭: 오늘 ═══ -->
@@ -206,6 +194,15 @@
           </div>
           <div class="sec-note">CRITICAL/WARNING 알림 · KPI 경고 · 오늘 확인 사항</div>
         </div>
+        <div id="todayQueueSummary" class="sub-note" style="margin-bottom:10px;"></div>
+        <div class="sec-head">
+          <div>
+            <div class="sec-kicker">Top 3</div>
+            <h2 class="sec-title">지금 할 일</h2>
+          </div>
+          <div class="sec-note">운영 우선순위가 높은 확인 항목 3개만 추려서 보여줍니다.</div>
+        </div>
+        <div class="summary-link-grid" id="todayTopActions"></div>
         <div class="g3">
           <div class="pc emph">
             <div class="ey">알림 로그</div>
@@ -223,6 +220,40 @@
             <h3>오늘 확인 사항</h3>
             <ul id="dailyChecklist" class="il"></ul>
           </div>
+        </div>
+
+        <div class="sec-head">
+          <div>
+            <div class="sec-kicker">Quick Access</div>
+            <h2 class="sec-title">바로 이동</h2>
+          </div>
+          <div class="sec-note">판단 이후 가장 자주 여는 운영 화면을 바로 엽니다.</div>
+        </div>
+        <div class="summary-link-grid">
+          <a class="summary-link-card" href="/ops-readiness.html">
+            <strong>시스템 상태</strong>
+            <span>스케줄러, Gate, KPI, 장중 대응 확인</span>
+          </a>
+          <a class="summary-link-card" href="/live-auto-trading.html">
+            <strong>AI 실자동매매</strong>
+            <span>실계좌, 주문 preview, 정책 차단 사유</span>
+          </a>
+          <a class="summary-link-card" href="/us-trading">
+            <strong>US 자동매매</strong>
+            <span>Paper 계좌, 주문 판단, 포지션 현황</span>
+          </a>
+          <a class="summary-link-card" href="/rule-auto-trading.html">
+            <strong>RULE 자동매매</strong>
+            <span>비주력 전략이지만 계좌/포지션 유지 모니터링</span>
+          </a>
+          <a class="summary-link-card" href="/holdings.html">
+            <strong>보유종목</strong>
+            <span>국내 보유종목, 비중, 손익 점검</span>
+          </a>
+          <a class="summary-link-card" href="/trade-history.html">
+            <strong>매매기록</strong>
+            <span>최근 체결, 누적 이력, 사후 점검</span>
+          </a>
         </div>
       </div>
 
@@ -272,6 +303,33 @@
 
         <div class="g2">
           <div class="pc">
+            <div class="ey">전환 점검</div>
+            <h3>운영 전환 체크</h3>
+            <div id="transitionSummary" class="chip-row"></div>
+            <ul id="transitionChecklist" class="il"></ul>
+          </div>
+          <div class="pc">
+            <div class="ey">운영 메모</div>
+            <h3>전환 메모</h3>
+            <div class="sub-note">오늘 보류 사유나 수동 판단 메모를 간단히 남깁니다.</div>
+            <div id="transitionOpsHint" class="sub-note"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ═══ 탭: 스케줄 ═══ -->
+      <div class="tab-pane" id="tab-schedule">
+        <div class="sec-head">
+          <div>
+            <div class="sec-kicker">Schedule</div>
+            <h2 class="sec-title">스케줄러 / 배치 상태</h2>
+          </div>
+          <div class="sec-note">자동 배치, 산출물 최신성, 장중 대응 흐름을 한 화면에서 확인합니다.</div>
+        </div>
+
+        <div class="g2">
+          <div class="pc">
             <div class="ey">산출물</div>
             <h3>산출물 최신 상태</h3>
             <div class="kv" id="outputsKv"></div>
@@ -296,10 +354,77 @@
             <div class="sub-note" style="padding:16px;">runtime loading…</div>
           </div>
         </div>
+
+        <div class="mb">
+          <div class="pc">
+            <div class="ey">장중 대응</div>
+            <h3>장중 대응 변화</h3>
+            <div class="candidate-grid" id="opsIntradayGrid" style="margin-top:12px;"></div>
+          </div>
+        </div>
       </div>
 
       <!-- ═══ 탭: US Macro ═══ -->
-      <div class="tab-pane" id="tab-usmacro">
+      <div class="tab-pane" id="tab-accounts">
+        <div class="sec-head">
+          <div>
+            <div class="sec-kicker">Account Overview</div>
+            <h2 class="sec-title">계정 / 포지션 한눈에 보기</h2>
+          </div>
+          <div class="sec-note">AI 실계좌, RULE 계좌, US PAPER 계좌를 같은 기준으로 비교합니다.</div>
+        </div>
+        <div class="account-grid">
+          <div class="pc">
+            <div class="ey">AI 실자동매매</div>
+            <h3>AI 계좌</h3>
+            <div id="aiAccountChips" class="chip-row"></div>
+            <div class="kv" id="aiAccountKv"></div>
+            <div id="aiAccountNote" class="sub-note"></div>
+          </div>
+          <div class="pc">
+            <div class="ey">RULE 자동매매</div>
+            <h3>RULE 계좌</h3>
+            <div id="ruleAccountOverviewChips" class="chip-row"></div>
+            <div class="kv" id="ruleAccountOverviewKv"></div>
+            <div id="ruleAccountOverviewNote" class="sub-note"></div>
+          </div>
+          <div class="pc">
+            <div class="ey">US 자동매매</div>
+            <h3>US PAPER 계좌</h3>
+            <div id="usAccountChips" class="chip-row"></div>
+            <div class="kv" id="usAccountKv"></div>
+            <div id="usAccountNote" class="sub-note"></div>
+          </div>
+        </div>
+        <div class="g2">
+          <div class="pc">
+            <div class="ey">Cross Check</div>
+            <h3>계정 비교 체크</h3>
+            <div class="kv" id="accountComparisonKv"></div>
+          </div>
+          <div class="pc">
+            <div class="ey">Quick Access</div>
+            <h3>바로 이동</h3>
+            <div class="summary-link-grid">
+              <a class="summary-link-card" href="/live-auto-trading.html">
+                <strong>AI 실자동매매</strong>
+                <span>실계좌, 주문 preview, 정책 차단 사유</span>
+              </a>
+              <a class="summary-link-card" href="/rule-auto-trading.html">
+                <strong>RULE 자동매매</strong>
+                <span>주문 실행, top-up 대기, 보유 포지션</span>
+              </a>
+              <a class="summary-link-card" href="/us-trading">
+                <strong>US 자동매매</strong>
+                <span>Paper 계좌, 주문 판단, 포지션 현황</span>
+              </a>
+              <a class="summary-link-card" href="/trade-history.html">
+                <strong>매매기록</strong>
+                <span>최근 체결, 누적 이력, 사후 점검</span>
+              </a>
+            </div>
+          </div>
+        </div>
         <div class="sec-head">
           <div>
             <div class="sec-kicker">US Macro Overlay</div>
@@ -331,7 +456,51 @@
       </div>
 
       <!-- ═══ 탭: RULE ═══ -->
-      <div class="tab-pane" id="tab-rule">
+      <div class="tab-pane" id="tab-strategy">
+        <div class="sec-head">
+          <div>
+            <div class="sec-kicker">Strategy Overview</div>
+            <h2 class="sec-title">전략 실행 상태 요약</h2>
+          </div>
+          <div class="sec-note">세 전략의 오늘 실행 상태와 막힌 지점을 먼저 보고, 아래에서 상세를 확인합니다.</div>
+        </div>
+        <div class="g3">
+          <div class="pc">
+            <div class="ey">AI 실자동매매</div>
+            <h3>AI 실행 요약</h3>
+            <div id="aiStrategyChips" class="chip-row"></div>
+            <div class="kv" id="aiStrategyKv"></div>
+            <div id="aiStrategyNote" class="sub-note"></div>
+          </div>
+          <div class="pc">
+            <div class="ey">RULE 자동매매</div>
+            <h3>RULE 실행 요약</h3>
+            <div id="ruleStrategyChips" class="chip-row"></div>
+            <div class="kv" id="ruleStrategyKv"></div>
+            <div id="ruleStrategyNote" class="sub-note"></div>
+          </div>
+          <div class="pc">
+            <div class="ey">US 자동매매</div>
+            <h3>US 실행 요약</h3>
+            <div id="usStrategyChips" class="chip-row"></div>
+            <div class="kv" id="usStrategyKv"></div>
+            <div id="usStrategyNote" class="sub-note"></div>
+          </div>
+        </div>
+        <div class="g2">
+          <div class="pc">
+            <div class="ey">AI 상세</div>
+            <h3>AI 차단 / 진단</h3>
+            <ul id="aiStrategyDetails" class="il"></ul>
+            <div style="margin-top:10px;"><a href="/live-auto-trading.html" class="state-link">AI 자동매매 상세 →</a></div>
+          </div>
+          <div class="pc">
+            <div class="ey">US 상세</div>
+            <h3>US 판단 / 포지션</h3>
+            <ul id="usStrategyDetails" class="il"></ul>
+            <div style="margin-top:10px;"><a href="/us-trading" class="state-link">US 자동매매 상세 →</a></div>
+          </div>
+        </div>
         <div class="sec-head">
           <div>
             <div class="sec-kicker">RULE Trading</div>
@@ -365,6 +534,13 @@
 
       <!-- ═══ 탭: 참고 ═══ -->
       <div class="tab-pane" id="tab-ref">
+        <div class="sec-head">
+          <div>
+            <div class="sec-kicker">Analysis</div>
+            <h2 class="sec-title">추세 / 검증 / 메모</h2>
+          </div>
+          <div class="sec-note">운영 판단 이후에 보는 추세 분석과 검증용 참고 영역입니다.</div>
+        </div>
         <div class="g2">
           <div class="pc">
             <div class="ey">7D Visitors</div>
@@ -382,14 +558,6 @@
           </div>
         </div>
 
-        <div class="mb">
-          <div class="pc">
-            <div class="ey">장중 대응</div>
-            <h3>장중 대응 변화</h3>
-            <div class="candidate-grid" id="intradayOpsGrid" style="margin-top:12px;"></div>
-          </div>
-        </div>
-
         <div class="g2">
           <div class="pc">
             <div class="ey">추이</div>
@@ -399,10 +567,14 @@
             <div class="sub-note">최근 스냅샷 누적과 60일 성숙도 흐름</div>
           </div>
           <div class="pc">
-            <div class="ey">전환 점검</div>
-            <h3>운영 전환 체크</h3>
-            <div id="transitionSummary" class="chip-row"></div>
-            <ul id="transitionChecklist" class="il"></ul>
+            <div class="ey">참고 메모</div>
+            <h3>운영 메모</h3>
+            <div class="sub-note">핵심 판단과 보류 사유만 짧게 적는 보조 기록 영역입니다.</div>
+            <textarea id="operatorMemo" class="note-box" placeholder="예: auto_buy 정상, intraday 후보 없음, 특정 이슈 보류"></textarea>
+            <div class="note-actions">
+              <div id="operatorMemoMeta" class="note-meta">아직 저장한 메모가 없습니다.</div>
+              <button type="button" id="saveOperatorMemoBtn">메모 저장</button>
+            </div>
           </div>
         </div>
 
@@ -432,16 +604,6 @@
             <div id="shadowRepeatabilityHelp" class="sub-note"></div>
             <ul id="shadowRepeatabilityList" class="il"></ul>
           </div>
-          <div class="pc">
-            <div class="ey">운영 메모</div>
-            <h3>운영 메모</h3>
-            <div class="sub-note">핵심 판단과 보류 사유만 짧게 적는 보조 기록 영역입니다.</div>
-            <textarea id="operatorMemo" class="note-box" placeholder="예: auto_buy 정상, intraday 후보 없음, 특정 이슈 보류"></textarea>
-            <div class="note-actions">
-              <div id="operatorMemoMeta" class="note-meta">아직 저장한 메모가 없습니다.</div>
-              <button type="button" id="saveOperatorMemoBtn">메모 저장</button>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -449,7 +611,7 @@
     </div>
 
     <script src="./trading-policy-ui.js?v=20260422-3"></script>
-    <script src="./ops-unified-nav.js?v=20260518-nav-fix"></script>
-    <script src="./ops-readiness.js?v=20260518-us-macro-overlay"></script>
+    <script src="./ops-unified-nav.js?v=20260525-ops-nav-compact"></script>
+    <script src="./ops-readiness.js?v=20260525-ops-readiness"></script>
   </body>
 </html>

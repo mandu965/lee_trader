@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="stylesheet" href="./styles.css?v=20260525-ops-nav" />
     <title>매매 이력</title>
     <style>
       :root {
@@ -248,18 +249,8 @@
             모든 매수·매도 거래 내역과 실현손익 변화를 한눈에 확인할 수 있습니다.
           </p>
         </div>
-        <div class="toolbar">
-          <button class="btn-outline" onclick="location.href='index.html'">메인</button>
-          <button class="btn-outline is-secondary" onclick="location.href='ranking.html'">리서치 랭킹</button>
-          <button class="btn-outline is-secondary" onclick="location.href='meaningfulness.html'">리서치 리뷰</button>
-          <button class="btn-outline" onclick="location.href='ops-readiness.html'">운영자</button>
-          <button class="btn-outline" onclick="location.href='holdings.html'">보유종목</button>
-          <button class="btn-outline" onclick="location.href='paper-trading.html'">모의투자</button>
-          <button class="btn-outline is-active" onclick="location.href='trade-history.html'">매매 기록</button>
-          <button class="btn-outline" onclick="location.href='rule-auto-trading.html'">RULE 자동매매</button>
-          <button class="btn-outline" onclick="location.href='live-auto-trading.html'">실자동매매</button>
-        </div>
       </header>
+      <div data-unified-ops-nav data-nav-active="trade-history"></div>
 
       <!-- 요약 카드 -->
       <section class="card">
@@ -337,6 +328,7 @@
       </section>
     </div>
 
+    <script src="./ops-unified-nav.js?v=20260525-ops-nav-compact"></script>
     <script src="trade-history.js"></script>
   </body>
 </html>

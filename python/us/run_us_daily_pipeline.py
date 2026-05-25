@@ -173,8 +173,10 @@ def run_pipeline(args: argparse.Namespace) -> PipelineResult:
             price_result.failed_count,
             price_result.skipped_count,
         )
-        if price_result.active_ticker_count == 0 or (price_result.success_count == 0 and price_result.total_rows == 0):
+        if price_result.active_ticker_count == 0:
             final_status = "FAILED"
+        elif price_result.failed_count > 0 and price_result.success_count == 0 and final_status != "FAILED":
+            final_status = "WARN"
 
     if args.skip_quality:
         LOGGER.info("[US_PIPELINE] Step 3/4 Validate Quality skipped")

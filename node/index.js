@@ -7561,6 +7561,7 @@ app.get("/api/us/ranking", async (req, res) => {
     const dateParam = (req.query.date || "").trim() || null;
     const gradeParam = (req.query.grade || "").trim().toUpperCase() || null;
     const sectorParam = (req.query.sector || "").trim() || null;
+    const sourceParam = (req.query.source || "").trim() || null;
     const topN = Math.min(Math.max(parseInt(req.query.top_n || "50", 10), 1), 200);
 
     const relationCheck = await pool.query(
@@ -7573,16 +7574,54 @@ app.get("/api/us/ranking", async (req, res) => {
       });
     }
 
-    let tradeDateSql;
-    let params;
+    const snapshotWhere = ["COALESCE(is_etf, false) = false"];
+    const snapshotParams = [];
     if (dateParam) {
-      tradeDateSql = "$1::date";
-      params = [dateParam];
-    } else {
-      tradeDateSql = "(SELECT MAX(trade_date) FROM recommend.us_stock_rank_daily)";
-      params = [];
+      snapshotParams.push(dateParam);
+      snapshotWhere.push(`trade_date = $${snapshotParams.length}::date`);
+    }
+    if (sourceParam) {
+      snapshotParams.push(sourceParam);
+      snapshotWhere.push(`source = $${snapshotParams.length}`);
+    }
+    const snapshotResult = await pool.query(
+      `
+        SELECT
+          TO_CHAR(trade_date, 'YYYY-MM-DD') AS trade_date,
+          source
+        FROM recommend.us_stock_rank_daily
+        WHERE ${snapshotWhere.join(" AND ")}
+        ORDER BY
+          trade_date DESC,
+          CASE
+            WHEN source = 'ml_v1' THEN 0
+            WHEN source = 'rule_v1' THEN 1
+            ELSE 9
+          END,
+          source ASC
+        LIMIT 1
+      `,
+      snapshotParams
+    );
+    if (!snapshotResult.rows.length) {
+      return res.status(404).json({ error: "US ranking data not found. Run calculate_us_stock_rule_scores.py first." });
     }
 
+    const tradeDate = snapshotResult.rows[0].trade_date;
+    const snapshotSource = snapshotResult.rows[0].source;
+    const previousTradeDateResult = await pool.query(
+      `
+        SELECT TO_CHAR(MAX(trade_date), 'YYYY-MM-DD') AS trade_date
+        FROM recommend.us_stock_rank_daily
+        WHERE trade_date < $1::date
+          AND source = $2
+          AND COALESCE(is_etf, false) = false
+      `,
+      [tradeDate, snapshotSource]
+    );
+    const previousTradeDate = previousTradeDateResult.rows[0]?.trade_date || null;
+
+    const params = [tradeDate, snapshotSource];
     const gradeClause = gradeParam ? ` AND recommend_grade = $${params.length + 1}` : "";
     if (gradeParam) params.push(gradeParam);
 
@@ -7616,7 +7655,8 @@ app.get("/api/us/ranking", async (req, res) => {
         score_detail_json,
         source
       FROM recommend.us_stock_rank_daily
-      WHERE trade_date = ${tradeDateSql}
+      WHERE trade_date = $1::date
+        AND source = $2
         AND COALESCE(is_etf, false) = false
         ${gradeClause}
         ${sectorClause}
@@ -7626,15 +7666,34 @@ app.get("/api/us/ranking", async (req, res) => {
     params.push(topN);
 
     const result = await pool.query(sql, params);
-    if (!result.rows.length) {
-      return res.status(404).json({ error: "US ranking data not found. Run calculate_us_stock_rule_scores.py first." });
-    }
-
-    const tradeDate = result.rows[0].trade_date;
+    const previousRankResult = previousTradeDate
+      ? await pool.query(
+          `
+            SELECT symbol, rank_no
+            FROM recommend.us_stock_rank_daily
+            WHERE trade_date = $1::date
+              AND source = $2
+              AND COALESCE(is_etf, false) = false
+          `,
+          [previousTradeDate, snapshotSource]
+        )
+      : { rows: [] };
+    const previousRankMap = new Map(
+      previousRankResult.rows.map((row) => [
+        String(row.symbol || "").toUpperCase(),
+        row.rank_no != null ? Number(row.rank_no) : null,
+      ])
+    );
     const rows = result.rows.map((r) => ({
       trade_date: r.trade_date,
       symbol: r.symbol,
       rank_no: r.rank_no,
+      previous_rank_no: previousRankMap.get(String(r.symbol || "").toUpperCase()) ?? null,
+      rank_delta:
+        Number.isFinite(Number(previousRankMap.get(String(r.symbol || "").toUpperCase()))) &&
+        Number.isFinite(Number(r.rank_no))
+          ? Number(previousRankMap.get(String(r.symbol || "").toUpperCase())) - Number(r.rank_no)
+          : null,
       grade: r.recommend_grade,
       total_score: r.total_score != null ? Number(r.total_score) : null,
       momentum_score: r.momentum_score != null ? Number(r.momentum_score) : null,
@@ -7653,17 +7712,20 @@ app.get("/api/us/ranking", async (req, res) => {
       exclude_reason: r.exclude_reason || null,
       reason_summary: r.reason_summary || null,
       score_detail: r.score_detail_json || null,
+      source: r.source || snapshotSource,
     }));
 
     const gradeCounts = {};
     rows.forEach((r) => { gradeCounts[r.grade] = (gradeCounts[r.grade] || 0) + 1; });
     const totalCountResult = await pool.query(
-      `SELECT COUNT(*) FROM recommend.us_stock_rank_daily WHERE trade_date = $1 AND COALESCE(is_etf, false) = false`,
-      [tradeDate]
+      `SELECT COUNT(*) FROM recommend.us_stock_rank_daily WHERE trade_date = $1 AND source = $2 AND COALESCE(is_etf, false) = false`,
+      [tradeDate, snapshotSource]
     );
     const totalCount = Number(totalCountResult.rows[0].count);
 
     res.json({
+      source: snapshotSource,
+      previous_trade_date: previousTradeDate,
       trade_date: tradeDate,
       total_count: totalCount,
       returned_count: rows.length,
@@ -7793,7 +7855,16 @@ async function resolveUsTradingAccountId(tradeDate) {
 }
 
 async function loadUsTradingAccountMetrics(tradeDate, accountId) {
-  const initialCashDefault = Number(process.env.US_PAPER_INITIAL_CASH || 0) || 0;
+  let initialCashDefault = Number(process.env.US_PAPER_INITIAL_CASH || 0) || 0;
+  if (initialCashDefault <= 0) {
+    const fallbackInitialCashRow = await pool.query(
+      `SELECT initial_cash
+         FROM paper.us_stock_paper_account
+        ORDER BY updated_at DESC NULLS LAST, initial_cash DESC NULLS LAST
+        LIMIT 1`
+    ).catch(() => ({ rows: [] }));
+    initialCashDefault = Number(fallbackInitialCashRow.rows[0]?.initial_cash || 0) || 0;
+  }
   const emptyMetrics = {
     account_id: accountId || null,
     initial_cash_usd: initialCashDefault,

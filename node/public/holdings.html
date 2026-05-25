@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>보유 종목 현황 - Lee Trader</title>
+  <link rel="stylesheet" href="./styles.css?v=20260525-ops-nav" />
   <style>
     :root {
       --bg: #020617;
@@ -478,18 +479,8 @@
           보유 유지 여부와 매도 검토 우선순위를 먼저 보는 화면입니다.
         </div>
       </div>
-      <div class="toolbar">
-        <button class="btn" onclick="location.href='/app'">메인</button>
-        <button class="btn secondary" onclick="location.href='ranking.html'">리서치 랭킹</button>
-        <button class="btn secondary" onclick="location.href='meaningfulness.html'">리서치 리뷰</button>
-        <button class="btn" onclick="location.href='ops-readiness.html'">운영자</button>
-        <button class="btn primary" onclick="location.href='holdings.html'">보유종목</button>
-        <button class="btn" onclick="location.href='paper-trading.html'">모의투자</button>
-        <button class="btn" onclick="location.href='trade-history.html'">매매 기록</button>
-        <button class="btn" onclick="location.href='rule-auto-trading.html'">RULE 자동매매</button>
-        <button class="btn" onclick="location.href='live-auto-trading.html'">실자동매매</button>
-      </div>
     </header>
+    <div data-unified-ops-nav data-nav-active="holdings"></div>
 
     <section class="guide">
       <div class="panel">
@@ -569,6 +560,7 @@
     </section>
   </div>
 
+  <script src="./ops-unified-nav.js?v=20260525-ops-nav-compact"></script>
   <script src="./trading-policy-ui.js"></script>
   <script>
     function fmtNumber(v, digits = 0) {

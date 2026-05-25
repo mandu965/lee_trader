@@ -4,15 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>알림 로그</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260525-ops-nav" />
     <style>
       .ops-page { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; }
       .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
       .page-title { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
       .page-subtitle { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.65; }
-      .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-      .nav-link { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 14px; border-radius: 10px; border: 1px solid rgba(71,85,105,0.7); background: rgba(30,41,59,0.9); color: #f8fafc; font-size: 14px; font-weight: 700; text-decoration: none; }
-      .nav-link:hover { background: rgba(51,65,85,0.96); }
       .card { border: 1px solid rgba(71,85,105,0.55); border-radius: 18px; background: linear-gradient(180deg,rgba(15,23,42,0.92),rgba(15,23,42,0.74)); padding: 18px; box-shadow: 0 18px 40px rgba(2,6,23,0.34); margin-bottom: 16px; }
       .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; margin-bottom: 16px; }
       .eyebrow { font-size: 11px; color: #93c5fd; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; }
@@ -57,10 +54,8 @@
           <h1 class="page-title">알림 로그</h1>
           <p class="page-subtitle">KPI 이상·주문 오류 자동 감지 기록 — <code>outputs/alert_log.json</code></p>
         </div>
-        <div class="page-actions">
-          <a href="./ops-readiness.html" class="nav-link">운영자 페이지</a>
-        </div>
       </div>
+      <div data-unified-ops-nav data-nav-active="alerts"></div>
 
       <div class="grid-3" id="summary-cards">
         <div class="card">
@@ -92,6 +87,7 @@
       </div>
     </div>
 
+    <script src="./ops-unified-nav.js?v=20260525-ops-nav-compact"></script>
     <script>
       let currentLevel = "";
       let allEntries = [];

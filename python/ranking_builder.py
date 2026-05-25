@@ -83,7 +83,7 @@ from scoring.final_score import (
 from score_explainer import attach_score_explain_columns
 
 try:
-    from db import ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite, use_sqlite_fallback_writes
+    from db import accumulate_date_rows_pg, ensure_unique_keys, get_engine, replace_table_rows_pg, replace_table_rows_sqlite, use_sqlite_fallback_writes
 except Exception:
     get_engine = None
     ensure_unique_keys = None
@@ -5829,8 +5829,8 @@ def save_ranking(
             db_out = _prepare_db_rows(df_out, pg_columns or DAILY_RANKING_STORE_COLUMNS)
             if ensure_unique_keys:
                 ensure_unique_keys(db_out, DAILY_RANKING_PK, "daily_ranking")
-            replace_table_rows_pg("daily_ranking", db_out, columns=list(db_out.columns))
-            logging.info("Replaced daily_ranking rows in Postgres (rows=%d)", len(db_out))
+            accumulate_date_rows_pg("daily_ranking", db_out, columns=list(db_out.columns))
+            logging.info("Accumulated daily_ranking rows in Postgres (rows=%d)", len(db_out))
             return
     except Exception:
         logging.exception("Postgres save failed, fallback to sqlite")

@@ -4,14 +4,12 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>점수 검증</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./styles.css?v=20260525-ops-nav" />
     <style>
       .score-check-page { max-width: 1560px; margin: 0 auto; padding: 24px 20px 48px; }
       .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 18px; }
       .page-title { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
       .page-subtitle { margin: 8px 0 0; color: var(--color-text-secondary); font-size: 13px; line-height: 1.65; max-width: 880px; }
-      .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-      .page-actions button.is-active { border-color: rgba(56, 189, 248, 0.44); background: rgba(56, 189, 248, 0.12); color: #bae6fd; }
       .toolbar-lite { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
       .toolbar-lite .status { color: var(--color-text-secondary); font-size: 12px; }
       .grid-hero { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
@@ -61,13 +59,8 @@
             최신 `daily_ranking` 기준으로 final score 저장값과 재계산값 차이, fallback 사용 여부, 상위 종목 구성점수를 한 화면에서 확인합니다.
           </p>
         </div>
-        <div class="page-actions">
-          <button type="button" onclick="location.href='/app'">메인</button>
-          <button type="button" onclick="location.href='./ranking.html'">랭킹</button>
-          <button type="button" onclick="location.href='./ops-readiness.html'">운영</button>
-          <button type="button" class="is-active" onclick="location.href='/score-check'">점수 검증</button>
-        </div>
       </header>
+      <div data-unified-ops-nav data-nav-active="score-check"></div>
 
       <section class="toolbar-lite">
         <label>
@@ -136,6 +129,7 @@
 
       <section id="emptyState" class="empty-state" hidden>점수 검증 데이터를 불러오지 못했습니다.</section>
     </div>
+    <script src="./ops-unified-nav.js?v=20260525-ops-nav-compact"></script>
     <script src="./score-check.js"></script>
   </body>
 </html>

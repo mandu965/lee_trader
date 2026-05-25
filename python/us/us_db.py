@@ -64,6 +64,16 @@ READ_PRICE_STATS_SQL = text(
     """
 )
 
+READ_LATEST_PRICE_TRADE_DATE_SQL = text(
+    """
+    SELECT MAX(trade_date) AS latest_trade_date
+    FROM market.us_stock_daily_price
+    WHERE ticker = ANY(:tickers)
+      AND trade_date <= :as_of_date
+      AND data_source = :data_source
+    """
+)
+
 READ_ANOMALY_STATS_SQL = text(
     """
     SELECT
@@ -4431,6 +4441,18 @@ def fetch_price_stats(tickers: list[str], *, as_of_date: date, data_source: str)
             {"tickers": tickers, "as_of_date": as_of_date, "data_source": data_source},
         ).mappings().all()
     return {str(row["ticker"]).upper(): dict(row) for row in rows}
+
+
+def fetch_latest_price_trade_date(tickers: list[str], *, as_of_date: date, data_source: str) -> date | None:
+    if not tickers:
+        return None
+    engine = get_us_engine()
+    with engine.connect() as conn:
+        row = conn.execute(
+            READ_LATEST_PRICE_TRADE_DATE_SQL,
+            {"tickers": tickers, "as_of_date": as_of_date, "data_source": data_source},
+        ).mappings().one()
+    return row.get("latest_trade_date")
 
 
 def fetch_anomaly_stats(tickers: list[str], *, as_of_date: date, data_source: str) -> dict[str, dict[str, object]]:
