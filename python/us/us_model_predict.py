@@ -158,6 +158,10 @@ def load_features_for_date(engine, trade_date: date, feature_cols: list[str]) ->
                 )
             daily_df = merge_financial_asof(daily_df, fin_df)
 
+    for col in feature_cols:
+        if col in daily_df.columns and daily_df[col].dtype == object:
+            daily_df[col] = pd.to_numeric(daily_df[col], errors="coerce")
+
     logging.info("[US_PREDICT] Feature rows for %s: %d tickers", td_str, len(daily_df))
     return daily_df
 

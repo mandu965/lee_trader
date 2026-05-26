@@ -35,6 +35,7 @@ from python.us.us_db import (
 LOGGER = logging.getLogger("us_rule_rank")
 BENCHMARKS = ("SPY", "QQQ")
 PRICE_LOOKBACK_MIN_ROWS = 60
+_RESERVED_RULE_SOURCE_PREFIXES = ("ml",)
 
 
 @dataclass(frozen=True)
@@ -127,6 +128,17 @@ def _json_default(value: object) -> object:
     if numeric is not None and not isinstance(value, str):
         return numeric
     return str(value)
+
+
+def _resolve_rule_source(source: object) -> str:
+    resolved = str(source or "rule_v1").strip() or "rule_v1"
+    lower = resolved.lower()
+    if any(lower.startswith(prefix) for prefix in _RESERVED_RULE_SOURCE_PREFIXES):
+        raise ValueError(
+            f"[US_RULE_RANK] reserved source tag disallowed for rule ranking: {resolved}. "
+            "Use US_RULE_RANKING_SOURCE=rule_v1 (or another non-ml tag)."
+        )
+    return resolved
 
 
 def _cap(value: float, *, lower: float, upper: float) -> float:
@@ -1105,6 +1117,7 @@ def calculate_rule_scores(
 ) -> RuleRankingRunResult:
     if not cfg.enabled:
         raise SystemExit("[US_RULE_RANK] US_RULE_RANKING_ENABLED=0. Scoring is disabled.")
+    source = _resolve_rule_source(source)
 
     universe_rows = fetch_meta_us_universe_rows()
     active_universe = [row for row in universe_rows if str(row.get("symbol") or "").strip()]

@@ -19,7 +19,8 @@ except Exception:
 
 import db as db_module
 from db import get_engine
-from sync_auxiliary_payloads import sync_history_payload, sync_inventory_payload, sync_json_payload, sync_rows_payload
+from sync_auxiliary_payloads import sync_history_payload, sync_inventory_payload, sync_json_payload, sync_rows_payload, read_csv_rows
+from payload_store import upsert_json_payload
 from sync_csv_db_parity import sync_table, verify_table, SYNC_TABLES, VERIFY_TABLES
 from sync_live_trade_ledger import ensure_tables
 
@@ -40,8 +41,11 @@ FLOW_DAILY_SYNC_DATES = 60
 US_TRADE_DDL_PATH = ROOT / "postgres" / "us_trade_tables.sql"
 US_STOCK_DDL_PATH = ROOT / "postgres" / "us_stock_tables.sql"
 
-WEB_TABLE_SYNC_SPECS: list[dict[str, object]] = [
-    {"table": "public.fact_price_daily", "date_column": "date", "lookback_dates": 180},
+FACT_PRICE_DAILY_SYNC_SPEC: dict[str, object] = {
+    "table": "public.fact_price_daily", "date_column": "date", "lookback_dates": 180
+}
+
+US_WEB_TABLE_SYNC_SPECS: list[dict[str, object]] = [
     {"table": "market.us_stock_universe", "date_column": None, "lookback_dates": None},
     {"table": "trade.us_buy_candidate_log", "date_column": "trade_date", "lookback_dates": 60},
     {"table": "trade.us_buy_decision_log", "date_column": "trade_date", "lookback_dates": 60},
@@ -1032,7 +1036,20 @@ def sync_us_ranking_table(source_database_url: str) -> None:
 
 
 def sync_us_supporting_tables(source_database_url: str) -> None:
-    for spec in WEB_TABLE_SYNC_SPECS:
+    logging.info("Starting supporting table sync: %s", FACT_PRICE_DAILY_SYNC_SPEC["table"])
+    sync_table_history(
+        source_database_url,
+        table_name=str(FACT_PRICE_DAILY_SYNC_SPEC["table"]),
+        date_column=FACT_PRICE_DAILY_SYNC_SPEC["date_column"],
+        lookback_dates=FACT_PRICE_DAILY_SYNC_SPEC["lookback_dates"],
+    )
+    logging.info("Completed supporting table sync: %s", FACT_PRICE_DAILY_SYNC_SPEC["table"])
+
+    if str(os.environ.get("SYNC_WEB_US_SUPPORTING", "1")).strip() in ("0", "false", "no"):
+        logging.info("Skip US supporting table sync: SYNC_WEB_US_SUPPORTING=0")
+        return
+
+    for spec in US_WEB_TABLE_SYNC_SPECS:
         logging.info("Starting supporting table sync: %s", spec["table"])
         sync_table_history(
             source_database_url,
@@ -1061,6 +1078,26 @@ def sync_payloads() -> None:
             "env_dv": live_summary.get("env_dv"),
         },
     )
+    # 수동매매 계좌 (KIS RULE 계좌) — 보유종목 0개여도 항상 동기화
+    rule_summary_path = OUTPUT_DIR / "rule_account_holdings_summary.json"
+    rule_summary = {}
+    if rule_summary_path.exists():
+        rule_summary = json.loads(rule_summary_path.read_text(encoding="utf-8-sig"))
+    rule_items = read_csv_rows(DATA_DIR / "rule_account_holdings.csv") or []
+    upsert_json_payload(
+        "rule_account_holdings",
+        {
+            "entity": "rule_account_holdings",
+            "generated_at": rule_summary.get("generated_at"),
+            "holding_count": rule_summary.get("holding_count", 0),
+            "cano_masked": rule_summary.get("cano_masked"),
+            "cash_summary": rule_summary.get("cash_summary", {}),
+            "items": rule_items,
+        },
+        generated_at=rule_summary.get("generated_at"),
+        source_path=rule_summary_path,
+    )
+    logging.info("rule_account_holdings payload synced: %d items", len(rule_items))
     sync_history_payload(
         "operational_buy_gate_history",
         DATA_DIR / "history" / "operational_buy_gate_history.csv",

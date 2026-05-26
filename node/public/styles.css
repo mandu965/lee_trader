@@ -701,6 +701,9 @@ tbody tr:hover,
 .compact-badge--calibration.is-low { color: #fda4af; border-color: rgba(253,164,175,0.24); background: rgba(253,164,175,0.10); }
 .compact-badge--calibration.is-unknown,
 .compact-badge--calibration.is-muted { color: var(--color-text-secondary); border-color: rgba(148,163,184,0.20); background: rgba(148,163,184,0.08); }
+.compact-badge--flow.is-high { color: #22c55e; border-color: rgba(34,197,94,0.30); background: rgba(34,197,94,0.12); }
+.compact-badge--flow.is-low { color: #f87171; border-color: rgba(248,113,113,0.30); background: rgba(248,113,113,0.12); }
+.compact-badge--flow.is-medium { color: var(--color-text-secondary); border-color: rgba(148,163,184,0.20); background: rgba(148,163,184,0.08); }
 .risk-badge-wrap { margin-top: 4px; }
 .cell-market .sector { font-size: 12px; opacity: 0.7; margin-left: 4px; }
 .market-subtext { margin-top: 6px; font-size: 12px; color: var(--color-text-secondary); }

@@ -307,7 +307,7 @@ services:
       SCHEDULER_DAILY_TIME: ${SCHEDULER_US_PIPELINE_DAILY_TIME:-06:30}
       SCHEDULER_POLL_SECONDS: ${SCHEDULER_US_PIPELINE_POLL_SECONDS:-60}
       SCHEDULER_SKIP_CATCHUP_ON_START: "1"
-      SCHEDULER_RUN_POLICY: always
+      SCHEDULER_RUN_POLICY: ${SCHEDULER_US_PIPELINE_RUN_POLICY:-always}
       SCHEDULER_STATUS_PATH: outputs/us_pipeline_scheduler_status.json
       SCHEDULER_LOG_PATH: logs/us_pipeline_scheduler.log
       SCHEDULER_FAIL_ON_RUNTIME_ASSET_ISSUES: "0"
@@ -367,6 +367,8 @@ services:
     ports:
       - "3400:3000"
     volumes:
+      - ./node:/app
+      - /app/node_modules
       - ./data:/app/data
       - ./outputs:/app/outputs
       - ./serving:/app/serving

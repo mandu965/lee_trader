@@ -238,6 +238,10 @@ def load_all_features(engine, start_date: date, end_date: date, feature_cols: li
             )
         daily_df = merge_financial_asof(daily_df, fin_df)
 
+    for col in feature_cols:
+        if col in daily_df.columns and daily_df[col].dtype == object:
+            daily_df[col] = pd.to_numeric(daily_df[col], errors="coerce")
+
     return daily_df
 
 

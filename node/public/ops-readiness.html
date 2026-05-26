@@ -167,7 +167,7 @@
         <button class="tab-btn" data-tab="ops">시스템</button>
         <button class="tab-btn" data-tab="schedule">스케줄</button>
         <button class="tab-btn" data-tab="accounts">계정 / 포지션</button>
-        <button class="tab-btn" data-tab="strategy">전략 실행</button>
+        <button class="tab-btn" data-tab="strategy">매매 현황</button>
         <button class="tab-btn" data-tab="ref">분석 / 참고</button>
       </nav>
 
@@ -222,39 +222,6 @@
           </div>
         </div>
 
-        <div class="sec-head">
-          <div>
-            <div class="sec-kicker">Quick Access</div>
-            <h2 class="sec-title">바로 이동</h2>
-          </div>
-          <div class="sec-note">판단 이후 가장 자주 여는 운영 화면을 바로 엽니다.</div>
-        </div>
-        <div class="summary-link-grid">
-          <a class="summary-link-card" href="/ops-readiness.html">
-            <strong>시스템 상태</strong>
-            <span>스케줄러, Gate, KPI, 장중 대응 확인</span>
-          </a>
-          <a class="summary-link-card" href="/live-auto-trading.html">
-            <strong>AI 실자동매매</strong>
-            <span>실계좌, 주문 preview, 정책 차단 사유</span>
-          </a>
-          <a class="summary-link-card" href="/us-trading">
-            <strong>US 자동매매</strong>
-            <span>Paper 계좌, 주문 판단, 포지션 현황</span>
-          </a>
-          <a class="summary-link-card" href="/rule-auto-trading.html">
-            <strong>RULE 자동매매</strong>
-            <span>비주력 전략이지만 계좌/포지션 유지 모니터링</span>
-          </a>
-          <a class="summary-link-card" href="/holdings.html">
-            <strong>보유종목</strong>
-            <span>국내 보유종목, 비중, 손익 점검</span>
-          </a>
-          <a class="summary-link-card" href="/trade-history.html">
-            <strong>매매기록</strong>
-            <span>최근 체결, 누적 이력, 사후 점검</span>
-          </a>
-        </div>
       </div>
 
       <!-- ═══ 탭: 운영 ═══ -->
@@ -371,7 +338,7 @@
             <div class="sec-kicker">Account Overview</div>
             <h2 class="sec-title">계정 / 포지션 한눈에 보기</h2>
           </div>
-          <div class="sec-note">AI 실계좌, RULE 계좌, US PAPER 계좌를 같은 기준으로 비교합니다.</div>
+          <div class="sec-note">AI 실계좌와 수동매매 계좌를 같은 기준으로 비교하고 동기화 상태를 점검합니다.</div>
         </div>
         <div class="account-grid">
           <div class="pc">
@@ -382,18 +349,11 @@
             <div id="aiAccountNote" class="sub-note"></div>
           </div>
           <div class="pc">
-            <div class="ey">RULE 자동매매</div>
-            <h3>RULE 계좌</h3>
+            <div class="ey">수동매매</div>
+            <h3>수동매매 계좌</h3>
             <div id="ruleAccountOverviewChips" class="chip-row"></div>
             <div class="kv" id="ruleAccountOverviewKv"></div>
             <div id="ruleAccountOverviewNote" class="sub-note"></div>
-          </div>
-          <div class="pc">
-            <div class="ey">US 자동매매</div>
-            <h3>US PAPER 계좌</h3>
-            <div id="usAccountChips" class="chip-row"></div>
-            <div class="kv" id="usAccountKv"></div>
-            <div id="usAccountNote" class="sub-note"></div>
           </div>
         </div>
         <div class="g2">
@@ -402,56 +362,6 @@
             <h3>계정 비교 체크</h3>
             <div class="kv" id="accountComparisonKv"></div>
           </div>
-          <div class="pc">
-            <div class="ey">Quick Access</div>
-            <h3>바로 이동</h3>
-            <div class="summary-link-grid">
-              <a class="summary-link-card" href="/live-auto-trading.html">
-                <strong>AI 실자동매매</strong>
-                <span>실계좌, 주문 preview, 정책 차단 사유</span>
-              </a>
-              <a class="summary-link-card" href="/rule-auto-trading.html">
-                <strong>RULE 자동매매</strong>
-                <span>주문 실행, top-up 대기, 보유 포지션</span>
-              </a>
-              <a class="summary-link-card" href="/us-trading">
-                <strong>US 자동매매</strong>
-                <span>Paper 계좌, 주문 판단, 포지션 현황</span>
-              </a>
-              <a class="summary-link-card" href="/trade-history.html">
-                <strong>매매기록</strong>
-                <span>최근 체결, 누적 이력, 사후 점검</span>
-              </a>
-            </div>
-          </div>
-        </div>
-        <div class="sec-head">
-          <div>
-            <div class="sec-kicker">US Macro Overlay</div>
-            <h2 class="sec-title">미국 매크로 오버레이</h2>
-          </div>
-          <div class="sec-note" id="usMacroHeaderNote">미국 ETF/지수 기반 매크로 상태 · 로딩 중…</div>
-        </div>
-        <div class="g3">
-          <div class="pc" id="usMacroStatusCard">
-            <div class="ey">Macro Status</div>
-            <h3>오늘 매크로 상태</h3>
-            <div id="usMacroStatusChips" class="chip-row"></div>
-            <div class="kv" id="usMacroKv"></div>
-            <div id="usMacroSummary" class="sub-note"></div>
-          </div>
-          <div class="pc">
-            <div class="ey">Overlay 집계</div>
-            <h3>오늘 Overlay 결과</h3>
-            <div id="usMacroOverlayChips" class="chip-row"></div>
-            <div class="kv" id="usMacroOverlayKv"></div>
-            <div class="sub-note" id="usMacroOverlayNote">로딩 중…</div>
-          </div>
-          <div class="pc">
-            <div class="ey">영향 종목</div>
-            <h3>감점 / 차단 종목</h3>
-            <ul id="usMacroAffectedList" class="il"></ul>
-          </div>
         </div>
       </div>
 
@@ -459,12 +369,12 @@
       <div class="tab-pane" id="tab-strategy">
         <div class="sec-head">
           <div>
-            <div class="sec-kicker">Strategy Overview</div>
-            <h2 class="sec-title">전략 실행 상태 요약</h2>
+            <div class="sec-kicker">Execution Overview</div>
+            <h2 class="sec-title">매매 실행 / 동기화 요약</h2>
           </div>
-          <div class="sec-note">세 전략의 오늘 실행 상태와 막힌 지점을 먼저 보고, 아래에서 상세를 확인합니다.</div>
+          <div class="sec-note">AI 자동매매와 수동매매 계좌 동기화의 오늘 상태를 먼저 보고, 아래에서 상세를 확인합니다.</div>
         </div>
-        <div class="g3">
+        <div class="g2">
           <div class="pc">
             <div class="ey">AI 실자동매매</div>
             <h3>AI 실행 요약</h3>
@@ -473,18 +383,11 @@
             <div id="aiStrategyNote" class="sub-note"></div>
           </div>
           <div class="pc">
-            <div class="ey">RULE 자동매매</div>
-            <h3>RULE 실행 요약</h3>
+            <div class="ey">수동매매</div>
+            <h3>수동매매 동기화 요약</h3>
             <div id="ruleStrategyChips" class="chip-row"></div>
             <div class="kv" id="ruleStrategyKv"></div>
             <div id="ruleStrategyNote" class="sub-note"></div>
-          </div>
-          <div class="pc">
-            <div class="ey">US 자동매매</div>
-            <h3>US 실행 요약</h3>
-            <div id="usStrategyChips" class="chip-row"></div>
-            <div class="kv" id="usStrategyKv"></div>
-            <div id="usStrategyNote" class="sub-note"></div>
           </div>
         </div>
         <div class="g2">
@@ -495,36 +398,31 @@
             <div style="margin-top:10px;"><a href="/live-auto-trading.html" class="state-link">AI 자동매매 상세 →</a></div>
           </div>
           <div class="pc">
-            <div class="ey">US 상세</div>
-            <h3>US 판단 / 포지션</h3>
-            <ul id="usStrategyDetails" class="il"></ul>
-            <div style="margin-top:10px;"><a href="/us-trading" class="state-link">US 자동매매 상세 →</a></div>
+            <div class="ey">수동매매 상세</div>
+            <h3>수동 계좌 보유 / 동기화 메모</h3>
+            <ul id="rulePositionList" class="il"></ul>
+            <div style="margin-top:10px;"><a href="/manual-trading.html" class="state-link">수동매매 상세 →</a></div>
           </div>
         </div>
         <div class="sec-head">
           <div>
-            <div class="sec-kicker">RULE Trading</div>
-            <h2 class="sec-title">RULE 자동매매 현황</h2>
+            <div class="sec-kicker">Manual Account Sync</div>
+            <h2 class="sec-title">수동매매 계좌 반영 현황</h2>
           </div>
-          <div class="sec-note">오늘 주문 실행 결과 · 보유 포지션 · 부분 체결 top-up 대기</div>
+          <div class="sec-note">운영자 직접 매매 이후 시스템이 현재 계좌 상태를 얼마나 정확히 반영하고 있는지 점검합니다.</div>
         </div>
-        <div class="g3">
+        <div class="g2">
           <div class="pc">
-            <div class="ey">오늘 실행</div>
-            <h3>주문 실행 결과</h3>
+            <div class="ey">계좌 동기화</div>
+            <h3>최근 동기화 / 체결 반영</h3>
             <div id="ruleExecChipRow" class="chip-row"></div>
             <div class="kv" id="ruleExecKv"></div>
             <ul id="ruleExecItems" class="il" style="margin-top:10px;"></ul>
           </div>
           <div class="pc">
-            <div class="ey">포지션</div>
-            <h3>현재 보유 종목</h3>
+            <div class="ey">계좌 보유</div>
+            <h3>보유 종목 / 대기 항목</h3>
             <div id="ruleAccountChipRow" class="chip-row"></div>
-            <ul id="rulePositionList" class="il" style="margin-top:10px;"></ul>
-          </div>
-          <div class="pc">
-            <div class="ey">부분 체결</div>
-            <h3>Top-up 대기</h3>
             <div id="rulePartialFillChipRow" class="chip-row"></div>
             <ul id="rulePartialFillList" class="il" style="margin-top:10px;"></ul>
             <div id="rulePartialFillHelp" class="sub-note"></div>
@@ -611,7 +509,7 @@
     </div>
 
     <script src="./trading-policy-ui.js?v=20260422-3"></script>
-    <script src="./ops-unified-nav.js?v=20260525-ops-nav-compact"></script>
+    <script src="./ops-unified-nav.js?v=20260527-nav-unified"></script>
     <script src="./ops-readiness.js?v=20260525-ops-readiness"></script>
   </body>
 </html>

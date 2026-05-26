@@ -1848,9 +1848,21 @@ function buildMarketRegimeInterpretation(regimeInput) {
 function buildRuleOpsSummary() {
   const execResults = readJsonFile(path.join(OUTPUTS_DIR, "rule_execution_results.json"), {});
   const liveState   = readJsonFile(path.join(OUTPUTS_DIR, "rule_account_live_state.json"), {});
+  const holdingsSummary = readJsonFile(path.join(OUTPUTS_DIR, "rule_account_holdings_summary.json"), {});
   const fillSync    = readJsonFile(path.join(OUTPUTS_DIR, "rule_execution_fill_sync.json"), {});
   const partialQ    = readJsonFile(path.join(OUTPUTS_DIR, "rule_partial_fill_queue.json"), {});
 
+  const liveAsOfDate = liveState.as_of_date || null;
+  const fillSyncMatchesLive = Boolean(
+    liveAsOfDate &&
+    fillSync.as_of_date &&
+    String(fillSync.as_of_date) === String(liveAsOfDate)
+  );
+  const partialQueueMatchesLive = Boolean(
+    liveAsOfDate &&
+    partialQ.as_of_date &&
+    String(partialQ.as_of_date) === String(liveAsOfDate)
+  );
   const execSummary = execResults.summary || {};
   const positions = (liveState.positions || []).map((p) => ({
     code: String(p.code || "").padStart(6, "0"),
@@ -1862,29 +1874,41 @@ function buildRuleOpsSummary() {
     entry_price: Number(p.entry_price) || null,
     last_price: Number(p.last_price) || null,
   }));
+  const recentTrades = (liveState.recent_trades || []).map((trade) => ({
+    code: String(trade.code || "").padStart(6, "0"),
+    side: trade.side || null,
+    order_status: "filled",
+    order_qty: Number(trade.qty) || null,
+    filled_qty: Number(trade.qty) || null,
+    avg_fill_price: Number(trade.price) || null,
+    order_block_reason: null,
+    traded_at: trade.date || null,
+    broker_order_id: trade.broker_order_id || null,
+  }));
 
   const execItems = (execResults.items || []).filter((item) =>
     ["submitted", "filled", "partial_filled", "failed"].includes(String(item.order_status || ""))
   );
-
-  return {
-    as_of_date: execResults.as_of_date || liveState.as_of_date || null,
-    run_mode: execResults.run_mode || null,
-    generated_at: execResults.generated_at || null,
-    execution: {
-      as_of_date: execResults.as_of_date || null,
-      run_mode: execResults.run_mode || null,
-      order_run_aborted: !!execResults.order_run_aborted,
-      abort_reason: execResults.order_run_abort_reason || null,
-      reconciliation_blocked: !!execResults.new_orders_blocked_by_reconciliation,
-      submitted_count: Number(execSummary.submitted_count) || 0,
-      filled_count: Number(execSummary.filled_count) || 0,
-      partial_filled_count: Number(execSummary.partial_filled_count) || 0,
-      unfilled_count: Number(execSummary.unfilled_count) || 0,
-      failed_count: Number(execSummary.failed_count) || 0,
-      buy_filled_amount: Number(execSummary.buy_filled_amount) || 0,
-      sell_filled_amount: Number(execSummary.sell_filled_amount) || 0,
-      items: execItems.map((item) => ({
+  const syncedExecItems = fillSyncMatchesLive
+    ? (fillSync.items || []).filter((item) =>
+        ["submitted", "filled", "partial_filled", "failed"].includes(String(item.order_status || ""))
+      )
+    : [];
+  const executionItems = recentTrades.length
+    ? recentTrades
+    : syncedExecItems.length
+    ? syncedExecItems.map((item) => ({
+        code: String(item.code || "").padStart(6, "0"),
+        side: item.side || null,
+        order_status: item.order_status || null,
+        order_qty: Number(item.order_qty) || null,
+        filled_qty: Number(item.filled_qty) || null,
+        avg_fill_price: Number(item.avg_fill_price) || null,
+        order_block_reason: null,
+        traded_at: null,
+        broker_order_id: item.broker_order_id || null,
+      }))
+    : execItems.map((item) => ({
         code: String(item.code || "").padStart(6, "0"),
         side: item.side || null,
         order_status: item.order_status || null,
@@ -1892,23 +1916,60 @@ function buildRuleOpsSummary() {
         filled_qty: Number(item.filled_qty) || null,
         avg_fill_price: Number(item.avg_fill_price) || null,
         order_block_reason: item.primary_block_reason || item.order_block_reason || null,
-      })),
+        traded_at: null,
+        broker_order_id: null,
+      }));
+  const accountCash = Number(
+    holdingsSummary?.cash_summary?.dnca_tot_amt ??
+    liveState.cash ??
+    0
+  ) || null;
+  const accountEquity = Number(
+    holdingsSummary?.cash_summary?.tot_evlu_amt ??
+    liveState.total_equity ??
+    0
+  ) || null;
+  const effectiveGeneratedAt = holdingsSummary.generated_at || liveState.generated_at || execResults.generated_at || null;
+  const effectiveAsOfDate = liveAsOfDate || execResults.as_of_date || null;
+
+  return {
+    as_of_date: effectiveAsOfDate,
+    run_mode: liveState.account_mode || execResults.run_mode || null,
+    generated_at: effectiveGeneratedAt,
+    execution: {
+      as_of_date: effectiveAsOfDate,
+      run_mode: liveState.account_mode || execResults.run_mode || null,
+      order_run_aborted: false,
+      abort_reason: null,
+      reconciliation_blocked: false,
+      submitted_count: recentTrades.length ? 0 : (fillSyncMatchesLive ? Number(fillSync.submitted_count) || 0 : 0),
+      filled_count: recentTrades.length ? recentTrades.length : (fillSyncMatchesLive ? Number(fillSync.filled_count) || 0 : 0),
+      partial_filled_count: fillSyncMatchesLive ? Number(fillSync.partial_filled_count) || 0 : 0,
+      unfilled_count: fillSyncMatchesLive ? Number(fillSync.unfilled_count) || 0 : 0,
+      failed_count: fillSyncMatchesLive ? Number(fillSync.failed_count) || 0 : 0,
+      buy_filled_amount: recentTrades
+        .filter((item) => String(item.side || "").toUpperCase() === "BUY")
+        .reduce((sum, item) => sum + ((Number(item.filled_qty) || 0) * (Number(item.avg_fill_price) || 0)), 0),
+      sell_filled_amount: recentTrades
+        .filter((item) => String(item.side || "").toUpperCase() === "SELL")
+        .reduce((sum, item) => sum + ((Number(item.filled_qty) || 0) * (Number(item.avg_fill_price) || 0)), 0),
+      items: executionItems,
     },
     account: {
-      total_equity: Number(liveState.total_equity) || null,
-      cash: Number(liveState.cash) || null,
+      total_equity: accountEquity,
+      cash: accountCash,
       position_count: positions.length,
     },
     positions,
     fill_sync: {
-      as_of_date: fillSync.as_of_date || null,
-      filled_count: Number(fillSync.filled_count) || 0,
-      partial_filled_count: Number(fillSync.partial_filled_count) || 0,
-      unfilled_count: Number(fillSync.unfilled_count) || 0,
-      canceled_count: Number(fillSync.canceled_count) || 0,
-      skip_reason: fillSync.skip_reason || null,
+      as_of_date: fillSyncMatchesLive ? fillSync.as_of_date || null : effectiveAsOfDate,
+      filled_count: fillSyncMatchesLive ? Number(fillSync.filled_count) || 0 : 0,
+      partial_filled_count: fillSyncMatchesLive ? Number(fillSync.partial_filled_count) || 0 : 0,
+      unfilled_count: fillSyncMatchesLive ? Number(fillSync.unfilled_count) || 0 : 0,
+      canceled_count: fillSyncMatchesLive ? Number(fillSync.canceled_count) || 0 : 0,
+      skip_reason: fillSyncMatchesLive ? fillSync.skip_reason || null : null,
     },
-    partial_fill_queue: (partialQ.items || []).map((item) => ({
+    partial_fill_queue: (partialQueueMatchesLive ? (partialQ.items || []) : []).map((item) => ({
       code: String(item.code || "").padStart(6, "0"),
       filled_qty: Number(item.filled_qty) || 0,
       unfilled_qty: Number(item.unfilled_qty) || 0,
@@ -6280,28 +6341,34 @@ app.get("/api/holdings", async (req, res) => {
   }
 });
 
-// RULE(수동매매) account holdings — reads data/rule_account_holdings.csv synced from KIS
+// RULE(수동매매) account holdings — DB-first (app_payload_store), fallback to local CSV
 app.get("/api/rule-holdings", async (req, res) => {
   try {
     const csvPath = path.join(DATA_DIR, "rule_account_holdings.csv");
-    const rows = readCsv(csvPath) || [];
 
-    // 예수금/계좌 요약 읽기
-    let cashBalance = null;
-    let totalAccountValue = null;
-    let summaryGeneratedAt = null;
-    try {
-      const summaryPath = path.join(OUTPUTS_DIR, "rule_account_holdings_summary.json");
-      if (fs.existsSync(summaryPath)) {
-        const summary = JSON.parse(fs.readFileSync(summaryPath, "utf8"));
-        cashBalance = summary?.cash_summary?.dnca_tot_amt ?? null;
-        totalAccountValue = summary?.cash_summary?.tot_evlu_amt ?? null;
-        summaryGeneratedAt = summary?.generated_at ?? null;
-      }
-    } catch (_) {}
+    // DB-first: sync_web_display_data.py가 rule_account_holdings payload 저장
+    const dbPayload = await readJsonPayloadDbFirst("rule_account_holdings");
+    const rows = Array.isArray(dbPayload?.items) ? dbPayload.items
+      : (readCsv(csvPath) || []);
+
+    // 예수금/계좌 요약 — DB payload 우선, 없으면 로컬 파일
+    let cashBalance = dbPayload?.cash_summary?.dnca_tot_amt ?? null;
+    let totalAccountValue = dbPayload?.cash_summary?.tot_evlu_amt ?? null;
+    let summaryGeneratedAt = dbPayload?.generated_at ?? null;
+    if (cashBalance === null) {
+      try {
+        const summaryPath = path.join(OUTPUTS_DIR, "rule_account_holdings_summary.json");
+        if (fs.existsSync(summaryPath)) {
+          const summary = JSON.parse(fs.readFileSync(summaryPath, "utf8"));
+          cashBalance = summary?.cash_summary?.dnca_tot_amt ?? null;
+          totalAccountValue = summary?.cash_summary?.tot_evlu_amt ?? null;
+          summaryGeneratedAt = summary?.generated_at ?? null;
+        }
+      } catch (_) {}
+    }
 
     if (!rows.length) return res.json({
-      count: 0, items: [], source: "rule_account_holdings.csv",
+      count: 0, items: [], source: "rule_account_holdings",
       cash_balance: cashBalance, total_account_value: totalAccountValue, synced_at: summaryGeneratedAt,
     });
 
@@ -7644,10 +7711,16 @@ app.get("/api/flow-history", async (req, res) => {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days * 2);
     const startDateStr = startDate.toISOString().slice(0, 10);
+    // KIS API (source_endpoint contains 'uapi') stores net_buy_amount in 백만원 units.
+    // pykrx stores in 원 units. Normalize to 원 by multiplying KIS values by 1,000,000.
     const sql = `
       SELECT code, date,
-        SUM(CASE WHEN investor_type = 'foreign' THEN net_buy_amount ELSE 0 END) AS foreign_net,
-        SUM(CASE WHEN investor_type = 'institution' THEN net_buy_amount ELSE 0 END) AS inst_net
+        SUM(CASE WHEN investor_type = 'foreign' THEN
+          CASE WHEN source_endpoint ILIKE '%uapi%' THEN net_buy_amount * 1000000 ELSE net_buy_amount END
+          ELSE 0 END) AS foreign_net,
+        SUM(CASE WHEN investor_type = 'institution' THEN
+          CASE WHEN source_endpoint ILIKE '%uapi%' THEN net_buy_amount * 1000000 ELSE net_buy_amount END
+          ELSE 0 END) AS inst_net
       FROM public.flow_daily
       WHERE date >= $1
         AND code = ANY($2::text[])

@@ -5,6 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>종목 상세</title>
+  <link rel="stylesheet" href="./styles.css?v=20260508d">
   <link rel="stylesheet" href="./ui-components.css">
   <style>
     :root {
@@ -30,11 +31,17 @@
     }
     a { color: var(--info); text-decoration: none; }
     .container { max-width: 1400px; margin: 24px auto; padding: 0 16px 32px; }
-    .top { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
-    .top-actions { display: grid; gap: 10px; justify-items: end; }
-    .top-nav-links, .top-trade-actions, .top-meta-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .top-nav-more { display: contents; }
-    .top-nav-more summary { display: none; }
+    .top { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; align-items: flex-start; }
+    .top-copy { display: grid; gap: 6px; }
+    .top-actions { display: grid; gap: 10px; justify-items: stretch; flex: 1 1 720px; }
+    .top-actions .toolbar-nav { min-width: 0; }
+    .toolbar-nav__aux {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+    }
     .title { margin: 0; font-size: 22px; }
     .sub { margin-top: 6px; color: var(--ts); font-size: 13px; }
     .badge, .pill, .chip { display: inline-flex; align-items: center; min-height: 28px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--b); background: rgba(255,255,255,.04); color: var(--ts); font-size: 12px; font-weight: 600; }
@@ -54,7 +61,6 @@
     }
     .action-btn.buy { border-color: rgba(34,197,94,.28); background: rgba(34,197,94,.12); color: #86efac; }
     .action-btn.sell { border-color: rgba(239,68,68,.28); background: rgba(239,68,68,.12); color: #fca5a5; }
-    .action-btn.nav-active { border-color: rgba(96,165,250,.34); background: rgba(96,165,250,.12); color: #bfdbfe; }
     .context-badge {
       border-color: rgba(96,165,250,.28);
       background: rgba(96,165,250,.10);
@@ -270,36 +276,7 @@
       .chip, .pill, .badge { min-height: 36px; }
       .factor-item { grid-template-columns: 1fr 54px; }
       .legend { gap: 8px; }
-      .top-actions { justify-items: stretch; }
-      .top-nav-links, .top-trade-actions, .top-meta-actions {
-        justify-content: flex-start;
-        flex-wrap: nowrap;
-        overflow-x: auto;
-        padding-bottom: 4px;
-        -webkit-overflow-scrolling: touch;
-      }
-      .top-nav-links > *, .top-trade-actions > *, .top-meta-actions > * { flex: 0 0 auto; }
-      .top-nav-more {
-        display: block;
-        width: 100%;
-        border: 1px solid rgba(255,255,255,.08);
-        border-radius: 12px;
-        background: rgba(255,255,255,.03);
-        overflow: hidden;
-      }
-      .top-nav-more summary {
-        display: block;
-        cursor: pointer;
-        padding: 10px 12px;
-        color: var(--ts);
-        font-size: 12px;
-        font-weight: 700;
-      }
-      .top-nav-more summary::-webkit-details-marker { display: none; }
-      .top-nav-more[open] summary { border-bottom: 1px solid rgba(255,255,255,.08); }
-      .top-nav-links {
-        padding: 10px 12px 12px;
-      }
+      .toolbar-nav__aux { justify-content: flex-start; }
     }
     @media (max-width: 640px) { .sr { grid-template-columns: 86px 1fr; } }
     @media (max-width: 430px) {
@@ -326,20 +303,19 @@
 <body>
   <div class="container">
     <div class="top">
-      <div>
+      <div class="top-copy">
         <h1 class="title"><a href="/app">오늘의 종목 추천</a> / 종목 상세</h1>
         <div class="sub">이 종목을 오늘 어떻게 볼지, 왜 그런지, 어디를 조심해야 하는지 순서대로 읽습니다.</div>
       </div>
       <div class="top-actions">
-        <details class="top-nav-more" open>
-          <summary>화면 이동</summary>
-          <div class="top-nav-links" data-unified-ops-nav data-nav-element="a" data-nav-class="action-btn" data-nav-active-class="nav-active" data-nav-secondary-class="" data-nav-secondary-keys=""></div>
-          <div class="top-meta-actions" style="margin-top:8px;">
+        <div class="toolbar-nav">
+          <div class="nav-tabs nav-tabs--primary" data-unified-ops-nav data-nav-active="main"></div>
+          <div class="toolbar-nav__aux">
             <span class="badge context-badge">현재 화면: 종목 상세</span>
-            <button id="detailOperatorLoginBtn" class="action-btn" type="button" style="display:none;">운영자 로그인</button>
+            <button id="detailOperatorLoginBtn" class="nav-tab" type="button" style="display:none;">운영자 로그인</button>
           </div>
-        </details>
-        <div class="top-trade-actions">
+        </div>
+        <div class="toolbar-nav__aux">
           <div id="titleBadge" class="badge">종목코드: -</div>
         </div>
       </div>
@@ -638,7 +614,7 @@
   </div>
 
   <script src="./ui-components.js"></script>
-<script src="./ops-unified-nav.js?v=20260525-ops-nav-compact"></script>
+<script src="./ops-unified-nav.js?v=20260527-nav-unified"></script>
   <script>
     const $ = (s) => document.querySelector(s);
     const q = (n) => new URLSearchParams(location.search).get(n);

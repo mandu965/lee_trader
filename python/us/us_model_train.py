@@ -213,22 +213,32 @@ def merge_financial_asof(daily_df: pd.DataFrame, fin_df: pd.DataFrame) -> pd.Dat
         logging.info("[US_TRAIN] Skipping financial feature merge (no effective financial dates)")
         return daily_df
 
-    # merge_asof requires datetime for the keys
+    # merge_asof can still fail on grouped inputs if the global key ordering is not
+    # monotonic enough across tickers. Merge per ticker for stability.
     daily_sorted = daily_df.copy()
     daily_sorted["_td"] = pd.to_datetime(daily_sorted["trade_date"])
-    daily_sorted = daily_sorted.sort_values(["ticker", "_td"])
+    daily_sorted = daily_sorted.sort_values(["ticker", "_td"]).reset_index(drop=True)
 
     fin_sorted = fin_narrow.copy()
-    fin_sorted["_fd"] = pd.to_datetime(fin_sorted["effective_date"])
-    fin_sorted = fin_sorted.sort_values(["ticker", "_fd", "fiscal_date"])
+    fin_sorted["_td"] = pd.to_datetime(fin_sorted["effective_date"])
+    fin_sorted = fin_sorted.sort_values(["ticker", "_td", "fiscal_date"]).reset_index(drop=True)
 
-    out = pd.merge_asof(
-        daily_sorted,
-        fin_sorted.rename(columns={"_fd": "_td"})[["ticker", "_td"] + fin_cols],
-        on="_td",
-        by="ticker",
-        direction="backward",
-    )
+    merged_parts: list[pd.DataFrame] = []
+    fin_by_ticker = {ticker: grp.copy() for ticker, grp in fin_sorted.groupby("ticker", sort=False)}
+    for ticker, daily_group in daily_sorted.groupby("ticker", sort=False):
+        right = fin_by_ticker.get(ticker)
+        if right is None or right.empty:
+            merged_parts.append(daily_group.copy())
+            continue
+        merged = pd.merge_asof(
+            daily_group.sort_values("_td"),
+            right[["_td"] + fin_cols].sort_values("_td"),
+            on="_td",
+            direction="backward",
+        )
+        merged_parts.append(merged)
+
+    out = pd.concat(merged_parts, ignore_index=True) if merged_parts else daily_sorted
     out = out.drop(columns=["_td"])
     logging.info("[US_TRAIN] After financial as-of merge: rows=%d", len(out))
     return out

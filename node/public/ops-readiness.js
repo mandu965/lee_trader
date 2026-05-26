@@ -171,9 +171,8 @@ function renderTodayTopActions(data, runtime, liveDiagnostics, ruleOps, usTradin
     ["종가 배치", runtime?.close_scheduler],
     ["AI auto_buy", runtime?.auto_buy_scheduler],
     ["live sync", runtime?.live_account_sync_scheduler],
-    ["RULE before_open", runtime?.rule_before_open_scheduler],
-    ["RULE after_open", runtime?.rule_after_open_scheduler],
-    ["US pipeline", runtime?.us_pipeline_scheduler],
+    ["수동 계좌 사전동기화", runtime?.rule_before_open_scheduler],
+    ["수동 계좌 장중동기화", runtime?.rule_after_open_scheduler],
   ];
   const failedRuntime = runtimePairs.find(([, row]) => ["failed", "error"].includes(String(row?.status || "").toLowerCase()));
   if (failedRuntime) {
@@ -205,23 +204,14 @@ function renderTodayTopActions(data, runtime, liveDiagnostics, ruleOps, usTradin
     });
   }
 
-  if (Number(usTradingSummary?.total_decisions || 0) > 0) {
-    actions.push({
-      title: "US 판단 결과 확인",
-      detail: `허용 ${fmtNum(usTradingSummary?.allowed_count)}건 · 차단 ${fmtNum(usTradingSummary?.blocked_count)}건 · 포지션 ${fmtNum(usTradingSummary?.open_positions)}개`,
-      href: "/us-trading",
-      cta: "US 상세",
-    });
-  }
-
   const partialQueue = Array.isArray(ruleOps?.partial_fill_queue) ? ruleOps.partial_fill_queue : [];
   const rulePositionCount = Number(ruleOps?.account?.position_count ?? (Array.isArray(ruleOps?.positions) ? ruleOps.positions.length : 0));
   if (partialQueue.length > 0 || rulePositionCount > 0) {
     actions.push({
-      title: "RULE 계좌 유지 점검",
-      detail: `포지션 ${fmtNum(rulePositionCount)}개 · top-up 대기 ${fmtNum(partialQueue.length)}건`,
-      href: "/rule-auto-trading.html",
-      cta: "RULE 상세",
+      title: "수동매매 계좌 동기화 점검",
+      detail: `보유 ${fmtNum(rulePositionCount)}개 · 동기화 대기 ${fmtNum(partialQueue.length)}건`,
+      href: "/manual-trading.html",
+      cta: "수동매매 상세",
     });
   }
 
@@ -327,9 +317,6 @@ function quoteSourceMeta(item) {
 function fmtMoneyShort(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
-  if (n >= 1_0000_0000_0000) return `${(n / 1_0000_0000_0000).toFixed(1)}조`;
-  if (n >= 1_0000_0000) return `${(n / 1_0000_0000).toFixed(1)}억`;
-  if (n >= 1_0000) return `${(n / 1_0000).toFixed(1)}만`;
   return n.toLocaleString("ko-KR");
 }
 
@@ -796,8 +783,7 @@ function schedulerActionLinks(key, row) {
   if (key === "auto_buy") links.push({ href: "/live-auto-trading.html", label: "AI 상세" });
   if (key === "live_sync") links.push({ href: "/holdings.html", label: "보유종목" });
   if (key === "close" || key === "intraday") links.push({ href: "/trade-history.html", label: "매매기록" });
-  if (key.startsWith("rule_")) links.push({ href: "/rule-auto-trading.html", label: "RULE 상세" });
-  if (key.startsWith("us_")) links.push({ href: "/us-trading", label: "US 상세" });
+  if (key.startsWith("rule_")) links.push({ href: "/manual-trading.html", label: "수동매매 상세" });
   if (!links.length) links.push({ href: "/ops-readiness.html", label: "운영자" });
   return links
     .map((item) => `<a href="${item.href}" class="state-link">${escapeHtml(item.label)}</a>`)
@@ -1008,8 +994,8 @@ function renderAccountOverview(liveAccountSummary, ruleOps, usTradingSummary) {
   const partialQueue = Array.isArray(ruleOps?.partial_fill_queue) ? ruleOps.partial_fill_queue : [];
   renderChipRow("ruleAccountOverviewChips", [
     { label: `포지션 ${fmtNum(ruleAccount.position_count ?? rulePositions.length)}`, kind: Number(ruleAccount.position_count ?? rulePositions.length ?? 0) > 0 ? "INFO" : "WATCH" },
-    { label: partialQueue.length > 0 ? `top-up ${partialQueue.length}` : "top-up 없음", kind: partialQueue.length > 0 ? "WATCH" : "GOOD" },
-    { label: ruleOps?.as_of_date || "-", kind: "INFO" },
+    { label: partialQueue.length > 0 ? `동기화 대기 ${partialQueue.length}` : "동기화 대기 없음", kind: partialQueue.length > 0 ? "WATCH" : "GOOD" },
+    { label: `기준 ${ruleOps?.as_of_date || "-"}`, kind: "INFO" },
   ]);
   renderKv("ruleAccountOverviewKv", [
     ["기준일", ruleOps?.as_of_date || "-"],
@@ -1019,34 +1005,16 @@ function renderAccountOverview(liveAccountSummary, ruleOps, usTradingSummary) {
     ["포지션 수", fmtNum(ruleAccount.position_count ?? rulePositions.length)],
   ]);
   renderText("ruleAccountOverviewNote", ruleOps
-    ? `현재 비주력 전략이지만 계좌/포지션은 유지 모니터링합니다. 부분 체결 대기 ${partialQueue.length}건 · fill sync ${fmtNum(ruleOps?.fill_sync?.partial_filled_count)}건`
-    : "RULE 계좌 요약을 불러오지 못했습니다.");
-
-  renderChipRow("usAccountChips", [
-    { label: usTradingSummary?.mode || "-", kind: usTradingSummary?.mode === "LIVE" ? "GOOD" : "WATCH" },
-    { label: `포지션 ${fmtNum(usTradingSummary?.open_positions)}`, kind: Number(usTradingSummary?.open_positions || 0) > 0 ? "INFO" : "WATCH" },
-    { label: usTradingSummary?.valuation_source || "-", kind: usTradingSummary?.valuation_source === "account_snapshot" ? "GOOD" : "WATCH" },
-  ]);
-  renderKv("usAccountKv", [
-    ["기준일", usTradingSummary?.trade_date || "-"],
-    ["현금", fmtUsd(usTradingSummary?.cash_balance_usd, 2)],
-    ["총자산", fmtUsd(usTradingSummary?.equity_value_usd, 2)],
-    ["평가금액", fmtUsd(usTradingSummary?.market_value_usd, 2)],
-    ["총손익", fmtUsd(usTradingSummary?.total_pnl_usd, 2)],
-  ]);
-  renderText("usAccountNote", usTradingSummary
-    ? `${usTradingSummary.account_id || "-"} · 주문 판단 ${fmtNum(usTradingSummary.total_decisions)}건`
-    : "US 계좌 요약을 불러오지 못했습니다.");
+    ? `운영자가 직접 매매한 뒤 계좌 동기화 상태를 추적합니다. 반영 대기 ${partialQueue.length}건 · fill sync ${fmtNum(ruleOps?.fill_sync?.partial_filled_count)}건`
+    : "수동매매 계좌 요약을 불러오지 못했습니다.");
 
   renderKv("accountComparisonKv", [
     ["AI 기준시각", liveGeneratedAt],
-    ["RULE 기준일", ruleOps?.as_of_date || "-"],
-    ["US 기준일", usTradingSummary?.trade_date || "-"],
+    ["수동 기준일", ruleOps?.as_of_date || "-"],
     ["AI 보유 수", fmtNum(liveAccountSummary?.holding_count)],
-    ["RULE 포지션 수", fmtNum(ruleAccount.position_count ?? rulePositions.length)],
-    ["US 포지션 수", fmtNum(usTradingSummary?.open_positions)],
+    ["수동 보유 수", fmtNum(ruleAccount.position_count ?? rulePositions.length)],
     ["AI gate", liveAccountSummary?.preview_gate_display_status || "-"],
-    ["US 모드", usTradingSummary?.mode || "-"],
+    ["수동 계좌 현금", fmtMoneyShort(ruleAccount.cash)],
   ]);
 }
 
@@ -1068,36 +1036,20 @@ function renderStrategyOverview(liveAccountSummary, ruleOps, usTradingSummary) {
 
   const ruleExec = ruleOps?.execution || {};
   renderChipRow("ruleStrategyChips", [
-    { label: ruleExec.run_mode || "-", kind: ruleExec.run_mode === "live" ? "GOOD" : "WATCH" },
-    { label: ruleExec.order_run_aborted ? "실행 중단" : `제출 ${fmtNum(ruleExec.submitted_count)}`, kind: ruleExec.order_run_aborted ? "ALERT" : (Number(ruleExec.submitted_count || 0) > 0 ? "GOOD" : "WATCH") },
-    { label: ruleExec.reconciliation_blocked ? "조정 차단" : "조정 정상", kind: ruleExec.reconciliation_blocked ? "ALERT" : "GOOD" },
+    { label: ruleOps?.as_of_date ? `기준 ${ruleOps.as_of_date}` : "기준일 없음", kind: ruleOps?.as_of_date ? "INFO" : "WATCH" },
+    { label: `보유 ${fmtNum(ruleOps?.account?.position_count ?? 0)}`, kind: Number(ruleOps?.account?.position_count || 0) > 0 ? "GOOD" : "WATCH" },
+    { label: Array.isArray(ruleOps?.partial_fill_queue) && ruleOps.partial_fill_queue.length > 0 ? `반영 대기 ${fmtNum(ruleOps.partial_fill_queue.length)}` : "동기화 정상", kind: Array.isArray(ruleOps?.partial_fill_queue) && ruleOps.partial_fill_queue.length > 0 ? "WATCH" : "GOOD" },
   ]);
   renderKv("ruleStrategyKv", [
     ["기준일", ruleExec.as_of_date || ruleOps?.as_of_date || "-"],
-    ["제출", fmtNum(ruleExec.submitted_count)],
-    ["체결", fmtNum(ruleExec.filled_count)],
-    ["부분 체결", fmtNum(ruleExec.partial_filled_count)],
-    ["실패", fmtNum(ruleExec.failed_count)],
+    ["보유 종목 수", fmtNum(ruleOps?.account?.position_count ?? 0)],
+    ["현금", fmtMoneyShort(ruleOps?.account?.cash)],
+    ["총자산", fmtMoneyShort(ruleOps?.account?.total_equity)],
+    ["반영 대기", fmtNum(Array.isArray(ruleOps?.partial_fill_queue) ? ruleOps.partial_fill_queue.length : 0)],
   ]);
-  renderText("ruleStrategyNote", ruleExec.order_run_aborted
-    ? (ruleExec.abort_reason || "실행 중단 사유 확인 필요")
-    : "현재는 비주력 전략이지만 조만간 재사용 예정인 계좌/포지션을 계속 추적합니다. 아래 RULE 상세에서 주문/보유/부분체결 대기를 이어서 확인합니다.");
-
-  renderChipRow("usStrategyChips", [
-    { label: usTradingSummary?.mode || "-", kind: usTradingSummary?.mode === "LIVE" ? "GOOD" : "WATCH" },
-    { label: `차단 ${fmtNum(usTradingSummary?.blocked_count)}`, kind: Number(usTradingSummary?.blocked_count || 0) > 0 ? "WATCH" : "GOOD" },
-    { label: `허용 ${fmtNum(usTradingSummary?.allowed_count)}`, kind: Number(usTradingSummary?.allowed_count || 0) > 0 ? "GOOD" : "WATCH" },
-  ]);
-  renderKv("usStrategyKv", [
-    ["기준일", usTradingSummary?.trade_date || "-"],
-    ["총 판단", fmtNum(usTradingSummary?.total_decisions)],
-    ["매수 허용", fmtNum(usTradingSummary?.allowed_count)],
-    ["매수 차단", fmtNum(usTradingSummary?.blocked_count)],
-    ["매도 판단", fmtNum(usTradingSummary?.sell_count)],
-  ]);
-  renderText("usStrategyNote", usTradingSummary
-    ? `보유 ${fmtNum(usTradingSummary.open_positions)}개 · 최근 7일 실현 ${fmtUsd(usTradingSummary.week_pnl_usd, 2)}`
-    : "US 전략 실행 요약을 불러오지 못했습니다.");
+  renderText("ruleStrategyNote", ruleOps
+    ? "수동매매는 운영자가 직접 체결하고, 이 화면에서는 계좌와 보유 상태가 시스템에 정상 반영됐는지 확인합니다."
+    : "수동매매 동기화 요약을 불러오지 못했습니다.");
 }
 
 function renderStrategyDetails(liveDiagnostics, usTradingSummary) {
@@ -1110,15 +1062,6 @@ function renderStrategyDetails(liveDiagnostics, usTradingSummary) {
   if (diagSummary.broker_rejected_count) aiItems.push(`증권사 거절: ${fmtNum(diagSummary.broker_rejected_count)}건`);
   if (diagnostics[0]?.message_ko) aiItems.push(`주요 진단: ${diagnostics[0].message_ko}`);
   renderList("aiStrategyDetails", aiItems, "AI 상세 진단 정보가 없습니다.");
-
-  const usItems = [];
-  if (usTradingSummary?.trade_date) usItems.push(`기준일: ${usTradingSummary.trade_date}`);
-  if (usTradingSummary?.total_decisions != null) usItems.push(`총 판단: ${fmtNum(usTradingSummary.total_decisions)}건`);
-  if (usTradingSummary?.blocked_count != null) usItems.push(`매수 차단: ${fmtNum(usTradingSummary.blocked_count)}건`);
-  if (usTradingSummary?.allowed_count != null) usItems.push(`매수 허용: ${fmtNum(usTradingSummary.allowed_count)}건`);
-  if (usTradingSummary?.open_positions != null) usItems.push(`오픈 포지션: ${fmtNum(usTradingSummary.open_positions)}개`);
-  if (usTradingSummary?.valuation_source) usItems.push(`평가 기준: ${usTradingSummary.valuation_source}`);
-  renderList("usStrategyDetails", usItems, "US 상세 판단 정보가 없습니다.");
 }
 
 function renderRuleOps(ruleOps) {
@@ -1130,30 +1073,28 @@ function renderRuleOps(ruleOps) {
   const partialQ = ruleOps.partial_fill_queue || [];
   const fillSync = ruleOps.fill_sync || {};
 
-  // ── 오늘 실행 결과 ──
+  // ── 최근 동기화 / 체결 반영 ──
   const aborted = exec.order_run_aborted;
-  const execTone = aborted ? "ALERT" : exec.filled_count > 0 ? "GOOD" : exec.submitted_count > 0 ? "WATCH" : "info";
+  const execTone = aborted ? "ALERT" : exec.filled_count > 0 ? "GOOD" : partialQ.length > 0 ? "WATCH" : "info";
   renderChipRow("ruleExecChipRow", [
-    { label: exec.run_mode || "-", kind: exec.run_mode === "live" ? "GOOD" : "WATCH" },
-    { label: aborted ? "실행 중단" : exec.submitted_count > 0 ? "주문 제출됨" : "주문 없음", kind: execTone },
-    ...(exec.reconciliation_blocked ? [{ label: "조정 차단", kind: "ALERT" }] : []),
+    { label: exec.run_mode || "sync", kind: exec.run_mode === "live" ? "GOOD" : "INFO" },
+    { label: aborted ? "동기화 점검 필요" : exec.filled_count > 0 ? "최근 체결 반영" : "최근 체결 없음", kind: execTone },
+    ...(exec.reconciliation_blocked ? [{ label: "계좌 조정 점검", kind: "ALERT" }] : []),
   ]);
   renderKv("ruleExecKv", [
     ["기준일", exec.as_of_date || ruleOps.as_of_date || "-"],
-    ["제출", fmtNum(exec.submitted_count)],
     ["체결", fmtNum(exec.filled_count)],
     ["부분 체결", fmtNum(exec.partial_filled_count)],
-    ["미체결", fmtNum(exec.unfilled_count)],
-    ["실패", fmtNum(exec.failed_count)],
-    ["매수 체결액", fmtMoneyShort(exec.buy_filled_amount)],
-    ["매도 체결액", fmtMoneyShort(exec.sell_filled_amount)],
-    ...(aborted ? [["중단 사유", exec.abort_reason || "-"]] : []),
+    ["반영 대기", fmtNum(partialQ.length)],
+    ["현금", fmtMoneyShort(account.cash)],
+    ["총자산", fmtMoneyShort(account.total_equity)],
+    ...(aborted ? [["점검 사유", exec.abort_reason || "-"]] : []),
   ]);
   const execItemEl = document.getElementById("ruleExecItems");
   if (execItemEl) {
     const items = (exec.items || []).slice(0, 8);
     if (!items.length) {
-      execItemEl.innerHTML = "<li>오늘 처리된 주문 없음</li>";
+      execItemEl.innerHTML = "<li>최근 반영된 체결 내역 없음</li>";
     } else {
       execItemEl.innerHTML = items.map((item) => {
         const statusChip = item.order_status === "filled" ? "good" : item.order_status === "partial_filled" ? "watch" : item.order_status === "failed" ? "bad" : "info";
@@ -1171,7 +1112,7 @@ function renderRuleOps(ruleOps) {
   const posEl = document.getElementById("rulePositionList");
   if (posEl) {
     if (!positions.length) {
-      posEl.innerHTML = "<li>보유 포지션 없음</li>";
+        posEl.innerHTML = "<li>보유 포지션 없음</li>";
     } else {
       posEl.innerHTML = positions.map((p) => {
         const pnlStr = fmtPnl(p.pnl_pct);
@@ -1182,7 +1123,7 @@ function renderRuleOps(ruleOps) {
     }
   }
 
-  // ── 부분 체결 Top-up 대기 ──
+  // ── 반영 대기 / 확인 항목 ──
   renderChipRow("rulePartialFillChipRow", [
     { label: partialQ.length > 0 ? `대기 ${partialQ.length}건` : "대기 없음", kind: partialQ.length > 0 ? "WATCH" : "GOOD" },
     ...(fillSync.partial_filled_count > 0 ? [{ label: `fill sync ${fmtNum(fillSync.partial_filled_count)}건`, kind: "WATCH" }] : []),
@@ -1190,7 +1131,7 @@ function renderRuleOps(ruleOps) {
   const pfEl = document.getElementById("rulePartialFillList");
   if (pfEl) {
     if (!partialQ.length) {
-      pfEl.innerHTML = "<li>부분 체결 대기 없음</li>";
+      pfEl.innerHTML = "<li>추가 확인이 필요한 반영 대기 없음</li>";
     } else {
       pfEl.innerHTML = partialQ.map((item) => {
         const ratio = item.order_qty ? `${fmtNum(item.filled_qty)}/${fmtNum(item.order_qty)}주` : `체결 ${fmtNum(item.filled_qty)}주`;
@@ -1202,8 +1143,8 @@ function renderRuleOps(ruleOps) {
   if (helpEl) {
     const enabled = partialQ.length > 0;
     helpEl.textContent = enabled
-      ? "다음 before-open 사이클에서 RULE_PARTIAL_FILL_TOPUP_ENABLED=1 이면 top-up 시도됩니다."
-      : "RULE_PARTIAL_FILL_TOPUP_ENABLED=1 로 다음 사이클 자동 top-up이 활성화되어 있습니다.";
+      ? "부분 체결이나 반영 지연이 있어 다음 동기화 사이클에서 다시 확인이 필요합니다."
+      : "현재 수동매매 계좌는 시스템 기준으로 안정적으로 동기화된 상태입니다.";
   }
 }
 
@@ -1358,7 +1299,6 @@ async function loadOpsReadiness() {
       fetchJsonMaybe("/api/live-auto-trading-diagnostics"),
     ]);
     renderRecentAlerts().catch(() => {});
-    loadUsMacroOverlay().catch(() => {});
     renderRuleOps(data.rule_ops || null);
     renderAccountOverview(liveAccountSummary, data.rule_ops || null, usTradingSummary);
     renderStrategyOverview(liveAccountSummary, data.rule_ops || null, usTradingSummary);

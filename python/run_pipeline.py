@@ -1328,6 +1328,9 @@ def main() -> None:
                         "elapsed_sec": 0.0,
                         "sample": profile_begin(),
                     }
+                if name == "feature_builder":
+                    maybe_run_flow_ingestion(run_id)
+                    maybe_run_short_interest_ingestion(run_id)
                 if name == "ranking_builder":
                     maybe_run_theme_overlay_steps(run_id, theme_cfg)
                 if log_pipeline_history:
@@ -1371,8 +1374,6 @@ def main() -> None:
                         )
 
             walkforward_sample = profile_begin()
-            maybe_run_flow_ingestion(run_id)
-            maybe_run_short_interest_ingestion(run_id)
             maybe_sync_rule_account_holdings(run_id)
             maybe_run_theme_validation(run_id, theme_cfg)
             maybe_sync_csv_db_parity(run_id)

@@ -466,7 +466,7 @@ def load_us_ranking_table_config() -> USRankingTableConfig:
 def load_us_rule_ranking_config() -> USRuleRankingConfig:
     return USRuleRankingConfig(
         enabled=_flag("US_RULE_RANKING_ENABLED", "1"),
-        source=str(os.environ.get("US_RANKING_DEFAULT_SOURCE", "rule_v1")).strip() or "rule_v1",
+        source=str(os.environ.get("US_RULE_RANKING_SOURCE", "rule_v1")).strip() or "rule_v1",
         min_feature_quality_score=float(os.environ.get("US_RANK_MIN_FEATURE_QUALITY_SCORE", "40")),
         apply_fundamental_quality_to_etf=_flag("US_RANK_APPLY_FUNDAMENTAL_QUALITY_TO_ETF", "0"),
         volatility_20d_threshold=float(os.environ.get("US_RANK_VOLATILITY_20D_THRESHOLD", "0.05")),
