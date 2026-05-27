@@ -28,16 +28,23 @@ const escapeHtml = (value) =>
     "'": "&#39;",
   }[m]));
 
+function httpError(url, status) {
+  const error = new Error(`${url} HTTP ${status}`);
+  error.status = status;
+  error.url = url;
+  return error;
+}
+
 async function fetchJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const res = await fetch(url, { credentials: "same-origin" });
+  if (!res.ok) throw httpError(url, res.status);
   return res.json();
 }
 
 async function fetchJsonMaybe(url) {
-  const res = await fetch(url);
+  const res = await fetch(url, { credentials: "same-origin" });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw httpError(url, res.status);
   return res.json();
 }
 
@@ -58,10 +65,11 @@ function markStaleDate(value, referenceDate) {
 async function postJson(url, payload) {
   const res = await fetch(url, {
     method: "POST",
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload || {}),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) throw httpError(url, res.status);
   return res.json();
 }
 
@@ -222,8 +230,8 @@ function renderTodayTopActions(data, runtime, liveDiagnostics, ruleOps, usTradin
   }
   el.innerHTML = topActions.map((item) => `
     <a class="summary-link-card" href="${item.href}">
-      <strong>${escapeHtml(item.title)}</strong>
-      <span>${escapeHtml(item.detail)}</span>
+      <h3>${escapeHtml(item.title)}</h3>
+      <p>${escapeHtml(item.detail)}</p>
       <span class="state-link">${escapeHtml(item.cta)} →</span>
     </a>
   `).join("");
@@ -1497,7 +1505,24 @@ async function loadOpsReadiness() {
     state.textContent = `기준일 ${data.asof_date || "-"} · ${basis.label || "기준 미상"} 기준 운영 readiness 대시보드를 불러왔습니다.${staleNotes.length ? ` stale sources: ${staleNotes.join(", ")}` : ""}`;
   } catch (error) {
     console.error(error);
-    document.getElementById("heroGrid").innerHTML = '<div class="empty-state">운영 대시보드를 불러오지 못했습니다.</div>';
+    if (Number(error?.status) === 401) {
+      const loginUrl = `/operator-login?next=${encodeURIComponent(location.pathname + location.search)}`;
+      document.getElementById("heroGrid").innerHTML = `
+        <div class="empty-state" style="grid-column:1/-1;">
+          운영자 인증이 필요합니다. <a class="state-link" href="${loginUrl}">운영자 로그인 →</a>
+        </div>
+      `;
+      renderList("goReasons", [], "운영자 인증 후 확인할 수 있습니다.");
+      renderMetricList("alertMetrics", [], "운영자 인증 후 확인할 수 있습니다.");
+      renderList("dailyChecklist", [], "운영자 인증 후 확인할 수 있습니다.");
+      renderIntradayOps("opsIntradayGrid", {});
+      renderShadowRepeatability({});
+      renderRuleOps(null);
+      renderSchedulerRuntime(null);
+      state.textContent = "운영자 인증이 필요합니다.";
+      return;
+    }
+    document.getElementById("heroGrid").innerHTML = '<div class="empty-state" style="grid-column:1/-1;">운영 대시보드를 불러오지 못했습니다.</div>';
     renderList("goReasons", [], "조회 실패");
     renderMetricList("alertMetrics", [], "조회 실패");
     renderList("dailyChecklist", [], "조회 실패");

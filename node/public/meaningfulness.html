@@ -185,6 +185,21 @@
       border: 1px solid rgba(59,130,246,0.2); border-radius: var(--radius-md);
       line-height: 1.6;
     }
+    .sample-note {
+      margin: 0 0 14px;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      border: 1px solid rgba(251,191,36,0.25);
+      background: rgba(251,191,36,0.08);
+      color: #fde68a;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .sample-note--ok {
+      border-color: rgba(34,197,94,0.25);
+      background: rgba(34,197,94,0.08);
+      color: #86efac;
+    }
 </style>
 </head>
 <body>
@@ -241,6 +256,16 @@ function fmtPct(v) {
   if (v == null || !isFinite(v)) return "—";
   const sign = v >= 0 ? "+" : "";
   return sign + (v * 100).toFixed(2) + "%";
+}
+
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, m => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[m]));
 }
 
 function retClass(v) {
@@ -452,9 +477,22 @@ function renderStats(rows, el) {
   const troughRets = withOutcome.map(r => r.outcome.trough_return).filter(v => v != null);
   const avgTrough = troughRets.length ? troughRets.reduce((a, b) => a + b, 0) / troughRets.length : null;
   const maxDays = Math.max(...withOutcome.map(r => r.outcome.observed_days || 0));
+  const matured60 = withOutcome.filter(r => (r.outcome.observed_days || 0) >= 60).length;
+  const matured20 = withOutcome.filter(r => (r.outcome.observed_days || 0) >= 20).length;
+  const sampleReady = matured60 >= Math.min(10, withOutcome.length);
+  const sampleNote = sampleReady
+    ? `60일 이상 관찰 ${matured60}종목입니다. 평균 성과를 참고 지표로 볼 수 있습니다.`
+    : `현재 최대 관찰 ${maxDays}일입니다. 20일 이상 ${matured20}종목, 60일 이상 ${matured60}종목이라 아직 성과 판정이 아니라 추적 상태로 보는 구간입니다.`;
 
   el.innerHTML = `
+    <div class="sample-note ${sampleReady ? "sample-note--ok" : ""}">
+      ${esc(sampleNote)}
+    </div>
     <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-card__label">표본 상태</div>
+        <div class="stat-card__value ${sampleReady ? 'ret--pos' : 'ret--zero'}" style="font-size:16px;">${sampleReady ? "참고 가능" : "판단 보류"}</div>
+      </div>
       <div class="stat-card">
         <div class="stat-card__label">히트율 (양수수익)</div>
         <div class="stat-card__value ${hitRate >= 0.5 ? 'ret--pos' : 'ret--neg'}">${Math.round(hitRate * 100)}%</div>
@@ -480,6 +518,10 @@ function renderStats(rows, el) {
 }
 
 function renderTable(rows, el) {
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty">표시할 성과 데이터가 없습니다.</div>`;
+    return;
+  }
   const tbody = rows.map((r, i) => {
     const o = r.outcome;
     const rank = r.rank ?? (i + 1);
@@ -495,7 +537,7 @@ function renderTable(rows, el) {
     return `
       <tr>
         <td class="td-rank">${rank}</td>
-        <td><div class="td-name">${name}</div><div class="td-code">${code}</div></td>
+        <td><div class="td-name">${esc(name)}</div><div class="td-code">${esc(code)}</div></td>
         <td class="td-score">${score}</td>
         <td class="${obsDays >= 60 ? 'ret--pos' : ''}">${obsDays != null ? `<span class="days-badge">${obsDays}일</span>` : "—"}</td>
         <td><span class="ret ${retClass(latRet)}">${fmtPct(latRet)}</span><div style="font-size:10px;color:var(--color-text-secondary);margin-top:2px">${latestDate}</div></td>

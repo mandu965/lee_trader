@@ -10,6 +10,13 @@ const fmtPct = (value, digits = 2) => {
   return `${(n * 100).toFixed(digits)}%`;
 };
 
+const escapeHtml = (value) => String(value ?? "")
+  .replace(/&/g, "&amp;")
+  .replace(/</g, "&lt;")
+  .replace(/>/g, "&gt;")
+  .replace(/"/g, "&quot;")
+  .replace(/'/g, "&#39;");
+
 const getToneClass = (value) => {
   const n = Number(value);
   if (!Number.isFinite(n)) return "";
@@ -254,6 +261,57 @@ function buildStrategyCards(strategies) {
   }).join("");
 }
 
+function buildExplainGrid(summary, navItems, openItems, strategyLabel) {
+  const el = document.getElementById("explainGrid");
+  if (!el) return;
+  const strategies = Array.isArray(summary?.strategies) ? summary.strategies : [];
+  const ranked = strategies
+    .slice()
+    .sort((a, b) => Number(b.cumulative_return || 0) - Number(a.cumulative_return || 0));
+  const best = ranked[0] || null;
+  const latestNav = navItems.length ? navItems[navItems.length - 1] : null;
+  const nearExitCount = openItems.filter((item) => Number.isFinite(item.remaining_days) && item.remaining_days <= 5).length;
+  const reviewCount = openItems.filter((item) =>
+    ["BLOCK", "FULL_SELL", "PARTIAL_SELL", "EXIT_REVIEW", "REVIEW"].includes(String(item.system_review_status || ""))
+  ).length;
+  const negativeCount = openItems.filter((item) => Number(item.current_return ?? item.net_return) < 0).length;
+  const avgOpenReturn = openItems.length
+    ? openItems.reduce((sum, item) => sum + (Number(item.current_return ?? item.net_return) || 0), 0) / openItems.length
+    : null;
+  const openedToday = Number(latestNav?.opened_today);
+  const duplicateSkip = Number(latestNav?.duplicate_skip_count);
+  const latestDate = latestNav?.date || summary?.run?.asof_date || "-";
+  const bestRiskText = best
+    ? `${best.strategy} · 수익 ${fmtPct(best.cumulative_return)} · MDD ${fmtPct(best.drawdown)}`
+    : "-";
+  const selectedText = latestNav
+    ? `${strategyLabel} · ${latestDate} · 신규 ${fmtNum(openedToday)} / 중복 ${fmtNum(duplicateSkip)}`
+    : `${strategyLabel} · NAV 없음`;
+
+  el.innerHTML = `
+    <article class="explain-card">
+      <div class="card-label">성과 리더</div>
+      <div class="card-value">${escapeHtml(best?.strategy || "-")}</div>
+      <div class="card-detail">${escapeHtml(bestRiskText)}</div>
+    </article>
+    <article class="explain-card">
+      <div class="card-label">선택 전략 흐름</div>
+      <div class="card-value">${latestNav ? fmtPct(latestNav.daily_return, 2) : "-"}</div>
+      <div class="card-detail">${escapeHtml(selectedText)}</div>
+    </article>
+    <article class="explain-card">
+      <div class="card-label">보유 포지션 평균</div>
+      <div class="card-value ${getToneClass(avgOpenReturn)}">${avgOpenReturn === null ? "-" : fmtPct(avgOpenReturn, 2)}</div>
+      <div class="card-detail">열린 포지션 ${fmtNum(openItems.length)}개 · 손실권 ${fmtNum(negativeCount)}개</div>
+    </article>
+    <article class="explain-card">
+      <div class="card-label">오늘 점검 우선</div>
+      <div class="card-value">${fmtNum(Math.max(nearExitCount, reviewCount))}개</div>
+      <div class="card-detail">청산 임박 ${fmtNum(nearExitCount)}개 · 시스템 점검 ${fmtNum(reviewCount)}개</div>
+    </article>
+  `;
+}
+
 // ── 현재 상태 (신규 / 보유 / 청산임박) ────────────────────────────────────
 
 function computeFocusSummary(run, navItems, openItems) {
@@ -318,7 +376,7 @@ function enrichPositions(items, run) {
 function buildPositionsTable(items) {
   const tbody = document.getElementById("positionsTbody");
   if (!items.length) {
-    tbody.innerHTML = '<tr><td colspan="8" class="center">포지션 데이터가 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="center">포지션 데이터가 없습니다.</td></tr>';
     return;
   }
   const statusChip = (row) => {
@@ -395,6 +453,7 @@ async function loadPaperTrading() {
     );
 
     buildMetaStrip(summary.run);
+    buildExplainGrid(summary, nav.items || [], openItems, label);
     buildStrategyCards(summary.strategies || []);
     buildNavChart(nav.items || []);
     buildStatusStrip(computeFocusSummary(summary.run, nav.items || [], openItems), label);
@@ -404,6 +463,7 @@ async function loadPaperTrading() {
   } catch (error) {
     console.error(error);
     document.getElementById("metaStrip").innerHTML = '<div class="empty-state">데이터를 불러오지 못했습니다.</div>';
+    document.getElementById("explainGrid").innerHTML = "";
     document.getElementById("strategyGrid").innerHTML = "";
     document.getElementById("navChart").innerHTML = '<div class="empty-state">차트를 불러오지 못했습니다.</div>';
     document.getElementById("statusStrip").innerHTML = "";

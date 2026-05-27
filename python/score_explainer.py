@@ -159,17 +159,48 @@ def _regime_text(row: pd.Series) -> str:
     return "현재 defensive 체계로 품질 비중과 리스크 통제가 강화 적용됐습니다."
 
 
-def _summary_text(row: pd.Series, strengths: list[dict[str, Any]], drags: list[dict[str, Any]]) -> str:
-    strength_labels = [item["text"] for item in strengths[:2]]
-    parts: list[str] = []
-    if strength_labels:
-        parts.append(f"{'와 '.join(strength_labels)}이 추천 점수를 견인했습니다.")
-    else:
-        parts.append("뚜렷한 추천 강점은 제한적입니다.")
+_DEFAULT_STRENGTH_CODES = {"high_ret_score", "high_probability_score"}
 
-    if drags:
-        parts.append(f"{drags[0]['text']} 요인은 함께 점검이 필요합니다.")
-    return " ".join(parts[:2])
+
+def _ko_conj(word: str) -> str:
+    """받침 있으면 '과', 없으면 '와'."""
+    if not word:
+        return "와"
+    cp = ord(word[-1])
+    if 0xAC00 <= cp <= 0xD7A3 and (cp - 0xAC00) % 28 != 0:
+        return "과"
+    return "와"
+
+
+def _ko_subj(word: str) -> str:
+    """받침 있으면 '이', 없으면 '가'."""
+    if not word:
+        return "이"
+    cp = ord(word[-1])
+    if 0xAC00 <= cp <= 0xD7A3 and (cp - 0xAC00) % 28 != 0:
+        return "이"
+    return "가"
+
+
+def _summary_text(row: pd.Series, strengths: list[dict[str, Any]], drags: list[dict[str, Any]]) -> str:
+    # 기본 강점(수익·확률)을 제외한 차별화 강점
+    distinctive = [s for s in strengths if s["code"] not in _DEFAULT_STRENGTH_CODES]
+
+    if strengths:
+        # strengths[0]과 중복되지 않는 차별화 강점
+        secondary = [s for s in distinctive if s["code"] != strengths[0]["code"]]
+        if secondary:
+            a = strengths[0]["text"]
+            b = secondary[0]["text"]
+            strength_part = f"{a}{_ko_conj(a)} {b}{_ko_subj(b)} 추천 점수를 견인했습니다."
+        else:
+            a = strengths[0]["text"]
+            strength_part = f"{a}{_ko_subj(a)} 추천 점수를 견인했습니다."
+    else:
+        strength_part = "뚜렷한 추천 강점은 제한적입니다."
+
+    risk_part = f"{drags[0]['text']} 요인은 함께 점검이 필요합니다." if drags else ""
+    return f"{strength_part} {risk_part}".strip() if risk_part else strength_part
 
 
 def _build_action_note(row: pd.Series, strengths: list[dict[str, Any]], drags: list[dict[str, Any]]) -> str:

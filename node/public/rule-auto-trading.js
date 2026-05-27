@@ -173,6 +173,74 @@ function renderBanner(data) {
   detailEl.textContent = "";
 }
 
+/* ── 개요 탭: 운영 판단 요약 ── */
+function renderDecisionSummary(data) {
+  const el = document.getElementById("decisionSummaryGrid");
+  if (!el) return;
+
+  const items = data.items || [];
+  const exitItems = items.filter((h) => h.system_review_status === "EXIT_REVIEW");
+  const reviewItems = items.filter((h) => h.system_review_status === "REVIEW");
+  const sortedRisk = items
+    .slice()
+    .sort((a, b) => (Number(b.sell_priority_score) || 0) - (Number(a.sell_priority_score) || 0));
+  const topRisk = sortedRisk[0] || null;
+
+  let actionLabel = "보유 유지";
+  let actionColor = "#86efac";
+  let actionDetail = "즉시 검토 대상이 없습니다.";
+  if (exitItems.length) {
+    actionLabel = `${exitItems.length}종목 매도검토`;
+    actionColor = "#fca5a5";
+    actionDetail = topRisk
+      ? `${topRisk.name || topRisk.code} · 우선순위 ${fmtNum(topRisk.sell_priority_score)} · ${topRisk.system_action_note || "상세 검토 필요"}`
+      : "EXIT_REVIEW 종목 상세 확인 필요";
+  } else if (reviewItems.length) {
+    actionLabel = `${reviewItems.length}종목 점검`;
+    actionColor = "#fde68a";
+    actionDetail = topRisk
+      ? `${topRisk.name || topRisk.code} · 우선순위 ${fmtNum(topRisk.sell_priority_score)}`
+      : "REVIEW 종목 상세 확인 필요";
+  }
+
+  const latestRankDates = items.map((h) => h.latest_rank_date).filter(Boolean).sort();
+  const latestRankDate = latestRankDates[latestRankDates.length - 1] || "-";
+  const syncedAt = data.synced_at || "-";
+  const freshnessDetail = `계좌 ${syncedAt} · 랭킹 ${latestRankDate} · source ${data.source || "-"}`;
+
+  const cash = Number(data.cash_balance);
+  const stockValue = Number(data.total_value);
+  const accountValue = Number(data.total_account_value);
+  const expected = (Number.isFinite(cash) ? cash : 0) + (Number.isFinite(stockValue) ? stockValue : 0);
+  const diff = Number.isFinite(accountValue) ? accountValue - expected : null;
+  const diffAbs = Math.abs(Number(diff));
+  const tolerance = Math.max(1000, expected * 0.01);
+  const accountNeedsCheck = Number.isFinite(diff) && expected > 0 && diffAbs > tolerance;
+  const accountLabel = accountNeedsCheck ? "합계 확인 필요" : "합계 정상 범위";
+  const accountColor = accountNeedsCheck ? "#fde68a" : "#86efac";
+  const accountDetail = Number.isFinite(diff)
+    ? `계좌총액 ${fmtWonPlain(accountValue)} · 예수금+주식 ${fmtWonPlain(expected)} · 차이 ${fmtWonFull(diff)}`
+    : "계좌 총액 정보가 없습니다.";
+
+  el.innerHTML = `
+    <div class="status-summary-card">
+      <div class="status-summary-label">오늘 조치</div>
+      <div class="status-summary-value" style="color:${actionColor};">${esc(actionLabel)}</div>
+      <div class="status-summary-sub">${esc(actionDetail)}</div>
+    </div>
+    <div class="status-summary-card">
+      <div class="status-summary-label">데이터 최신성</div>
+      <div class="status-summary-value" style="color:#93c5fd;">${esc(latestRankDate)}</div>
+      <div class="status-summary-sub">${esc(freshnessDetail)}</div>
+    </div>
+    <div class="status-summary-card">
+      <div class="status-summary-label">계좌 합계</div>
+      <div class="status-summary-value" style="color:${accountColor};">${esc(accountLabel)}</div>
+      <div class="status-summary-sub">${esc(accountDetail)}</div>
+    </div>
+  `;
+}
+
 /* ── 개요 탭: 포트폴리오 손익 ── */
 function renderOverviewPnl(data) {
   const el = document.getElementById("overviewPnlKv");
@@ -272,8 +340,9 @@ function renderHoldingsList(data) {
     const statusCls = h.system_review_status || "KEEP";
 
     // 우선순위 바 색상
-    const barColor = priority >= 80 ? "#f87171" : priority >= 55 ? "#facc15" : "#4ade80";
-    const barPct = Math.max(0, Math.min(100, priority));
+    const priorityValue = Number.isFinite(priority) ? priority : 0;
+    const barColor = priorityValue >= 80 ? "#f87171" : priorityValue >= 55 ? "#facc15" : "#4ade80";
+    const barPct = Math.max(0, Math.min(100, priorityValue));
 
     // 이유 칩
     const reasons = (h.system_review_reasons || []);
@@ -322,7 +391,7 @@ function renderHoldingsList(data) {
         <div class="holding-reasons">${reasonsHtml}</div>
         ${h.system_action_note ? `<div class="holding-action">${esc(h.system_action_note)}</div>` : ""}
         <div class="priority-bar">
-          <span>매도 우선순위 ${priority}</span>
+          <span>매도 우선순위 ${Number.isFinite(priority) ? fmtNum(priority) : "-"}</span>
           <div class="priority-fill">
             <div class="priority-fill-inner" style="width:${barPct}%;background:${barColor};"></div>
           </div>
@@ -430,6 +499,7 @@ async function loadDashboard() {
 
     renderBanner(holdingsData);
     renderHero(holdingsData);
+    renderDecisionSummary(holdingsData);
     renderOverviewPnl(holdingsData);
     renderOverviewStatus(holdingsData);
     renderOverviewAlerts(holdingsData);

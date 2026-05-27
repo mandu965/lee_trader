@@ -5556,6 +5556,158 @@ app.get("/api/stocks/:code", async (req, res) => {
       (typeof rank?.top_negative_factor === "string" && rank.top_negative_factor.trim()) ||
       (typeof rankFallback?.top_negative_factor === "string" && rankFallback.top_negative_factor.trim()) ||
       null;
+    let rankTrend = null;
+    if (rank) {
+      const trendDates = await queryRows(
+        "SELECT DISTINCT date::text AS d FROM daily_ranking WHERE date <= $1 ORDER BY d DESC LIMIT 10",
+        [rank.date]
+      );
+      const trendDateList = trendDates.map((x) => String(x.d || "").slice(0, 10)).reverse();
+      const compareDate = trendDates[4]?.d ? String(trendDates[4].d).slice(0, 10) : null;
+      const trendRows = trendDateList.length
+        ? await queryRows(
+            `SELECT date::text AS d,
+                    COALESCE(live_rank, rank_final) AS rank,
+                    ret_score, prob_score, tech_score, flow_score
+             FROM daily_ranking
+             WHERE code = $1 AND date = ANY($2::date[])`,
+            [code, trendDateList]
+          )
+        : [];
+      const trendByDate = new Map(
+        trendRows.map((r) => [
+          String(r.d || "").slice(0, 10),
+          {
+            rank: r.rank !== null && r.rank !== undefined ? Number(r.rank) : null,
+            ret_score: toNum(r.ret_score),
+            prob_score: toNum(r.prob_score),
+            tech_score: toNum(r.tech_score),
+            flow_score: toNum(r.flow_score),
+          },
+        ])
+      );
+      const history = trendDateList.map((d) => trendByDate.get(d)?.rank ?? null);
+      const todayRank = getLiveRank(rank);
+      const compareRow = compareDate ? trendByDate.get(compareDate) : null;
+      const compareRank = compareRow?.rank ?? null;
+      let streakTop20 = 0;
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i] !== null && history[i] <= 20) streakTop20 += 1;
+        else break;
+      }
+      const scoreDelta = compareRow
+        ? {
+            ret_score:
+              rank.ret_score != null && compareRow.ret_score != null
+                ? +(toNum(rank.ret_score) - compareRow.ret_score).toFixed(1)
+                : null,
+            prob_score:
+              rank.prob_score != null && compareRow.prob_score != null
+                ? +(toNum(rank.prob_score) - compareRow.prob_score).toFixed(1)
+                : null,
+            tech_score:
+              rank.tech_score != null && compareRow.tech_score != null
+                ? +(toNum(rank.tech_score) - compareRow.tech_score).toFixed(1)
+                : null,
+            flow_score:
+              rank.flow_score != null && compareRow.flow_score != null
+                ? +(toNum(rank.flow_score) - compareRow.flow_score).toFixed(1)
+                : null,
+          }
+        : null;
+      rankTrend = {
+        date: String(rank.date || "").slice(0, 10),
+        dates: trendDateList,
+        compare_5d: compareDate,
+        rank_today: Number.isFinite(todayRank) ? todayRank : null,
+        rank_5d: compareRank,
+        delta_5d:
+          Number.isFinite(todayRank) && Number.isFinite(compareRank)
+            ? compareRank - todayRank
+            : null,
+        is_new: compareRank === null,
+        history,
+        streak_top20: streakTop20,
+        score_delta: scoreDelta,
+      };
+    }
+    let sectorComparison = null;
+    if (rank && resolvedSector) {
+      const sectorRows = await queryRows(
+        `SELECT code,
+                COALESCE(live_rank, rank_final) AS live_rank,
+                final_score, pred_return_60d, pred_mdd_60d, risk_penalty
+         FROM daily_ranking
+         WHERE date = $1 AND sector = $2`,
+        [rank.date, resolvedSector]
+      );
+      const numericSectorRows = sectorRows
+        .map((r) => ({
+          code: String(r.code || "").trim(),
+          live_rank: toNum(r.live_rank),
+          final_score: toNum(r.final_score),
+          pred_return_60d: toNum(r.pred_return_60d),
+          pred_mdd_60d: toNum(r.pred_mdd_60d),
+          risk_penalty: toNum(r.risk_penalty),
+        }))
+        .filter((r) => r.code);
+      const avg = (key) => {
+        const vals = numericSectorRows.map((r) => r[key]).filter(Number.isFinite);
+        return vals.length ? vals.reduce((sum, v) => sum + v, 0) / vals.length : null;
+      };
+      const sortedSector = numericSectorRows
+        .filter((r) => Number.isFinite(r.live_rank))
+        .sort((a, b) => a.live_rank - b.live_rank);
+      const sectorRank = sortedSector.findIndex((r) => r.code === code);
+      sectorComparison = {
+        sector: resolvedSector,
+        count: numericSectorRows.length,
+        rank_in_sector: sectorRank >= 0 ? sectorRank + 1 : null,
+        avg_final_score: avg("final_score"),
+        avg_pred_return_60d: avg("pred_return_60d"),
+        avg_pred_mdd_60d: avg("pred_mdd_60d"),
+        avg_risk_penalty: avg("risk_penalty"),
+        score_vs_sector:
+          rank.final_score != null && Number.isFinite(avg("final_score"))
+            ? toNum(rank.final_score) - avg("final_score")
+            : null,
+        return_vs_sector:
+          rank.pred_return_60d != null && Number.isFinite(avg("pred_return_60d"))
+            ? toNum(rank.pred_return_60d) - avg("pred_return_60d")
+            : null,
+        mdd_vs_sector:
+          rank.pred_mdd_60d != null && Number.isFinite(avg("pred_mdd_60d"))
+            ? toNum(rank.pred_mdd_60d) - avg("pred_mdd_60d")
+            : null,
+      };
+    }
+    const closes = rows.map((r) => toNum(r.close)).filter(Number.isFinite);
+    const recent10 = rows.slice(-10);
+    const latestClose = toNum(latest?.close);
+    const recentHigh = closes.length ? Math.max(...closes) : null;
+    const closeVsMa20 =
+      Number.isFinite(latestClose) && Number.isFinite(toNum(latest?.ma_20)) && toNum(latest.ma_20) !== 0
+        ? latestClose / toNum(latest.ma_20) - 1
+        : null;
+    const closeVsMa60 =
+      Number.isFinite(latestClose) && Number.isFinite(toNum(latest?.ma_60)) && toNum(latest.ma_60) !== 0
+        ? latestClose / toNum(latest.ma_60) - 1
+        : null;
+    const drawdownFromRecentHigh =
+      Number.isFinite(latestClose) && Number.isFinite(recentHigh) && recentHigh !== 0
+        ? latestClose / recentHigh - 1
+        : null;
+    const return10d =
+      recent10.length >= 2 && Number.isFinite(latestClose) && Number.isFinite(toNum(recent10[0]?.close)) && toNum(recent10[0].close) !== 0
+        ? latestClose / toNum(recent10[0].close) - 1
+        : null;
+    const priceRisk = {
+      close_vs_ma20: closeVsMa20,
+      close_vs_ma60: closeVsMa60,
+      drawdown_from_recent_high: drawdownFromRecentHigh,
+      return_10d: return10d,
+      recent_high: recentHigh,
+    };
 
     res.json({
       code,
@@ -5580,6 +5732,21 @@ app.get("/api/stocks/:code", async (req, res) => {
       prob_top20_60d: rank ? toNum(rank.prob_top20_60d) : null,
       prob_top20_90d: rank ? toNum(rank.prob_top20_90d) : null,
       regime: resolvedRegime,
+      regime_reason: rank?.regime_reason || rankFallback?.regime_reason || null,
+      weight_profile: rank?.weight_profile || rankFallback?.weight_profile || null,
+      market_up: rank ? boolify(rank.market_up) : null,
+      market_status_date: rank?.market_status_date || null,
+      market_kospi_close: rank ? toNum(rank.market_kospi_close) : null,
+      market_kospi_ma20: rank ? toNum(rank.market_kospi_ma20) : null,
+      market_vol_5d: rank ? toNum(rank.market_vol_5d) : null,
+      market_foreign_5d: rank ? toNum(rank.market_foreign_5d) : null,
+      data_dates: {
+        price: latest?.date || null,
+        ranking: rank?.date ? String(rank.date).slice(0, 10) : null,
+        prediction: pred?.date ? String(pred.date).slice(0, 10) : null,
+        recommendation: dailyRecommendation?.asof_date || dailyRecommendation?.date || null,
+        market: rank?.market_status_date || null,
+      },
       live_rank: rank ? getLiveRank(rank) : null,
       live_score: rank ? getLiveScore(rank) : null,
       live_score_source: rank ? getLiveScoreSource(rank) : null,
@@ -5596,6 +5763,24 @@ app.get("/api/stocks/:code", async (req, res) => {
       confidence_grade: rank ? getConfidenceLabel(rank) : null,
       explain_text: resolvedExplainText,
       confidence_explain_text: rank ? getConfidenceExplainText(rank) : null,
+      score_explain_summary: rank?.score_explain_summary || rankFallback?.score_explain_summary || null,
+      score_explain_strengths: rank?.score_explain_strengths || rankFallback?.score_explain_strengths || null,
+      score_explain_risks: rank?.score_explain_risks || rankFallback?.score_explain_risks || null,
+      score_explain_confidence: rank?.score_explain_confidence || rankFallback?.score_explain_confidence || null,
+      score_explain_regime: rank?.score_explain_regime || rankFallback?.score_explain_regime || null,
+      score_driver_1: rank?.score_driver_1 || rankFallback?.score_driver_1 || null,
+      score_driver_2: rank?.score_driver_2 || rankFallback?.score_driver_2 || null,
+      score_driver_3: rank?.score_driver_3 || rankFallback?.score_driver_3 || null,
+      score_drag_1: rank?.score_drag_1 || rankFallback?.score_drag_1 || null,
+      score_drag_2: rank?.score_drag_2 || rankFallback?.score_drag_2 || null,
+      top_driver_1: rank?.top_driver_1 || rankFallback?.top_driver_1 || null,
+      top_driver_2: rank?.top_driver_2 || rankFallback?.top_driver_2 || null,
+      top_driver_3: rank?.top_driver_3 || rankFallback?.top_driver_3 || null,
+      risk_factor_1: rank?.risk_factor_1 || rankFallback?.risk_factor_1 || null,
+      risk_factor_2: rank?.risk_factor_2 || rankFallback?.risk_factor_2 || null,
+      action_note: rank?.action_note || rankFallback?.action_note || null,
+      safety_score: rank ? toNum(rank.safety_score) : null,
+      liquidity_score: rank ? toNum(rank.liquidity_score) : null,
       flow_score: rank ? toNum(rank.flow_score) : null,
       contrib_flow: rank ? toNum(rank.contrib_flow) : null,
       w_flow: rank ? toNum(rank.w_flow) : null,
@@ -5621,6 +5806,9 @@ app.get("/api/stocks/:code", async (req, res) => {
       buyability_expected_action: selection.buyability_expected_action || null,
       buyability_blocking_reasons: Array.isArray(selection.buyability_blocking_reasons) ? selection.buyability_blocking_reasons : [],
       buyability_supporting_reasons: Array.isArray(selection.buyability_supporting_reasons) ? selection.buyability_supporting_reasons : [],
+      rank_trend: rankTrend,
+      sector_comparison: sectorComparison,
+      price_risk: priceRisk,
       rows,
     });
   } catch (e) {

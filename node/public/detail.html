@@ -224,8 +224,39 @@
     .quick-tech { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--b); background: rgba(255,255,255,.02); }
     .quick-tech__value { margin-top: 8px; font-size: 20px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
     .quick-tech__meta { margin-top: 6px; color: var(--ts); font-size: 12px; line-height: 1.45; }
+    .insight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+    .insight-card { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--b); background: rgba(255,255,255,.025); min-width: 0; }
+    .insight-card__value { margin-top: 8px; font-size: 22px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .insight-card__meta { margin-top: 6px; color: var(--ts); font-size: 12px; line-height: 1.45; }
+    .insight-card.good .insight-card__value, .delta.good { color: var(--success); }
+    .insight-card.warn .insight-card__value, .delta.warn { color: var(--warning); }
+    .insight-card.bad .insight-card__value, .delta.bad { color: var(--danger); }
+    .rank-spark { display: flex; align-items: end; gap: 4px; height: 38px; margin-top: 10px; }
+    .rank-spark__bar { flex: 1; min-width: 4px; border-radius: 3px 3px 0 0; background: rgba(96,165,250,.48); }
+    .rank-spark__bar.top20 { background: rgba(74,222,128,.68); }
+    .delta-list { display: grid; gap: 8px; margin-top: 10px; }
+    .delta-row { display: grid; grid-template-columns: 72px 1fr 48px; gap: 8px; align-items: center; font-size: 12px; }
+    .delta-track { height: 7px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; }
+    .delta-fill { height: 100%; border-radius: 999px; background: rgba(96,165,250,.7); }
+    .delta-fill.negative { background: rgba(248,113,113,.72); }
+    .structured-summary { display: grid; gap: 10px; }
+    .summary-block { padding: 12px 14px; border: 1px solid rgba(255,255,255,.06); border-radius: 12px; background: rgba(255,255,255,.025); }
+    .summary-block__title { color: var(--t); font-size: 13px; font-weight: 700; }
+    .summary-block__body { margin-top: 7px; color: var(--ts); font-size: 13px; line-height: 1.6; }
+    .summary-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .summary-tag { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); color: var(--ts); font-size: 12px; }
+    .summary-tag.good { color: var(--success); border-color: rgba(34,197,94,.24); background: rgba(34,197,94,.08); }
+    .summary-tag.bad { color: var(--danger); border-color: rgba(239,68,68,.24); background: rgba(239,68,68,.08); }
+    .flow-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
     .chart-shell { display: grid; gap: 10px; }
     .chart-copy { color: var(--ts); font-size: 12px; line-height: 1.55; }
+    .chart-guide-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .chart-guide-card { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--b); background: rgba(255,255,255,.025); min-width: 0; }
+    .chart-guide-card__value { margin-top: 7px; font-size: 17px; font-weight: 800; line-height: 1.2; }
+    .chart-guide-card__meta { margin-top: 5px; color: var(--ts); font-size: 12px; line-height: 1.45; }
+    .chart-guide-card.good .chart-guide-card__value { color: var(--success); }
+    .chart-guide-card.warn .chart-guide-card__value { color: var(--warning); }
+    .chart-guide-card.bad .chart-guide-card__value { color: var(--danger); }
     .history-details { border: 1px solid var(--b); border-radius: 12px; background: rgba(255,255,255,.02); overflow: hidden; }
     .history-summary {
       list-style: none;
@@ -277,6 +308,9 @@
       .factor-item { grid-template-columns: 1fr 54px; }
       .legend { gap: 8px; }
       .toolbar-nav__aux { justify-content: flex-start; }
+      .insight-grid { grid-template-columns: 1fr; }
+      .flow-summary-grid { grid-template-columns: 1fr; }
+      .chart-guide-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 640px) { .sr { grid-template-columns: 86px 1fr; } }
     @media (max-width: 430px) {
@@ -377,6 +411,14 @@
               </div>
             </div>
 
+            <div id="rankTrendPanel" class="insight-grid">
+              <div class="insight-card">
+                <div class="sl">현재 순위</div>
+                <div class="insight-card__value">-</div>
+                <div class="insight-card__meta">랭킹 추이를 불러오는 중입니다.</div>
+              </div>
+            </div>
+
             <div style="display:none">
               <span id="finalScore"></span>
               <span id="confidenceRaw"></span>
@@ -400,6 +442,12 @@
 
             <h2 class="pt">종합 해석</h2>
             <div id="scoreExplain" class="explain">설명 정보가 없습니다.</div>
+            <details class="history-details" id="rawExplainDetails" style="margin-top:10px;display:none;">
+              <summary class="history-summary">원문 산출 로그 펼쳐보기</summary>
+              <div class="history-body">
+                <div id="rawScoreExplain" class="explain">원문 설명 정보가 없습니다.</div>
+              </div>
+            </details>
 
             <h2 class="pt">리스크 요약</h2>
             <div id="warningBox" class="risk-warning">
@@ -526,13 +574,20 @@
               </div>
             </div>
             <div class="chart-shell">
-              <div class="chart-copy">차트는 현재 판단을 보조 검증하는 용도입니다. 우선은 위 숫자 요약을 먼저 읽고, 그 다음 추세 정렬을 확인하는 흐름이 적절합니다.</div>
+              <div id="chartGuide" class="chart-guide-grid">
+                <div class="chart-guide-card">
+                  <div class="sl">차트 판독</div>
+                  <div class="chart-guide-card__value">계산 중</div>
+                  <div class="chart-guide-card__meta">추세와 가격 위치를 정리합니다.</div>
+                </div>
+              </div>
               <canvas id="chart" width="900" height="300"></canvas>
               <div class="legend">
                 <span><span class="dot" style="background:#e5e7eb"></span>Close</span>
                 <span><span class="dot" style="background:#60a5fa"></span>MA5</span>
                 <span><span class="dot" style="background:#f59e0b"></span>MA20</span>
                 <span><span class="dot" style="background:#22c55e"></span>MA60</span>
+                <span><span class="dot" style="background:#fca5a5"></span>고점/저점</span>
               </div>
             </div>
             <div style="display:none">
@@ -630,6 +685,18 @@
     const fmt1 = (x) => Number.isFinite(Number(x)) ? Number(x).toFixed(1) : "-";
     const fmt2 = (x) => Number.isFinite(Number(x)) ? Number(x).toFixed(2) : "-";
     const fmtPct = (x) => Number.isFinite(Number(x)) ? `${(Number(x) * 100).toFixed(1)}%` : "-";
+    const fmtSigned = (x, digits = 1) => {
+      const n = Number(x);
+      if (!Number.isFinite(n)) return "-";
+      return `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
+    };
+    const fmtFlowAmount = (value) => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "-";
+      const sign = n > 0 ? "+" : n < 0 ? "-" : "";
+      const eok = Math.abs(n) / 100000000;
+      return `${sign}${eok.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}억`;
+    };
     const fmtDateLabel = (value) => {
       if (!value) return "-";
       const raw = String(value);
@@ -802,6 +869,161 @@
           </div>
         `;
       }).join("")}</div>`;
+    }
+
+    function splitTextItems(value) {
+      return String(value || "")
+        .split(/\s*\/\s*|\s*,\s*/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    function renderStructuredSummary(d) {
+      const strengths = [
+        ...splitTextItems(d.score_explain_strengths),
+        d.top_driver_1,
+        d.top_driver_2,
+        d.top_driver_3,
+      ].filter(Boolean);
+      const risks = [
+        ...splitTextItems(d.score_explain_risks),
+        d.risk_factor_1,
+        d.risk_factor_2,
+      ].filter(Boolean);
+      const unique = (items) => Array.from(new Set(items.map((x) => String(x).trim()).filter(Boolean))).slice(0, 5);
+      const summary = String(d.score_explain_summary || "").trim();
+      const regime = String(d.score_explain_regime || "").trim();
+      const confidence = String(d.score_explain_confidence || d.confidence_explain_text || "").trim();
+      if (!summary && !strengths.length && !risks.length && !regime && !confidence) return "";
+      return `
+        <div class="structured-summary">
+          ${summary ? `<div class="summary-block"><div class="summary-block__title">요약</div><div class="summary-block__body">${escapeHtml(summary)}</div></div>` : ""}
+          <div class="summary-block">
+            <div class="summary-block__title">강점과 약점</div>
+            <div class="summary-tags">
+              ${unique(strengths).map((x) => `<span class="summary-tag good">${escapeHtml(x)}</span>`).join("")}
+              ${unique(risks).map((x) => `<span class="summary-tag bad">${escapeHtml(x)}</span>`).join("")}
+            </div>
+          </div>
+          ${(regime || confidence) ? `<div class="summary-block"><div class="summary-block__title">운영 맥락</div><div class="summary-block__body">${escapeHtml([regime, confidence].filter(Boolean).join(" "))}</div></div>` : ""}
+        </div>
+      `;
+    }
+
+    function renderRankSpark(history) {
+      const values = (Array.isArray(history) ? history : []).filter((v) => Number.isFinite(Number(v))).map(Number);
+      if (!values.length) return "";
+      const maxRank = Math.max(...values, 20);
+      return `<div class="rank-spark" aria-label="최근 순위 흐름">${(history || []).map((rank) => {
+        const n = Number(rank);
+        if (!Number.isFinite(n)) return '<span class="rank-spark__bar" style="height:4px;opacity:.25"></span>';
+        const height = Math.max(8, Math.round((1 - Math.min(n, maxRank) / maxRank) * 30 + 8));
+        return `<span class="rank-spark__bar ${n <= 20 ? "top20" : ""}" style="height:${height}px" title="${Math.round(n)}위"></span>`;
+      }).join("")}</div>`;
+    }
+
+    function renderDeltaRows(delta) {
+      const labels = { ret_score: "수익", prob_score: "확률", tech_score: "기술", flow_score: "수급" };
+      const entries = Object.entries(labels).map(([key, label]) => ({ key, label, value: Number(delta?.[key]) })).filter((x) => Number.isFinite(x.value));
+      if (!entries.length) return '<div class="insight-card__meta">비교 가능한 5일 변화 데이터가 없습니다.</div>';
+      const max = Math.max(...entries.map((x) => Math.abs(x.value)), 1);
+      return `<div class="delta-list">${entries.map((x) => {
+        const cls = x.value > 0 ? "good" : x.value < 0 ? "bad" : "warn";
+        const width = Math.max(6, Math.abs(x.value) / max * 100);
+        return `
+          <div class="delta-row">
+            <span>${x.label}</span>
+            <span class="delta-track"><span class="delta-fill ${x.value < 0 ? "negative" : ""}" style="display:block;width:${width}%"></span></span>
+            <strong class="delta ${cls}">${fmtSigned(x.value, 1)}</strong>
+          </div>
+        `;
+      }).join("")}</div>`;
+    }
+
+    function compactDate(value) {
+      const label = fmtDateLabel(value);
+      if (!label || label === "-") return "-";
+      return label.slice(5);
+    }
+
+    function priceRiskTone(priceRisk) {
+      const ma20 = Number(priceRisk?.close_vs_ma20);
+      const ma60 = Number(priceRisk?.close_vs_ma60);
+      const dd = Number(priceRisk?.drawdown_from_recent_high);
+      if (Number.isFinite(dd) && dd <= -0.20) return "bad";
+      if (Number.isFinite(ma20) && Number.isFinite(ma60) && ma20 >= 0 && ma60 >= 0) return "good";
+      if (Number.isFinite(ma20) && ma20 >= 0) return "warn";
+      return "bad";
+    }
+
+    function priceRiskLabel(priceRisk) {
+      const ma20 = Number(priceRisk?.close_vs_ma20);
+      const ma60 = Number(priceRisk?.close_vs_ma60);
+      const dd = Number(priceRisk?.drawdown_from_recent_high);
+      if (Number.isFinite(dd) && dd <= -0.20) return "고점 대비 부담";
+      if (Number.isFinite(ma20) && Number.isFinite(ma60) && ma20 >= 0 && ma60 >= 0) return "추세 위";
+      if (Number.isFinite(ma20) && ma20 >= 0) return "단기 회복";
+      return "추세 아래";
+    }
+
+    function renderRankTrendPanel(d) {
+      const root = $("#rankTrendPanel");
+      if (!root) return;
+      const trend = d.rank_trend || {};
+      const rank = Number(trend.rank_today ?? d.live_rank);
+      const delta = Number(trend.delta_5d);
+      const deltaLabel = Number.isFinite(delta)
+        ? delta > 0 ? `5영업일 전보다 ${Math.round(delta)}계단 상승` : delta < 0 ? `5영업일 전보다 ${Math.abs(Math.round(delta))}계단 하락` : "5영업일 전과 동일"
+        : "5영업일 비교 없음";
+      const rankTone = Number.isFinite(rank) && rank <= 20 ? "good" : Number.isFinite(rank) && rank <= 60 ? "warn" : "";
+      const marketUp = d.market_up === true ? "시장 우호" : d.market_up === false ? "시장 역풍" : "시장 미산출";
+      const marketTone = d.market_up === true ? "good" : d.market_up === false ? "warn" : "";
+      const eligibilityStatus = String(d.buy_eligibility_status || "").toUpperCase();
+      const eligibilityClass = eligibilityStatus === "BUY_ALLOWED" ? "good" : eligibilityStatus === "BLOCK" ? "bad" : "warn";
+      const sector = d.sector_comparison || {};
+      const sectorRank = Number(sector.rank_in_sector);
+      const sectorCount = Number(sector.count);
+      const scoreVsSector = Number(sector.score_vs_sector);
+      const returnVsSector = Number(sector.return_vs_sector);
+      const priceRisk = d.price_risk || {};
+      const dataDates = d.data_dates || {};
+      root.innerHTML = `
+        <div class="insight-card ${rankTone}">
+          <div class="sl">현재 순위</div>
+          <div class="insight-card__value">${Number.isFinite(rank) ? `${Math.round(rank)}위` : "-"}</div>
+          <div class="insight-card__meta">${escapeHtml(deltaLabel)} · Top20 연속 ${Number.isFinite(Number(trend.streak_top20)) ? Math.round(Number(trend.streak_top20)) : 0}일</div>
+          ${renderRankSpark(trend.history)}
+        </div>
+        <div class="insight-card">
+          <div class="sl">5일 점수 변화</div>
+          ${renderDeltaRows(trend.score_delta)}
+        </div>
+        <div class="insight-card ${marketTone}">
+          <div class="sl">시장 맥락</div>
+          <div class="insight-card__value">${marketUp}</div>
+          <div class="insight-card__meta">KOSPI 5일 변동성 ${fmtPct(d.market_vol_5d)} · 외국인 5일 ${fmtFlowAmount(d.market_foreign_5d)}</div>
+        </div>
+        <div class="insight-card ${eligibilityClass}">
+          <div class="sl">진입 규칙</div>
+          <div class="insight-card__value">${escapeHtml(buyEligibilityLabel(String(d.buy_eligibility_status || "").toUpperCase()))}</div>
+          <div class="insight-card__meta">${escapeHtml(d.action_note || d.buyability_expected_action || "추천 점수와 별도로 실제 진입 기준을 확인합니다.")}</div>
+        </div>
+        <div class="insight-card ${Number.isFinite(sectorRank) && sectorRank <= 3 ? "good" : Number.isFinite(sectorRank) ? "warn" : ""}">
+          <div class="sl">섹터 내 위치</div>
+          <div class="insight-card__value">${Number.isFinite(sectorRank) && Number.isFinite(sectorCount) ? `${Math.round(sectorRank)}/${Math.round(sectorCount)}` : "-"}</div>
+          <div class="insight-card__meta">점수 ${fmtSigned(scoreVsSector, 1)}p · 기대수익 ${fmtPct(returnVsSector)} vs 섹터 평균</div>
+        </div>
+        <div class="insight-card ${priceRiskTone(priceRisk)}">
+          <div class="sl">가격 위치</div>
+          <div class="insight-card__value">${escapeHtml(priceRiskLabel(priceRisk))}</div>
+          <div class="insight-card__meta">MA20 ${fmtPct(priceRisk.close_vs_ma20)} · MA60 ${fmtPct(priceRisk.close_vs_ma60)} · 고점대비 ${fmtPct(priceRisk.drawdown_from_recent_high)}</div>
+        </div>
+        <div class="insight-card">
+          <div class="sl">데이터 기준일</div>
+          <div class="insight-card__value">${compactDate(dataDates.ranking || dataDates.price)}</div>
+          <div class="insight-card__meta">가격 ${compactDate(dataDates.price)} · 랭킹 ${compactDate(dataDates.ranking)} · 수급/시장 ${compactDate(dataDates.market)}</div>
+        </div>
+      `;
     }
 
     function formatKpiValue(metric) {
@@ -1096,6 +1318,179 @@
       ctx.stroke();
     }
 
+    function findSwingLevels(clean, close, span = 2) {
+      const swings = [];
+      for (let i = span; i < clean.length - span; i++) {
+        const price = Number(clean[i].close);
+        if (!Number.isFinite(price)) continue;
+        const windowRows = clean.slice(i - span, i + span + 1);
+        const prices = windowRows.map((r) => Number(r.close)).filter(Number.isFinite);
+        if (prices.length !== span * 2 + 1) continue;
+        const min = Math.min(...prices);
+        const max = Math.max(...prices);
+        if (price === min) swings.push({ type: "low", price, date: clean[i].date, index: i });
+        if (price === max) swings.push({ type: "high", price, date: clean[i].date, index: i });
+      }
+      const support = swings
+        .filter((s) => s.type === "low" && Number.isFinite(close) && s.price < close * 0.995)
+        .slice(-1)[0] || null;
+      const resistance = swings
+        .filter((s) => s.type === "high" && Number.isFinite(close) && s.price > close * 1.005)
+        .slice(-1)[0] || null;
+      return { support, resistance };
+    }
+
+    function chartStats(rows) {
+      const clean = (rows || []).filter((r) => Number.isFinite(Number(r.close)));
+      const latest = clean[clean.length - 1] || null;
+      const recent20 = clean.slice(-20);
+      const close = Number(latest?.close);
+      const ma20 = Number(latest?.ma_20);
+      const ma60 = Number(latest?.ma_60);
+      const high90 = clean.length ? Math.max(...clean.map((r) => Number(r.close))) : null;
+      const low90 = clean.length ? Math.min(...clean.map((r) => Number(r.close))) : null;
+      const high20 = recent20.length ? Math.max(...recent20.map((r) => Number(r.close))) : null;
+      const low20 = recent20.length ? Math.min(...recent20.map((r) => Number(r.close))) : null;
+      const first10 = clean.slice(-10)[0];
+      const ret10 = first10 && Number(first10.close) !== 0 ? close / Number(first10.close) - 1 : null;
+      const swings = findSwingLevels(clean.slice(-60), close);
+      return {
+        latest,
+        close,
+        ma20,
+        ma60,
+        high90,
+        low90,
+        high20,
+        low20,
+        ret10,
+        swingSupport: swings.support,
+        swingResistance: swings.resistance,
+        closeVsMa20: Number.isFinite(close) && Number.isFinite(ma20) && ma20 !== 0 ? close / ma20 - 1 : null,
+        closeVsMa60: Number.isFinite(close) && Number.isFinite(ma60) && ma60 !== 0 ? close / ma60 - 1 : null,
+        drawdown90: Number.isFinite(close) && Number.isFinite(high90) && high90 !== 0 ? close / high90 - 1 : null,
+        reboundFromLow20: Number.isFinite(close) && Number.isFinite(low20) && low20 !== 0 ? close / low20 - 1 : null,
+        upsideToHigh20: Number.isFinite(close) && Number.isFinite(high20) && close !== 0 ? high20 / close - 1 : null,
+        distanceToSwingSupport: swings.support && Number.isFinite(close) && swings.support.price !== 0 ? close / swings.support.price - 1 : null,
+        distanceToSwingResistance: swings.resistance && Number.isFinite(close) && close !== 0 ? swings.resistance.price / close - 1 : null,
+      };
+    }
+
+    function chartTrendView(stats) {
+      if (!Number.isFinite(stats.close)) return { tone: "", label: "정보 부족", meta: "가격 데이터가 부족합니다." };
+      if (Number.isFinite(stats.closeVsMa20) && Number.isFinite(stats.closeVsMa60) && stats.closeVsMa20 >= 0 && stats.closeVsMa60 >= 0) {
+        return { tone: "good", label: "추세 위", meta: `MA20 ${fmtPct(stats.closeVsMa20)} · MA60 ${fmtPct(stats.closeVsMa60)}` };
+      }
+      if (Number.isFinite(stats.closeVsMa20) && stats.closeVsMa20 >= 0) {
+        return { tone: "warn", label: "단기 회복", meta: `MA20 위지만 MA60 대비 ${fmtPct(stats.closeVsMa60)}입니다.` };
+      }
+      return { tone: "bad", label: "추세 아래", meta: `MA20 ${fmtPct(stats.closeVsMa20)} · MA60 ${fmtPct(stats.closeVsMa60)}` };
+    }
+
+    function renderChartGuide(rows) {
+      const root = $("#chartGuide");
+      if (!root) return;
+      const stats = chartStats(rows);
+      const trend = chartTrendView(stats);
+      const supportDistance = Number.isFinite(stats.distanceToSwingSupport) ? stats.distanceToSwingSupport : stats.reboundFromLow20;
+      const supportTone = Number.isFinite(supportDistance) && supportDistance <= 0.08 ? "warn" : "good";
+      const highTone = Number.isFinite(stats.drawdown90) && stats.drawdown90 <= -0.20 ? "bad" : "warn";
+      const high20 = Number(stats.high20);
+      const high90 = Number(stats.high90);
+      const sameHigh = Number.isFinite(high20) && Number.isFinite(high90) && Math.abs(high20 - high90) < 1;
+      const recoveryLabel = sameHigh ? "최근 고점" : "90일 고점";
+      const recoveryMeta = sameHigh
+        ? `현재가에서 ${fmtPct(stats.upsideToHigh20)} 회복 필요 · 고점 대비 ${fmtPct(stats.drawdown90)}`
+        : `90일 고점 대비 ${fmtPct(stats.drawdown90)} · 20일 고점 ${fmtNum(stats.high20)}까지 ${fmtPct(stats.upsideToHigh20)}`;
+      const supportLevel = stats.swingSupport?.price || stats.low20;
+      const supportTitle = stats.swingSupport ? "스윙 방어선" : "단기 방어선";
+      const supportMeta = stats.swingSupport
+        ? `${compactDate(stats.swingSupport.date)} 반등 기준 · 현재가가 ${fmtPct(stats.distanceToSwingSupport)} 위 · 20일 저점 ${fmtNum(stats.low20)}`
+        : `최근 20일 저점 기준 여유 ${fmtPct(stats.reboundFromLow20)}입니다.`;
+      root.innerHTML = `
+        <div class="chart-guide-card ${trend.tone}">
+          <div class="sl">1. 추세 위치</div>
+          <div class="chart-guide-card__value">${escapeHtml(trend.label)}</div>
+          <div class="chart-guide-card__meta">${escapeHtml(trend.meta)}</div>
+        </div>
+        <div class="chart-guide-card ${supportTone}">
+          <div class="sl">2. ${escapeHtml(supportTitle)}</div>
+          <div class="chart-guide-card__value">${fmtNum(supportLevel)}</div>
+          <div class="chart-guide-card__meta">${escapeHtml(supportMeta)}</div>
+        </div>
+        <div class="chart-guide-card ${highTone}">
+          <div class="sl">3. 회복 목표</div>
+          <div class="chart-guide-card__value">${escapeHtml(recoveryLabel)} ${fmtNum(stats.high90)}</div>
+          <div class="chart-guide-card__meta">${escapeHtml(recoveryMeta)}</div>
+        </div>
+      `;
+    }
+
+    function spreadLabelRows(items, minGap = 24, minY = 18, maxY = 282) {
+      const sorted = items
+        .filter((item) => Number.isFinite(item.y))
+        .sort((a, b) => a.y - b.y);
+      let prevY = minY - minGap;
+      return sorted.map((item) => {
+        const y = Math.min(maxY, Math.max(minY, item.y, prevY + minGap));
+        prevY = y;
+        return { ...item, labelY: y };
+      });
+    }
+
+    function drawHorizontalLabel(ctx, y, label, color, w, options = {}) {
+      if (!Number.isFinite(y)) return;
+      const labelY = Number.isFinite(options.labelY) ? options.labelY : y;
+      const side = options.side || "right";
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 1;
+      if (options.dashed !== false) ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ctx.moveTo(28, y);
+      ctx.lineTo(w - 118, y);
+      ctx.stroke();
+      if (options.hideLabel) {
+        ctx.restore();
+        return;
+      }
+      ctx.setLineDash([]);
+      ctx.font = "11px system-ui, sans-serif";
+      ctx.textBaseline = "middle";
+      const textWidth = ctx.measureText(label).width + 12;
+      const x = side === "left" ? 42 : w - textWidth - 12;
+      if (Math.abs(labelY - y) > 2) {
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.75;
+        ctx.beginPath();
+        ctx.moveTo(side === "left" ? x + textWidth : x, labelY);
+        ctx.lineTo(side === "left" ? x + textWidth + 12 : x - 12, y);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = "rgba(2,6,23,.82)";
+      ctx.fillRect(x, labelY - 10, textWidth, 20);
+      ctx.strokeStyle = color;
+      ctx.strokeRect(x, labelY - 10, textWidth, 20);
+      ctx.fillStyle = color;
+      ctx.fillText(label, x + 6, labelY + 1);
+      ctx.restore();
+    }
+
+    function drawPointMarker(ctx, x, y, color) {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.strokeStyle = "rgba(2,6,23,.9)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+
     function renderChart(rows) {
       const c = $("#chart");
       if (!c || !rows.length) return;
@@ -1113,10 +1508,31 @@
       const padX = 32;
       const step = (w - padX * 2) / Math.max(1, rows.length - 1);
       const xs = Array.from({ length: rows.length }, (_, i) => Math.round(padX + i * step));
+      const stats = chartStats(rows);
+      const high20 = Number(stats.high20);
+      const high90 = Number(stats.high90);
+      const sameHigh = Number.isFinite(high20) && Number.isFinite(high90) && Math.abs(high20 - high90) < 1;
+      if (!sameHigh) {
+        drawHorizontalLabel(ctx, toY(stats.high90), `90일 고점 ${fmtNum(stats.high90)}`, "rgba(252,165,165,.72)", w, {
+          dashed: true,
+          side: "left",
+        });
+      }
+      const guideLabels = spreadLabelRows([
+        { key: "high20", y: toY(stats.high20), label: `${sameHigh ? "최근 고점" : "20일 고점"} ${fmtNum(stats.high20)}`, color: "#fca5a5" },
+        { key: "low20", y: toY(stats.low20), label: `20일 저점 ${fmtNum(stats.low20)}`, color: "#93c5fd" },
+      ], 24, 18, h - 18);
+      guideLabels.forEach((item) => {
+        drawHorizontalLabel(ctx, item.y, item.label, item.color, w, {
+          labelY: item.labelY,
+          side: item.key === "low20" ? "right" : "right",
+        });
+      });
       drawSeries(ctx, xs, ma60.map((v) => toY(v)), "#22c55e");
       drawSeries(ctx, xs, ma20.map((v) => toY(v)), "#f59e0b");
       drawSeries(ctx, xs, ma5.map((v) => toY(v)), "#60a5fa");
       drawSeries(ctx, xs, close.map((v) => toY(v)), "#e5e7eb", 1.9);
+      drawPointMarker(ctx, xs[xs.length - 1], toY(stats.close), "#e5e7eb");
     }
 
     async function fetchDetail(code) {
@@ -1359,7 +1775,7 @@
         ? "수익 기대는 보여도 신뢰도 축적이 약해 선별적으로 보는 편이 맞습니다."
         : "점수와 리스크를 함께 본 오늘 기준 한 줄 판단입니다.";
       $("#marketGuideBox").className = `callout ${regimeMeta.missing ? "info" : regimeMeta.key === "bull" ? "good" : regimeMeta.key === "defensive" ? "warn" : "warn"}`;
-      $("#marketGuideBox").textContent = `${regimeMeta.label}: ${regimeMeta.guide}`;
+      $("#marketGuideBox").textContent = `${regimeMeta.label}: ${regimeMeta.guide} ${d.market_up === false ? "시장 지표는 우호적이지 않아 개별 종목 강도와 리스크를 함께 봐야 합니다." : ""}`.trim();
       $("#riskGuideBox").className = `callout ${ws.some((x) => x.cls === "bad") ? "bad" : ws.some((x) => x.cls === "warn") ? "warn" : "good"}`;
       $("#riskGuideBox").textContent = ws[0]?.text || "현재 확인된 리스크는 제한적입니다.";
       if (recommendationSnapshotAvailable) {
@@ -1382,6 +1798,7 @@
           ? `운영 기준선 ${getOverallStatusText(opsSummary.overall_status)} · WF 60일 상위 20 ${formatKpiValue(wfMetric)} · 보정 소스 ${getCalibrationSourceText(calibrationSource?.value_display || calibrationSource?.value)}`
           : "운영 기준선 리포트가 아직 없어 현재 종목 점수와 리스크를 우선 해석합니다.";
       }
+      renderRankTrendPanel(d);
 
       const rp = $("#regimePill");
       rp.textContent = regimeMeta.label;
@@ -1392,11 +1809,17 @@
         : '<span class="chip">추천 근거 데이터 없음</span>';
 
       renderReasonSystem(d);
-      $("#scoreExplain").innerHTML = formatExplainText(
+      const structuredSummary = renderStructuredSummary(d);
+      $("#scoreExplain").innerHTML = structuredSummary || formatExplainText(
         hasExplainText
           ? explainText
           : "ranking_final explain_text가 현재 API 응답에 없어 원문 해석 문장을 보여주지 못합니다. 지금은 점수, 리스크, 예측값 기반 보조 문구만 표시합니다."
       );
+      const rawDetails = $("#rawExplainDetails");
+      if (rawDetails) {
+        rawDetails.style.display = hasExplainText && structuredSummary ? "" : "none";
+        $("#rawScoreExplain").innerHTML = hasExplainText ? formatExplainText(explainText) : "원문 설명 정보가 없습니다.";
+      }
 
       const warningBox = $("#warningBox");
       const warningList = $("#warningList");
@@ -1473,6 +1896,7 @@
       $("#volQuick").textContent = fmt2(lat?.vol_20);
       $("#volQuickMeta").textContent = `변동성 수준: ${volBand(Number(lat?.vol_20))}`;
 
+      renderChartGuide(rows);
       renderChart(rows);
       $("#priceTable").innerHTML = rows.slice().reverse().map((r) => `
         <tr>
@@ -1515,10 +1939,10 @@
       const maxAbs = Math.max(...rows.flatMap((r) => [Math.abs(r.foreign_net), Math.abs(r.inst_net)]), 1);
       const summaryForeign = rows.slice(0, 5).reduce((s, r) => s + r.foreign_net, 0);
       const summaryInst = rows.slice(0, 5).reduce((s, r) => s + r.inst_net, 0);
-      const fmtAmt = (v) => {
-        const abs = Math.abs(v); const sign = v >= 0 ? "+" : "-";
-        return `${sign}${Math.round(abs).toLocaleString()}`;
-      };
+      const summaryForeign20 = rows.reduce((s, r) => s + r.foreign_net, 0);
+      const summaryInst20 = rows.reduce((s, r) => s + r.inst_net, 0);
+      const latest = rows[0] || {};
+      const fmtAmt = fmtFlowAmount;
       const barHtml = rows.map((r) => {
         const fBar = Math.round(Math.abs(r.foreign_net) / maxAbs * 80);
         const iBar = Math.round(Math.abs(r.inst_net) / maxAbs * 80);
@@ -1540,12 +1964,30 @@
           </div>`;
       }).join("");
       root.innerHTML = `
-        <div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px;">
-          <span>5일 외국인 누적: <strong style="color:${summaryForeign>=0?'#86efac':'#fca5a5'};">${fmtAmt(summaryForeign)}</strong></span>
-          <span>5일 기관 누적: <strong style="color:${summaryInst>=0?'#93c5fd':'#fde68a'};">${fmtAmt(summaryInst)}</strong></span>
+        <div class="flow-summary-grid">
+          <div class="insight-card ${summaryForeign + summaryInst >= 0 ? 'good' : 'bad'}">
+            <div class="sl">최근 5일 합계</div>
+            <div class="insight-card__value">${fmtAmt(summaryForeign + summaryInst)}</div>
+            <div class="insight-card__meta">외국인 ${fmtAmt(summaryForeign)} · 기관 ${fmtAmt(summaryInst)}</div>
+          </div>
+          <div class="insight-card ${summaryForeign20 + summaryInst20 >= 0 ? 'good' : 'bad'}">
+            <div class="sl">최근 20일 합계</div>
+            <div class="insight-card__value">${fmtAmt(summaryForeign20 + summaryInst20)}</div>
+            <div class="insight-card__meta">외국인 ${fmtAmt(summaryForeign20)} · 기관 ${fmtAmt(summaryInst20)}</div>
+          </div>
+          <div class="insight-card ${(Number(latest.foreign_net) + Number(latest.inst_net)) >= 0 ? 'good' : 'bad'}">
+            <div class="sl">최신일 수급</div>
+            <div class="insight-card__value">${fmtAmt(Number(latest.foreign_net) + Number(latest.inst_net))}</div>
+            <div class="insight-card__meta">${fmtDateLabel(latest.date)} · 외국인 ${fmtAmt(latest.foreign_net)} · 기관 ${fmtAmt(latest.inst_net)}</div>
+          </div>
         </div>
-        <div style="overflow-x:auto;">${barHtml}</div>
-        <div style="font-size:11px;color:var(--ts);margin-top:8px;">단위: 주(株) · 막대 길이는 기간 내 최대값 기준 상대 크기</div>
+        <details class="history-details">
+          <summary class="history-summary">일별 수급 막대 펼쳐보기</summary>
+          <div class="history-body">
+            <div style="overflow-x:auto;">${barHtml}</div>
+            <div style="font-size:11px;color:var(--ts);margin-top:8px;">단위: 원, 화면 표시는 억원 환산 · 막대 길이는 기간 내 최대값 기준 상대 크기</div>
+          </div>
+        </details>
       `;
     }
   </script>

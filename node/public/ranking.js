@@ -562,7 +562,21 @@ function populateSelect(selectEl, values, keepValue = "ALL") {
 
 
 function renderHero() {
-  const rows = state.filteredRows.length ? state.filteredRows : state.rows;
+  const rows = state.filteredRows;
+  if (!rows.length) {
+    document.getElementById("heroDate").textContent = "필터 결과 없음";
+    const heroRegime = document.getElementById("heroRegime");
+    heroRegime.textContent = "시장 국면 -";
+    heroRegime.className = "pill neutral";
+    document.getElementById("heroBias").textContent = "상위 성향 -";
+    document.getElementById("heroOverlay").textContent = state.showOverlay ? "오버레이 표시 중" : "오버레이 꺼짐";
+    document.getElementById("heroCopy").textContent = "현재 조건에 맞는 종목이 없습니다. 필터를 완화해 주세요.";
+    document.getElementById("heroThesis").textContent = "-";
+    document.getElementById("heroAction").textContent = "조건에 맞는 후보 없음";
+    document.getElementById("heroRegimeSummary").textContent = "필터 결과가 비어 있어 시장 국면 요약을 표시하지 않습니다.";
+    document.getElementById("heroDistribution").textContent = "매수가능 0 / 관찰 0";
+    return;
+  }
   const first = rows[0] || {};
   const top = rows.slice(0, 20);
   const regimeMeta = getRegimeCopy(first);
@@ -622,7 +636,7 @@ function renderTable() {
   const rows = state.filteredRows;
   const body = document.getElementById("rankingTableBody");
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="8" class="table-empty">조건에 맞는 종목이 없습니다.</td></tr>';
+    body.innerHTML = '<tr><td colspan="7" class="table-empty">조건에 맞는 종목이 없습니다.</td></tr>';
     document.getElementById("tableMeta").textContent = "0개 종목";
     return;
   }

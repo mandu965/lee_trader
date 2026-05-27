@@ -565,11 +565,40 @@ function renderOperationalExplain(intents, preview, runtime, holdings) {
 }
 
 // ── Diagnostic summary ────────────────────────
+function summarizeDiagnostics(diagnostics) {
+  const items = Array.isArray(diagnostics?.diagnostics) ? diagnostics.diagnostics : [];
+  const groups = new Map();
+  for (const item of items) {
+    const key = [
+      item?.type || "",
+      item?.broker_error_code || "",
+      item?.message_ko || item?.raw_reason || "",
+    ].join("|");
+    const current = groups.get(key) || { item, count: 0 };
+    current.count += 1;
+    groups.set(key, current);
+  }
+  const top = Array.from(groups.values()).sort((a, b) => b.count - a.count)[0] || null;
+  return { items, top, uniqueCount: groups.size };
+}
+
+function splitDiagnosticAction(value) {
+  return String(value || "")
+    .split(/\s*\/\s*/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function renderDiagnosticSummary(diagnostics) {
   const root = document.getElementById("diagnosticSummaryPanel");
   if (!root) return;
   const summary = diagnostics?.summary || {};
   const runId = diagnostics?.run_id || "-";
+  const diagnosticSummary = summarizeDiagnostics(diagnostics);
+  const topDiag = diagnosticSummary.top;
+  const topItem = topDiag?.item || {};
+  const topMessage = topItem.message_ko || topItem.raw_reason || "";
+  const topCode = topItem.broker_error_code || "";
   root.innerHTML = `
     <div class="card-label" style="margin-bottom:10px;">진단 요약</div>
     <div class="kv">
@@ -590,6 +619,13 @@ function renderDiagnosticSummary(diagnostics) {
       <div class="kv-row"><span>Refresh 상태</span><strong>${escapeHtml(summary.refresh_status || "-")}</strong></div>
       <div class="kv-row"><span>Refresh 실패 step</span><strong>${escapeHtml(summary.refresh_failing_step || "-")}</strong></div>
     </div>
+    <div class="chip-row">
+      <span class="chip ${Number(summary.broker_rejected_count || 0) ? "bad" : "good"}">브로커 거부 ${fmtNum(summary.broker_rejected_count)}</span>
+      <span class="chip ${String(summary.scheduler_status || "").toLowerCase() === "error" ? "bad" : "good"}">scheduler ${escapeHtml(summary.scheduler_status || "-")}</span>
+      <span class="chip ${diagnosticSummary.uniqueCount > 1 ? "warn" : "watch"}">진단 유형 ${fmtNum(diagnosticSummary.uniqueCount)}</span>
+      ${topCode ? `<span class="chip bad">${escapeHtml(topCode)}</span>` : ""}
+    </div>
+    ${topDiag ? `<div class="state-line">반복 진단 ${fmtNum(topDiag.count)}건${topMessage ? `: ${escapeHtml(topMessage)}` : ""}</div>` : ""}
   `;
 }
 
@@ -599,8 +635,18 @@ function renderWhyNoTrade(diagnostics) {
   if (!root) return;
   const summary = diagnostics?.summary || {};
   const items = Array.isArray(diagnostics?.diagnostics) ? diagnostics.diagnostics : [];
+  const diagnosticSummary = summarizeDiagnostics(diagnostics);
+  const topDiag = diagnosticSummary.top;
+  const topItem = topDiag?.item || items[0] || {};
   const primary = items[0] || null;
-  const secondary = items[1] || null;
+  const actionItems = splitDiagnosticAction(topItem.recommended_action || primary?.recommended_action).slice(0, 4);
+  const causes = Array.isArray(topItem.inferred_causes) ? topItem.inferred_causes.slice(0, 4) : [];
+  const brokerCode = topItem.broker_error_code || "";
+  const repeatedLine = topDiag?.count > 1
+    ? `<br>동일 진단 ${fmtNum(topDiag.count)}회 반복${brokerCode ? ` · 코드 ${escapeHtml(brokerCode)}` : ""}`
+    : brokerCode
+      ? `<br>브로커 오류 코드: ${escapeHtml(brokerCode)}`
+      : "";
   root.innerHTML = `
     <h3 class="explain-title">주문이 없었던 이유</h3>
     <div class="explain-body">
@@ -610,12 +656,17 @@ function renderWhyNoTrade(diagnostics) {
           : "현재 화면에서 판단 근거를 확인하세요."
       ))}
       ${summary.main_block_reason ? `<br>이유: ${escapeHtml(summary.main_block_reason)}` : ""}
-      ${secondary?.raw_reason ? `<br>추가 이유: ${escapeHtml(secondary.raw_reason)}` : ""}
-      ${primary?.recommended_action ? `<br>권장: ${escapeHtml(primary.recommended_action)}` : ""}
+      ${repeatedLine}
       ${summary.scheduler_last_error ? `<br>Scheduler 오류: ${escapeHtml(summary.scheduler_last_error)}` : ""}
       ${summary.refresh_failing_step ? `<br>Refresh step: ${escapeHtml(summary.refresh_failing_step)}` : ""}
       ${summary.refresh_failure_reason ? `<br>Refresh reason: ${escapeHtml(summary.refresh_failure_reason)}` : ""}
     </div>
+    ${actionItems.length ? `
+      <div class="chip-row">
+        ${actionItems.map((item) => `<span class="chip warn">${escapeHtml(item)}</span>`).join("")}
+      </div>
+    ` : ""}
+    ${causes.length ? `<div class="state-line">추정 원인: ${causes.map((item) => escapeHtml(item)).join(" · ")}</div>` : ""}
   `;
 }
 
