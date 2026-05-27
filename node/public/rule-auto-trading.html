@@ -24,6 +24,8 @@
       .safety-banner.warn .safety-dot { background: #facc15; box-shadow: 0 0 6px #facc15; }
       .safety-banner.bad  .safety-dot { background: #f87171; box-shadow: 0 0 6px #f87171; }
       .safety-detail { margin-left: auto; font-size: 12px; font-weight: 400; color: var(--color-text-secondary); }
+      .safety-detail a { color: #93c5fd; text-decoration: none; margin-left: 10px; }
+      .safety-detail a:hover { text-decoration: underline; }
 
       /* ── 히어로 카드 ── */
       .hero-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 20px; }
@@ -136,6 +138,17 @@
       .metric-value { font-size: 15px; font-weight: 700; margin-top: 2px; }
       .holding-reasons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
       .holding-action { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; }
+      .holding-judgement {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px solid rgba(96,165,250,.18);
+        border-radius: var(--radius-md);
+        background: rgba(96,165,250,.06);
+        font-size: 12px;
+        line-height: 1.55;
+        color: var(--color-text-primary);
+      }
+      .holding-judgement strong { color: #93c5fd; }
       .priority-bar {
         display: flex; align-items: center; gap: 8px; font-size: 11px;
         color: var(--color-text-secondary); margin-top: 8px;
@@ -144,6 +157,21 @@
         height: 4px; border-radius: 2px; background: var(--border); flex: 1; overflow: hidden;
       }
       .priority-fill-inner { height: 100%; border-radius: 2px; }
+      .priority-segments {
+        display: grid;
+        grid-template-columns: 55fr 25fr 20fr;
+        gap: 4px;
+        margin-top: 6px;
+        font-size: 10px;
+        color: var(--color-text-secondary);
+      }
+      .priority-segments span {
+        border-top: 2px solid rgba(148,163,184,.25);
+        padding-top: 4px;
+      }
+      .priority-segments .seg-hold { border-color: rgba(34,197,94,.45); }
+      .priority-segments .seg-review { border-color: rgba(250,204,21,.5); }
+      .priority-segments .seg-exit { border-color: rgba(248,113,113,.55); text-align: right; }
 
       /* ── 개요 탭 요약 카드 ── */
       .overview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -304,6 +332,6 @@
     </div>
 
     <script src="./ops-unified-nav.js?v=20260527-nav-unified"></script>
-    <script src="./rule-auto-trading.js?v=20260527-decision-summary"></script>
+    <script src="./rule-auto-trading.js?v=20260527-action-summary"></script>
   </body>
 </html>

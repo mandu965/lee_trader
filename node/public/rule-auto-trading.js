@@ -147,8 +147,13 @@ function renderBanner(data) {
   const detailEl = document.getElementById("safetyDetail");
 
   const { count, items } = data;
+  const sorted = (items || [])
+    .slice()
+    .sort((a, b) => (Number(b.sell_priority_score) || 0) - (Number(a.sell_priority_score) || 0));
+  const topRisk = sorted[0] || null;
   const exit = (items || []).filter((h) => h.system_review_status === "EXIT_REVIEW").length;
   const review = (items || []).filter((h) => h.system_review_status === "REVIEW").length;
+  const topReasons = (topRisk?.system_review_reasons || []).slice(0, 2).map(reasonLabel).join(" · ");
 
   if (!count) {
     el.className = "safety-banner warn";
@@ -158,19 +163,50 @@ function renderBanner(data) {
   }
   if (exit > 0) {
     el.className = "safety-banner bad";
-    textEl.textContent = `즉시 검토 필요 — ${exit}종목 EXIT_REVIEW 상태`;
-    detailEl.textContent = `${count}종목 보유 중`;
+    textEl.textContent = topRisk
+      ? `${topRisk.name || topRisk.code} 매도검토 필요 · 우선순위 ${fmtNum(topRisk.sell_priority_score)}`
+      : `즉시 검토 필요 — ${exit}종목 EXIT_REVIEW 상태`;
+    detailEl.innerHTML = `${esc(topReasons || `${count}종목 보유 중`)}${topRisk?.code ? ` <a href="/holdingsDetail.html?code=${esc(topRisk.code)}">상세</a><a href="/trade-history.html">매매이력</a>` : ""}`;
     return;
   }
   if (review > 0) {
     el.className = "safety-banner warn";
-    textEl.textContent = `점검 필요 — ${review}종목 REVIEW 상태`;
-    detailEl.textContent = `${count}종목 보유 중`;
+    textEl.textContent = topRisk
+      ? `${topRisk.name || topRisk.code} 점검 필요 · 우선순위 ${fmtNum(topRisk.sell_priority_score)}`
+      : `점검 필요 — ${review}종목 REVIEW 상태`;
+    detailEl.innerHTML = `${esc(topReasons || `${count}종목 보유 중`)}${topRisk?.code ? ` <a href="/holdingsDetail.html?code=${esc(topRisk.code)}">상세</a><a href="/trade-history.html">매매이력</a>` : ""}`;
     return;
   }
   el.className = "safety-banner ok";
   textEl.textContent = `정상 보유 중 — ${count}종목 전체 KEEP`;
   detailEl.textContent = "";
+}
+
+function buildDecisionSummary(h, pct, priorityValue) {
+  const reasons = (h.system_review_reasons || []).slice(0, 4).map(reasonLabel);
+  const reasonText = reasons.length ? reasons.join(" + ") : "특이 사유 없음";
+  const score = Number(h.final_score);
+  const confidence = Number(h.confidence_score);
+  const risk = Number(h.risk_penalty);
+  const priceText = Number.isFinite(pct)
+    ? (Math.abs(pct) < 1 ? "가격 손익은 아직 작음" : pct < 0 ? "가격 손실 구간" : "가격 수익 구간")
+    : "가격 손익 확인 필요";
+  const modelParts = [];
+  if (Number.isFinite(score)) modelParts.push(`모델 ${score.toFixed(1)}`);
+  if (Number.isFinite(confidence)) modelParts.push(`신뢰도 ${Math.round(confidence)}`);
+  if (Number.isFinite(risk)) modelParts.push(`리스크 ${risk.toFixed(1)}`);
+  const modelText = modelParts.length ? modelParts.join(" · ") : "모델 지표 부족";
+  const actionText = priorityValue >= 80
+    ? "가격보다 모델 훼손 기준으로 우선 검토합니다."
+    : priorityValue >= 55
+      ? "보유 유지 전 점검이 필요합니다."
+      : "현재는 보유 추적 중심입니다.";
+  return `
+    <div class="holding-judgement">
+      <strong>판단 요약</strong> ${esc(reasonText)}<br>
+      <strong>해석</strong> ${esc(priceText)} · ${esc(modelText)} · ${esc(actionText)}
+    </div>
+  `;
 }
 
 /* ── 개요 탭: 운영 판단 요약 ── */
@@ -389,12 +425,18 @@ function renderHoldingsList(data) {
           </div>
         </div>
         <div class="holding-reasons">${reasonsHtml}</div>
+        ${buildDecisionSummary(h, pct, priorityValue)}
         ${h.system_action_note ? `<div class="holding-action">${esc(h.system_action_note)}</div>` : ""}
         <div class="priority-bar">
           <span>매도 우선순위 ${Number.isFinite(priority) ? fmtNum(priority) : "-"}</span>
           <div class="priority-fill">
             <div class="priority-fill-inner" style="width:${barPct}%;background:${barColor};"></div>
           </div>
+        </div>
+        <div class="priority-segments" aria-hidden="true">
+          <span class="seg-hold">0-54 보유</span>
+          <span class="seg-review">55-79 점검</span>
+          <span class="seg-exit">80-100 매도검토</span>
         </div>
       </div>`;
   }).join("");

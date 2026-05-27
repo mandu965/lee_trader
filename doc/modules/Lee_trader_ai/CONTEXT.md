@@ -1,5 +1,7 @@
 # Lee_trader_ai Context
 
+> **기준일: 2026-05-27**
+
 ## Overview
 
 - `Lee_trader_ai` covers the Korean AI recommendation, ranking, preview, and live auto-trading path.
@@ -28,45 +30,11 @@
 - `Lee_trader_backTest`
   - prediction history, ranking history, and outcome analysis
 - `Lee_trader_rule`
-  - Korean rule-based trading path — **운영 중단 (2026-05-22, `RULE_LIVE_ENABLED=0`)**. 소스는 유지되나 AI 경로와 독립적으로 비활성 상태.
+  - **서비스 종료 (2026-05-21, `RULE_LIVE_ENABLED=0`)**. 코드는 유지되나 스케줄러 비활성.
 
-## Project C Phase 2-2
+## US Stock (미운영)
 
-- Project C is expanding into a separate US stock financial data track.
-- Phase 2-2 implements a standalone `yfinance`-based financial raw collector.
-- This phase covers raw financial statement / metric collection only.
-- Feature generation, label generation, ranking integration, paper trading, and live trading are still out of scope.
-
-## Project C Phase 2-3
-
-- Phase 2-3 adds a standalone financial feature layer on top of the US raw financial tables.
-- Raw financial data and financial features are intentionally separated:
-  - raw tables preserve nullable source values
-  - feature tables store growth, margin, stability, valuation, and score-skeleton fields
-- Financial features remain separate from `feature.us_stock_feature_daily` because fiscal periods do not share the same time axis as daily price features.
-- This phase still does not connect US financial features to ranking, label generation, model training, paper trading, or live trading.
-
-## Project C Phase 2-4
-
-- Phase 2-4 adds standalone relative strength features versus `SPY` and `QQQ`.
-- This layer is daily and price-based, but it is still kept separate from the existing Phase 1 daily feature table to avoid changing the current daily feature builder contract.
-- Relative strength features capture stock return minus benchmark return over fixed trading-day windows.
-- This phase still does not connect relative strength features to ranking, label generation, model training, paper trading, or live trading.
-
-## Project C Phase 2-5
-
-- Phase 2-5 adds standalone US stock label generation and dataset validation.
-- Labels are forward-return based and are built from future trading-day prices only.
-- Dataset validation focuses on row coverage, null ratios, label distribution, duplicate keys, and leakage-risk notes.
-- This phase still does not run model training, ranking, recommendation, paper trading, or live trading.
-
-## Separation Principle
-
-- Korean auto-trading and US financial data collection must remain operationally separate.
-- Failure in a future US financial collector must not stop Korean AI or RULE pipelines.
-- `US_FINANCIAL_*` settings are reserved for the future Project C collector only.
-- `US_FINANCIAL_FEATURE_*` settings are reserved for the standalone Project C financial feature builder only.
-- `US_RELATIVE_STRENGTH_*` settings are reserved for the standalone Project C relative strength builder only.
-- `US_LABEL_*` settings are reserved for the standalone Project C label builder only.
-- `US_DATASET_*` settings are reserved for the standalone Project C dataset validator only.
-- Phase 2-3 must not modify Korean KIS order execution, Korean scoring, or Korean scheduler wiring.
+- US 주식 관련 코드(`python/us/`)와 환경변수(`US_*`)는 코드베이스에 존재하지만 현재 미운영.
+- 스케줄러(`scheduler-us-*`)는 비활성화 상태.
+- 한국 AI 파이프라인과 완전 독립적으로 설계되어 있어, 미운영 상태에서도 KR 경로에 영향 없음.
+- US 서비스 재개 시 별도 설계 문서 작성 필요.

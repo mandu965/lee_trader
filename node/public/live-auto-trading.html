@@ -85,6 +85,7 @@
       .account-grid     { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
       .board-grid       { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; }
       .diagnostic-grid  { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; }
+      .analysis-summary-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; margin-bottom: 12px; }
       .kpi-grid         { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; }
 
       /* ── Cards ── */
@@ -98,6 +99,28 @@
       .card-value.pos { color: #86efac; }
       .card-value.neg { color: #fca5a5; }
       .card-detail { margin-top: 8px; font-size: 12px; line-height: 1.55; color: var(--color-text-secondary); }
+
+      .analysis-summary-card {
+        border: 1px solid var(--border); border-radius: var(--radius-lg);
+        background: rgba(255,255,255,0.03); padding: 14px; min-height: 112px;
+      }
+      .analysis-summary-card.good { background: linear-gradient(180deg,rgba(34,197,94,0.10),rgba(255,255,255,0.02)); }
+      .analysis-summary-card.warn { background: linear-gradient(180deg,rgba(250,204,21,0.10),rgba(255,255,255,0.02)); }
+      .analysis-summary-card.bad  { background: linear-gradient(180deg,rgba(248,113,113,0.10),rgba(255,255,255,0.02)); }
+      .analysis-summary-label { font-size: 11px; color: var(--color-text-secondary); font-weight: 700; }
+      .analysis-summary-value { margin-top: 8px; font-size: 19px; font-weight: 900; line-height: 1.25; }
+      .analysis-summary-detail { margin-top: 8px; font-size: 12px; color: var(--color-text-secondary); line-height: 1.55; }
+      .mini-stat-grid { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; margin: 10px 0 12px; }
+      .mini-stat-card {
+        border: 1px solid var(--border); border-radius: var(--radius-md);
+        background: rgba(255,255,255,0.025); padding: 10px 12px; min-height: 74px;
+      }
+      .mini-stat-label { font-size: 11px; color: var(--color-text-secondary); }
+      .mini-stat-value { margin-top: 5px; font-size: 18px; font-weight: 850; line-height: 1.25; }
+      .mini-stat-detail { margin-top: 4px; font-size: 11px; color: var(--color-text-secondary); line-height: 1.45; }
+      .analysis-details { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+      .analysis-details summary { cursor: pointer; color: #bfdbfe; font-size: 12px; font-weight: 800; }
+      .analysis-details[open] summary { margin-bottom: 8px; }
 
       .explain-box {
         border: 1px solid var(--border); border-radius: var(--radius-lg);
@@ -169,7 +192,7 @@
       .muted { color: var(--color-text-secondary); }
 
       @media (max-width: 1100px) {
-        .decision-banner, .hero-grid, .account-grid, .board-grid, .kpi-grid, .diagnostic-grid { grid-template-columns: 1fr; }
+        .decision-banner, .hero-grid, .account-grid, .board-grid, .kpi-grid, .diagnostic-grid, .analysis-summary-grid, .mini-stat-grid { grid-template-columns: 1fr; }
       }
       @media (max-width: 640px) {
         .live-page { padding: 18px 12px 36px; }
@@ -381,6 +404,7 @@
 
         <!-- Live KPI + Quality Guard -->
         <div class="section-block">
+          <div class="analysis-summary-grid" id="analysisSummaryGrid"></div>
           <div class="kpi-grid">
             <div class="panel-card" id="liveKpiPanel"></div>
             <div class="panel-card" id="qualityGuardPanel"></div>
@@ -391,8 +415,8 @@
         <div class="section-block">
           <div class="section-head">
             <div>
-              <h2 class="section-title">매수 선택 근거 ? 모델 피처 중요도</h2>
-              <div class="section-note">LightGBM D+60 분류 모델 기준. 값이 클수록 순위 결정에 영향이 큽니다.</div>
+              <h2 class="section-title">매수 선택 근거 · 모델 피처 중요도</h2>
+              <div class="section-note">LightGBM D+60 모델이 후보 순위를 매길 때 중요하게 본 입력값입니다. 값이 클수록 영향이 큽니다.</div>
             </div>
           </div>
           <div class="panel-card" id="featureImportancePanel"></div>
@@ -497,6 +521,6 @@
     </div><!-- /live-page -->
 
     <script src="./ops-unified-nav.js?v=20260527-nav-unified"></script>
-    <script src="./live-auto-trading.js?v=20260527-diagnostics-ui"></script>
+    <script src="./live-auto-trading.js?v=20260527-analysis-ui"></script>
   </body>
 </html>

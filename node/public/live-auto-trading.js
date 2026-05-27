@@ -945,6 +945,84 @@ function guardAppliedRow(rows, applied, horizon = 5) {
   ) || {};
 }
 
+function translateLiveKpiWarning(text) {
+  const v = String(text || "");
+  if (v.includes("Some fills have no ranking context")) {
+    return "일부 체결에 랭킹 문맥이 없습니다. 승격 분석 전 ledger/ranking 동기화를 확인하세요.";
+  }
+  if (v.includes("Live trade consistency report has warnings")) {
+    return "자동매매 정합성 리포트에 경고가 있습니다. 주문 탭의 정합성 상태를 확인하세요.";
+  }
+  return v;
+}
+
+function translateGuardBucket(value) {
+  const v = String(value || "");
+  if (!v || v === "-") return "-";
+  if (v === "penalty_unknown") return "페널티 미상";
+  if (v.startsWith("penalty_")) return `페널티 ${v.replace("penalty_", "")}`;
+  return v;
+}
+
+function translateShadowDelta(value) {
+  const v = String(value || "");
+  if (v === "shadow_rank_up") return "순위 개선";
+  if (v === "shadow_rank_down") return "순위 하락";
+  if (v === "shadow_rank_same") return "순위 유지";
+  if (v === "shadow_rank_unknown") return "변화 미상";
+  return v || "-";
+}
+
+function renderAnalysisSummary(liveKpi, guardReview, validation, closedTrade) {
+  const root = document.getElementById("analysisSummaryGrid");
+  if (!root) return;
+
+  const d0 = latestHorizonRow(liveKpi?.horizon_summary, 0);
+  const d5 = latestHorizonRow(liveKpi?.horizon_summary, 5);
+  const overview = liveKpi?.overview || {};
+  const today = liveKpi?.today_counts || {};
+  const warningCount = Number(liveKpi?.consistency?.warning_count || 0);
+  const missingRanking = Number(overview.missing_ranking_context_count || 0);
+
+  const guardD5 = latestHorizonRow(guardReview?.horizon_summary, 5);
+  const notAppliedD5 = guardAppliedRow(guardReview?.by_guard_applied, false, 5);
+  const promotionStatus = String(guardReview?.promotion_status || "").toUpperCase();
+  const canPromote = promotionStatus === "PROMOTE_CANDIDATE";
+  const validationStatus = String(validation?.validation_status || "").toUpperCase();
+
+  const closed = guardReview?.closed_trade_summary || closedTrade?.overview || {};
+  const closedPnl = Number(closed.realized_net_pnl);
+  const closedObserved = Number(closed.observed_count || 0);
+  const closedWinRate = Number(closed.win_rate);
+
+  const sampleReady = Number(d5.observed_count || guardD5.observed_count || 0) >= 30;
+  const consistencyOk = warningCount === 0 && missingRanking === 0;
+  const validationText = validationStatus === "PASS" ? "검증 통과" : (validationStatus || "검증 미확인");
+
+  root.innerHTML = `
+    <div class="analysis-summary-card ${canPromote ? "good" : "warn"}">
+      <div class="analysis-summary-label">운영 반영 판단</div>
+      <div class="analysis-summary-value">${canPromote ? "반영 후보" : "반영 보류"}</div>
+      <div class="analysis-summary-detail">${escapeHtml(validationText)} · 미적용군 ${fmtNum(notAppliedD5.observed_count)}/30 · ${escapeHtml(statusText(guardReview?.promotion_status || "KEEP_SHADOW"))}</div>
+    </div>
+    <div class="analysis-summary-card ${sampleReady ? "good" : "warn"}">
+      <div class="analysis-summary-label">성과 표본</div>
+      <div class="analysis-summary-value">${sampleReady ? "관찰 적용" : "데이터 축적 중"}</div>
+      <div class="analysis-summary-detail">D+5 ${escapeHtml(fmtPct(d5.avg_return ?? guardD5.avg_return, 2))} / ${fmtNum(d5.observed_count ?? guardD5.observed_count)}건 · D0 ${escapeHtml(fmtPct(d0.avg_return, 2))}</div>
+    </div>
+    <div class="analysis-summary-card ${consistencyOk ? "good" : "warn"}">
+      <div class="analysis-summary-label">정합성</div>
+      <div class="analysis-summary-value">${consistencyOk ? "정상" : `경고 ${fmtNum(warningCount + missingRanking)}건`}</div>
+      <div class="analysis-summary-detail">랭킹 누락 ${fmtNum(missingRanking)}건 · 체결 ${fmtNum(today.fill_count)}/${fmtNum(today.execution_count)}</div>
+    </div>
+    <div class="analysis-summary-card ${Number.isFinite(closedPnl) && closedPnl < 0 ? "bad" : "good"}">
+      <div class="analysis-summary-label">청산 손익</div>
+      <div class="analysis-summary-value ${signedClass(closedPnl)}">${escapeHtml(fmtNum(closedPnl))}</div>
+      <div class="analysis-summary-detail">관찰 ${fmtNum(closedObserved)}건${Number.isFinite(closedWinRate) ? ` · 승률 ${escapeHtml(fmtPct(closedWinRate, 1))}` : ""}</div>
+    </div>
+  `;
+}
+
 function renderLiveKpiDaily(report) {
   const root = document.getElementById("liveKpiPanel");
   if (!root) return;
@@ -970,14 +1048,14 @@ function renderLiveKpiDaily(report) {
       <div class="kv-row"><span>${metricLabel("D+5 평균 / 관찰", "체결 후 5거래일 수익률 — 승격 판단의 핵심 표본입니다.")}</span><strong class="${signedClass(d5.avg_return)}">${escapeHtml(fmtPct(d5.avg_return, 2))} / ${fmtNum(d5.observed_count)}</strong></div>
     </div>
     <div class="chip-row">
-      <span class="chip ${Number(overview.missing_ranking_context_count || 0) ? "warn" : "good"}">ranking missing ${fmtNum(overview.missing_ranking_context_count)}</span>
-      <span class="chip ${Number(report?.consistency?.warning_count || 0) ? "warn" : "good"}">consistency 경고 ${fmtNum(report?.consistency?.warning_count)}</span>
+      <span class="chip ${Number(overview.missing_ranking_context_count || 0) ? "warn" : "good"}">랭킹 누락 ${fmtNum(overview.missing_ranking_context_count)}</span>
+      <span class="chip ${Number(report?.consistency?.warning_count || 0) ? "warn" : "good"}">정합성 경고 ${fmtNum(report?.consistency?.warning_count)}</span>
     </div>
-    ${warnings.map((item) => `<div class="state-line">${escapeHtml(item)}</div>`).join("")}
+    ${warnings.map((item) => `<div class="state-line">${escapeHtml(translateLiveKpiWarning(item))}</div>`).join("")}
     ${helpDetails([
       { term: "표본 상태", desc: "ACTIONABLE이면 참고 가능, MONITOR_ONLY면 데이터 축적 단계입니다." },
       { term: "D0 / D+5", desc: "D0는 체결 당일, D+5는 체결 후 5거래일 성과입니다." },
-      { term: "ranking missing", desc: "체결 또는 판단 데이터와 리서치 랭킹 문맥이 연결되지 않은 건수입니다." },
+      { term: "랭킹 누락", desc: "체결 또는 판단 데이터와 리서치 랭킹 문맥이 연결되지 않은 건수입니다." },
     ])}
   `;
 }
@@ -991,6 +1069,7 @@ function translatePromotionBlocker(text) {
   if (v.includes("Production top20 vs shadow top20 comparison is not available")) return "Production Top20과 Shadow Top20 비교가 아직 불가능합니다.";
   if (v.includes("Closed-trade report is not available")) return "Closed Trade 리포트가 아직 없습니다.";
   if (v.includes("Closed-trade observed_count is below 30")) return "Closed Trade 관찰 표본이 30건 미만입니다.";
+  if (v.includes("Closed-trade PnL uses position snapshot avg_price fallback")) return "청산 손익 일부는 계좌 스냅샷 평균단가로 보조 계산했습니다. lot 단위 근거는 근사값입니다.";
   return v;
 }
 
@@ -1001,13 +1080,13 @@ function renderClosedQualityGuardTable(rows) {
     <div class="table-wrap" style="margin-top:12px;">
       <table class="status-table">
         <thead>
-          <tr><th>Penalty</th><th>Shadow Delta</th><th class="right">건수</th><th class="right">관찰</th><th class="right">실현손익</th><th class="right">평균</th><th class="right">승률</th></tr>
+          <tr><th>페널티</th><th>Shadow 변화</th><th class="right">건수</th><th class="right">관찰</th><th class="right">실현손익</th><th class="right">평균</th><th class="right">승률</th></tr>
         </thead>
         <tbody>
           ${values.map((row) => `
             <tr>
-              <td>${escapeHtml(row.guard_penalty_bucket || "-")}</td>
-              <td>${escapeHtml(row.shadow_rank_delta_bucket || "-")}</td>
+              <td>${escapeHtml(translateGuardBucket(row.guard_penalty_bucket))}</td>
+              <td>${escapeHtml(translateShadowDelta(row.shadow_rank_delta_bucket))}</td>
               <td class="right">${fmtNum(row.count)}</td>
               <td class="right">${fmtNum(row.observed_count)}</td>
               <td class="right ${signedClass(row.realized_net_pnl)}">${escapeHtml(fmtNum(row.realized_net_pnl))}</td>
@@ -1053,7 +1132,7 @@ function renderQualityGuardReview(report, validation) {
       <span class="chip ${Number(d5.observed_count || 0) >= 30 ? "good" : "warn"}">D+5 관찰 ${fmtNum(d5.observed_count)}</span>
       ${gateStatusChip(Number(appliedD5.observed_count || 0) >= 30, "적용군", fmtNum(appliedD5.observed_count))}
       ${gateStatusChip(Number(notAppliedD5.observed_count || 0) >= 30, "미적용군", fmtNum(notAppliedD5.observed_count))}
-      <span class="chip ${validationOk ? "good" : "bad"}">validation ${escapeHtml(validationStatus || "MISSING")}</span>
+      <span class="chip ${validationOk ? "good" : "bad"}">${validationOk ? "검증 통과" : `검증 ${escapeHtml(validationStatus || "누락")}`}</span>
     </div>
     ${blockers.map((item) => `<div class="state-line">${escapeHtml(translatePromotionBlocker(item))}</div>`).join("")}
     ${renderClosedQualityGuardTable(closed.by_quality_guard || [])}
@@ -1084,17 +1163,63 @@ function reviewOutcomeChip(outcome) {
   return "watch";
 }
 
+function reviewOutcomeLabel(outcome) {
+  const v = String(outcome || "").toLowerCase();
+  if (v === "positive") return "긍정";
+  if (v === "negative") return "부정";
+  if (v === "neutral") return "중립";
+  if (v === "pending_price_data") return "가격 대기";
+  if (v.includes("pending")) return "관찰 대기";
+  return outcome || "-";
+}
+
+function intentTypeLabel(value) {
+  const v = String(value || "").toUpperCase();
+  return ({ BUY: "매수", SELL: "매도", EXIT: "청산", REVIEW: "검토", HOLD: "보유" })[v] || v || "-";
+}
+
+function rankBucketLabel(value) {
+  const v = String(value || "");
+  if (v === "rank_top5") return "랭킹 1-5";
+  if (v === "rank_top10") return "랭킹 6-10";
+  if (v === "rank_top20") return "랭킹 11-20";
+  if (v === "rank_21_plus") return "랭킹 21+";
+  return v || "-";
+}
+
+function translateClosedWarning(text) {
+  const v = String(text || "");
+  if (v.includes("position snapshot avg_price as fallback")) {
+    return "일부 청산 거래는 계좌 스냅샷 평균단가를 원가 보조값으로 사용했습니다. lot 단위 손익은 근사값입니다.";
+  }
+  return v;
+}
+
+function matchStatusLabel(value) {
+  const v = String(value || "").toUpperCase();
+  if (v === "MATCHED") return "매칭 완료";
+  if (v === "PARTIAL") return "부분 매칭";
+  if (v === "UNMATCHED") return "미매칭";
+  return v || "-";
+}
+
 function renderReviewSummaryRows(title, rows, keyName) {
   const values = Array.isArray(rows) ? rows.slice(0, 4) : [];
   if (!values.length) return "";
+  const titleLabel = title === "Intent" ? "판단 유형" : title === "Rank" ? "랭킹 구간" : title;
+  const labelValue = (value) => {
+    if (keyName === "intent_type") return intentTypeLabel(value);
+    if (keyName === "rank_bucket") return rankBucketLabel(value);
+    return value || "-";
+  };
   return `
     <div class="table-wrap" style="margin-top:12px;">
       <table class="status-table">
-        <thead><tr><th>${escapeHtml(title)}</th><th class="right">건수</th><th class="right">관찰</th><th class="right">평균</th><th class="right">승률</th></tr></thead>
+        <thead><tr><th>${escapeHtml(titleLabel)}</th><th class="right">건수</th><th class="right">관찰</th><th class="right">평균</th><th class="right">승률</th></tr></thead>
         <tbody>
           ${values.map((row) => `
             <tr>
-              <td>${escapeHtml(row[keyName] || "-")}</td>
+              <td>${escapeHtml(labelValue(row[keyName]))}</td>
               <td class="right">${fmtNum(row.count)}</td>
               <td class="right">${fmtNum(row.observed_count)}</td>
               <td class="right ${signedClass(row.avg_signed_return)}">${escapeHtml(fmtPct(row.avg_signed_return, 2))}</td>
@@ -1130,14 +1255,14 @@ function renderTradeReview(review, summary) {
     .sort((a, b) => reviewItemSortKey(b).localeCompare(reviewItemSortKey(a)))
     .slice(0, 10);
   const countsHtml = outcomeCounts.length
-    ? outcomeCounts.map((r) => `<span class="chip ${reviewOutcomeChip(r.outcome_label)}">${escapeHtml(r.outcome_label || "-")} ${fmtNum(r.count)}</span>`).join("")
+    ? outcomeCounts.map((r) => `<span class="chip ${reviewOutcomeChip(r.outcome_label)}">${escapeHtml(reviewOutcomeLabel(r.outcome_label))} ${fmtNum(r.count)}</span>`).join("")
     : `<span class="chip warn">성과 요약 없음</span>`;
 
   const tableHtml = rows.length
     ? `
       <div class="table-wrap" style="margin-top:12px;">
         <table class="status-table">
-          <thead><tr><th>request_id</th><th>코드</th><th>종목명</th><th>매수/매도</th><th>Intent</th><th class="right">체결가</th><th class="right">성과</th><th>판정</th></tr></thead>
+          <thead><tr><th>요청ID</th><th>코드</th><th>종목명</th><th>구분</th><th>판단</th><th class="right">체결가</th><th class="right">성과</th><th>판정</th></tr></thead>
           <tbody>
             ${rows.map((item) => {
               const ret = extractSignedReturn(item);
@@ -1146,11 +1271,11 @@ function renderTradeReview(review, summary) {
                   <td class="mono">${escapeHtml(item.request_id || "")}</td>
                   <td class="mono">${escapeHtml(item.code || "")}</td>
                   <td>${escapeHtml(item.name || "")}</td>
-                  <td>${escapeHtml(item.side || "")}</td>
-                  <td>${escapeHtml(item.intent_type || "")}</td>
+                  <td>${escapeHtml(intentTypeLabel(item.side))}</td>
+                  <td>${escapeHtml(intentTypeLabel(item.intent_type))}</td>
                   <td class="right">${escapeHtml(fmtNum(item.filled_price, 0))}</td>
                   <td class="right ${signedClass(ret.value)}">${escapeHtml(ret.value === null ? "-" : `${ret.horizon} ${fmtPct(ret.value, 2)}`)}</td>
-                  <td><span class="chip ${reviewOutcomeChip(item.outcome_label)}">${escapeHtml(item.outcome_label || "-")}</span></td>
+                  <td><span class="chip ${reviewOutcomeChip(item.outcome_label)}">${escapeHtml(reviewOutcomeLabel(item.outcome_label))}</span></td>
                 </tr>
               `;
             }).join("")}
@@ -1161,6 +1286,29 @@ function renderTradeReview(review, summary) {
     : `<div class="empty-state" style="margin-top:12px;">리뷰 대상 체결이 없습니다.</div>`;
 
   root.innerHTML = `
+    <p class="card-guide">체결 이후 D0/D+5/D+10 성과를 자동으로 되짚어 매수 판단이 실제로 작동했는지 보는 영역입니다.</p>
+    <div class="mini-stat-grid">
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">누적 리뷰</div>
+        <div class="mini-stat-value">${fmtNum(overview.review_count || review.reviewed_count || items.length)}</div>
+        <div class="mini-stat-detail">관찰 ${fmtNum(overview.observed_count)} · 대기 ${fmtNum(overview.pending_count)}</div>
+      </div>
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">평균 성과</div>
+        <div class="mini-stat-value ${signedClass(overview.avg_signed_return)}">${escapeHtml(fmtPct(overview.avg_signed_return, 2))}</div>
+        <div class="mini-stat-detail">체결 후 관찰 가능 표본 기준</div>
+      </div>
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">승률</div>
+        <div class="mini-stat-value">${escapeHtml(fmtPct(overview.win_rate, 1))}</div>
+        <div class="mini-stat-detail">양수 성과 비율</div>
+      </div>
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">최신 리뷰</div>
+        <div class="mini-stat-value">${escapeHtml(review.review_date || overview.latest_review_date || "-")}</div>
+        <div class="mini-stat-detail">가격 최신일 ${escapeHtml(review.price_latest_date || "-")}</div>
+      </div>
+    </div>
     <div class="kv">
       <div class="kv-row"><span>기준일 / 리뷰일</span><strong>${escapeHtml(review.as_of_date || "-")} / ${escapeHtml(review.review_date || "-")}</strong></div>
       <div class="kv-row"><span>가격 최신일</span><strong>${escapeHtml(review.price_latest_date || "-")}</strong></div>
@@ -1170,7 +1318,10 @@ function renderTradeReview(review, summary) {
     <div class="chip-row">${countsHtml}</div>
     ${renderReviewSummaryRows("Intent", summary?.by_intent, "intent_type")}
     ${renderReviewSummaryRows("Rank", summary?.by_rank_bucket, "rank_bucket")}
-    ${tableHtml}
+    <details class="analysis-details">
+      <summary>최근 리뷰 상세 보기</summary>
+      ${tableHtml}
+    </details>
   `;
 }
 
@@ -1188,19 +1339,19 @@ function renderClosedTradeReport(report) {
 
   const recentHtml = recentRows.length
     ? `
-      <div class="table-wrap" style="margin-top:12px;">
+      <div class="table-wrap">
         <table class="status-table">
-          <thead><tr><th>종목</th><th>Intent</th><th class="right">수량</th><th class="right">매칭</th><th class="right">실현손익</th><th class="right">수익률</th><th>매칭상태</th></tr></thead>
+          <thead><tr><th>종목</th><th>판단</th><th class="right">수량</th><th class="right">매칭</th><th class="right">실현손익</th><th class="right">수익률</th><th>매칭상태</th></tr></thead>
           <tbody>
             ${recentRows.map((row) => `
               <tr>
                 <td><span class="mono">${escapeHtml(row.code || "")}</span> ${escapeHtml(row.name || "")}</td>
-                <td>${escapeHtml(row.intent_type || "-")}</td>
+                <td>${escapeHtml(intentTypeLabel(row.intent_type))}</td>
                 <td class="right">${fmtNum(row.sell_qty)}</td>
                 <td class="right">${fmtNum(row.matched_qty)}</td>
                 <td class="right ${signedClass(row.realized_net_pnl)}">${escapeHtml(fmtNum(row.realized_net_pnl))}</td>
                 <td class="right ${signedClass(row.realized_return)}">${escapeHtml(fmtPct(row.realized_return, 2))}</td>
-                <td><span class="chip ${row.match_status === "MATCHED" ? "good" : "warn"}">${escapeHtml(row.match_status || "-")}</span></td>
+                <td><span class="chip ${row.match_status === "MATCHED" ? "good" : "warn"}">${escapeHtml(matchStatusLabel(row.match_status))}</span></td>
               </tr>
             `).join("")}
           </tbody>
@@ -1211,6 +1362,28 @@ function renderClosedTradeReport(report) {
 
   root.innerHTML = `
     <p class="card-guide">매도까지 끝난 거래만 모아 실제로 돈을 벌었는지 확인하는 카드입니다. 표본이 적으면 방향성만 참고합니다.</p>
+    <div class="mini-stat-grid">
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">실현손익</div>
+        <div class="mini-stat-value ${signedClass(overview.realized_net_pnl)}">${escapeHtml(fmtNum(overview.realized_net_pnl))}</div>
+        <div class="mini-stat-detail">닫힌 거래 ${fmtNum(overview.closed_trade_count)}건</div>
+      </div>
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">평균 수익률</div>
+        <div class="mini-stat-value ${signedClass(overview.avg_realized_return)}">${escapeHtml(fmtPct(overview.avg_realized_return, 2))}</div>
+        <div class="mini-stat-detail">관찰 ${fmtNum(overview.observed_count)}건</div>
+      </div>
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">승률</div>
+        <div class="mini-stat-value">${escapeHtml(fmtPct(overview.win_rate, 1))}</div>
+        <div class="mini-stat-detail">최대손실 ${escapeHtml(fmtPct(overview.max_loss, 2))}</div>
+      </div>
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">원가 매칭</div>
+        <div class="mini-stat-value">${fmtNum(overview.unmatched_count)} 미매칭</div>
+        <div class="mini-stat-detail">스냅샷 보조 ${fmtNum(overview.snapshot_fallback_count)}건</div>
+      </div>
+    </div>
     <div class="kv">
       <div class="kv-row"><span>${metricLabel("최근 청산일")}</span><strong>${escapeHtml(report.latest_closed_date || "-")}</strong></div>
       <div class="kv-row"><span>${metricLabel("표본 상태")}</span><strong>${statusChip(report.sample_status)}</strong></div>
@@ -1219,8 +1392,11 @@ function renderClosedTradeReport(report) {
       <div class="kv-row"><span>${metricLabel("평균 수익률 / 승률")}</span><strong class="${signedClass(overview.avg_realized_return)}">${escapeHtml(fmtPct(overview.avg_realized_return, 2))} / ${escapeHtml(fmtPct(overview.win_rate, 1))}</strong></div>
       <div class="kv-row"><span>${metricLabel("최대손실 / 미매칭")}</span><strong class="${signedClass(overview.max_loss)}">${escapeHtml(fmtPct(overview.max_loss, 2))} / ${fmtNum(overview.unmatched_count)}</strong></div>
     </div>
-    ${warnings.map((item) => `<div class="state-line">${escapeHtml(item)}</div>`).join("")}
-    ${recentHtml}
+    ${warnings.map((item) => `<div class="state-line">${escapeHtml(translateClosedWarning(item))}</div>`).join("")}
+    <details class="analysis-details">
+      <summary>최근 청산 상세 보기</summary>
+      ${recentHtml}
+    </details>
     ${helpDetails([
       { term: "닫힌 거래", desc: "매수 후 매도까지 발생해 실현손익을 계산할 수 있는 거래입니다." },
       { term: "FIFO", desc: "먼저 산 수량을 먼저 판 것으로 보고 매도 원가를 연결하는 방식입니다." },
@@ -1286,7 +1462,31 @@ function renderFeatureImportance(data) {
   }
   const rows = data.features.slice(0, 15);
   const isFlow = (name) => name.startsWith("flow_");
+  const top = rows[0];
+  const flowCount = rows.filter((f) => isFlow(f.name)).length;
   root.innerHTML = `
+    <div class="mini-stat-grid">
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">최상위 근거</div>
+        <div class="mini-stat-value">${escapeHtml(FEATURE_LABELS[top?.name] || top?.name || "-")}</div>
+        <div class="mini-stat-detail">중요도 ${fmtNum(top?.importance)} · 상대 ${fmtNum(top?.pct)}%</div>
+      </div>
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">수급 피처</div>
+        <div class="mini-stat-value">${fmtNum(flowCount)}개</div>
+        <div class="mini-stat-detail">상위 15개 기준</div>
+      </div>
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">모델 버전</div>
+        <div class="mini-stat-value">${escapeHtml(data.model_version || "-")}</div>
+        <div class="mini-stat-detail">학습 ${escapeHtml(String(data.trained_at || "-").slice(0, 16))}</div>
+      </div>
+      <div class="mini-stat-card">
+        <div class="mini-stat-label">표시 피처</div>
+        <div class="mini-stat-value">${fmtNum(rows.length)}</div>
+        <div class="mini-stat-detail">전체 ${fmtNum(data.features.length)}개 중 상위</div>
+      </div>
+    </div>
     <p style="font-size:12px;color:var(--color-text-secondary);margin:0 0 12px;">
       모델 버전: ${escapeHtml(data.model_version || "-")} · 학습일시: ${escapeHtml(String(data.trained_at || "-").slice(0, 16))}
     </p>
@@ -1299,16 +1499,16 @@ function renderFeatureImportance(data) {
         return `
           <div style="display:grid;grid-template-columns:160px 1fr 48px;align-items:center;gap:8px;font-size:12px;">
             <span style="color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(f.name)}">
-              ${isFlowFeature ? "🔵 " : ""}${escapeHtml(label)}
+              ${isFlowFeature ? "수급 · " : ""}${escapeHtml(label)}
             </span>
             <div style="background:var(--color-bg-tertiary);border-radius:3px;height:10px;overflow:hidden;">
               <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px;"></div>
             </div>
-            <span style="color:var(--color-text-secondary);text-align:right;">${f.importance.toLocaleString()}</span>
+            <span style="color:var(--color-text-secondary);text-align:right;">${fmtNum(f.importance)}</span>
           </div>`;
       }).join("")}
     </div>
-    <div style="font-size:11px;color:var(--color-text-secondary);margin-top:10px;">🔵 = 수급 피처 (flow)</div>
+    <div style="font-size:11px;color:var(--color-text-secondary);margin-top:10px;">수급 표시는 외국인·기관 순매수 관련 피처입니다.</div>
   `;
 }
 
@@ -1445,6 +1645,7 @@ async function main() {
     renderQualityGuardReview(qualityGuardReview, qualityGuardOutputCheck);
     renderTradeReview(tradeReview, tradeReviewSummary);
     renderClosedTradeReport(closedTradeReport);
+    renderAnalysisSummary(liveKpiDaily, qualityGuardReview, qualityGuardOutputCheck, closedTradeReport);
 
     // flow history는 holdings 로드 후 별도 호출 (보유 종목 코드 필요)
     const holdingCodes = (holdings?.items || []).map((h) => h.code).join(",");

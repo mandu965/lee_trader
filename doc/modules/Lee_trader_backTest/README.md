@@ -9,8 +9,9 @@
 - 모델 기반 prediction history 생성
 - ranking history 생성
 - outcome / maturity 계산
-- RULE 포트폴리오 백테스트 결과 정리
 - 성과 비교와 검증 리포트 생성
+
+> RULE 포트폴리오 백테스트 (`rule_portfolio_backtest.py`)는 RULE 서비스 종료(2026-05-21) 이후 이력 보관용으로만 유지됩니다.
 
 ## Main Files
 

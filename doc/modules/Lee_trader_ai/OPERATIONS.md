@@ -52,6 +52,14 @@ docker compose run --rm scheduler-live-account-sync python python/sync_web_displ
 - Policy reference: `doc/alert_policy.md`
 - If `SLACK_WEBHOOK_URL` is not configured, alerts fall back to console/log output without stopping operations.
 
+## US Stock Operations (미운영)
+
+US 주식 관련 수집·피처·랭킹 스크립트(`python/us/`)는 현재 미운영 상태입니다.
+스케줄러에서 제외되어 있으며, 재개 시 별도 설계 검토가 필요합니다.
+아래 명령은 수동 실행 참고용으로만 보관합니다.
+
+---
+
 ## Project C Phase 2-2: US Financial Collector
 
 Current status:
