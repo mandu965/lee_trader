@@ -460,6 +460,38 @@ function buildAbsoluteUrl(pathname) {
   return `${SITE_BASE_URL}${pathname.startsWith("/") ? pathname : `/${pathname}`}`;
 }
 
+const NOINDEX_PUBLIC_PATHS = new Set([
+  "/app",
+  "/index.html",
+  "/detail.html",
+  "/ranking.html",
+  "/meaningfulness.html",
+  "/ops-readiness.html",
+  "/score-check",
+  "/score-check.html",
+  "/manual-trading.html",
+  "/holdings.html",
+  "/holdingsDetail.html",
+  "/paper-trading.html",
+  "/trade-history.html",
+  "/live-auto-trading.html",
+  "/rule-auto-trading.html",
+  "/us-ranking.html",
+  "/us-trading.html",
+  "/alerts.html",
+  "/operator-login",
+  "/operator-login.html",
+  "/admin_db.html",
+]);
+
+function injectRobotsMeta(html, content = "noindex, nofollow") {
+  const escaped = escapeHtml(content);
+  if (/<meta\s+name=["']robots["'][^>]*>/i.test(html)) {
+    return html.replace(/<meta\s+name=["']robots["'][^>]*>/i, `<meta name="robots" content="${escaped}">`);
+  }
+  return html.replace("</head>", `  <meta name="robots" content="${escaped}">\n</head>`);
+}
+
 function renderJsonLd(value) {
   if (!value) return "";
   const payload = Array.isArray(value) ? value : [value];
@@ -576,6 +608,7 @@ function buildPublicPageMeta(pathname) {
       title: "운영 앱 | Lee Trader Lab",
       description: "Lee Trader Lab의 운영 화면과 데이터 대시보드입니다. 일반 독자는 해설 콘텐츠를 먼저 읽는 것을 권장합니다.",
       canonicalPath: "/app",
+      robots: "noindex, nofollow",
     },
   };
   return pages[normalized] || null;
@@ -609,6 +642,9 @@ function applyPublicPageMeta(html, pathname) {
     next = next.replace(/<meta\s+name=["']description["'][^>]*>/i, `<meta name="description" content="${description}">`);
   } else {
     next = next.replace("</head>", `  <meta name="description" content="${description}">\n</head>`);
+  }
+  if (meta.robots) {
+    next = injectRobotsMeta(next, meta.robots);
   }
   return injectHeadSnippet(next, headExtras);
 }
@@ -696,22 +732,29 @@ function renderArticlePage(item, section) {
   const title = `${item.title} | Lee Trader Lab`;
   const description = stripHtml(item.excerpt || item.body).slice(0, 160);
   const canonicalUrl = buildAbsoluteUrl(canonicalPath);
+  const ogImageUrl = buildAbsoluteUrl("/og-image.svg");
   const articleSchema = {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: item.title,
     description,
+    image: ogImageUrl,
     datePublished: item.date || undefined,
     dateModified: item.date || undefined,
     mainEntityOfPage: canonicalUrl,
     author: {
       "@type": "Organization",
       name: "Lee Trader Lab",
+      url: SITE_BASE_URL,
     },
     publisher: {
       "@type": "Organization",
       name: "Lee Trader Lab",
       url: SITE_BASE_URL,
+      logo: {
+        "@type": "ImageObject",
+        url: ogImageUrl,
+      },
     },
   };
 
@@ -727,9 +770,15 @@ function renderArticlePage(item, section) {
   <meta property="og:title" content="${escapeHtml(item.title)}">
   <meta property="og:description" content="${escapeHtml(description)}">
   <meta property="og:url" content="${escapeHtml(canonicalUrl)}">
+  <meta property="og:image" content="${escapeHtml(ogImageUrl)}">
+  <meta property="og:site_name" content="Lee Trader Lab">
+  <meta property="og:locale" content="ko_KR">
+  <meta property="article:published_time" content="${escapeHtml(item.date || "")}">
+  <meta property="article:author" content="Lee Trader Lab">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="${escapeHtml(item.title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
+  <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
   <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
   <link rel="dns-prefetch" href="//www.googletagmanager.com">
   <link rel="stylesheet" href="/site.css">
@@ -775,7 +824,19 @@ ${renderAnalyticsHeadSnippet()}
             </div>
             <h1>${escapeHtml(item.title)}</h1>
             <p class="article-shell__excerpt">${escapeHtml(item.excerpt || "")}</p>
+            <div class="article-byline" style="display:flex;align-items:center;gap:12px;padding:14px 16px;margin:18px 0 24px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(255,255,255,0.02);">
+              <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#5b8def,#7ad3ff);display:flex;align-items:center;justify-content:center;font-weight:700;color:#0b1220;font-size:14px;">LT</div>
+              <div style="font-size:14px;line-height:1.5;">
+                <div style="font-weight:600;color:#e6edf6;">Lee Trader Lab 편집팀</div>
+                <div style="color:#8a99b5;">데이터·운영 로그 기반 콘텐츠 · 발행일 ${escapeHtml(item.date || "-")}</div>
+              </div>
+            </div>
             <div class="article-body">${item.body || ""}</div>
+            <div class="article-footer-note" style="margin-top:32px;padding:16px;border-top:1px solid rgba(255,255,255,0.08);font-size:13px;color:#8a99b5;line-height:1.6;">
+              본 글은 Lee Trader Lab 운영팀이 작성한 정보 제공 콘텐츠이며, 특정 종목의 매수·매도를 권유하는 투자 자문이 아닙니다.
+              실제 투자 판단과 손익 책임은 이용자 본인에게 있습니다.
+              자세한 기준은 <a class="text-link" href="/disclaimer">면책조항</a>과 <a class="text-link" href="/methodology">방법론</a>을 참고하세요.
+            </div>
           </article>
         </div>
         <aside>
@@ -4839,7 +4900,11 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 function sendPublicPage(res, fileName) {
   const filePath = path.join(PUBLIC_DIR, fileName);
   try {
-    const html = applyPublicPageMeta(fs.readFileSync(filePath, "utf-8"), res.req?.path || "/");
+    const requestPath = res.req?.path || "/";
+    let html = applyPublicPageMeta(fs.readFileSync(filePath, "utf-8"), requestPath);
+    if (NOINDEX_PUBLIC_PATHS.has(requestPath) || NOINDEX_PUBLIC_PATHS.has(`/${fileName}`)) {
+      html = injectRobotsMeta(html);
+    }
     const withHead = injectHeadSnippet(html, renderAnalyticsHeadSnippet());
     res.set("Cache-Control", "no-cache");
     return res.type("html").send(injectBodySnippet(withHead, renderOpsUnifiedNavSnippet(fileName, withHead)));
@@ -4876,7 +4941,29 @@ app.get("/disclaimer", (req, res) => sendPublicPage(res, "disclaimer.html"));
 app.get("/reports", (req, res) => sendPublicPage(res, "content-list.html"));
 app.get("/blog", (req, res) => sendPublicPage(res, "content-list.html"));
 app.get("/robots.txt", (req, res) => {
-  res.type("text/plain").send(`User-agent: *\nAllow: /\n\nSitemap: ${buildAbsoluteUrl("/sitemap.xml")}\n`);
+  const disallowPaths = [
+    "/app",
+    "/index.html",
+    "/detail.html",
+    "/ranking.html",
+    "/meaningfulness.html",
+    "/ops-readiness.html",
+    "/score-check",
+    "/manual-trading.html",
+    "/holdings.html",
+    "/holdingsDetail.html",
+    "/paper-trading.html",
+    "/trade-history.html",
+    "/live-auto-trading.html",
+    "/rule-auto-trading.html",
+    "/us-ranking.html",
+    "/us-trading.html",
+    "/alerts.html",
+    "/operator-login",
+    "/admin_db.html",
+    "/api/",
+  ];
+  res.type("text/plain").send(`User-agent: *\nAllow: /\n${disallowPaths.map((path) => `Disallow: ${path}`).join("\n")}\n\nSitemap: ${buildAbsoluteUrl("/sitemap.xml")}\n`);
 });
 app.get("/sitemap.xml", (req, res) => {
   const items = readSiteLibrary();

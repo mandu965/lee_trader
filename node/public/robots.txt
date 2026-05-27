@@ -1,4 +1,24 @@
 User-agent: *
 Allow: /
+Disallow: /app
+Disallow: /index.html
+Disallow: /detail.html
+Disallow: /ranking.html
+Disallow: /meaningfulness.html
+Disallow: /ops-readiness.html
+Disallow: /score-check
+Disallow: /manual-trading.html
+Disallow: /holdings.html
+Disallow: /holdingsDetail.html
+Disallow: /paper-trading.html
+Disallow: /trade-history.html
+Disallow: /live-auto-trading.html
+Disallow: /rule-auto-trading.html
+Disallow: /us-ranking.html
+Disallow: /us-trading.html
+Disallow: /alerts.html
+Disallow: /operator-login
+Disallow: /admin_db.html
+Disallow: /api/
 
 Sitemap: https://www.leetraderlab.com/sitemap.xml
