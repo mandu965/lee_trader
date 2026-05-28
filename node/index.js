@@ -15,6 +15,7 @@ const PORT = process.env.PORT || 3000;
 const SITE_BASE_URL = (process.env.SITE_BASE_URL || "http://localhost:3000").replace(/\/+$/, "");
 const GA_MEASUREMENT_ID = (process.env.GA_MEASUREMENT_ID || "G-TSJDVJKDFQ").trim();
 const NAVER_ANALYTICS_WA = (process.env.NAVER_ANALYTICS_WA || "1680ec0ed78cdb0").trim();
+const ADSENSE_CLIENT_ID = (process.env.ADSENSE_CLIENT_ID || "ca-pub-9750533988242312").trim();
 
 // ---------------------
 // Env / Postgres Pool
@@ -677,8 +678,16 @@ function renderNaverAnalyticsSnippet() {
   </script>`;
 }
 
+function renderAdSenseSnippet() {
+  if (!ADSENSE_CLIENT_ID) return "";
+  const client = escapeHtml(ADSENSE_CLIENT_ID);
+  return `
+  <meta name="google-adsense-account" content="${client}">
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}" crossorigin="anonymous"></script>`;
+}
+
 function renderAnalyticsHeadSnippet() {
-  return `${renderGoogleAnalyticsSnippet()}${renderNaverAnalyticsSnippet()}`;
+  return `${renderGoogleAnalyticsSnippet()}${renderNaverAnalyticsSnippet()}${renderAdSenseSnippet()}`;
 }
 
 function injectHeadSnippet(html, snippet) {
