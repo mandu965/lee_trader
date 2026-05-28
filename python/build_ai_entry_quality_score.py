@@ -1,3 +1,44 @@
+"""ranking_final.csv 상위 10개 종목의 진입 시점 안전성을 평가하여 점수와 등급 부여.
+
+[Stage 2] 점수 산출 체인의 진입 위험 평가 단계.
+
+이 스크립트는 모델 ranking과 무관한 "진입 시점 위험" 신호만 평가합니다.
+ranking_builder가 "좋은 종목"을 고르고, 이 스크립트는 "지금 진입해도 안전한가"를 판단합니다.
+
+입력:
+- data/ranking_final.csv: 상위 10개 종목과 관련 지표
+  (liquidity_score, risk_penalty, ret_5d, ret_10d, rsi_14, vol_20_pct 등)
+
+출력:
+- data/ai_entry_quality_score.csv: 종목별 entry_quality_score (가중평균) + grade + status
+- outputs/ai_entry_quality_score.json
+- outputs/ai_entry_quality_score_report.md
+
+entry_quality_score 산출:
+    entry_quality_score = sum(component_score × weight) / sum(weights)
+    components: 모멘텀(_momentum_score), RSI(_rsi_score), 변동성(_volatility_score), entry gate(_entry_gate_score)
+
+entry_quality_status 결정 (BLOCK/WATCH/PASS):
+    BLOCK 조건 (가장 강한 차단):
+        - liquidity_score < 30
+        - risk_penalty >= 18
+        - ret_10d >= 20% (이미 과열)
+        - rsi_14 >= 80 (과매수 극단)
+    WATCH 조건 (보유 가능하나 주의):
+        - liquidity_score < 50
+        - risk_penalty >= 17
+        - ret_10d >= 12% or ret_5d >= 12%
+        - rsi_14 >= 75
+    PASS: 위 조건 모두 미해당
+
+소비처:
+- build_ai_filtered_top_candidates.py가 entry_quality_score를 가산점으로 사용 (가중치 0.20).
+- build_trade_intents.py가 entry_quality_status를 매수/보유 의사결정에 참고.
+
+설계 메모 (2026-05-29 추가):
+- 임계값(30/50, 17/18, 12%/20%, 75/80)의 출처는 추적 불가능 — 공식 설계 문서 없음.
+- 운영 데이터로 false positive(불필요 차단) / false negative(놓친 위험) 측정 후 튜닝 권장.
+"""
 from __future__ import annotations
 
 import argparse

@@ -179,8 +179,7 @@ function renderTodayTopActions(data, runtime, liveDiagnostics, ruleOps, usTradin
     ["종가 배치", runtime?.close_scheduler],
     ["AI auto_buy", runtime?.auto_buy_scheduler],
     ["live sync", runtime?.live_account_sync_scheduler],
-    ["수동 계좌 사전동기화", runtime?.rule_before_open_scheduler],
-    ["수동 계좌 장중동기화", runtime?.rule_after_open_scheduler],
+    ["시장 급락 감시", runtime?.market_guard_scheduler],
   ];
   const failedRuntime = runtimePairs.find(([, row]) => ["failed", "error"].includes(String(row?.status || "").toLowerCase()));
   if (failedRuntime) {
@@ -791,7 +790,7 @@ function schedulerActionLinks(key, row) {
   if (key === "auto_buy") links.push({ href: "/live-auto-trading.html", label: "AI 상세" });
   if (key === "live_sync") links.push({ href: "/holdings.html", label: "보유종목" });
   if (key === "close" || key === "intraday") links.push({ href: "/trade-history.html", label: "매매기록" });
-  if (key.startsWith("rule_")) links.push({ href: "/manual-trading.html", label: "수동매매 상세" });
+  if (key === "market_guard") links.push({ href: "/alerts.html", label: "알림 로그" });
   if (!links.length) links.push({ href: "/ops-readiness.html", label: "운영자" });
   return links
     .map((item) => `<a href="${item.href}" class="state-link">${escapeHtml(item.label)}</a>`)
@@ -843,15 +842,11 @@ function renderOperationsRuntime(runtime) {
       chips: [
         { label: `종가배치 ${summary.today_close_batch_success ? "OK" : "WAIT"}`, kind: summary.today_close_batch_success ? "good" : "watch" },
         { label: `AI auto BUY ${summary.today_ai_auto_buy_success ? "OK" : "WAIT"}`, kind: summary.today_ai_auto_buy_success ? "good" : "watch" },
-        { label: `RULE pre-open ${summary.today_rule_before_open_success ? "OK" : "WAIT"}`, kind: summary.today_rule_before_open_success ? "good" : "watch" },
-        { label: `RULE after-open ${summary.today_rule_after_open_success ? "OK" : "WAIT"}`, kind: summary.today_rule_after_open_success ? "good" : "watch" },
         { label: `live sync ${summary.today_live_account_sync_success ? "OK" : "WAIT"}`, kind: summary.today_live_account_sync_success ? "good" : "watch" },
       ],
       kv: [
         ["AI BUY 후보", fmtNum(ai.buy_candidate_count)],
         ["AI BUY 차단", fmtNum(ai.buy_blocked_count)],
-        ["RULE BUY 후보", fmtNum(rule.buy_candidate_count)],
-        ["RULE BUY 차단", fmtNum(rule.buy_blocked_count)],
       ],
     },
   ];
@@ -893,12 +888,7 @@ function renderSchedulerRuntime(runtime) {
     ["intraday", "intraday / recovery (12:00)", runtime?.intraday_scheduler],
     ["auto_buy", "auto_buy (09:30)", runtime?.auto_buy_scheduler],
     ["live_sync", "live_sync (10:00/14:00/18:00)", runtime?.live_account_sync_scheduler],
-    ["rule_before_open", "rule_before_open (08:55)", runtime?.rule_before_open_scheduler],
-    ["rule_after_open", "rule_after_open (09:10)", runtime?.rule_after_open_scheduler],
-    ["rule_after_close", "rule_after_close (18:00)", runtime?.rule_after_close_scheduler],
-    ["us_macro", "us_macro (07:30)", runtime?.us_macro_scheduler],
-    ["us_macro_shadow", "us_macro_shadow (08:50)", runtime?.us_macro_shadow_scheduler],
-    ["us_pipeline", "us_pipeline (06:30)", runtime?.us_pipeline_scheduler],
+    ["market_guard", "market_guard (09:10/14:00)", runtime?.market_guard_scheduler],
   ].filter(([, , payload]) => payload);
 
   if (!rows.length) {

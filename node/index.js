@@ -3517,29 +3517,19 @@ async function readAutoTradingOpsStatusPayload() {
 }
 
 async function readAllSchedulerStatuses() {
-  const [close, intraday, autoBuy, liveSync, ruleBefore, ruleAfter, ruleAfterClose, usMacro, usMacroShadow, usPipeline] = await Promise.all([
+  const [close, intraday, autoBuy, liveSync, marketGuard] = await Promise.all([
     readJsonPayloadDbFirst("auto_ops_scheduler_status",                [path.join(OUTPUTS_DIR, "auto_ops_scheduler_status.json")]),
     readJsonPayloadDbFirst("auto_ops_recovery_scheduler_status",        [path.join(OUTPUTS_DIR, "auto_ops_recovery_scheduler_status.json")]),
     readJsonPayloadDbFirst("auto_ops_auto_buy_scheduler_status",        [path.join(OUTPUTS_DIR, "auto_ops_auto_buy_scheduler_status.json")]),
     readJsonPayloadDbFirst("auto_ops_live_account_sync_scheduler_status", [path.join(OUTPUTS_DIR, "auto_ops_live_account_sync_scheduler_status.json")]),
-    readJsonPayloadDbFirst("rule_before_open_scheduler_status",         [path.join(OUTPUTS_DIR, "rule_before_open_scheduler_status.json")]),
-    readJsonPayloadDbFirst("rule_after_open_scheduler_status",          [path.join(OUTPUTS_DIR, "rule_after_open_scheduler_status.json")]),
-    readJsonPayloadDbFirst("rule_after_close_scheduler_status",         [path.join(OUTPUTS_DIR, "rule_after_close_scheduler_status.json")]),
-    readJsonPayloadDbFirst("us_macro_scheduler_status",                 [path.join(OUTPUTS_DIR, "us_macro_scheduler_status.json")]),
-    readJsonPayloadDbFirst("us_macro_shadow_scheduler_status",          [path.join(OUTPUTS_DIR, "us_macro_shadow_scheduler_status.json")]),
-    readJsonPayloadDbFirst("us_pipeline_scheduler_status",              [path.join(OUTPUTS_DIR, "us_pipeline_scheduler_status.json")]),
+    readJsonPayloadDbFirst("market_guard_scheduler_status",             [path.join(OUTPUTS_DIR, "market_guard_scheduler_status.json")]),
   ]);
   return {
     close_scheduler:              close,
     intraday_scheduler:           intraday,
     auto_buy_scheduler:           autoBuy,
     live_account_sync_scheduler:  liveSync,
-    rule_before_open_scheduler:   ruleBefore,
-    rule_after_open_scheduler:    ruleAfter,
-    rule_after_close_scheduler:   ruleAfterClose,
-    us_macro_scheduler:           usMacro,
-    us_macro_shadow_scheduler:    usMacroShadow,
-    us_pipeline_scheduler:        usPipeline,
+    market_guard_scheduler:       marketGuard,
   };
 }
 
@@ -7941,7 +7931,7 @@ app.get("/api/auto-trading/runtime-status", async (req, res) => {
         generated_at: policyPayload.generated_at || null,
       } : envPolicy),
     };
-    if (!payload.close_scheduler && !payload.intraday_scheduler && !payload.auto_buy_scheduler && !payload.live_account_sync_scheduler && !payload.rule_before_open_scheduler && !payload.us_macro_scheduler && !payload.us_pipeline_scheduler && !Object.keys(payload.operations || {}).length) {
+    if (!payload.close_scheduler && !payload.intraday_scheduler && !payload.auto_buy_scheduler && !payload.live_account_sync_scheduler && !payload.market_guard_scheduler && !Object.keys(payload.operations || {}).length) {
       return res.status(404).json({ error: "auto trading runtime status not found" });
     }
     res.json(payload);

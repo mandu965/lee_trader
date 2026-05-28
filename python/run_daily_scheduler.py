@@ -245,6 +245,8 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
             ("calculate_us_rule_scores", _us_rule_scores_command()),
             ("run_us_trade_orchestration", _us_trade_orchestration_command()),
         ]
+    if command_set == "market_guard":
+        return [("run_market_guard", [sys.executable, str(ROOT / "python" / "market_guard" / "run_market_guard.py")])]
     return [("run_manual_close_batch", _close_batch_command())]
 
 
@@ -291,6 +293,8 @@ def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
             return []
         return [("sync_web_display_data", [sys.executable, str(ROOT / "python" / "sync_web_display_data.py")])]
     if command_set in {"rule_before_open", "rule_after_open"}:
+        return []
+    if command_set == "market_guard":
         return []
     if not _should_sync_web_display():
         return []

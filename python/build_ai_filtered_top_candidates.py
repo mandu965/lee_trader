@@ -1,3 +1,56 @@
+"""ranking_final.csv 상위 10개 종목에 진입 안전성 가산점을 적용해 최종 5개 후보 선별.
+
+[Stage 3] 점수 산출 체인에서 마지막 가산/감산 보정 단계.
+
+입력:
+- data/ranking_final.csv: ranking_builder.py가 생성한 종목 순위 (final_score 포함)
+- data/ai_entry_quality_score.csv: build_ai_entry_quality_score.py가 생성한 진입 품질 평가
+
+출력:
+- data/ai_filtered_top_candidates.csv: 5개 선별 후보 + ai_adjusted_score, filter_passed 등
+- outputs/ai_filtered_top_candidates.json
+- outputs/ai_filtered_top_candidates_report.md
+
+ai_adjusted_score 산출 공식 v2 (2026-05-29 개정, build_adjusted_score 함수):
+    adjusted = final_score
+             + entry_quality_bonus    # (entry_quality_score - 70) * 0.10, ±3점 내외
+             - overheat_penalty       # 구간형 단기 과열 페널티 (최대 -7점)
+             - risk_extra_penalty     # 구간형 위험 추가 차감 (최대 -5점)
+    adjusted = clip(adjusted, 0, 100)
+
+구간형 페널티:
+    overheat_penalty:
+        ret_5d  >= 12% : +3
+        ret_5d  >=  8% : +1.5
+        ret_10d >= 20% : +4
+        ret_10d >= 12% : +2
+    risk_extra_penalty:
+        risk_penalty >= 18 : +5
+        risk_penalty >= 15 : +2
+
+설계 원칙:
+- final_score를 중심축으로 유지 (ranking_builder의 종합 점수 의미 보존).
+- entry_quality_score는 70 기준 ±보너스로 작은 보정만 (Top10 내부 재정렬 역할).
+- 단기 급등(ret_5d/ret_10d)은 fraction 단위 곱셈이 아닌 구간형 페널티로 명시.
+- risk_penalty는 final_score에 이미 비례 반영되었으므로 강한 위험 구간(15+)에만 추가 차감.
+
+운영 파이프라인 위치:
+    run_operational_refresh.py 스텝 순서:
+    ... → operational_buy_gate → ai_entry_quality_score
+    → [이 스크립트] → trade_intents → watch_auto_buy_simulation
+
+v1 → v2 변경 사유:
+- v1: adjusted = final + EQ*0.20 + liq*0.10 - risk*0.50 - ret_10d*0.30 - ret_5d*0.20
+- v1 문제: (a) EQ 가산 과대(+16점), (b) ret_10d/ret_5d 사실상 효과 없음(-0.06점),
+  (c) risk 이중 차감(final_score에도 빠지는데 또 -0.50 비례 차감).
+- v2: 위 의문점 모두 해결, 동시에 entry_quality_score(Stage 2)의 BLOCK/WATCH 임계값과
+  단기 급등/위험 구간 임계값을 정렬해 시스템 일관성 확보.
+
+설계 의도 검증 (2026-05-29 측정):
+- 같은 Top10 입력에서 v1 Top5와 v2 Top5는 3/5 동일.
+- v2에서 ret_5d=17% 종목(018880)이 9위로 밀려나 단기 급등 페널티 정상 작동 확인.
+- final_score 1위 종목(083650)은 변동 없이 1위 유지 → 가장 강한 신호 보존.
+"""
 from __future__ import annotations
 
 import argparse
@@ -219,22 +272,38 @@ def build_adjusted_score(row: pd.Series) -> tuple[float, list[str], dict[str, bo
     ret_10d_val = 0.0 if pd.isna(ret_10d) else float(ret_10d)
     ret_5d_val = 0.0 if pd.isna(ret_5d) else float(ret_5d)
 
-    adjusted = (
-        final_val
-        + entry_quality_val * 0.20
-        + liquidity_val * 0.10
-        - risk_penalty_val * 0.50
-        - ret_10d_val * 0.30
-        - ret_5d_val * 0.20
-    )
+    # ===== ai_adjusted_score v2 (2026-05-29) =====
+    # 변경 사유: 옛 공식은 (a) entry_quality 가산이 너무 커서 final_score 의미를 흐림,
+    # (b) ret_10d/ret_5d가 fraction 단위 × 0.20~0.30 → 0.06점 수준으로 실효 없음,
+    # (c) risk_penalty 비례 차감이 final_score의 risk 반영과 중복(이중 차감).
+    # 새 공식은 final_score를 중심축으로 유지하고 Top10 내부 재정렬용 작은 보정만 적용.
+    entry_quality_bonus = (entry_quality_val - 70.0) * 0.10  # 70 기준 ±보너스 (±3점 내외)
+
+    overheat_penalty = 0.0
+    if ret_5d_val >= 0.12:
+        overheat_penalty += 3.0
+    elif ret_5d_val >= 0.08:
+        overheat_penalty += 1.5
+    if ret_10d_val >= 0.20:
+        overheat_penalty += 4.0
+    elif ret_10d_val >= 0.12:
+        overheat_penalty += 2.0
+
+    risk_extra_penalty = 0.0
+    if risk_penalty_val >= 18.0:
+        risk_extra_penalty += 5.0
+    elif risk_penalty_val >= 15.0:
+        risk_extra_penalty += 2.0
+
+    adjusted = final_val + entry_quality_bonus - overheat_penalty - risk_extra_penalty
+    adjusted = max(0.0, min(100.0, adjusted))  # 0~100 범위 clip
 
     reasons = [
         f"final_score={final_val:.2f}",
-        f"+ entry_quality_score*0.20={entry_quality_val * 0.20:.2f}",
-        f"+ liquidity_score*0.10={liquidity_val * 0.10:.2f}",
-        f"- risk_penalty*0.50={risk_penalty_val * 0.50:.2f}",
-        f"- ret_10d*0.30={ret_10d_val * 0.30:.4f}",
-        f"- ret_5d*0.20={ret_5d_val * 0.20:.4f}",
+        f"+ entry_quality_bonus(EQ-70)*0.10={entry_quality_bonus:+.2f}",
+        f"- overheat_penalty={overheat_penalty:.2f} (ret_5d={ret_5d_val*100:.1f}% ret_10d={ret_10d_val*100:.1f}%)",
+        f"- risk_extra_penalty={risk_extra_penalty:.2f} (risk_penalty={risk_penalty_val:.2f})",
+        f"= adjusted={adjusted:.2f} (clipped to [0,100])",
     ]
     for flag_name, is_missing in missing_flags.items():
         if is_missing:

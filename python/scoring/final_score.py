@@ -1,3 +1,43 @@
+"""KR AI 종합 점수 v9_flow 산출 — 운영 중인 최종 점수 공식 모듈.
+
+[Stage 1] 점수 산출 체인의 핵심 모듈. ranking_builder.py가 호출하여 ranking_final.csv 생성.
+
+final_score 공식:
+    final_score = w_ret  * ret_score
+                + w_prob * prob_score
+                + w_tech * tech_score
+                + w_qual * qual_score
+                + w_flow * flow_score
+                - w_risk * risk_penalty
+
+각 component는 universe(204종목) 내 percentile rank (0~100):
+    ret_score:     모델 예측 수익률(pred_return_60d 등) 기반
+    prob_score:    prob_top20_60d (LightGBM classifier, OOF calibrated since 2026-05-29)
+    tech_score:    기술적 지표
+    qual_score:    재무 품질
+    flow_score:    수급(외국인·기관 순매수) — v9_flow에서 추가됨
+    risk_penalty:  pred_mdd_60d 등 위험 예측 기반
+
+레짐별 가중치 (Bull/Neutral/Defensive):
+    Bull       : ret=0.33, prob=0.24, tech=0.23, qual=0.08, flow=0.12
+    Neutral    : ret=0.28, prob=0.23, tech=0.21, qual=0.18, flow=0.10
+    Defensive  : ret=0.23, prob=0.19, tech=0.16, qual=0.34, flow=0.08
+
+운영 위치:
+    production_config.py의 _SCORE_FORMULA_VERSION_DEFAULT = "ranking_builder_v9_flow"
+    ranking_builder.py가 이 모듈의 함수를 호출하여 ranking_final.csv 생성.
+    이후 build_ai_entry_quality_score(Stage 2) → build_ai_filtered_top_candidates(Stage 3) 순으로 이어짐.
+
+설계 이력:
+- 2026-05-14: v9_flow 적용 — flow_score 도입으로 수급 신호가 종합 점수에 직접 반영.
+  이전 버전(v8 이하)에서 누락되었던 한국 시장 특유의 외국인·기관 수급 모멘텀 보완.
+- 2026-05-23: pred_return_30d 학습 타겟 추가, prob_top20_90d 제거.
+- 2026-05-29: prob_top20_60d 분류기 calibration 누설 수정 — OOF 방식 적용.
+
+설계 메모 (2026-05-29 추가):
+- 레짐별 가중치 수치의 출처는 추적 불가능. 백테스트 검증 없이 초기 결정 후 유지.
+- 운영 데이터 누적 후 정량적 검증 권장 (2026-07~08 60d 만기 도달 이후).
+"""
 from __future__ import annotations
 
 import logging

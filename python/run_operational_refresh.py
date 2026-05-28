@@ -35,6 +35,8 @@ LIVE_SYNC_SCRIPT = ROOT / "python" / "sync_live_account_holdings.py"
 LIVE_PREVIEW_SCRIPT = ROOT / "python" / "build_live_order_preview.py"
 SUBMIT_LIVE_ORDERS_SCRIPT = ROOT / "python" / "submit_live_orders.py"
 TRADE_INTENTS_SCRIPT = ROOT / "python" / "build_trade_intents.py"
+AI_ENTRY_QUALITY_SCRIPT = ROOT / "python" / "build_ai_entry_quality_score.py"
+AI_FILTERED_TOP_SCRIPT = ROOT / "python" / "build_ai_filtered_top_candidates.py"
 WATCH_AUTO_BUY_SIM_SCRIPT = ROOT / "python" / "build_watch_auto_buy_simulation.py"
 LIVE_HOLDINGS_CSV = ROOT / "data" / "live_account_holdings.csv"
 OUTPUTS_DIR = ROOT / "outputs"
@@ -268,6 +270,8 @@ def main() -> int:
             ("score_kpi_monitor", [PYTHON, str(SCORE_KPI_MONITOR_SCRIPT)], True),
             ("market_status_validation", [PYTHON, str(MARKET_STATUS_VALIDATION_SCRIPT)], True),
             ("operational_buy_gate", [PYTHON, str(BUY_GATE_SCRIPT)], True),
+            ("ai_entry_quality_score", [PYTHON, str(AI_ENTRY_QUALITY_SCRIPT)], False),
+            ("ai_filtered_top_candidates", [PYTHON, str(AI_FILTERED_TOP_SCRIPT)], False),
             ("trade_intents", trade_intents_command, True),
             ("watch_auto_buy_simulation", [PYTHON, str(WATCH_AUTO_BUY_SIM_SCRIPT)], True),
         ]

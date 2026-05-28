@@ -11,16 +11,12 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error, mean_absolute_error, roc_auc_score, log_loss
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.isotonic import IsotonicRegression
 from lightgbm import LGBMRegressor, LGBMClassifier
-from sklearn.calibration import CalibratedClassifierCV
 try:
     from calibrated_classifier import BinaryIsotonicCalibratedClassifier
 except Exception:  # pragma: no cover - package import path
     from .calibrated_classifier import BinaryIsotonicCalibratedClassifier
-try:
-    from sklearn.frozen import FrozenEstimator
-except Exception:  # pragma: no cover - older scikit-learn
-    FrozenEstimator = None
 
 # ---------------------------------------------------------------------
 # Paths & constants
@@ -609,7 +605,11 @@ def train_classifiers(
             n_jobs=-1,
         )
 
-        last_va_mask: np.ndarray | None = None
+        # Out-of-fold (OOF) calibration: 각 fold 모델의 validation 예측을 모아
+        # calibrator를 학습. 최종 cls는 전체 데이터로 학습하되, calibrator는 누설 없음.
+        oof_proba = np.full(len(X), np.nan, dtype=float)
+        oof_mask = np.zeros(len(X), dtype=bool)
+
         folds = time_series_folds(dates, N_SPLITS)
         if not folds:
             cls.fit(X, y, sample_weight=sample_weight)
@@ -644,36 +644,28 @@ def train_classifiers(
                     len(X_tr),
                     len(X_va),
                 )
-                last_va_mask = va_mask
+                oof_proba[va_mask] = proba_va
+                oof_mask |= va_mask
 
             cls.fit(X, y, sample_weight=sample_weight)
-            if calibrate and last_va_mask is not None and int(last_va_mask.sum()) >= 20:
-                X_cal = X[last_va_mask]
-                y_cal = y[last_va_mask]
-                if FrozenEstimator is not None:
-                    cal = CalibratedClassifierCV(FrozenEstimator(cls), method="isotonic", cv=None)
-                else:
-                    cal = CalibratedClassifierCV(cls, method="isotonic", cv="prefit")
-                cal.fit(X_cal, y_cal)
-                calibrated_list = getattr(cal, "calibrated_classifiers_", None) or []
-                calibrators = getattr(calibrated_list[0], "calibrators", []) if calibrated_list else []
-                if len(calibrators) != 1:
-                    raise ValueError(
-                        f"Expected exactly one binary isotonic calibrator for {target}, got {len(calibrators)}"
-                    )
+            n_oof = int(oof_mask.sum())
+            if calibrate and n_oof >= 20:
+                # OOF 예측값(누설 없음)으로 IsotonicRegression 직접 학습
+                iso = IsotonicRegression(out_of_bounds="clip", y_min=0.0, y_max=1.0)
+                iso.fit(oof_proba[oof_mask], y[oof_mask].astype(float))
                 cls_models[target] = BinaryIsotonicCalibratedClassifier(
                     estimator=cls,
-                    calibrator=calibrators[0],
+                    calibrator=iso,
                 )
                 logging.info(
-                    "  [%s] isotonic calibration applied (last-fold n_cal=%d)",
-                    target, int(last_va_mask.sum()),
+                    "  [%s] isotonic calibration applied (OOF n_cal=%d, %d folds)",
+                    target, n_oof, len(folds),
                 )
             else:
                 if calibrate:
                     logging.warning(
-                        "  [%s] calibration skipped (last-fold n=%d)",
-                        target, int(last_va_mask.sum()) if last_va_mask is not None else 0,
+                        "  [%s] calibration skipped (OOF n=%d, need >= 20)",
+                        target, n_oof,
                     )
                 cls_models[target] = cls
             if aucs:
