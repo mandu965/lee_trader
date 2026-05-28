@@ -21,4 +21,4 @@ Disallow: /operator-login
 Disallow: /admin_db.html
 Disallow: /api/
 
-Sitemap: https://www.leetraderlab.com/sitemap.xml
+Sitemap: https://www.leetrader.kr/sitemap.xml
