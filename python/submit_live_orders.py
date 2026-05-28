@@ -6,6 +6,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -334,6 +335,7 @@ def build_order_requests(
     account = None
     cash_summary: dict[str, Any] = {}
     available_cash = None
+    buy_cash_remaining = None
     total_assets = None
     market_context = build_market_context()
     entry_gate_config = _entry_price_gate_config()
@@ -344,6 +346,7 @@ def build_order_requests(
         _, summary_df = inquire_balance(client, account)
         cash_summary = summarize_cash(summary_df)
         available_cash = cash_summary.get("dnca_tot_amt")
+        buy_cash_remaining = float(available_cash) if pd.notna(pd.to_numeric(available_cash, errors="coerce")) else None
         total_assets = cash_summary.get("tot_evlu_amt")
     balance_payload = _safe_read_json(LIVE_BALANCE_SUMMARY_JSON)
     fills_payload = _safe_read_json(LIVE_ORDER_FILLS_JSON)
@@ -394,6 +397,9 @@ def build_order_requests(
         final_qty = None
         blocked_reason = None
         budget_shortfall_reason = None
+        reserved_buy_cash_before = buy_cash_remaining
+        reserved_buy_cash_after = buy_cash_remaining
+        reserved_buy_cash_amount = 0.0
 
         if side == "BUY":
             if client is None or account is None:
@@ -480,8 +486,9 @@ def build_order_requests(
             max_buy_qty = pd.to_numeric(psbl_row.get("max_buy_qty"), errors="coerce")
             target_weight = pd.to_numeric(row.get("target_weight"), errors="coerce")
             current_position_value = pd.to_numeric(holding_row.get("eval_amount"), errors="coerce")
+            effective_available_cash = buy_cash_remaining if buy_cash_remaining is not None else available_cash
             planned_qty = compute_market_order_preview_qty(
-                available_cash=available_cash,
+                available_cash=effective_available_cash,
                 target_weight=float(target_weight) if pd.notna(target_weight) else 0.0,
                 price=float(order_price) if order_price else None,
                 total_assets=float(total_assets) if pd.notna(pd.to_numeric(total_assets, errors="coerce")) else None,
@@ -491,12 +498,20 @@ def build_order_requests(
             final_qty = min(planned_qty, allowed_qty)
             if order_price and planned_qty == 0 and allowed_qty > 0:
                 target_weight_value = float(target_weight) if pd.notna(target_weight) else 0.0
-                desired_budget = (float(available_cash) if pd.notna(pd.to_numeric(available_cash, errors="coerce")) else 0.0) * target_weight_value
+                desired_budget = (
+                    float(effective_available_cash)
+                    if pd.notna(pd.to_numeric(effective_available_cash, errors="coerce"))
+                    else 0.0
+                ) * target_weight_value
                 if pd.notna(pd.to_numeric(total_assets, errors="coerce")) and float(total_assets) > 0:
                     desired_budget = float(total_assets) * target_weight_value
                     if pd.notna(current_position_value) and float(current_position_value) > 0:
                         desired_budget = max(desired_budget - float(current_position_value), 0.0)
-                available_cash_value = float(available_cash) if pd.notna(pd.to_numeric(available_cash, errors="coerce")) else 0.0
+                available_cash_value = (
+                    float(effective_available_cash)
+                    if pd.notna(pd.to_numeric(effective_available_cash, errors="coerce"))
+                    else 0.0
+                )
                 effective_budget = min(available_cash_value, desired_budget)
                 budget_shortfall_reason = (
                     f"target_budget_below_one_share: budget={effective_budget:.0f}, price={float(order_price):.0f}, "
@@ -530,6 +545,10 @@ def build_order_requests(
                 )
                 if not common_risk_allowed:
                     blocked_reason = ";".join(common_risk_block_reasons) if common_risk_block_reasons else "common_risk_blocked"
+            if not blocked_reason and final_qty and final_qty > 0 and order_price and buy_cash_remaining is not None:
+                reserved_buy_cash_amount = float(final_qty) * float(order_price)
+                buy_cash_remaining = max(float(buy_cash_remaining) - reserved_buy_cash_amount, 0.0)
+                reserved_buy_cash_after = buy_cash_remaining
         elif side == "SELL":
             current_qty = pd.to_numeric(holding_row.get("qty"), errors="coerce")
             if not pd.notna(current_qty) or float(current_qty) <= 0:
@@ -587,6 +606,9 @@ def build_order_requests(
                 "planned_qty": int(planned_qty) if pd.notna(planned_qty) else None,
                 "allowed_qty": int(allowed_qty) if pd.notna(allowed_qty) else None,
                 "final_request_qty": int(final_qty) if final_qty is not None else None,
+                "reserved_buy_cash_before": reserved_buy_cash_before,
+                "reserved_buy_cash_amount": reserved_buy_cash_amount if side == "BUY" else None,
+                "reserved_buy_cash_after": reserved_buy_cash_after if side == "BUY" else None,
                 "target_weight": _num_or_none(row.get("target_weight")),
                 "priority": _int_or_none(row.get("priority")),
                 "reason": row.get("reason"),
@@ -615,6 +637,7 @@ def build_order_requests(
         "gate_status": intents_payload.get("gate_status"),
         "env_dv": account.env_dv if account is not None else None,
         "cash_summary": cash_summary,
+        "buy_cash_remaining_after_reservations": buy_cash_remaining,
         "items": items,
         "summary": {
             "request_count": len(items),
@@ -767,6 +790,15 @@ def _execution_price_for_submit(*, ord_dvsn: str, reference_price: object) -> st
     return str(int(price))
 
 
+def _wait_for_submit_slot(last_submit_at: float | None, interval_sec: float) -> None:
+    if last_submit_at is None or interval_sec <= 0:
+        return
+    elapsed = time.monotonic() - last_submit_at
+    wait_sec = interval_sec - elapsed
+    if wait_sec > 0:
+        time.sleep(wait_sec)
+
+
 def execute_order_requests(
     *,
     preview_payload: dict[str, Any],
@@ -781,6 +813,9 @@ def execute_order_requests(
     client.issue_access_token()
     account = resolve_account_env()
     entry_gate_config = _entry_price_gate_config()
+    submit_interval_sec = max(_env_float("AUTO_TRADE_ORDER_SUBMIT_INTERVAL_SEC", 1.1), 0.0)
+    rate_limit_retry_sec = max(_env_float("AUTO_TRADE_ORDER_RATE_LIMIT_RETRY_SEC", submit_interval_sec), submit_interval_sec)
+    last_submit_at: float | None = None
 
     results: list[dict[str, Any]] = []
     for item in preview_payload.get("items") or []:
@@ -810,6 +845,9 @@ def execute_order_requests(
             "common_risk_block_reasons": item.get("common_risk_block_reasons"),
             "common_risk_snapshot": item.get("common_risk_snapshot"),
             "final_request_qty": int(qty) if pd.notna(qty) else None,
+            "reserved_buy_cash_before": item.get("reserved_buy_cash_before"),
+            "reserved_buy_cash_amount": item.get("reserved_buy_cash_amount"),
+            "reserved_buy_cash_after": item.get("reserved_buy_cash_after"),
             "raw_reason": item.get("raw_reason") or item.get("reason"),
             "reason": item.get("reason"),
             "policy_status": item.get("policy_status"),
@@ -928,15 +966,42 @@ def execute_order_requests(
                 ord_dvsn=str(item.get("ord_dvsn") or args.ord_dvsn),
                 reference_price=item.get("reference_price"),
             )
-            response_df = order_cash(
-                client,
-                account,
-                side=side.lower(),
-                pdno=str(item.get("code") or "").zfill(6),
-                ord_dvsn=str(item.get("ord_dvsn") or args.ord_dvsn),
-                ord_qty=str(int(qty)),
-                ord_unpr=order_price,
-            )
+            if side == "BUY":
+                psbl = inquire_psbl_order(
+                    client,
+                    account,
+                    pdno=str(item.get("code") or "").zfill(6),
+                    ord_unpr=order_price,
+                    ord_dvsn=str(item.get("ord_dvsn") or args.ord_dvsn),
+                )
+                psbl_row = psbl.iloc[0] if not psbl.empty else pd.Series(dtype="object")
+                allowed_qty_at_submit = _coalesce_allowed_qty(
+                    psbl_row.get("nrcvb_buy_qty"),
+                    psbl_row.get("max_buy_qty"),
+                )
+                result["allowed_qty_at_submit"] = allowed_qty_at_submit
+                if allowed_qty_at_submit < int(qty):
+                    result["skip_reason"] = "buy_psbl_qty_below_request_at_submit"
+                    results.append(result)
+                    continue
+            order_kwargs = {
+                "side": side.lower(),
+                "pdno": str(item.get("code") or "").zfill(6),
+                "ord_dvsn": str(item.get("ord_dvsn") or args.ord_dvsn),
+                "ord_qty": str(int(qty)),
+                "ord_unpr": order_price,
+            }
+            try:
+                _wait_for_submit_slot(last_submit_at, submit_interval_sec)
+                response_df = order_cash(client, account, **order_kwargs)
+                last_submit_at = time.monotonic()
+            except Exception as exc:
+                last_submit_at = time.monotonic()
+                if "EGW00201" not in str(exc):
+                    raise
+                time.sleep(rate_limit_retry_sec)
+                response_df = order_cash(client, account, **order_kwargs)
+                last_submit_at = time.monotonic()
             response_row = response_df.iloc[0].to_dict() if not response_df.empty else {}
             result["submitted_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             result["submission_status"] = "submitted"
@@ -970,6 +1035,8 @@ def execute_order_requests(
         "buy_approval_required": bool(buy_approval_required),
         "approved_request_count": len(approved_request_ids),
         "force_resubmit": bool(args.force_resubmit),
+        "submit_interval_sec": submit_interval_sec,
+        "rate_limit_retry_sec": rate_limit_retry_sec,
         "items": results,
         "summary": {
             "request_count": len(results),

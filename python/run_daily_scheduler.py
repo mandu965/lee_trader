@@ -541,6 +541,8 @@ def _load_primary_status() -> dict[str, object]:
 
 def _evaluate_run_policy(now: datetime, policy: str) -> tuple[bool, str]:
     normalized_policy = (policy or DEFAULT_RUN_POLICY).strip().lower() or DEFAULT_RUN_POLICY
+    if normalized_policy in {"disabled", "off", "0", "false", "no"}:
+        return False, f"Scheduler disabled by SCHEDULER_RUN_POLICY={policy!r}."
     if normalized_policy == "always":
         return True, ""
     if normalized_policy != "if_primary_stale":

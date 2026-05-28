@@ -987,8 +987,19 @@ def classify_holdings(
             action = "TRIM"
             reasons.append(f"theme cap {_fmt_pct(args.theme_cap)} exceeded")
         if not confidence_policy.hold_allowed:
-            action = "EXIT_CANDIDATE"
-            reasons.append(confidence_policy.guidance)
+            if (
+                pd.isna(confidence)
+                and _risk_action != "exit"
+                and _holding_bdays < args.min_hold_days_before_replace
+            ):
+                action = "HOLD_REVIEW"
+                reasons.append(confidence_policy.guidance)
+                reasons.append(
+                    f"early hold protected: holding {_holding_bdays}bd < min {args.min_hold_days_before_replace}bd"
+                )
+            else:
+                action = "EXIT_CANDIDATE"
+                reasons.append(confidence_policy.guidance)
         elif pd.notna(candidate_rank) and int(candidate_rank) > args.max_holdings:
             if pd.notna(latest_rank) and int(latest_rank) <= args.max_hold_rank and confidence_policy.hold_allowed:
                 if action == "HOLD":
@@ -1045,6 +1056,7 @@ def classify_holdings(
                 "confidence_band": confidence_policy.band,
                 "candidate_final_score": candidate_score,
                 "policy_cap_weight": policy_cap_weight,
+                "holding_bdays": _holding_bdays,
                 "action": action,
                 "reason": "; ".join(reasons),
             }

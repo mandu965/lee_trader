@@ -620,6 +620,14 @@ def merge_financial_momentum(feat_df: pd.DataFrame) -> pd.DataFrame:
     )
     merged = merged.drop(columns=["disclosed_at"], errors="ignore")
 
+    # YoY 컬럼은 merge_quality에서도 동일 이름으로 들어와 _x/_y 접미사로 분리됨.
+    # FIN을 우선하고, FIN이 NaN인 경우 quality.csv 값으로 보완.
+    for col in ("revenue_growth_yoy", "op_income_growth_yoy"):
+        x_col, y_col = f"{col}_x", f"{col}_y"
+        if x_col in merged.columns and y_col in merged.columns:
+            merged[col] = merged[y_col].combine_first(merged[x_col])
+            merged = merged.drop(columns=[x_col, y_col])
+
     # fin_hard_risk: boolean → float (0.0 / 1.0) for numeric consistency
     if "fin_hard_risk" in merged.columns:
         merged["fin_hard_risk"] = pd.to_numeric(merged["fin_hard_risk"], errors="coerce")
