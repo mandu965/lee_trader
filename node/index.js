@@ -605,8 +605,8 @@ function buildPublicPageMeta(pathname) {
       },
     },
     "/app": {
-      title: "운영 앱 | Lee Trader Lab",
-      description: "Lee Trader Lab의 운영 화면과 데이터 대시보드입니다. 일반 독자는 해설 콘텐츠를 먼저 읽는 것을 권장합니다.",
+      title: "운영 데이터 화면 | Lee Trader Lab",
+      description: "Lee Trader Lab의 운영 데이터 화면입니다. 일반 독자는 해설 콘텐츠와 운영 안내를 먼저 읽는 것을 권장합니다.",
       canonicalPath: "/app",
       robots: "noindex, nofollow",
     },
@@ -807,7 +807,7 @@ ${renderAnalyticsHeadSnippet()}
         <a class="${section === "reports" ? "is-active" : ""}" href="/reports">시장 해설</a>
         <a class="${section === "blog" ? "is-active" : ""}" href="/blog">블로그</a>
         <span class="site-nav__section">바로가기</span>
-        <a class="site-nav__app" href="/app">운영 앱</a>
+        <a class="site-nav__app" href="/operator-note">운영 안내</a>
         <a class="site-nav__minor" href="/contact">문의</a>
       </nav>
     </div>
@@ -861,7 +861,7 @@ ${renderAnalyticsHeadSnippet()}
               <li><a class="text-link" href="/glossary">용어 해설 보기</a></li>
               <li><a class="text-link" href="/about">회사 소개 보기</a></li>
               <li><a class="text-link" href="/disclaimer">면책조항 확인</a></li>
-              <li><a class="text-link" href="/app">운영 앱 열기</a></li>
+              <li><a class="text-link" href="/operator-note">운영 안내 보기</a></li>
             </ul>
           </section>
         </aside>
