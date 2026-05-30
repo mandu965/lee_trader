@@ -154,6 +154,7 @@ services:
       - ./output:/app/output
       - ./outputs:/app/outputs
       - ./serving:/app/serving
+      - ./python:/app/python
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql://lee_trader:lee_trader_pw@postgres:5432/lee_trader}
       TZ: Asia/Seoul

@@ -77,7 +77,22 @@ const REASON_LABEL = {
 };
 
 function reasonLabel(code) {
-  return REASON_LABEL[code] || code;
+  const displayLabels = {
+    loss_below_minus_8pct: "손실 -8%",
+    final_score_weak: "최종점수 약화",
+    score_delta_down: "점수 하락",
+    ret_score_weak: "수익 기대 약화",
+    prob_score_weak: "상위권 확률 약화",
+    confidence_low: "신뢰도 낮음",
+    risk_penalty_high: "변동성 리스크 높음",
+    hold_day_60_reached: "60일 보유 점검",
+    hold_day_20_reached: "20일 보유 점검",
+    profit_above_15pct: "+15% 수익 점검",
+    latest_price_missing: "가격 누락",
+    new_position: "신규 3일 유예",
+    holding_support_maintained: "보유 근거 유지",
+  };
+  return displayLabels[code] || REASON_LABEL[code] || code;
 }
 
 function reasonChip(code) {
@@ -205,6 +220,40 @@ function buildDecisionSummary(h, pct, priorityValue) {
     <div class="holding-judgement">
       <strong>판단 요약</strong> ${esc(reasonText)}<br>
       <strong>해석</strong> ${esc(priceText)} · ${esc(modelText)} · ${esc(actionText)}
+    </div>
+  `;
+}
+
+function buildCompactDecisionSummary(h, pct, priorityValue) {
+  const reasons = (h.system_review_reasons || []).slice(0, 3).map(reasonLabel);
+  const reasonText = reasons.length ? reasons.join(", ") : "보유 근거 유지";
+  const score = Number(h.final_score);
+  const confidence = Number(h.confidence_score);
+  const risk = Number(h.risk_penalty);
+  const status = h.system_review_status || "KEEP";
+  const statusText =
+    status === "EXIT_REVIEW" ? "매도검토" :
+    status === "REVIEW" ? "점검필요" : "계속보유";
+  const priceText = Number.isFinite(pct)
+    ? pct >= 15 ? "수익 보호 여부 확인" :
+      pct > 0 ? "수익 구간" :
+      pct <= -8 ? "손실 관리 구간" : "가격 변동 제한적"
+    : "가격 확인 필요";
+  const modelText = [
+    Number.isFinite(score) ? `모델 ${score.toFixed(1)}` : null,
+    Number.isFinite(confidence) ? `신뢰도 ${Math.round(confidence)}` : null,
+    Number.isFinite(risk) ? `리스크 ${risk.toFixed(1)}` : null,
+  ].filter(Boolean).join(" · ");
+  const actionText = priorityValue >= 80
+    ? "수익률과 별개로 모델/리스크 기준 우선 검토"
+    : priorityValue >= 55
+      ? "보유 유지 전 점검 필요"
+      : "현재는 보유 추적 중심";
+
+  return `
+    <div class="holding-judgement">
+      <strong>${esc(statusText)}</strong> ${esc(reasonText)}
+      <span style="color:var(--color-text-secondary);"> · ${esc(priceText)} · ${esc(modelText)} · ${esc(actionText)}</span>
     </div>
   `;
 }
@@ -355,6 +404,41 @@ function renderOverviewAlerts(data) {
 }
 
 /* ── 계좌 탭: 보유종목 카드 리스트 ── */
+function renderAccountSummaryBar(data) {
+  const el = document.getElementById("accountSummaryBar");
+  if (!el) return;
+
+  const items = data.items || [];
+  const exit = items.filter((h) => h.system_review_status === "EXIT_REVIEW").length;
+  const review = items.filter((h) => h.system_review_status === "REVIEW").length;
+  const pnl = Number(data.total_unrealized_pnl);
+  const totalValue = Number(data.total_value);
+  const accountValue = Number(data.total_account_value);
+
+  el.innerHTML = `
+    <div class="account-summary-item">
+      <div class="account-summary-label">보유</div>
+      <div class="account-summary-value">${fmtNum(items.length)}종목</div>
+    </div>
+    <div class="account-summary-item">
+      <div class="account-summary-label">매도검토</div>
+      <div class="account-summary-value neg">${fmtNum(exit)}</div>
+    </div>
+    <div class="account-summary-item">
+      <div class="account-summary-label">점검필요</div>
+      <div class="account-summary-value" style="color:#fde68a;">${fmtNum(review)}</div>
+    </div>
+    <div class="account-summary-item">
+      <div class="account-summary-label">평가손익</div>
+      <div class="account-summary-value ${signedClass(pnl)}">${Number.isFinite(pnl) ? fmtWonFull(pnl) : "-"}</div>
+    </div>
+    <div class="account-summary-item">
+      <div class="account-summary-label">계좌총액</div>
+      <div class="account-summary-value">${Number.isFinite(accountValue) ? fmtWonPlain(accountValue) : fmtWonPlain(totalValue)}</div>
+    </div>
+  `;
+}
+
 function renderHoldingsList(data) {
   const el = document.getElementById("holdingsList");
   const badge = document.getElementById("badgeAccount");
@@ -379,9 +463,17 @@ function renderHoldingsList(data) {
     const priorityValue = Number.isFinite(priority) ? priority : 0;
     const barColor = priorityValue >= 80 ? "#f87171" : priorityValue >= 55 ? "#facc15" : "#4ade80";
     const barPct = Math.max(0, Math.min(100, priorityValue));
+    const reasons = (h.system_review_reasons || []);
+    const statusLabel =
+      statusCls === "EXIT_REVIEW" ? "매도검토" :
+      statusCls === "REVIEW" ? "점검필요" : "계속보유";
+    const currentValue = Number(h.current_value);
+    const totalValue = Number(data.total_value);
+    const weightPct = Number.isFinite(currentValue) && Number.isFinite(totalValue) && totalValue > 0
+      ? (currentValue / totalValue) * 100
+      : null;
 
     // 이유 칩
-    const reasons = (h.system_review_reasons || []);
     const reasonsHtml = reasons.map(reasonChip).join("");
 
     return `
@@ -389,9 +481,9 @@ function renderHoldingsList(data) {
         <div class="holding-card-top">
           <div class="holding-stock">
             <div class="holding-stock-name">${esc(h.name || h.code)}</div>
-            <div class="holding-stock-meta">${esc(h.code)} · ${esc(h.market || "")} · ${esc(h.sector || "")}</div>
+            <div class="holding-stock-meta">${esc(h.code)} · ${esc(h.market || "")} · ${esc(h.sector || "")} · ${fmtNum(h.current_qty)}주</div>
             <div class="holding-badges">
-              <span class="review-badge ${statusCls}">${esc(h.system_review_label || statusCls)}</span>
+              <span class="review-badge ${statusCls}">${esc(statusLabel)}</span>
               ${Number.isFinite(score) ? `<span class="score-badge">모델 ${score.toFixed(1)}</span>` : ""}
               ${Number.isFinite(h.confidence_score) ? `<span class="chip info">신뢰도 ${Math.round(h.confidence_score)}</span>` : ""}
               ${Number.isFinite(h.score_delta) && h.score_delta !== 0 ? `<span class="chip ${h.score_delta > 0 ? "ok" : "warn"}">점수 변화 ${h.score_delta > 0 ? "+" : ""}${h.score_delta.toFixed(1)}</span>` : ""}
@@ -404,7 +496,7 @@ function renderHoldingsList(data) {
             </div>
             <div class="metric">
               <div class="metric-label">평가손익</div>
-              <div class="metric-value ${signedClass(pnl)}">${Number.isFinite(pnl) ? fmtWon(pnl) : "-"}</div>
+              <div class="metric-value ${signedClass(pnl)}">${Number.isFinite(pnl) ? fmtWonFull(pnl) : "-"}</div>
             </div>
             <div class="metric">
               <div class="metric-label">현재가</div>
@@ -415,29 +507,33 @@ function renderHoldingsList(data) {
               <div class="metric-value">${Number.isFinite(h.avg_buy_price) ? fmtNum(h.avg_buy_price) : "-"}</div>
             </div>
             <div class="metric">
-              <div class="metric-label">수량</div>
-              <div class="metric-value">${fmtNum(h.current_qty)}</div>
+              <div class="metric-label">평가금액</div>
+              <div class="metric-value">${Number.isFinite(currentValue) ? fmtWonPlain(currentValue) : "-"}</div>
             </div>
             <div class="metric">
-              <div class="metric-label">보유일</div>
-              <div class="metric-value">${Number.isFinite(h.holding_days) ? h.holding_days + "일" : "-"}</div>
+              <div class="metric-label">비중</div>
+              <div class="metric-value">${Number.isFinite(weightPct) ? fmtPct(weightPct) : "-"}</div>
             </div>
+          </div>
+          <div class="holding-side">
+            <div class="priority-bar">
+              <div class="priority-head">
+                <span>매도 우선순위</span>
+                <strong class="priority-score">${Number.isFinite(priority) ? fmtNum(priority) : "-"}</strong>
+              </div>
+              <div class="priority-fill">
+                <div class="priority-fill-inner" style="width:${barPct}%;background:${barColor};"></div>
+              </div>
+              <div class="priority-segments" aria-hidden="true">
+                <span>보유</span><span>점검</span><span>매도검토</span>
+              </div>
+            </div>
+            <a class="detail-link" href="/holdingsDetail.html?code=${esc(h.code)}" onclick="event.stopPropagation()">상세 보기</a>
           </div>
         </div>
         <div class="holding-reasons">${reasonsHtml}</div>
-        ${buildDecisionSummary(h, pct, priorityValue)}
+        ${buildCompactDecisionSummary(h, pct, priorityValue)}
         ${h.system_action_note ? `<div class="holding-action">${esc(h.system_action_note)}</div>` : ""}
-        <div class="priority-bar">
-          <span>매도 우선순위 ${Number.isFinite(priority) ? fmtNum(priority) : "-"}</span>
-          <div class="priority-fill">
-            <div class="priority-fill-inner" style="width:${barPct}%;background:${barColor};"></div>
-          </div>
-        </div>
-        <div class="priority-segments" aria-hidden="true">
-          <span class="seg-hold">0-54 보유</span>
-          <span class="seg-review">55-79 점검</span>
-          <span class="seg-exit">80-100 매도검토</span>
-        </div>
       </div>`;
   }).join("");
 }
@@ -545,6 +641,7 @@ async function loadDashboard() {
     renderOverviewPnl(holdingsData);
     renderOverviewStatus(holdingsData);
     renderOverviewAlerts(holdingsData);
+    renderAccountSummaryBar(holdingsData);
     renderHoldingsList(holdingsData);
 
     const holdingItems = holdingsData.items || [];

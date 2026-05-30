@@ -111,13 +111,27 @@
       /* ── 보유종목 카드 (계좌 탭) ── */
       .holding-card {
         border: 1px solid var(--border); border-radius: var(--radius-lg);
-        background: rgba(255,255,255,.02); padding: 16px 20px;
+        background: rgba(255,255,255,.02); padding: 14px 18px;
         margin-bottom: 10px; cursor: pointer; transition: background .12s;
       }
       .holding-card:hover { background: rgba(255,255,255,.04); }
-      .holding-card-top { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
-      .holding-stock { min-width: 140px; }
-      .holding-stock-name { font-size: 15px; font-weight: 700; }
+      .account-summary-bar {
+        display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px; margin-bottom: 12px;
+      }
+      .account-summary-item {
+        border: 1px solid var(--border); border-radius: var(--radius-md);
+        background: rgba(255,255,255,.025); padding: 10px 12px;
+      }
+      .account-summary-label { font-size: 10px; color: var(--color-text-secondary); letter-spacing: .04em; text-transform: uppercase; }
+      .account-summary-value { margin-top: 3px; font-size: 16px; font-weight: 800; white-space: nowrap; }
+      .holding-card-top {
+        display: grid;
+        grid-template-columns: minmax(220px, 1.15fr) minmax(520px, 2fr) minmax(180px, .65fr);
+        gap: 18px; align-items: start;
+      }
+      .holding-stock { min-width: 0; }
+      .holding-stock-name { font-size: 18px; font-weight: 800; }
       .holding-stock-meta { font-size: 11px; color: var(--color-text-secondary); margin-top: 3px; }
       .holding-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
       .review-badge {
@@ -132,15 +146,23 @@
         border-radius: 999px; font-size: 11px; font-weight: 700;
         border: 1px solid rgba(96,165,250,.3); background: rgba(96,165,250,.10); color: #93c5fd;
       }
-      .holding-metrics { display: flex; gap: 28px; flex-wrap: wrap; margin-top: 10px; }
-      .metric { min-width: 80px; }
+      .holding-metrics {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(92px, 1fr));
+        gap: 10px;
+      }
+      .metric {
+        min-width: 0; border: 1px solid rgba(148,163,184,.16);
+        background: rgba(15,23,42,.48); border-radius: var(--radius-md);
+        padding: 9px 11px;
+      }
       .metric-label { font-size: 10px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: .05em; }
-      .metric-value { font-size: 15px; font-weight: 700; margin-top: 2px; }
+      .metric-value { font-size: 16px; font-weight: 800; margin-top: 3px; white-space: nowrap; }
       .holding-reasons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
       .holding-action { margin-top: 10px; font-size: 12px; color: var(--color-text-secondary); line-height: 1.5; }
       .holding-judgement {
-        margin-top: 12px;
-        padding: 10px 12px;
+        margin-top: 10px;
+        padding: 9px 11px;
         border: 1px solid rgba(96,165,250,.18);
         border-radius: var(--radius-md);
         background: rgba(96,165,250,.06);
@@ -149,29 +171,28 @@
         color: var(--color-text-primary);
       }
       .holding-judgement strong { color: #93c5fd; }
+      .holding-side { display: flex; flex-direction: column; gap: 9px; align-items: stretch; }
       .priority-bar {
-        display: flex; align-items: center; gap: 8px; font-size: 11px;
-        color: var(--color-text-secondary); margin-top: 8px;
-      }
-      .priority-fill {
-        height: 4px; border-radius: 2px; background: var(--border); flex: 1; overflow: hidden;
-      }
-      .priority-fill-inner { height: 100%; border-radius: 2px; }
-      .priority-segments {
-        display: grid;
-        grid-template-columns: 55fr 25fr 20fr;
-        gap: 4px;
-        margin-top: 6px;
-        font-size: 10px;
+        display: grid; gap: 6px; font-size: 11px;
         color: var(--color-text-secondary);
       }
-      .priority-segments span {
-        border-top: 2px solid rgba(148,163,184,.25);
-        padding-top: 4px;
+      .priority-head { display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+      .priority-score { font-size: 20px; font-weight: 900; color: var(--color-text-primary); }
+      .priority-fill {
+        height: 6px; border-radius: 999px; background: var(--border); overflow: hidden;
       }
-      .priority-segments .seg-hold { border-color: rgba(34,197,94,.45); }
-      .priority-segments .seg-review { border-color: rgba(250,204,21,.5); }
-      .priority-segments .seg-exit { border-color: rgba(248,113,113,.55); text-align: right; }
+      .priority-fill-inner { height: 100%; border-radius: 999px; }
+      .priority-segments {
+        display: flex; justify-content: space-between;
+        margin-top: 0; font-size: 10px; color: var(--color-text-secondary);
+      }
+      .detail-link {
+        display: inline-flex; align-items: center; justify-content: center;
+        height: 34px; border-radius: var(--radius-md); border: 1px solid rgba(96,165,250,.32);
+        color: #bfdbfe; background: rgba(96,165,250,.10); text-decoration: none;
+        font-size: 12px; font-weight: 800;
+      }
+      .detail-link:hover { background: rgba(96,165,250,.16); }
 
       /* ── 개요 탭 요약 카드 ── */
       .overview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -189,6 +210,9 @@
         .hero-grid { grid-template-columns: repeat(2, 1fr); }
         .two-col { grid-template-columns: 1fr; }
         .overview-grid { grid-template-columns: repeat(2, 1fr); }
+        .account-summary-bar { grid-template-columns: repeat(2, minmax(0,1fr)); }
+        .holding-card-top { grid-template-columns: 1fr; }
+        .holding-metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
       }
       @media (max-width: 640px) {
         .rule-page { padding: 14px 12px 40px; }
@@ -196,6 +220,7 @@
         .hero-value { font-size: 22px; }
         .tab-btn { padding: 8px 14px; font-size: 13px; }
         .overview-grid { grid-template-columns: 1fr 1fr; }
+        .account-summary-bar { grid-template-columns: 1fr; }
       }
     </style>
   </head>
@@ -302,6 +327,7 @@
               </a>
             </div>
           </div>
+          <div id="accountSummaryBar" class="account-summary-bar"></div>
           <div id="holdingsList"></div>
         </div>
       </div>
@@ -332,6 +358,6 @@
     </div>
 
     <script src="./ops-unified-nav.js?v=20260527-nav-unified"></script>
-    <script src="./rule-auto-trading.js?v=20260527-action-summary"></script>
+    <script src="./rule-auto-trading.js?v=20260529-holdings-compact"></script>
   </body>
 </html>

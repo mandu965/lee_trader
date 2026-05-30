@@ -6659,12 +6659,18 @@ app.get("/api/rule-holdings", async (req, res) => {
         const rankRow = latestRankByCode.get(code) || {};
         const qty = Number(r.qty) || 0;
         const avgBuyPrice = Number(r.avg_price) || null;
-        const currentPrice = toNum(rankRow.close) ?? Number(r.current_price) ?? null;
-        const currentValue = currentPrice != null ? currentPrice * qty : null;
+        const brokerCurrentPrice = toNum(r.current_price);
+        const brokerEvalAmount = toNum(r.eval_amount);
+        const brokerPnlAmount = toNum(r.pnl_amount);
+        const brokerPnlPct = toNum(r.pnl_pct);
+        const currentPrice = brokerCurrentPrice ?? toNum(rankRow.close) ?? null;
+        const currentValue = brokerEvalAmount ?? (currentPrice != null ? currentPrice * qty : null);
         const costBasis = avgBuyPrice != null ? avgBuyPrice * qty : null;
-        const unrealized = currentValue != null && costBasis != null ? currentValue - costBasis : null;
-        const unrealizedPct = currentValue != null && costBasis != null && costBasis > 0
-          ? (currentValue / costBasis - 1) * 100 : null;
+        const unrealized = brokerPnlAmount ?? (currentValue != null && costBasis != null ? currentValue - costBasis : null);
+        const unrealizedPct = brokerPnlPct != null
+          ? brokerPnlPct * 100
+          : (currentValue != null && costBasis != null && costBasis > 0
+            ? (currentValue / costBasis - 1) * 100 : null);
 
         const latestRankDate = toIsoDate(rankRow.date || "") || today;
         const finalScore = getLiveScore(rankRow);

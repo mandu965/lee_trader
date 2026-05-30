@@ -16,15 +16,17 @@
 | `live_rank` | live_score 기준 날짜별 순위 | per-date rank by `live_score_col` | 실주문 종목 선택 기준 |
 | `rank_final` | live_rank와 동일 | `= live_rank` | UI 표시용 alias |
 
-### `final_score` 가중치 (regime별)
+### `final_score` 가중치 (regime별) — v9_flow (2026-05-14~)
 
-| Regime | ret_score | prob_score | tech_score | qual_score | risk_penalty 배율 |
-|---|---|---|---|---|---|
-| `bull` | 0.38 | 0.27 | 0.27 | 0.08 | 0.40 |
-| `neutral` | 0.32 | 0.26 | 0.24 | 0.18 | 0.65 |
-| `defensive` | 0.26 | 0.22 | 0.18 | 0.34 | 0.80 |
+| Regime | ret_score | prob_score | tech_score | qual_score | flow_score | risk_penalty |
+|---|---|---|---|---|---|---|
+| `bull` | 0.33 | 0.24 | 0.23 | 0.08 | 0.12 | (차감) |
+| `neutral` (현재) | 0.28 | 0.23 | 0.21 | 0.18 | 0.10 | (차감) |
+| `defensive` | 0.23 | 0.19 | 0.16 | 0.34 | 0.08 | (차감) |
 
 출처: `python/scoring/final_score.py` — `BULL_WEIGHT_PROFILE`, `NEUTRAL_WEIGHT_PROFILE`, `DEFENSIVE_WEIGHT_PROFILE`
+
+**v9_flow 도입 (2026-05-14)**: 수급 신호(외국인·기관 순매수) 통합. 한국 시장 특유의 수급 모멘텀 직접 반영.
 
 ---
 
@@ -36,6 +38,7 @@
 | `prob_score` | **Top20 확률 점수** | `prob_top20_60d`의 날짜별 백분위 순위 × 100 (상대 점수) |
 | `tech_score` | **기술적 흐름 점수** | vol, momentum, MA, RSI 지표 composite |
 | `qual_score` | **재무 품질 점수** | financial quality composite (안정성·수익성 지표) |
+| `flow_score` | **수급 점수** (v9_flow~) | `0.6 × percentile(flow_foreign_net_5d) + 0.4 × percentile(flow_inst_net_5d)` (날짜별 0~100, 데이터 없으면 50.0 neutral) |
 | `risk_penalty` | **손실위험 차감** | `pred_mdd_*` 기반 soft penalty (weighted score에서 차감) |
 
 ---
@@ -147,13 +150,56 @@
 
 ---
 
-## 9. 관련 문서
+## 9. ai_adjusted_score — Stage 3 가산점 점수 (v2)
 
-- `doc/modules/Lee_trader_score/RUNTIME_SORTING.md` — theme flag 기준 live_rank 분기 상세
-- `doc/shadow_promotion_criteria.md` — `SCORE_FORMULA_VERSION` 전환 조건
-- `python/ranking_builder.py` — 전체 score 계산 파이프라인 (모듈 헤더 참조)
-- `python/scoring/final_score.py` — `final_score` 가중치 프로파일 정의
+> `ranking_final.csv` Top10 종목에 진입 안전성 보정을 추가한 Top5 선별용 점수.
+> ranking_final의 종목 순위는 영향 받지 않음 — Top10 내부 재정렬만.
+
+### 산출 공식 (2026-05-29 v2 개정)
+
+```
+adjusted = final_score
+         + entry_quality_bonus    # (entry_quality_score - 70) × 0.10, ±3점 내외
+         - overheat_penalty       # 구간형 단기 과열 페널티 (최대 -7점)
+         - risk_extra_penalty     # 구간형 위험 추가 차감 (최대 -5점)
+adjusted = clip(adjusted, 0, 100)
+```
+
+### 구간형 페널티
+
+```
+overheat_penalty:
+    ret_5d  >= 12% : +3
+    ret_5d  >=  8% : +1.5
+    ret_10d >= 20% : +4
+    ret_10d >= 12% : +2
+risk_extra_penalty:
+    risk_penalty >= 18 : +5
+    risk_penalty >= 15 : +2
+```
+
+### 임계값 정합성
+구간 임계값(8%/12%/20%, 15/18)이 `build_ai_entry_quality_score.py`의 WATCH/BLOCK 임계값과 일치 → Stage 2와 Stage 3 간 일관성.
+
+### v1 → v2 변경 (2026-05-29)
+v1 공식의 3가지 의문점 해소:
+- **entry_quality 과대 가산** (×0.20 → 70 기준 ±3점)
+- **ret_10d/ret_5d 단위 미스매치** (비례 차감 → 구간형 페널티)
+- **risk_penalty 이중 차감** (모든 값 비례 → 강한 위험 구간만)
+
+출처: `python/build_ai_filtered_top_candidates.py` — `build_adjusted_score()`
 
 ---
 
-*2026-05-13 작성 | 2026-05-15 업데이트 — Financial Momentum Phase 4~8, C-1 공매도 잔고 추가*
+## 10. 관련 문서
+
+- `doc/modules/Lee_trader_score/RUNTIME_SORTING.md` — theme flag 기준 live_rank 분기 상세
+- `doc/shadow_promotion_criteria.md` — `SCORE_FORMULA_VERSION` 전환 조건
+- `doc/20260529_시스템변경이력.md` — 오늘 변경 종합 (calibration OOF, ai_adjusted_score v2 등)
+- `python/ranking_builder.py` — 전체 score 계산 파이프라인 (모듈 헤더 참조)
+- `python/scoring/final_score.py` — `final_score` 가중치 프로파일 정의
+- `python/build_ai_filtered_top_candidates.py` — `ai_adjusted_score` v2 공식
+
+---
+
+*2026-05-13 작성 | 2026-05-15 업데이트 (Financial Momentum Phase 4~8, C-1 공매도) | 2026-05-29 업데이트 (v9_flow 가중치 반영, ai_adjusted_score v2 추가, OOF calibration 메모)*

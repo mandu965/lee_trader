@@ -4,6 +4,8 @@
 
 이 문서는 AI 선별/자동매매 모듈의 기본 운영 명령과 점검 순서를 정리합니다.
 
+**마지막 갱신**: 2026-05-29 — `run_operational_refresh.py` 파이프라인에 `ai_entry_quality_score`/`ai_filtered_top_candidates` 등록, `market_guard` 컨테이너 정상화, `ai_adjusted_score` v2 적용. 자세한 내용은 [doc/20260529_시스템변경이력.md](../../20260529_시스템변경이력.md) 참조.
+
 ## Main Commands
 
 ### Pipeline
@@ -38,12 +40,33 @@ docker compose run --rm scheduler-live-account-sync python python/sync_web_displ
 
 ## Key Outputs
 
-- `data/predictions.csv`
-- `data/ranking_final.csv`
+- `data/predictions.csv` (모델 예측, OOF calibration 적용)
+- `data/ranking_final.csv` (v9_flow 점수 + regime-aware 가중치)
+- `data/ai_entry_quality_score.csv` (Stage 2 — 진입 안전성, 2026-05-29 파이프라인 복귀)
+- `data/ai_filtered_top_candidates.csv` (Stage 3 — `ai_adjusted_score` v2, 2026-05-29 공식 개정)
 - `outputs/trade_intents.json`
 - `outputs/order_requests_preview.json`
 - `outputs/order_requests_execution.json`
 - `outputs/live_account_balance_summary.json`
+- `outputs/market_guard_status.json` (KOSPI 급락 감시, 2026-05-29 정상화)
+
+### 운영 파이프라인 단계 (run_operational_refresh.py)
+```
+theme_shadow_daily
+→ buy_candidate_builder
+→ buy_candidate_comparison
+→ score_kpi_monitor
+→ market_status_validation
+→ operational_buy_gate
+→ ai_entry_quality_score          (2026-05-29 추가)
+→ ai_filtered_top_candidates      (2026-05-29 추가)
+→ trade_intents
+→ watch_auto_buy_simulation
+→ (with-live-account 시) submit_live_orders → build_live_order_preview
+→ export_serving_payloads
+→ shadow_quality_risk_guard_*
+→ sync_auxiliary_payloads
+```
 
 ## Alerts
 

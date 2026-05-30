@@ -1,7 +1,10 @@
 # Lee Trader KR 운영 핵심 컬럼 사전
 
-작성일: 2026-05-26  
+작성일: 2026-05-26
+마지막 갱신: 2026-05-29 — confidence_score는 OOF calibration으로 산출 (기존 누설 calibration 해소)
 범위: KR 운영 판단에 직접 쓰는 핵심 컬럼만 정리
+
+> 점수 산출 체인 전체는 `doc/score_column_definitions.md`, 오늘 변경 이력은 `doc/20260529_시스템변경이력.md` 참조.
 
 ---
 

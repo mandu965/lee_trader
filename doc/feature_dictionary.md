@@ -1,6 +1,6 @@
 # Feature Dictionary
 
-*최종 수정: 2026-05-15*
+*최종 수정: 2026-05-29 — A-3 merge 버그 수정 반영 (revenue_growth_yoy/op_income_growth_yoy 51%/45% 복구)*
 
 ---
 
@@ -105,15 +105,20 @@
 
 ### `revenue_growth_yoy`
 - 정의: 매출액 전년 대비 성장률 (YoY %)
-- 생성 파일: `quality_builder.py` — `build_yoy_growth_features()` (A-3)
+- 생성 파일: `feature_builder.py` — `merge_financial_momentum()` (primary, `revenue_yoy` 컬럼 rename) + `quality_builder.py` fallback (A-3)
+- 커버리지: features 테이블 95,739행 (51.6%), 최근 일자 90.7%
+- **2026-05-29 수정**: 이전엔 `merge_quality()`와 `merge_financial_momentum()`의 컬럼 충돌로 `pd.merge_asof`가 `_x`/`_y` 접미사를 만들어 0행이었음. `combine_first` coalesce로 해결.
 
 ### `op_income_growth_yoy`
 - 정의: 영업이익 YoY 성장률 (%)
-- 생성 파일: `quality_builder.py` — `build_yoy_growth_features()` (A-3)
+- 생성 파일: `feature_builder.py` — `merge_financial_momentum()` (primary, `op_profit_yoy` 컬럼 rename) + `quality_builder.py` fallback (A-3)
+- 커버리지: features 테이블 84,305행 (45.5%), 최근 일자 73.5%
+- **2026-05-29 수정**: 위와 동일 버그 해결.
 
 ### `roe_yoy`
 - 정의: ROE YoY 변화 (pp)
 - 생성 파일: `quality_builder.py` — `build_yoy_growth_features()` (A-3)
+- 커버리지: features 117,120행 (63.2%) — 영향 없음 (`merge_financial_momentum`에서 처리 안 함)
 
 ---
 
