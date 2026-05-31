@@ -624,6 +624,7 @@ function applyPublicPageMeta(html, pathname) {
   const title = escapeHtml(meta.title || "Lee Trader Lab");
   const description = escapeHtml(meta.description || "");
   const headExtras = [
+    '<link rel="icon" href="/og-image.svg" type="image/svg+xml">',
     '<link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>',
     '<link rel="dns-prefetch" href="//www.googletagmanager.com">',
     '<link rel="dns-prefetch" href="//pagead2.googlesyndication.com">',
@@ -788,6 +789,7 @@ function renderArticlePage(item, section) {
   <meta name="twitter:title" content="${escapeHtml(item.title)}">
   <meta name="twitter:description" content="${escapeHtml(description)}">
   <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
+  <link rel="icon" href="/og-image.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://www.googletagmanager.com" crossorigin>
   <link rel="dns-prefetch" href="//www.googletagmanager.com">
   <link rel="stylesheet" href="/site.css">
@@ -881,6 +883,8 @@ ${renderAnalyticsHeadSnippet()}
     <div class="site-container site-footer__inner">
       <div>Lee Trader Lab · 설명 중심 국내 주식 정보 플랫폼</div>
       <div>
+        <a class="text-link" href="/about">회사소개</a>
+        ·
         <a class="text-link" href="/privacy">개인정보처리방침</a>
         ·
         <a class="text-link" href="/terms">이용약관</a>
@@ -4966,21 +4970,33 @@ app.get("/robots.txt", (req, res) => {
 });
 app.get("/sitemap.xml", (req, res) => {
   const items = readSiteLibrary();
-  const urls = [
-    "/",
-    "/about",
-    "/methodology",
-    "/glossary",
-    "/operator-note",
-    "/contact",
-    "/privacy",
-    "/terms",
-    "/disclaimer",
-    "/reports",
-    "/blog",
-    ...items.map((item) => `/${item.section === "report" ? "reports" : "blog"}/${item.slug}`),
+  const today = new Date().toISOString().slice(0, 10);
+  const staticUrls = [
+    { path: "/", priority: "1.0" },
+    { path: "/about", priority: "0.8" },
+    { path: "/methodology", priority: "0.7" },
+    { path: "/glossary", priority: "0.7" },
+    { path: "/operator-note", priority: "0.6" },
+    { path: "/contact", priority: "0.5" },
+    { path: "/privacy", priority: "0.3" },
+    { path: "/terms", priority: "0.3" },
+    { path: "/disclaimer", priority: "0.3" },
+    { path: "/reports", priority: "0.9" },
+    { path: "/blog", priority: "0.9" },
   ];
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((url) => `  <url>\n    <loc>${escapeHtml(buildAbsoluteUrl(url))}</loc>\n  </url>`).join("\n")}\n</urlset>\n`;
+  const contentUrls = items.map((item) => ({
+    path: `/${item.section === "report" ? "reports" : "blog"}/${item.slug}`,
+    lastmod: item.date || today,
+    priority: item.featured ? "0.8" : "0.7",
+  }));
+  const allUrls = [...staticUrls, ...contentUrls];
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${allUrls.map(({ path, lastmod, priority }) => `  <url>
+    <loc>${escapeHtml(buildAbsoluteUrl(path))}</loc>${lastmod ? `\n    <lastmod>${escapeHtml(lastmod)}</lastmod>` : `\n    <lastmod>${today}</lastmod>`}
+    <priority>${priority}</priority>
+  </url>`).join("\n")}
+</urlset>`;
   res.type("application/xml").send(xml);
 });
 app.get("/api/site-library", (req, res) => {

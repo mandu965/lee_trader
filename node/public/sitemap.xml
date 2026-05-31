@@ -2,164 +2,272 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://www.leetrader.kr/</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>1.0</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/about</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/methodology</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/glossary</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/operator-note</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>0.6</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/contact</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>0.5</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/privacy</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>0.3</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/terms</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>0.3</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/disclaimer</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>0.3</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog</loc>
+    <lastmod>2026-05-31</lastmod>
+    <priority>0.9</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/beginner-stock-mistakes-7</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/benefits-of-data-driven-stock-investing</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/can-you-trust-ai-stock-picks</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/difference-between-watchlist-and-buy-allowed</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/dividend-stock-investing-guide</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/growth-vs-value-stocks-guide</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/how-this-site-analyzes-korean-stocks</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/how-to-avoid-risky-stocks</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/how-to-find-companies-with-good-earnings</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/how-to-find-long-term-investment-stocks</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/how-to-find-undervalued-stocks</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/how-to-pick-good-stocks-7-rules</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/how-to-read-foreign-institutional-flow</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/how-us-stock-market-affects-korea</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/interest-rate-impact-on-stock-market</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/kospi-vs-kosdaq-difference</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/moving-average-guide</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/pbr</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/per</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/rsi-indicator-guide</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/sectors-to-watch-when-exchange-rate-rises</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/stocks-beginners-should-avoid</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/stocks-that-rise-when-kospi-rises</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/what-is-roe-easy-guide</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/when-to-cut-loss-stock-guide</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/why-dollar-cost-averaging-matters</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/why-foreign-net-buying-matters</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/why-score-is-not-buy-signal</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/blog/why-volume-spike-stocks-rise</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/case-study-good-score-but-no-entry</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/five-checkpoints-before-reading-ai-stock-score</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/how-to-read-breadth-and-volatility-together</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/how-to-read-market-regime-before-stock-selection</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/how-to-reduce-watchlist-when-volatility-rises</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/how-to-use-stock-ranking-site-safely</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/kospi-rises-but-breadth-weak</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/weekly-market-regime-neutral-example</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/what-walkforward-acceptance-means</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/why-data-freshness-matters-for-stock-analysis</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/why-foreign-net-buying-is-not-enough</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/why-ranking-top-does-not-mean-immediate-entry</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/why-sector-concentration-raises-risk</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.leetrader.kr/reports/why-watch-status-remains-even-with-strong-index</loc>
+    <lastmod>2026-05-23</lastmod>
+    <priority>0.7</priority>
   </url>
 </urlset>
