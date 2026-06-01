@@ -41,6 +41,7 @@ OUTCOME_DB_COLUMNS = [
     "code",
     "horizon_days",
     "realized_return",
+    "realized_return_net",
     "realized_mdd",
     "label_source",
     "is_matured",
@@ -125,7 +126,7 @@ def build_outcome_rows(preds: pd.DataFrame, horizon: int) -> pd.DataFrame:
         how="left",
     )
     out["label_source"] = "from_price_history"
-    out.loc[~out["is_matured"], ["realized_return", "realized_mdd"]] = pd.NA
+    out.loc[~out["is_matured"], ["realized_return", "realized_return_net", "realized_mdd"]] = pd.NA
     return out[OUTCOME_DB_COLUMNS].copy()
 
 
@@ -174,6 +175,7 @@ def ensure_backtest_outcome_columns() -> None:
         return
     eng = get_engine()
     with eng.begin() as conn:
+        conn.execute(text("ALTER TABLE research.backtest_outcome ADD COLUMN IF NOT EXISTS realized_return_net double precision"))
         conn.execute(text("ALTER TABLE research.backtest_outcome ADD COLUMN IF NOT EXISTS is_matured boolean"))
         conn.execute(text("ALTER TABLE research.backtest_outcome ADD COLUMN IF NOT EXISTS maturity_status character varying(32)"))
         conn.execute(text("ALTER TABLE research.backtest_outcome ADD COLUMN IF NOT EXISTS available_future_trading_days integer"))

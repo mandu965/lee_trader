@@ -51,6 +51,23 @@ except Exception:
 
 PRICE_CSV_FALLBACK = Path("data/prices_daily_adjusted.csv")
 
+# --- Round-trip cost model (KR equities) ---------------------------------
+# Used ONLY for the diagnostic `realized_return_net` column.
+# Does NOT affect gross `realized_return`, scoring, ranking, or order flow.
+# Matches the live closed-trade fee/tax convention in
+# build_live_closed_trade_report.py and the roadmap cost estimate
+# ("회전 1회당 0.3~0.5%").
+SELL_TAX_RATE = 0.0018              # 매도 거래세 0.18%
+COMMISSION_RATE_ONE_WAY = 0.00015  # KIS 온라인 수수료(편도) 0.015%
+SLIPPAGE_RATE_ONE_WAY = 0.0010     # 슬리피지(편도) 0.10%, 보수 가정
+
+# entry: commission + slippage ; exit: commission + slippage + sell tax
+ROUND_TRIP_COST = (
+    COMMISSION_RATE_ONE_WAY + SLIPPAGE_RATE_ONE_WAY    # buy side
+    + COMMISSION_RATE_ONE_WAY + SLIPPAGE_RATE_ONE_WAY  # sell side
+    + SELL_TAX_RATE                                    # sell tax
+)  # ≈ 0.0043 (0.43%p)
+
 
 def load_price_availability(
     *,
@@ -191,7 +208,7 @@ def attach_forward_outcomes(
     if horizon_days <= 0:
         raise ValueError("horizon_days must be > 0")
     if price_history.empty:
-        return pd.DataFrame(columns=["code", "date", "realized_return", "realized_mdd"])
+        return pd.DataFrame(columns=["code", "date", "realized_return", "realized_return_net", "realized_mdd"])
 
     frames = []
     for code, group in price_history.sort_values(["code", "date"]).groupby("code", sort=False):
@@ -199,11 +216,14 @@ def attach_forward_outcomes(
         close_vals = g["close"].to_numpy(dtype=float)
         future_close = g["close"].shift(-horizon_days).to_numpy(dtype=float)
         g["realized_return"] = future_close / close_vals - 1.0
+        # Diagnostic net return: gross minus one round-trip cost.
+        # (1+gross) scaled by (1-cost), then re-expressed as a return.
+        g["realized_return_net"] = (1.0 + g["realized_return"]) * (1.0 - ROUND_TRIP_COST) - 1.0
         g["realized_mdd"] = _compute_forward_mdd(close_vals, horizon_days)
-        frames.append(g[["code", "date", "realized_return", "realized_mdd"]])
+        frames.append(g[["code", "date", "realized_return", "realized_return_net", "realized_mdd"]])
 
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
-        columns=["code", "date", "realized_return", "realized_mdd"]
+        columns=["code", "date", "realized_return", "realized_return_net", "realized_mdd"]
     )
 
 
