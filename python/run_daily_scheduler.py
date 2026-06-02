@@ -44,6 +44,7 @@ OPTIONAL_POST_SYNC_STEPS = {
     "build_live_closed_trade_report",
     "build_quality_risk_guard_live_review",
     "check_live_quality_guard_outputs",
+    "generate_blog_posts",
 }
 STRUCTURED_ERROR_PREFIXES = (
     "[LIVE_KPI_REPORT_ERROR]",
@@ -284,7 +285,13 @@ def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
         )
         return steps
     if command_set == "close":
-        return []
+        # 종가 데이터 생성 직후, 비치명적 후처리로 블로그 글 초안 생성.
+        # 실패해도 OPTIONAL_POST_SYNC_STEPS에 등록되어 종가 배치는 정상 종료된다.
+        return [
+            ("generate_blog_posts",
+             [sys.executable, str(ROOT / "python" / "generate_blog_posts.py"),
+              "--type", "all", "--force"]),
+        ]
     if command_set == "rule_after_close":
         if not _should_sync_web_display():
             return []
