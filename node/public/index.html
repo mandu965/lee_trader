@@ -866,7 +866,7 @@
         const reviewFlagChip = buildReviewFlagChip(r);
         const actionLine = (r.action_note || "").trim();
         const manualLine = buildManualReviewLine(r);
-        return `<tr class="stock-row" tabindex="0" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 추천 상세" onclick="location.href='${link}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${link}';}"><td class="rank col-rank">${rankMap.get(r.code) ?? "-"}</td><td class="col-name"><div class="cell-name compact"><div class="name">${escapeHtml(displayField(r.name || r.code, "종목명 정보 없음"))} ${buildRecentSurgeBadge(r)}</div><div class="code">${escapeHtml(displayField(r.code, "코드 정보 없음"))}</div></div></td><td class="col-sector"><div class="cell-sector"><div class="sector-main">${escapeHtml(displayField(r.sector, "-"))}</div><div class="sector-sub">${escapeHtml((r.market || "").toUpperCase() || "-")} · ${escapeHtml(regime.label)}</div></div></td><td class="col-price"><div class="price-main">${fmtPrice(close)}</div><div class="${displayPctClass(change1d)}">${change1d !== null ? fmtPct(change1d) : "기준 " + escapeHtml(baseDate)}</div></td><td class="col-score"><div class="score-primary score-primary--${getScoreTone(r.final_score)}">${fmtScore(r.final_score)}</div></td><td class="col-confidence">${buildFlowDirectionBadge(r.code)}</td><td class="col-ret60"><span class="${displayPctClass(pred60)}">${fmtPct(pred60)}</span></td><td class="col-ret3m"><span class="${displayPctClass(ret3m)}">${fmtPct(ret3m)}</span></td><td class="col-mdd"><span class="${displayPctClass(mdd)}">${fmtPct(mdd)}</span><div class="risk-badge-wrap">${buildRiskBadge(r)}</div></td><td class="col-reason"><div class="table-headline"><div class="table-headline__top"><span class="reason-chip ${escapeHtml(reasonChipClass)}" title="${escapeHtml(buildCompactHeadlineTitle(r))}">${escapeHtml(reasonLine)}</span>${reviewFlagChip}</div><div class="table-headline__summary">${escapeHtml((r.score_explain_risks || "").trim() || getActionState(r).detail)}</div></div></td></tr>`;
+        return `<tr class="stock-row" data-code="${escapeHtml(r.code)}" tabindex="0" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 추천 상세" onclick="location.href='${link}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${link}';}"><td class="rank col-rank">${rankMap.get(r.code) ?? "-"}</td><td class="col-name"><div class="cell-name compact"><div class="name">${escapeHtml(displayField(r.name || r.code, "종목명 정보 없음"))} ${buildRecentSurgeBadge(r)}</div><div class="code">${escapeHtml(displayField(r.code, "코드 정보 없음"))}</div></div></td><td class="col-sector"><div class="cell-sector"><div class="sector-main">${escapeHtml(displayField(r.sector, "-"))}</div><div class="sector-sub">${escapeHtml((r.market || "").toUpperCase() || "-")} · ${escapeHtml(regime.label)}</div></div></td><td class="col-price"><div class="price-main">${fmtPrice(close)}</div><div class="${displayPctClass(change1d)}">${change1d !== null ? fmtPct(change1d) : "기준 " + escapeHtml(baseDate)}</div></td><td class="col-score"><div class="score-primary score-primary--${getScoreTone(r.final_score)}">${fmtScore(r.final_score)}</div></td><td class="col-confidence">${buildFlowDirectionBadge(r.code)}</td><td class="col-ret60"><span class="${displayPctClass(pred60)}">${fmtPct(pred60)}</span></td><td class="col-ret3m"><span class="${displayPctClass(ret3m)}">${fmtPct(ret3m)}</span></td><td class="col-mdd"><span class="${displayPctClass(mdd)}">${fmtPct(mdd)}</span><div class="risk-badge-wrap">${buildRiskBadge(r)}</div></td><td class="col-reason"><div class="table-headline"><div class="table-headline__top"><span class="reason-chip ${escapeHtml(reasonChipClass)}" title="${escapeHtml(buildCompactHeadlineTitle(r))}">${escapeHtml(reasonLine)}</span>${reviewFlagChip}</div><div class="table-headline__summary">${escapeHtml((r.score_explain_risks || "").trim() || getActionState(r).detail)}</div></div></td></tr>`;
       }).join("");
 
       if (!isMobile) {
@@ -949,6 +949,13 @@
       }
     }
 
+    function updateFlowCells() {
+      document.querySelectorAll("#tbody tr[data-code]").forEach((tr) => {
+        const cell = tr.querySelector(".col-confidence");
+        if (cell) cell.innerHTML = buildFlowDirectionBadge(tr.dataset.code);
+      });
+    }
+
     async function fetchFlowHistory() {
       try {
         if (!universe.length) return;
@@ -957,7 +964,7 @@
         if (!res.ok) return;
         const data = await res.json();
         flowHistoryMap = new Map(Object.entries(data.items || {}));
-        render();
+        updateFlowCells();
       } catch (e) {
         console.warn("flow-history fetch failed", e);
       }
@@ -1196,12 +1203,14 @@
 
     (async function init() {
       initTrustBand();
-      await fetchEnv();
-      await fetchMarketStatus();
-      await fetchConfidenceCalibration();
-      await fetchScoreKpiMonitor();
-      await fetchOperatorAuthStatus();
-      await fetchManualTradingSummary();
+      await Promise.all([
+        fetchEnv(),
+        fetchMarketStatus(),
+        fetchConfidenceCalibration(),
+        fetchScoreKpiMonitor(),
+        fetchOperatorAuthStatus(),
+        fetchManualTradingSummary(),
+      ]);
       await fetchRanking();
       $("#q")?.addEventListener("input", debouncedRender);
       $("#market")?.addEventListener("change", render);
