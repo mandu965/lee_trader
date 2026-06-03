@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -266,18 +267,33 @@ def regime_word_from_recommendations(data: dict, picker: VariationPicker) -> tup
 
 
 def build_riser_commentary(r: dict, picker: VariationPicker, formal: bool) -> str:
-    """순위 상승 종목을 한두 문장 산문으로."""
+    """순위 상승 종목을 한두 문장 산문으로 — 5가지 variant."""
     name = r["name"]
     nm = josa(name, "은", "는")
-    variant = picker.choice_index(2, "riser_comment", r["code"])
-    if variant == 0:
+    e = "입니다" if formal else "이다"
+    v = picker.choice_index(5, "riser_comment", r["code"])
+    if v == 0:
         body = (f"{nm} 전일 {r['prev_rank']}위에서 오늘 {r['rank']}위로 {r['rank_gain']}계단 "
                 + ("올라섰습니다." if formal else "올라섰다."))
-        body += (f" AI 종합점수는 {r['final_score']}점" + ("입니다." if formal else "이다."))
-    else:
+        body += f" AI 종합점수는 {r['final_score']}점{e}."
+    elif v == 1:
         body = (f"{r['prev_rank']}위였던 {nm} 하루 만에 {r['rank']}위까지 {r['rank_gain']}계단 "
                 + ("뛰었습니다." if formal else "뛰었다."))
-        body += (f" 현재 AI 점수는 {r['final_score']}점" + ("입니다." if formal else "이다."))
+        body += f" 현재 AI 점수는 {r['final_score']}점{e}."
+    elif v == 2:
+        body = (f"오늘 {nm} {r['rank_gain']}계단 올라 {r['rank']}위를 "
+                + ("기록했습니다." if formal else "기록했다."))
+        body += (f" AI 점수 {r['final_score']}점으로 전일 대비 상승 모멘텀이 "
+                 + ("확인됩니다." if formal else "확인된다."))
+    elif v == 3:
+        body = f"AI 랭킹 {r['prev_rank']}위에서 {r['rank']}위로, {r['rank_gain']}계단 급등{e}."
+        body += (f" {r['final_score']}점의 AI 종합점수로 오늘 상위권에 "
+                 + ("진입했습니다." if formal else "진입했다."))
+    else:
+        body = (f"전일 대비 {r['rank_gain']}계단 상승하며 {r['rank']}위에 "
+                + ("오른 종목입니다." if formal else "오른 종목이다."))
+        body += (f" AI 종합점수는 {r['final_score']}점으로 단기 상승 흐름이 "
+                 + ("감지됩니다." if formal else "감지된다."))
     return body
 
 
@@ -492,10 +508,63 @@ def main() -> int:
 
     log.info("요약: types=%s, source_date=%s, 생성=%d건, 실패=%s",
              ",".join(types), source_date, total, ",".join(failures) or "없음")
+    save_drafts_to_db(source_date, types, platforms)
     # all 모드에서 일부만 실패하면 0(성공), 전부 실패하면 1
     if failures and len(failures) == len(types):
         return 1
     return 0
+
+
+def save_drafts_to_db(source_date: str, types: list[str], platforms: list[str]) -> None:
+    """생성된 초안을 research.app_payload_store에 upsert (실패 시 로그만 출력)."""
+    try:
+        import psycopg2  # noqa: PLC0415
+    except ImportError:
+        log.warning("psycopg2 없음 — DB 저장 건너뜀")
+        return
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        log.warning("DATABASE_URL 없음 — DB 저장 건너뜀")
+        return
+
+    drafts = []
+    for ct in types:
+        entry: dict = {"type": ct}
+        for platform in platforms:
+            ext = PLATFORM_EXT[platform]
+            fp = OUTPUT_DIR / f"{source_date}_type{ct.upper()}_{platform}.{ext}"
+            if fp.exists():
+                content = fp.read_text(encoding="utf-8")
+                lines = content.splitlines()
+                title = next((l.lstrip("# ").strip() for l in lines if l.strip()), "")
+                entry[platform] = {"title": title, "char_count": len(content), "content": content}
+        if len(entry) > 1:
+            drafts.append(entry)
+
+    if not drafts:
+        return
+
+    payload_key = f"blog_drafts_{source_date}"
+    payload = {"asof_date": source_date, "drafts": drafts}
+    try:
+        conn = psycopg2.connect(db_url)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO research.app_payload_store
+              (payload_key, payload_json, asof_date, generated_at, updated_at)
+            VALUES (%s, %s::jsonb, %s, now(), now())
+            ON CONFLICT (payload_key) DO UPDATE
+            SET payload_json = EXCLUDED.payload_json, updated_at = now()
+            """,
+            [payload_key, json.dumps(payload, ensure_ascii=False), source_date],
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+        log.info("DB 저장 완료: %s (%d건)", payload_key, len(drafts))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("DB 저장 실패 (계속 진행): %s", exc)
 
 
 if __name__ == "__main__":

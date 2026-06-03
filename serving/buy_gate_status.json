@@ -1,0 +1,316 @@
+{
+  "entity": "buy_gate_status",
+  "generated_at": "2026-06-03T09:32:03",
+  "asof_date": "2026-06-02",
+  "versions": {
+    "score_formula_version": "ranking_builder_v8_return_prob_tech_regime",
+    "candidate_selection_version": "buy_candidate_builder_v1",
+    "gate_version": "operational_buy_gate_v1",
+    "portfolio_version": "model_portfolio_constructor_v1",
+    "confidence_calibration_version": "confidence_four_axis_v1",
+    "theme_factor_version": "theme_factor_v1"
+  },
+  "primary_bucket": 10,
+  "overall_status": "WATCH",
+  "theme_churn_status": "PASS",
+  "daily_cycle_status": "WAIT",
+  "market_regime": {
+    "available": true,
+    "latest_date": "2026-06-02",
+    "regime": "bull",
+    "true_count": 4,
+    "close_gt_ma20": true,
+    "ma20_gt_ma60": true,
+    "recent_20d_return_gt_0.03": true,
+    "breadth_20d_gt_0.55": false,
+    "volatility_risk_flag": false,
+    "breadth_20d": 0.28431372549019607,
+    "recent_20d_return": 0.33378745148790623,
+    "volatility_5d": 0.0193434440196525,
+    "reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03,volatility_risk_flag_false; true_count=4; breadth_20d=0.284; recent_20d_return=0.3338; ma60=6486.24; volatility_risk_flag=False",
+    "diagnosis": [
+      "종목 breadth가 0.55를 넘지 못해 시장 확산 신호가 약합니다."
+    ]
+  },
+  "decisions": [
+    {
+      "bucket": 5,
+      "status": "PILOT",
+      "reason_summary": "matured benchmark dates 0 are below required 3; operational confidence calibration is not reliable enough yet; average confidence 80.92 is below 82.00; walk-forward acceptance is rejected on soft diagnostics, so only WATCH-level buying is allowed; pilot criteria passed: limited live entry is allowed before full BUY_ALLOWED promotion; market regime is bull (true_count=4, breadth=0.284, vol_5d=0.0193)",
+      "candidate_diagnostics": {
+        "row_count": 5,
+        "avg_final_score": 70.59386011496916,
+        "avg_confidence_score": 80.91931300907956,
+        "avg_liquidity_score": 43.23529411764705,
+        "liquidity_risk_ratio": 0.0,
+        "very_low_liquidity_ratio": 0.0,
+        "relaxed_selection_ratio": 0.0,
+        "sector_top_share": 0.4,
+        "theme_top_share_actual": 0.3333333333333333
+      },
+      "benchmark_diagnostics": {
+        "benchmark_bucket": 5,
+        "matured_dates_max": 0,
+        "available_benchmarks": 0,
+        "avg_excess_return_kospi": null,
+        "avg_excess_return_baseline": null,
+        "avg_excess_return_universe": null,
+        "excess_confirmed": false,
+        "negative_excess_block": false
+      },
+      "forward_diagnostics": {
+        "forward_bucket": 5,
+        "matured_count_max": 5,
+        "latest_maturity_state": "immature",
+        "avg_return_latest": null,
+        "avg_excess_return_latest": null
+      },
+      "confidence_diagnostics": {
+        "reliable": false,
+        "stable_bucket_count_5d": 3,
+        "monotonic_hit_rate_5d": false,
+        "avg_operational_minus_provisional_5d": null,
+        "avg_calibrated_confidence_5d": 55.9393209639936
+      },
+      "comparison_diagnostics": {
+        "avg_final_score_delta_vs_raw": 5.3304998835427,
+        "avg_confidence_delta_vs_raw": 7.156262062056939,
+        "avg_ret_score_delta_vs_raw": 7.801470588235318,
+        "avg_tech_score_delta_vs_raw": -8.307515053895045,
+        "overheat_soft_ratio": 0.0,
+        "sector_top_share": 0.4
+      },
+      "confidence_v2_diagnostics": {
+        "available": true,
+        "trusted_ratio_top20": 0.6,
+        "provisional_or_better_ratio_top20": 0.9,
+        "mean_raw_confidence_v2": 57.706910438998904
+      },
+      "buyability_diagnostics": {
+        "available": true,
+        "top_n": 20,
+        "buy_now_count": 0,
+        "paper_only_count": 1,
+        "blocked_count": 1,
+        "watchlist_count": 18,
+        "buy_now_ratio": 0.0,
+        "blocked_ratio": 0.05
+      },
+      "walkforward_acceptance_diagnostics": {
+        "available": true,
+        "status": "REJECTED",
+        "reason_codes": [
+          "top20_excess_return_positive",
+          "ordering_not_stable",
+          "drawdown_too_deep",
+          "confidence_monotonicity_missing",
+          "execution_evidence_ok_or_unavailable"
+        ]
+      },
+      "market_regime_diagnostics": {
+        "available": true,
+        "latest_date": "2026-06-02",
+        "regime": "bull",
+        "true_count": 4,
+        "close_gt_ma20": true,
+        "ma20_gt_ma60": true,
+        "recent_20d_return_gt_0.03": true,
+        "breadth_20d_gt_0.55": false,
+        "volatility_risk_flag": false,
+        "breadth_20d": 0.28431372549019607,
+        "recent_20d_return": 0.33378745148790623,
+        "volatility_5d": 0.0193434440196525,
+        "reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03,volatility_risk_flag_false; true_count=4; breadth_20d=0.284; recent_20d_return=0.3338; ma60=6486.24; volatility_risk_flag=False",
+        "diagnosis": [
+          "종목 breadth가 0.55를 넘지 못해 시장 확산 신호가 약합니다."
+        ]
+      }
+    },
+    {
+      "bucket": 8,
+      "status": "PILOT",
+      "reason_summary": "matured benchmark dates 0 are below required 3; operational confidence calibration is not reliable enough yet; average confidence 81.23 is below 82.00; buy candidate quality uplift versus raw top20 is not positive; walk-forward acceptance is rejected on soft diagnostics, so only WATCH-level buying is allowed; pilot criteria passed: limited live entry is allowed before full BUY_ALLOWED promotion; market regime is bull (true_count=4, breadth=0.284, vol_5d=0.0193)",
+      "candidate_diagnostics": {
+        "row_count": 8,
+        "avg_final_score": 63.764411859014416,
+        "avg_confidence_score": 81.23499865831566,
+        "avg_liquidity_score": 47.30392156862745,
+        "liquidity_risk_ratio": 0.0,
+        "very_low_liquidity_ratio": 0.0,
+        "relaxed_selection_ratio": 0.0,
+        "sector_top_share": 0.25,
+        "theme_top_share_actual": 0.3333333333333333
+      },
+      "benchmark_diagnostics": {
+        "benchmark_bucket": 10,
+        "matured_dates_max": 0,
+        "available_benchmarks": 0,
+        "avg_excess_return_kospi": null,
+        "avg_excess_return_baseline": null,
+        "avg_excess_return_universe": null,
+        "excess_confirmed": false,
+        "negative_excess_block": false
+      },
+      "forward_diagnostics": {
+        "forward_bucket": 10,
+        "matured_count_max": 10,
+        "latest_maturity_state": "immature",
+        "avg_return_latest": null,
+        "avg_excess_return_latest": null
+      },
+      "confidence_diagnostics": {
+        "reliable": false,
+        "stable_bucket_count_5d": 3,
+        "monotonic_hit_rate_5d": false,
+        "avg_operational_minus_provisional_5d": null,
+        "avg_calibrated_confidence_5d": 55.9393209639936
+      },
+      "comparison_diagnostics": {
+        "avg_final_score_delta_vs_raw": -1.4989483724120447,
+        "avg_confidence_delta_vs_raw": 7.471947711293041,
+        "avg_ret_score_delta_vs_raw": 2.9362745098039227,
+        "avg_tech_score_delta_vs_raw": -4.036905940208854,
+        "overheat_soft_ratio": 0.0,
+        "sector_top_share": 0.25
+      },
+      "confidence_v2_diagnostics": {
+        "available": true,
+        "trusted_ratio_top20": 0.6,
+        "provisional_or_better_ratio_top20": 0.9,
+        "mean_raw_confidence_v2": 57.706910438998904
+      },
+      "buyability_diagnostics": {
+        "available": true,
+        "top_n": 20,
+        "buy_now_count": 0,
+        "paper_only_count": 1,
+        "blocked_count": 1,
+        "watchlist_count": 18,
+        "buy_now_ratio": 0.0,
+        "blocked_ratio": 0.05
+      },
+      "walkforward_acceptance_diagnostics": {
+        "available": true,
+        "status": "REJECTED",
+        "reason_codes": [
+          "top20_excess_return_positive",
+          "ordering_not_stable",
+          "drawdown_too_deep",
+          "confidence_monotonicity_missing",
+          "execution_evidence_ok_or_unavailable"
+        ]
+      },
+      "market_regime_diagnostics": {
+        "available": true,
+        "latest_date": "2026-06-02",
+        "regime": "bull",
+        "true_count": 4,
+        "close_gt_ma20": true,
+        "ma20_gt_ma60": true,
+        "recent_20d_return_gt_0.03": true,
+        "breadth_20d_gt_0.55": false,
+        "volatility_risk_flag": false,
+        "breadth_20d": 0.28431372549019607,
+        "recent_20d_return": 0.33378745148790623,
+        "volatility_5d": 0.0193434440196525,
+        "reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03,volatility_risk_flag_false; true_count=4; breadth_20d=0.284; recent_20d_return=0.3338; ma60=6486.24; volatility_risk_flag=False",
+        "diagnosis": [
+          "종목 breadth가 0.55를 넘지 못해 시장 확산 신호가 약합니다."
+        ]
+      }
+    },
+    {
+      "bucket": 10,
+      "status": "WATCH",
+      "reason_summary": "matured benchmark dates 0 are below required 3; operational confidence calibration is not reliable enough yet; average confidence 81.12 is below 82.00; buy candidate quality uplift versus raw top20 is not positive; walk-forward acceptance is rejected on soft diagnostics, so only WATCH-level buying is allowed; pilot not allowed: pilot requires quality delta >= -5.00; market regime is bull (true_count=4, breadth=0.284, vol_5d=0.0193)",
+      "candidate_diagnostics": {
+        "row_count": 10,
+        "avg_final_score": 59.91920505664261,
+        "avg_confidence_score": 81.11925179246971,
+        "avg_liquidity_score": 38.2843137254902,
+        "liquidity_risk_ratio": 0.2,
+        "very_low_liquidity_ratio": 0.2,
+        "relaxed_selection_ratio": 0.0,
+        "sector_top_share": 0.2,
+        "theme_top_share_actual": 0.375
+      },
+      "benchmark_diagnostics": {
+        "benchmark_bucket": 10,
+        "matured_dates_max": 0,
+        "available_benchmarks": 0,
+        "avg_excess_return_kospi": null,
+        "avg_excess_return_baseline": null,
+        "avg_excess_return_universe": null,
+        "excess_confirmed": false,
+        "negative_excess_block": false
+      },
+      "forward_diagnostics": {
+        "forward_bucket": 10,
+        "matured_count_max": 10,
+        "latest_maturity_state": "immature",
+        "avg_return_latest": null,
+        "avg_excess_return_latest": null
+      },
+      "confidence_diagnostics": {
+        "reliable": false,
+        "stable_bucket_count_5d": 3,
+        "monotonic_hit_rate_5d": false,
+        "avg_operational_minus_provisional_5d": null,
+        "avg_calibrated_confidence_5d": 55.9393209639936
+      },
+      "comparison_diagnostics": {
+        "avg_final_score_delta_vs_raw": -5.34415517478385,
+        "avg_confidence_delta_vs_raw": 7.356200845447091,
+        "avg_ret_score_delta_vs_raw": 2.3259803921568647,
+        "avg_tech_score_delta_vs_raw": -6.495351995838988,
+        "overheat_soft_ratio": 0.0,
+        "sector_top_share": 0.2
+      },
+      "confidence_v2_diagnostics": {
+        "available": true,
+        "trusted_ratio_top20": 0.6,
+        "provisional_or_better_ratio_top20": 0.9,
+        "mean_raw_confidence_v2": 57.706910438998904
+      },
+      "buyability_diagnostics": {
+        "available": true,
+        "top_n": 20,
+        "buy_now_count": 0,
+        "paper_only_count": 1,
+        "blocked_count": 1,
+        "watchlist_count": 18,
+        "buy_now_ratio": 0.0,
+        "blocked_ratio": 0.05
+      },
+      "walkforward_acceptance_diagnostics": {
+        "available": true,
+        "status": "REJECTED",
+        "reason_codes": [
+          "top20_excess_return_positive",
+          "ordering_not_stable",
+          "drawdown_too_deep",
+          "confidence_monotonicity_missing",
+          "execution_evidence_ok_or_unavailable"
+        ]
+      },
+      "market_regime_diagnostics": {
+        "available": true,
+        "latest_date": "2026-06-02",
+        "regime": "bull",
+        "true_count": 4,
+        "close_gt_ma20": true,
+        "ma20_gt_ma60": true,
+        "recent_20d_return_gt_0.03": true,
+        "breadth_20d_gt_0.55": false,
+        "volatility_risk_flag": false,
+        "breadth_20d": 0.28431372549019607,
+        "recent_20d_return": 0.33378745148790623,
+        "volatility_5d": 0.0193434440196525,
+        "reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03,volatility_risk_flag_false; true_count=4; breadth_20d=0.284; recent_20d_return=0.3338; ma60=6486.24; volatility_risk_flag=False",
+        "diagnosis": [
+          "종목 breadth가 0.55를 넘지 못해 시장 확산 신호가 약합니다."
+        ]
+      }
+    }
+  ]
+}

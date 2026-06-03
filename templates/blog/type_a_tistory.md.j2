@@ -1,0 +1,122 @@
+---
+title: {{ pick("title_a").replace("{date}", date_display) }}
+category: AI 자동매매
+tags: [AI주식, 자동매매, 한국주식, 코스피, 코스닥, 종목분석]
+---
+
+# {{ pick("title_a").replace("{date}", date_display) }}
+
+{{ pick("intro_a") }}
+
+> 시스템 상태: **{{ gate_overall_status }}** | 모델 검증: **{{ walkforward_acceptance_status }}**
+{% if mode == "recommend" %}
+> 시스템 게이트 통과 — 추천 후보 리스트입니다.
+{% else %}
+> 현재 시스템은 관찰 모드입니다. 아래 종목은 매수 추천이 아닌 AI 관찰 리스트입니다.
+{% endif %}
+
+---
+
+## 오늘의 시장 국면: {{ regime_word }}
+
+{{ market_commentary }}
+
+---
+
+## AI 관찰 종목 TOP{{ count }}
+
+{{ pick("score_intro") }}
+
+{% if skin == 0 %}
+### 종목별 분석
+
+{% for item in items %}
+#### {{ loop.index }}. {{ item.name }} ({{ item.market }})
+
+| 항목 | 값 |
+|---|---|
+| 업종/테마 | {{ item.sector_theme }} |
+| AI 종합점수 | {{ item.final_score }}점 |
+| 신뢰점수 | {{ item.confidence_score }}점 |
+| 모델 예상 60일 수익 | {{ item.pred_return_pct }}% |
+| 예상 낙폭 | {{ item.pred_mdd_pct }}% |
+| RSI | {{ item.rsi }} |
+| 상태 | {{ item.status }} |
+
+{{ item.commentary }}
+
+{% if item.support_reasons_kr %}
+- **긍정 요인**: {{ item.support_reasons_kr | join(" / ") }}
+{% endif %}
+{% if item.block_reasons_kr %}
+- **주의 요인**: {{ item.block_reasons_kr | join(" / ") }}
+{% endif %}
+
+{% endfor %}
+
+### 점수 읽는 법
+
+{{ pick("score_intro") }} 70점 이상은 상위권, 60점대는 중상위권으로 분류됩니다.
+모델 예상 수익률은 60일 기준 통계적 추정치이며 실제 수익을 보장하지 않습니다.
+
+{% elif skin == 1 %}
+### 점수 읽는 법
+
+{{ pick("score_intro") }} 70점 이상은 상위권, 60점대는 중상위권으로 분류됩니다.
+모델 예상 수익률은 60일 기준 통계적 추정치이며 실제 수익을 보장하지 않습니다.
+
+### 종목별 분석
+
+{% for item in items %}
+#### {{ loop.index }}. {{ item.name }} ({{ item.market }})
+
+| 항목 | 값 |
+|---|---|
+| 업종/테마 | {{ item.sector_theme }} |
+| AI 종합점수 | {{ item.final_score }}점 |
+| 신뢰점수 | {{ item.confidence_score }}점 |
+| 모델 예상 60일 수익 | {{ item.pred_return_pct }}% |
+| 예상 낙폭 | {{ item.pred_mdd_pct }}% |
+| RSI | {{ item.rsi }} |
+| 상태 | {{ item.status }} |
+
+{{ item.commentary }}
+
+{% if item.support_reasons_kr %}
+- **긍정 요인**: {{ item.support_reasons_kr | join(" / ") }}
+{% endif %}
+{% if item.block_reasons_kr %}
+- **주의 요인**: {{ item.block_reasons_kr | join(" / ") }}
+{% endif %}
+
+{% endfor %}
+
+{% else %}
+### 종목별 분석 (산문형)
+
+{% for item in items %}
+**{{ loop.index }}. {{ item.name }}** ({{ item.market }} · {{ item.sector_theme }})
+
+{{ item.commentary }} AI 종합점수 {{ item.final_score }}점, 신뢰점수 {{ item.confidence_score }}점. RSI {{ item.rsi }}, 모델 예상 수익 {{ item.pred_return_pct }}%, 예상 낙폭 {{ item.pred_mdd_pct }}%.
+{% if item.support_reasons_kr %}긍정 요인: {{ item.support_reasons_kr | join(", ") }}.{% endif %}
+{% if item.block_reasons_kr %}주의: {{ item.block_reasons_kr | join(", ") }}.{% endif %}
+
+{% endfor %}
+
+{% endif %}
+
+---
+
+## {{ pick("watch_point_header") | replace("■ ", "") }}
+
+{{ pick("watch_point_body") }}
+
+---
+
+{{ pick("closing_a") }}
+
+---
+
+{{ pick("url_cta_md") }}
+
+> {{ pick("disclaimer_a") | replace("[면책 고지]\n", "") | replace("[투자 주의사항]\n", "") | replace("[안내]\n", "") | replace("[주의]\n", "") | replace("[참고사항]\n", "") }}

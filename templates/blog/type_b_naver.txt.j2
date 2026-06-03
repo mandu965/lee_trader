@@ -1,0 +1,44 @@
+{{ pick("title_b").replace("{date}", date_display) }}
+
+{{ pick("intro_b") }}
+
+기준일: {{ date_display }} / 비교 기준: {{ prev_display }}
+
+━━━━━━━━━━━━━━━━━━━━━━
+■ 오늘의 랭킹 급상승 종목 TOP{{ count }}
+━━━━━━━━━━━━━━━━━━━━━━
+
+{{ pick("riser_intro") }}
+
+[이미지 삽입 위치 — 랭킹 변화 표 또는 차트]
+
+{% for r in risers %}
+【{{ loop.index }}】 {{ r.name }} ({{ r.sector }})
+
+  순위 변화: {{ r.prev_rank }}위 → {{ r.rank }}위 (▲{{ r.rank_gain }}계단 상승)
+  AI 종합점수: {{ r.final_score }}점
+
+  {{ r.commentary }}
+
+{% endfor %}
+
+━━━━━━━━━━━━━━━━━━━━━━
+{{ pick("watch_point_header") }}
+━━━━━━━━━━━━━━━━━━━━━━
+
+순위 급상승은 AI 점수 개선을 의미하지만, 단기 급등과는 다릅니다.
+{{ pick("watch_point_body") }}
+
+[이미지 삽입 위치 — 랭킹 변화 흐름 차트]
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+{{ pick("closing_b") }}
+
+━━━━━━━━━━━━━━━━━━━━━━
+▶ 전체 종목 AI 점수 및 랭킹 확인: https://www.leetrader.kr/app
+━━━━━━━━━━━━━━━━━━━━━━
+[면책 고지]
+본 글은 투자 참고용 정보이며 투자 판단과 책임은 투자자 본인에게 있습니다.
+AI 모델의 점수·순위는 과거 데이터 기반 통계적 지표로, 실제 수익을 보장하지 않습니다.
+━━━━━━━━━━━━━━━━━━━━━━

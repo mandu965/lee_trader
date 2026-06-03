@@ -1,37 +1,76 @@
-# Runtime secrets
+# === 환경변수 / 시크릿 ===
 .env
 .env.local
-.env.production
-.env.development
+.env.*.local
+!.env.example
+!.env.rule.example
+!.env.render.example
 
-# Generated data
+# === 대용량 데이터 ===
 data/
-!data/
-!data/fundamentals.csv
-!data/interest_universe.csv
-logs/
 output/
 outputs/
+exports/
 backups/
-!backups/
-backups/*
-!backups/git_restore_backup_*.zip
-!backups/git_runtime_snapshot_*.zip
-artifacts/
-models/
-serving/
+reports/
+postgres/
 
-# Local dependencies / caches
-node_modules/
-node/node_modules/
+# === 로그 ===
+logs/
+*.log
+
+# === 모델 / ML 아티팩트 ===
+artifacts/
+*.pkl
+*.joblib
+*.h5
+*.onnx
+*.bin
+*.pt
+*.pth
+
+# === 압축 파일 ===
+*.tar.gz
+*.zip
+*.7z
+
+# === Python ===
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
+*.py[cod]
+*$py.class
+*.so
+.Python
 .venv/
 venv/
+env/
+.eggs/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# OS / editor noise
+# === Node.js ===
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# === 개인 설정 / IDE ===
+.claude/
+.vscode/settings.json
+*.swp
+*.swo
 .DS_Store
 Thumbs.db
+
+# === 임시 파일 ===
+_tmp_*/
+tmp_*/
+*.tmp
+*.bak
+tmp_detail_response.html
+
+# === 기타 ===
+fixtures/

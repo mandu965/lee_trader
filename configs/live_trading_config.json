@@ -1,0 +1,10 @@
+{
+  "mode": "paper",
+  "max_daily_loss": 0.03,
+  "max_position_per_stock": 0.1,
+  "max_total_positions": 10,
+  "initial_cash": 10000000,
+  "allowed_strategies": ["balanced"],
+  "enable_order_execution": false,
+  "require_manual_approval": true
+}

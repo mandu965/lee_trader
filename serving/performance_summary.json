@@ -1,0 +1,491 @@
+{
+  "entity": "performance_summary",
+  "generated_at": "2026-06-03 09:32:11",
+  "versions": {
+    "score_formula_version": "ranking_builder_v8_return_prob_tech_regime",
+    "candidate_selection_version": "buy_candidate_builder_v1",
+    "gate_version": "operational_buy_gate_v1",
+    "portfolio_version": "model_portfolio_constructor_v1",
+    "confidence_calibration_version": "confidence_four_axis_v1",
+    "theme_factor_version": "theme_factor_v1"
+  },
+  "paper_trading": {
+    "available": true,
+    "latest_date": "2026-06-02",
+    "latest_nav": 985498.5854180342,
+    "cumulative_return": -0.0145014145819657,
+    "drawdown": -0.050731790048752
+  },
+  "live_account": {
+    "available": true,
+    "generated_at": "2026-06-03 09:30:22",
+    "env_dv": "real",
+    "holding_count": 8,
+    "cash_summary": {
+      "dnca_tot_amt": 1696818.0,
+      "tot_evlu_amt": 3861825.0,
+      "tot_pfls": 48450.0
+    },
+    "holdings_path": "data/live_account_holdings.csv",
+    "summary_path": "outputs/live_account_balance_summary.json",
+    "order_preview_path": "outputs/live_order_preview.json",
+    "order_preview_count": 2,
+    "gate_status_for_preview": "PILOT",
+    "gate_source_status_for_preview": "WATCH",
+    "gate_runtime_status_for_preview": "PILOT",
+    "gate_display_status_for_preview": "WATCH (runtime PILOT override)"
+  },
+  "benchmark_summary": {
+    "source_path": "outputs/benchmark_comparison.csv",
+    "items": []
+  },
+  "weekly_review": {
+    "generated_at": "2026-03-31 13:10:11",
+    "review_asof_date": "2026-03-31",
+    "review_week_start": "2026-03-30",
+    "review_week_end": "2026-04-05",
+    "score_formula_version": "ranking_builder_v8_return_prob_tech_regime",
+    "gate_version": "operational_buy_gate_v1",
+    "portfolio_version": "model_portfolio_constructor_v1",
+    "confidence_calibration_version": "confidence_four_axis_v1",
+    "snapshot_count": 9,
+    "matured_snapshot_count_20d": 0,
+    "matured_snapshot_count_60d": 0,
+    "matured_snapshot_count_90d": 0,
+    "forward_top5_latest_maturity_state": "immature",
+    "forward_top5_matured_count_5d": 0,
+    "forward_top5_matured_count_20d": 0,
+    "forward_top5_matured_count_60d": 0,
+    "forward_top5_matured_count_90d": 0,
+    "paper_nav_available": false,
+    "benchmark_top5_matured_dates_max": 0,
+    "benchmark_kospi_avg_excess_return": null,
+    "benchmark_baseline_avg_excess_return": null,
+    "gate_asof_date": "2026-03-27",
+    "buy_gate_overall_status": "HOLD",
+    "buy_gate_primary_bucket": 5,
+    "buy_gate_primary_status": "HOLD",
+    "buy_gate_reason_summary": "matured benchmark dates 0 are below required 3; operational confidence calibration is not reliable enough yet",
+    "buy_gate_top5_status": "HOLD",
+    "buy_gate_top8_status": "BLOCK",
+    "buy_gate_top10_status": "BLOCK",
+    "daily_cycle_overall_status": "WAIT",
+    "daily_cycle_wait_reasons": "all horizons are immature | benchmark horizons are still immature | operational confidence history is still sparse | theme acceptance forward-return gate is waiting for matured dates",
+    "top20_mean_final_score": 66.0637502983251,
+    "top20_mean_confidence_score": 85.09300839981148,
+    "sector_top_label": "인터넷/플랫폼·콘텐츠",
+    "sector_top_share": 0.15,
+    "sector_hhi": 0.085,
+    "theme_top_label": "(none)",
+    "theme_top_share": 1.0,
+    "theme_hhi": 1.0,
+    "no_theme_share": 1.0,
+    "confidence_stable_bucket_count_5d": 2,
+    "confidence_monotonic_hit_rate_5d": false,
+    "confidence_reliable_5d": false,
+    "confidence_avg_calibrated_5d": 24.814471243042668,
+    "confidence_avg_delta_vs_provisional_5d": -28.98682759668857,
+    "score_kpi_overall_status": "ALERT",
+    "score_kpi_alert_count": 6,
+    "score_kpi_watch_count": 1,
+    "score_kpi_overlap_final_ret_top20": 0.15,
+    "score_kpi_overlap_final_prob_top20": 0.25,
+    "score_kpi_top20_mean_confidence_score": 84.56276391156126,
+    "score_kpi_confidence_usable_bucket_count": 2.0,
+    "delta_snapshot_count": null,
+    "delta_paper_nav_latest": null,
+    "delta_benchmark_kospi_avg_excess_return": null,
+    "delta_sector_top_share": null,
+    "delta_theme_top_share": null,
+    "delta_confidence_stable_bucket_count_5d": null,
+    "delta_confidence_avg_calibrated_5d": null,
+    "delta_score_kpi_alert_count": null,
+    "delta_top20_mean_final_score": null,
+    "delta_top20_mean_confidence_score": null,
+    "operator_note": "no repeated WAIT/HOLD reason or material weekly drift detected",
+    "paper_nav_latest_date": null,
+    "paper_nav_latest": null,
+    "paper_nav_cumulative_return": null,
+    "paper_nav_drawdown": null
+  },
+  "score_kpi_monitor": {
+    "summary": {
+      "overall_status": "ALERT",
+      "latest_date": "2026-06-02",
+      "top_n": 20,
+      "walkforward_horizon": 60,
+      "top20_mean_final_score": 65.26336023142646
+    },
+    "top_metrics": [
+      {
+        "category": "ranking",
+        "metric": "overlap_final_ret_top20",
+        "value": 0.4,
+        "value_display": "0.4000",
+        "good_threshold": "0.5000",
+        "watch_threshold": "0.4200",
+        "direction": "higher_better",
+        "status": "ALERT"
+      },
+      {
+        "category": "ranking",
+        "metric": "overlap_final_prob_top20",
+        "value": 0.55,
+        "value_display": "0.5500",
+        "good_threshold": "0.4500",
+        "watch_threshold": "0.3500",
+        "direction": "higher_better",
+        "status": "GOOD"
+      },
+      {
+        "category": "ranking",
+        "metric": "overlap_final_tech_top20",
+        "value": 0.1,
+        "value_display": "0.1000",
+        "good_threshold": "0.2500",
+        "watch_threshold": "0.1800",
+        "direction": "higher_better",
+        "status": "ALERT"
+      },
+      {
+        "category": "ranking",
+        "metric": "corr_final_risk_penalty_abs",
+        "value": 0.375574815944673,
+        "value_display": "0.3756",
+        "good_threshold": "0.5000",
+        "watch_threshold": "0.6000",
+        "direction": "lower_better",
+        "status": "GOOD"
+      },
+      {
+        "category": "ranking",
+        "metric": "corr_final_safety_abs",
+        "value": 0.3309123507673538,
+        "value_display": "0.3309",
+        "good_threshold": "0.3000",
+        "watch_threshold": "0.4000",
+        "direction": "lower_better",
+        "status": "WATCH"
+      },
+      {
+        "category": "ranking",
+        "metric": "corr_final_ret_score",
+        "value": 0.712069394979319,
+        "value_display": "0.7121",
+        "good_threshold": "0.8000",
+        "watch_threshold": "0.7000",
+        "direction": "higher_better",
+        "status": "WATCH"
+      },
+      {
+        "category": "ranking",
+        "metric": "corr_final_prob_score",
+        "value": 0.6643920349572202,
+        "value_display": "0.6644",
+        "good_threshold": "0.6500",
+        "watch_threshold": "0.5500",
+        "direction": "higher_better",
+        "status": "GOOD"
+      },
+      {
+        "category": "ranking",
+        "metric": "corr_final_tech_score",
+        "value": -0.0664633927462532,
+        "value_display": "-0.0665",
+        "good_threshold": "0.1000",
+        "watch_threshold": "0.0300",
+        "direction": "higher_better",
+        "status": "ALERT"
+      },
+      {
+        "category": "ranking",
+        "metric": "top20_mean_confidence_score",
+        "value": 73.76305094702262,
+        "value_display": "73.76",
+        "good_threshold": "80.0000",
+        "watch_threshold": "72.0000",
+        "direction": "higher_better",
+        "status": "WATCH"
+      },
+      {
+        "category": "ranking",
+        "metric": "top20_top_driver_share",
+        "value": 0.35714285714285715,
+        "value_display": "0.3571",
+        "good_threshold": "0.3200",
+        "watch_threshold": "0.4000",
+        "direction": "lower_better",
+        "status": "WATCH"
+      },
+      {
+        "category": "walkforward",
+        "metric": "walkforward_top20_avg_return_60d",
+        "value": null,
+        "value_display": "NA",
+        "good_threshold": "0.2000",
+        "watch_threshold": "0.0800",
+        "direction": "higher_better",
+        "status": "ALERT"
+      },
+      {
+        "category": "confidence",
+        "metric": "confidence_high_bucket_hit_rate_60d",
+        "value": null,
+        "value_display": "NA",
+        "good_threshold": "0.6000",
+        "watch_threshold": "0.5200",
+        "direction": "higher_better",
+        "status": "ALERT"
+      }
+    ]
+  },
+  "confidence_calibration": {
+    "summary": {
+      "generated_at": "2026-06-02 18:52:33",
+      "source_mode": "walkforward_provisional",
+      "source_label": "walk-forward backtest rows (unavailable)",
+      "confidence_calibration_version": "confidence_four_axis_v1",
+      "confidence_kind": "reconstructed_provisional_confidence",
+      "horizon_days": 60,
+      "min_bucket_rows": 20,
+      "source_item_count": 0,
+      "source_items": [],
+      "source_items_truncated": false,
+      "history_row_count": 0,
+      "history_date_count": 0,
+      "history_start_date": null,
+      "history_end_date": null,
+      "history_span_days": 0,
+      "matured_row_count": 0,
+      "bucket_count": 5,
+      "usable_bucket_count": 0,
+      "monotonic_return": false,
+      "monotonic_hit_rate": false,
+      "monotonic_calibrated_score": false,
+      "judgment": "insufficient_history",
+      "recommendation": "Need older evidence with at least 60 days of matured outcomes."
+    },
+    "bucket_map": [
+      {
+        "confidence_calibration_version": "confidence_four_axis_v1",
+        "bucket_label": "0-20",
+        "bucket_low": 0,
+        "bucket_high": 20,
+        "bucket_mid": 10.0,
+        "rows": 0,
+        "avg_raw_confidence_score": null,
+        "avg_return": null,
+        "hit_rate": null,
+        "avg_mdd": null,
+        "top20_entry_rate": null,
+        "calibrated_confidence_score": null,
+        "calibrated_confidence_band": "unknown",
+        "status": "insufficient_history"
+      },
+      {
+        "confidence_calibration_version": "confidence_four_axis_v1",
+        "bucket_label": "20-40",
+        "bucket_low": 20,
+        "bucket_high": 40,
+        "bucket_mid": 30.0,
+        "rows": 0,
+        "avg_raw_confidence_score": null,
+        "avg_return": null,
+        "hit_rate": null,
+        "avg_mdd": null,
+        "top20_entry_rate": null,
+        "calibrated_confidence_score": null,
+        "calibrated_confidence_band": "unknown",
+        "status": "insufficient_history"
+      },
+      {
+        "confidence_calibration_version": "confidence_four_axis_v1",
+        "bucket_label": "40-60",
+        "bucket_low": 40,
+        "bucket_high": 60,
+        "bucket_mid": 50.0,
+        "rows": 0,
+        "avg_raw_confidence_score": null,
+        "avg_return": null,
+        "hit_rate": null,
+        "avg_mdd": null,
+        "top20_entry_rate": null,
+        "calibrated_confidence_score": null,
+        "calibrated_confidence_band": "unknown",
+        "status": "insufficient_history"
+      },
+      {
+        "confidence_calibration_version": "confidence_four_axis_v1",
+        "bucket_label": "60-80",
+        "bucket_low": 60,
+        "bucket_high": 80,
+        "bucket_mid": 70.0,
+        "rows": 0,
+        "avg_raw_confidence_score": null,
+        "avg_return": null,
+        "hit_rate": null,
+        "avg_mdd": null,
+        "top20_entry_rate": null,
+        "calibrated_confidence_score": null,
+        "calibrated_confidence_band": "unknown",
+        "status": "insufficient_history"
+      },
+      {
+        "confidence_calibration_version": "confidence_four_axis_v1",
+        "bucket_label": "80-100",
+        "bucket_low": 80,
+        "bucket_high": 100,
+        "bucket_mid": 90.0,
+        "rows": 0,
+        "avg_raw_confidence_score": null,
+        "avg_return": null,
+        "hit_rate": null,
+        "avg_mdd": null,
+        "top20_entry_rate": null,
+        "calibrated_confidence_score": null,
+        "calibrated_confidence_band": "unknown",
+        "status": "insufficient_history"
+      }
+    ]
+  },
+  "confidence_score_v2": {
+    "row_count": 204,
+    "mean_raw_confidence_v2": 57.706910438998904,
+    "trusted_ratio_top20": 0.6,
+    "provisional_or_better_ratio_top20": 0.9,
+    "state_counts": {
+      "WEAK": 123,
+      "PROVISIONAL": 45,
+      "TRUSTED": 20,
+      "BLOCKED": 16
+    },
+    "live_grade_counts": {
+      "C": 204
+    },
+    "calibration_summary": {
+      "available": true,
+      "calibration_confidence": 50.0,
+      "stable_bucket_count_5d": 3,
+      "monotonic_hit_rate_5d": false
+    },
+    "walkforward_summary": {
+      "available": true,
+      "alpha_floor_boost": 10.0,
+      "top20": {
+        "horizon_days": 60,
+        "selection": "top20",
+        "run_dates": 1.0,
+        "avg_return": 0.34130000000000005,
+        "benchmark_return": 0.2775,
+        "excess_return": 0.0638,
+        "hit_rate": 0.9,
+        "avg_mdd": -0.2711,
+        "median_return": 0.14679999999999999
+      },
+      "top50": {
+        "horizon_days": 60,
+        "selection": "top50",
+        "run_dates": 1.0,
+        "avg_return": 0.36719999999999997,
+        "benchmark_return": 0.2775,
+        "excess_return": 0.0897,
+        "hit_rate": 0.8,
+        "avg_mdd": -0.26489999999999997,
+        "median_return": 0.1996
+      },
+      "universe": {
+        "horizon_days": 60,
+        "selection": "universe",
+        "run_dates": 1.0,
+        "avg_return": 0.2775,
+        "benchmark_return": 0.2775,
+        "excess_return": -0.0,
+        "hit_rate": 0.7419,
+        "avg_mdd": -0.2522,
+        "median_return": 0.1675
+      },
+      "ordered_top20_top50_universe": false
+    },
+    "execution_summary": {
+      "available": false,
+      "execution_quality_score": 55.0,
+      "fill_ratio": null,
+      "median_abs_slippage": null
+    },
+    "live_grade_map_available": true
+  },
+  "top20_buyability": {
+    "top_n": 20,
+    "buyability_counts": {
+      "WATCHLIST": 18,
+      "PAPER_ONLY": 1,
+      "BLOCK": 1
+    },
+    "watchlist_tier_counts": {
+      "MONITOR": 11,
+      "PROMOTION_READY": 7,
+      "(none)": 2
+    },
+    "gate_overall_status": "WATCH",
+    "walkforward_acceptance_status": "REJECTED"
+  },
+  "walkforward_acceptance": {
+    "generated_at": "2026-06-02 18:52:36",
+    "status": "REJECTED",
+    "reason_codes": [
+      "top20_excess_return_positive",
+      "ordering_not_stable",
+      "drawdown_too_deep",
+      "confidence_monotonicity_missing",
+      "execution_evidence_ok_or_unavailable"
+    ],
+    "selection_summary": {
+      "top20": {
+        "section": "selection_summary",
+        "horizon_days": 60,
+        "selection": "top20",
+        "run_dates": 1.0,
+        "avg_return": 0.34130000000000005,
+        "benchmark_return": 0.2775,
+        "excess_return": 0.0638,
+        "hit_rate": 0.9,
+        "avg_mdd": -0.2711,
+        "median_return": 0.14679999999999999
+      },
+      "top50": {
+        "section": "selection_summary",
+        "horizon_days": 60,
+        "selection": "top50",
+        "run_dates": 1.0,
+        "avg_return": 0.36719999999999997,
+        "benchmark_return": 0.2775,
+        "excess_return": 0.0897,
+        "hit_rate": 0.8,
+        "avg_mdd": -0.26489999999999997,
+        "median_return": 0.1996
+      },
+      "universe": {
+        "section": "selection_summary",
+        "horizon_days": 60,
+        "selection": "universe",
+        "run_dates": 1.0,
+        "avg_return": 0.2775,
+        "benchmark_return": 0.2775,
+        "excess_return": -0.0,
+        "hit_rate": 0.7419,
+        "avg_mdd": -0.2522,
+        "median_return": 0.1675
+      }
+    },
+    "confidence_summary": {
+      "available": true,
+      "stable_bucket_count_5d": 3,
+      "monotonic_hit_rate_5d": false
+    },
+    "execution_summary": {
+      "available": false,
+      "fill_ratio": null,
+      "median_abs_slippage": null
+    }
+  }
+}

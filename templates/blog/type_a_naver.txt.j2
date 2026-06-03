@@ -1,0 +1,60 @@
+{{ pick("title_a").replace("{date}", date_display) }}
+
+{{ pick("intro_a") }}
+
+현재 시스템 운영 상태: {{ gate_overall_status }} / 모델 검증: {{ walkforward_acceptance_status }}
+{% if mode == "recommend" %}
+※ 시스템 게이트 통과 — 추천 후보 리스트입니다.
+{% else %}
+※ 현재 시스템은 관찰 모드입니다. 아래 종목은 매수 추천이 아닌 AI 관찰 리스트입니다.
+{% endif %}
+
+━━━━━━━━━━━━━━━━━━━━━━
+■ 오늘의 시장 국면: {{ regime_word }}
+━━━━━━━━━━━━━━━━━━━━━━
+
+{{ market_commentary }}
+
+━━━━━━━━━━━━━━━━━━━━━━
+■ AI 관찰 종목 TOP{{ count }}
+━━━━━━━━━━━━━━━━━━━━━━
+
+{{ pick("score_intro") }}
+
+[이미지 삽입 위치 — 점수 비교 표 또는 차트]
+
+{% for item in items %}
+【{{ loop.index }}위】 {{ item.name }} ({{ item.market }} / {{ item.sector_theme }})
+
+  AI 종합점수: {{ item.final_score }}점 | 신뢰점수: {{ item.confidence_score }}점
+  모델 예상 60일 수익: {{ item.pred_return_pct }}% | 예상 낙폭: {{ item.pred_mdd_pct }}%
+  RSI: {{ item.rsi }} | 상태: {{ item.status }}
+
+  {{ item.commentary }}
+
+{% if item.support_reasons_kr %}
+  긍정 요인: {{ item.support_reasons_kr | join(" / ") }}
+{% endif %}
+{% if item.block_reasons_kr %}
+  주의 요인: {{ item.block_reasons_kr | join(" / ") }}
+{% endif %}
+
+{% endfor %}
+
+━━━━━━━━━━━━━━━━━━━━━━
+{{ pick("watch_point_header") }}
+━━━━━━━━━━━━━━━━━━━━━━
+
+{{ pick("watch_point_body") }}
+
+[이미지 삽입 위치 — 시장 지표 또는 종목 차트]
+
+━━━━━━━━━━━━━━━━━━━━━━
+
+{{ pick("closing_a") }}
+
+━━━━━━━━━━━━━━━━━━━━━━
+{{ pick("url_cta") }}
+━━━━━━━━━━━━━━━━━━━━━━
+{{ pick("disclaimer_a") }}
+━━━━━━━━━━━━━━━━━━━━━━

@@ -1426,6 +1426,19 @@ def _ensure_flow_daily_table(conn) -> None:
             """
         )
     )
+    # source_endpoint 컬럼 없으면 추가 (단위 변환에 필수)
+    conn.execute(text("""
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'flow_daily'
+                  AND column_name = 'source_endpoint'
+            ) THEN
+                ALTER TABLE public.flow_daily ADD COLUMN source_endpoint TEXT;
+            END IF;
+        END $$;
+    """))
     # 웹DB 기존 테이블에 NOT NULL 컬럼이 있을 수 있으므로 nullable로 완화
     conn.execute(text("""
         DO $$
@@ -1488,7 +1501,8 @@ def sync_flow_daily_table(source_database_url: str) -> None:
                 for row in conn.execute(
                     text(
                         """
-                        SELECT date, code, investor_type, net_buy_amount, net_buy_volume, fetch_status
+                        SELECT date, code, investor_type, net_buy_amount, net_buy_volume,
+                               fetch_status, source_endpoint
                         FROM public.flow_daily
                         WHERE date = ANY(:scoped_dates)
                           AND fetch_status = 'success'
@@ -1511,14 +1525,17 @@ def sync_flow_daily_table(source_database_url: str) -> None:
                     text(
                         """
                         INSERT INTO public.flow_daily (
-                            date, code, investor_type, net_buy_amount, net_buy_volume, fetch_status
+                            date, code, investor_type, net_buy_amount, net_buy_volume,
+                            fetch_status, source_endpoint
                         ) VALUES (
-                            :date, :code, :investor_type, :net_buy_amount, :net_buy_volume, :fetch_status
+                            :date, :code, :investor_type, :net_buy_amount, :net_buy_volume,
+                            :fetch_status, :source_endpoint
                         )
                         ON CONFLICT (date, code, investor_type) DO UPDATE SET
-                            net_buy_amount = EXCLUDED.net_buy_amount,
-                            net_buy_volume = EXCLUDED.net_buy_volume,
-                            fetch_status   = EXCLUDED.fetch_status
+                            net_buy_amount  = EXCLUDED.net_buy_amount,
+                            net_buy_volume  = EXCLUDED.net_buy_volume,
+                            fetch_status    = EXCLUDED.fetch_status,
+                            source_endpoint = EXCLUDED.source_endpoint
                         """
                     ),
                     rows,

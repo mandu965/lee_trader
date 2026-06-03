@@ -247,8 +247,117 @@ function initTabs() {
       btn.classList.add("active");
       const pane = document.getElementById(`tab-${target}`);
       if (pane) pane.classList.add("active");
+      if (target === "blog") loadBlogDrafts().catch(console.error);
     });
   });
+}
+
+// ── 블로그 초안 ─────────────────────────────────────────────────────────────
+
+const TYPE_META = {
+  A: { label: "TOP5 종목 분석", cls: "blog-type-a" },
+  B: { label: "순위 변동 추적", cls: "blog-type-b" },
+  C: { label: "시장 지표 분석", cls: "blog-type-c" },
+};
+
+let blogDraftsLoaded = false;
+
+async function loadBlogDrafts() {
+  if (blogDraftsLoaded) return;
+  const list = document.getElementById("blogDraftList");
+  const meta = document.getElementById("blogDraftMeta");
+  if (!list) return;
+  list.innerHTML = '<div class="blog-empty">불러오는 중…</div>';
+  try {
+    const res = await fetch("/api/ops-readiness/blog-drafts", { credentials: "include" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (meta && data.asof_date) meta.textContent = `기준일 ${data.asof_date} · ${data.drafts?.length || 0}건`;
+    renderBlogDrafts(list, data.drafts || []);
+    blogDraftsLoaded = true;
+  } catch (e) {
+    list.innerHTML = `<div class="blog-empty">블로그 초안 조회 실패: ${e.message}</div>`;
+  }
+}
+
+function renderBlogDrafts(container, drafts) {
+  if (!drafts.length) {
+    container.innerHTML = '<div class="blog-empty">오늘 생성된 블로그 초안이 없습니다.<br>종가 배치 완료 후 자동 생성됩니다.</div>';
+    return;
+  }
+  container.innerHTML = drafts.map((d) => {
+    const tm = TYPE_META[d.type] || { label: `TYPE ${d.type}`, cls: "blog-type-a" };
+    const naver = d.naver || null;
+    const tistory = d.tistory || null;
+    const title = naver?.title || tistory?.title || "";
+    return `
+      <div class="blog-card">
+        <div class="blog-card-header">
+          <div class="blog-type-badge ${tm.cls}">TYPE_${d.type} <span class="blog-type-sub">${tm.label}</span></div>
+        </div>
+        ${title ? `<div class="blog-card-title">${escHtml(title)}</div>` : ""}
+        ${naver   ? blogPlatformRow("N", "네이버",   "blog-platform-n", naver,   `${d.type}_naver`)   : ""}
+        ${tistory ? blogPlatformRow("T", "티스토리", "blog-platform-t", tistory, `${d.type}_tistory`) : ""}
+      </div>`;
+  }).join("");
+}
+
+function blogPlatformRow(abbr, name, cls, plat, key) {
+  const ext = key.endsWith("_tistory") ? "md" : "txt";
+  return `
+    <div class="blog-platform-row">
+      <span class="blog-platform-label ${cls}">${abbr} ${name}</span>
+      <span class="blog-char-count">${plat.char_count?.toLocaleString()}자</span>
+      <div class="blog-actions">
+        <button class="blog-btn blog-btn-copy" onclick="blogCopy(this, '${key}')">복사</button>
+        <button class="blog-btn blog-btn-dl" onclick="blogDownload('${key}', '${ext}')">．${ext}↓</button>
+      </div>
+    </div>`;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+const _blogContentCache = {};
+
+async function _ensureBlogContent(key) {
+  if (_blogContentCache[key]) return _blogContentCache[key];
+  const res = await fetch(`/api/ops-readiness/blog-drafts?key=${encodeURIComponent(key)}`, { credentials: "include" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  const [type, platform] = key.split("_");
+  const content = data.drafts?.find(d => d.type === type)?.[platform]?.content || "";
+  _blogContentCache[key] = content;
+  return content;
+}
+
+async function blogCopy(btn, key) {
+  try {
+    const text = await _ensureBlogContent(key);
+    await navigator.clipboard.writeText(text);
+    btn.textContent = "복사됨 ✓";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "복사"; btn.classList.remove("copied"); }, 2000);
+  } catch (e) {
+    alert("복사 실패: " + e.message);
+  }
+}
+
+async function blogDownload(key, ext) {
+  try {
+    const text = await _ensureBlogContent(key);
+    const [type, platform] = key.split("_");
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `${today}_type${type}_${platform}.${ext}`;
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert("다운로드 실패: " + e.message);
+  }
 }
 
 function renderKv(targetId, rows) {

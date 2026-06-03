@@ -8069,6 +8069,90 @@ app.get("/api/regime-history", async (req, res) => {
   }
 });
 
+app.get("/api/ops-readiness/blog-drafts", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
+    const blogDir = path.join(OUTPUTS_DIR, "blog_drafts");
+    const payloadKey = `blog_drafts_${today}`;
+
+    // DB 우선 조회
+    let dbRows = [];
+    try {
+      dbRows = await queryRows(
+        `SELECT payload_json FROM research.app_payload_store WHERE payload_key = $1`,
+        [payloadKey]
+      );
+    } catch (_) { /* DB 없으면 파일 폴백 */ }
+
+    if (dbRows.length && dbRows[0].payload_json) {
+      const cached = typeof dbRows[0].payload_json === "string"
+        ? JSON.parse(dbRows[0].payload_json)
+        : dbRows[0].payload_json;
+      // key 쿼리: 특정 초안 콘텐츠만 요청
+      if (req.query.key) {
+        return res.json({ drafts: cached.drafts || [] });
+      }
+      // 목록 조회: content 제외하고 반환
+      const slim = (cached.drafts || []).map((d) => ({
+        type: d.type,
+        naver:   d.naver   ? { title: d.naver.title,   char_count: d.naver.char_count   } : null,
+        tistory: d.tistory ? { title: d.tistory.title, char_count: d.tistory.char_count } : null,
+      }));
+      return res.json({ asof_date: cached.asof_date || today, drafts: slim });
+    }
+
+    // 파일 폴백 — 오늘 파일 없으면 가장 최근 날짜 사용
+    let targetDate = today;
+    if (fs.existsSync(blogDir)) {
+      const files = fs.readdirSync(blogDir).filter((f) => /^\d{4}-\d{2}-\d{2}_type/.test(f));
+      const todayHasFiles = files.some((f) => f.startsWith(today));
+      if (!todayHasFiles && files.length) {
+        const dates = [...new Set(files.map((f) => f.slice(0, 10)))].sort();
+        targetDate = dates[dates.length - 1];
+      }
+    }
+    const types = ["A", "B", "C"];
+    const drafts = [];
+    for (const type of types) {
+      const entry = { type };
+      for (const [platform, ext] of [["naver", "txt"], ["tistory", "md"]]) {
+        const fp = path.join(blogDir, `${targetDate}_type${type}_${platform}.${ext}`);
+        if (fs.existsSync(fp)) {
+          const content = fs.readFileSync(fp, "utf-8");
+          const lines = content.split("\n");
+          const title = lines.find((l) => l.trim())?.replace(/^#+\s*/, "") || "";
+          entry[platform] = { title, char_count: content.length, content };
+        }
+      }
+      if (entry.naver || entry.tistory) drafts.push(entry);
+    }
+
+    // DB 캐싱 (비동기, 실패 무시)
+    if (drafts.length) {
+      queryRows(
+        `INSERT INTO research.app_payload_store (payload_key, payload_json, asof_date, generated_at, updated_at)
+         VALUES ($1, $2::jsonb, $3, now(), now())
+         ON CONFLICT (payload_key) DO UPDATE
+         SET payload_json = EXCLUDED.payload_json, updated_at = now()`,
+        [payloadKey, JSON.stringify({ asof_date: targetDate, drafts }), targetDate]
+      ).catch(() => {});
+    }
+
+    if (req.query.key) {
+      return res.json({ drafts });
+    }
+    const slim = drafts.map((d) => ({
+      type: d.type,
+      naver:   d.naver   ? { title: d.naver.title,   char_count: d.naver.char_count   } : null,
+      tistory: d.tistory ? { title: d.tistory.title, char_count: d.tistory.char_count } : null,
+    }));
+    res.json({ asof_date: targetDate, drafts: slim });
+  } catch (e) {
+    console.error("GET /api/ops-readiness/blog-drafts error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
 app.get("/api/ops-readiness", operatorAccess.apiGuard, async (req, res) => {
   try {
     const payload = await buildOpsReadinessSummary();
