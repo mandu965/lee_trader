@@ -181,7 +181,7 @@ function renderBanner(data) {
     textEl.textContent = topRisk
       ? `${topRisk.name || topRisk.code} 매도검토 필요 · 우선순위 ${fmtNum(topRisk.sell_priority_score)}`
       : `즉시 검토 필요 — ${exit}종목 EXIT_REVIEW 상태`;
-    detailEl.innerHTML = `${esc(topReasons || `${count}종목 보유 중`)}${topRisk?.code ? ` <a href="/holdingsDetail.html?code=${esc(topRisk.code)}">상세</a><a href="/trade-history.html">매매이력</a>` : ""}`;
+    detailEl.innerHTML = `${esc(topReasons || `${count}종목 보유 중`)}${topRisk?.code ? ` <a href="/detail.html?code=${esc(topRisk.code)}">상세</a><a href="/trade-history.html">매매이력</a>` : ""}`;
     return;
   }
   if (review > 0) {
@@ -189,7 +189,7 @@ function renderBanner(data) {
     textEl.textContent = topRisk
       ? `${topRisk.name || topRisk.code} 점검 필요 · 우선순위 ${fmtNum(topRisk.sell_priority_score)}`
       : `점검 필요 — ${review}종목 REVIEW 상태`;
-    detailEl.innerHTML = `${esc(topReasons || `${count}종목 보유 중`)}${topRisk?.code ? ` <a href="/holdingsDetail.html?code=${esc(topRisk.code)}">상세</a><a href="/trade-history.html">매매이력</a>` : ""}`;
+    detailEl.innerHTML = `${esc(topReasons || `${count}종목 보유 중`)}${topRisk?.code ? ` <a href="/detail.html?code=${esc(topRisk.code)}">상세</a><a href="/trade-history.html">매매이력</a>` : ""}`;
     return;
   }
   el.className = "safety-banner ok";
@@ -398,7 +398,7 @@ function renderOverviewAlerts(data) {
         <span style="font-size:12px;color:var(--color-text-secondary);">${esc(h.code)}</span>
         <span class="${signedClass(pct)}" style="font-size:13px;">${pctStr}</span>
         <span style="font-size:12px;color:var(--color-text-secondary);flex:1;min-width:160px;">${esc(h.system_action_note || "")}</span>
-        <a href="/holdingsDetail.html?code=${esc(h.code)}" style="font-size:11px;color:#93c5fd;text-decoration:none;">상세 →</a>
+        <a href="/detail.html?code=${esc(h.code)}" style="font-size:11px;color:#93c5fd;text-decoration:none;">상세 →</a>
       </div>`;
   }).join("");
 }
@@ -477,7 +477,7 @@ function renderHoldingsList(data) {
     const reasonsHtml = reasons.map(reasonChip).join("");
 
     return `
-      <div class="holding-card" onclick="location.href='/holdingsDetail.html?code=${esc(h.code)}'">
+      <div class="holding-card" onclick="location.href='/detail.html?code=${esc(h.code)}'">
         <div class="holding-card-top">
           <div class="holding-stock">
             <div class="holding-stock-name">${esc(h.name || h.code)}</div>
@@ -528,7 +528,7 @@ function renderHoldingsList(data) {
                 <span>보유</span><span>점검</span><span>매도검토</span>
               </div>
             </div>
-            <a class="detail-link" href="/holdingsDetail.html?code=${esc(h.code)}" onclick="event.stopPropagation()">상세 보기</a>
+            <a class="detail-link" href="/detail.html?code=${esc(h.code)}" onclick="event.stopPropagation()">상세 보기</a>
           </div>
         </div>
         <div class="holding-reasons">${reasonsHtml}</div>
