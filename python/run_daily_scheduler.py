@@ -212,6 +212,7 @@ def _resolve_run_steps() -> list[tuple[str, list[str]]]:
     if command_set == "live_sync":
         return [
             ("sync_live_account_holdings", _live_account_sync_command()),
+            ("update_ai_position_state", _update_ai_position_state_command()),
             ("sync_live_order_fills", _live_order_fills_sync_command()),
             ("sync_rule_account_holdings", [sys.executable, str(ROOT / "python" / "sync_rule_account_holdings.py")]),
             ("sync_rule_live_account_snapshot", [sys.executable, str(ROOT / "python" / "rule_live_account_snapshot.py")]),

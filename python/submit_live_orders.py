@@ -1199,6 +1199,20 @@ def main() -> int:
     if not intents_payload:
         raise FileNotFoundError("trade intents payload not found")
 
+    asof_date = intents_payload.get("asof_date")
+    if asof_date:
+        market_date = datetime.now().strftime("%Y-%m-%d")
+        try:
+            data_age = (datetime.strptime(market_date, "%Y-%m-%d") - datetime.strptime(asof_date, "%Y-%m-%d")).days
+            logging.info(
+                f"Order execution using ranking data from {asof_date}. "
+                f"Market date: {market_date}. Data freshness: {data_age} days behind"
+            )
+        except Exception:
+            logging.info(f"Order execution using ranking data from {asof_date}")
+    else:
+        logging.warning("Order execution: asof_date not available in ranking payload")
+
     holdings = load_live_holdings(args.live_holdings_csv)
     ranking = merge_ranking_with_prices(
         load_ranking(args.ranking_csv),
