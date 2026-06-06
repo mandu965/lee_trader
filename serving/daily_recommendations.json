@@ -1,11 +1,11 @@
 {
   "entity": "daily_recommendations",
-  "generated_at": "2026-06-03 09:32:11",
-  "asof_date": "2026-06-02",
+  "generated_at": "2026-06-06 09:30:54",
+  "asof_date": "2026-06-05",
   "source_status": "current",
   "source_detail": {
     "candidates_path": "data/buy_candidates_top5.csv",
-    "latest_snapshot_date": "2026-06-02"
+    "latest_snapshot_date": "2026-06-05"
   },
   "versions": {
     "score_formula_version": "ranking_builder_v8_return_prob_tech_regime",
@@ -15,98 +15,16 @@
     "confidence_calibration_version": "confidence_four_axis_v1",
     "theme_factor_version": "theme_factor_v1"
   },
-  "gate_overall_status": "WATCH",
+  "gate_overall_status": "PILOT",
   "walkforward_acceptance_status": "REJECTED",
   "count": 5,
   "items": [
     {
-      "recommendation_id": "2026-06-02:5:1:058470",
-      "asof_date": "2026-06-02",
+      "recommendation_id": "2026-06-05:5:1:083650",
+      "asof_date": "2026-06-05",
       "target_bucket": 5,
       "buy_rank": 1,
       "rank_source": 1,
-      "security": {
-        "code": "058470",
-        "name": "리노공업",
-        "market": "KOSDAQ",
-        "sector": "반도체와반도체장비",
-        "dominant_theme": "반도체장비"
-      },
-      "scores": {
-        "final_score": 75.48720623105005,
-        "confidence_score": 82.69535874210585,
-        "liquidity_score": 66.66666666666666,
-        "theme_score": 28.640625,
-        "raw_confidence_v2": 80.9128928752484,
-        "alpha_confidence": 100.0,
-        "execution_confidence": 73.09236607733695,
-        "stability_confidence": 69.92591526023656,
-        "calibration_confidence": 50.0,
-        "confidence_state_v2": "TRUSTED",
-        "latest_snapshot_final_score": 69.97410721172227,
-        "latest_snapshot_confidence_score": 81.59318823812345,
-        "score_drift_vs_latest_snapshot": -5.5130990193277825
-      },
-      "market_signals": {
-        "trading_value": 97138028800.0,
-        "ret_5d": -0.1624548736462093,
-        "ret_10d": -0.0811881188118811,
-        "mom_20": -0.2221290863369656,
-        "rsi_14": 37.13611396479387,
-        "pred_return_60d": 0.4690247552978557,
-        "prob_top20_60d": 0.2715700141442717,
-        "pred_mdd_60d": -0.2148721510772274,
-        "regime": "bull",
-        "regime_reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03,volatility_risk_flag_false; true_count=4; breadth_20d=0.284; recent_20d_return=0.3338; ma60=6486.24; volatility_risk_flag=False"
-      },
-      "buy_eligibility": {
-        "status": "WATCH",
-        "score": 86.29,
-        "regime_multiplier": 1.0,
-        "hard_block_reasons": [],
-        "caution_reasons": [
-          "pred_mdd_60d worse than preferred -20%"
-        ],
-        "component_scores": {
-          "pred_return_60d": 100.0,
-          "prob_top20_60d": 85.78500707213584,
-          "pred_mdd_60d": 47.29324940154033,
-          "confidence_score": 92.31786247368618
-        },
-        "summary": "return 46.9%, prob 27.2%, mdd -21.5%, confidence 82.7, regime bull"
-      },
-      "selection": {
-        "selection_stage": "strict",
-        "selection_notes": "selected under strict rules",
-        "recent_surge_soft_flag": false,
-        "entry_rule_pass": true,
-        "latest_snapshot_rank": 3,
-        "buyability_status": "WATCHLIST",
-        "buyability_watchlist_tier": "PROMOTION_READY",
-        "buyability_promotion_readiness_score": 77.18389331319602,
-        "buyability_expected_action": "watch_only_until_walkforward_upgrade",
-        "buyability_supporting_reasons": [
-          "high_return_signal",
-          "high_top20_probability",
-          "confidence_trusted"
-        ],
-        "buyability_blocking_reasons": [
-          "walkforward_soft_rejected"
-        ]
-      },
-      "score_explanations": {
-        "summary_text": "요약: live_score 75.5 | live_score_source=final_score | regime=bull | dominant_driver=ret (Primary prediction score 27.7) | top_positive_factor=Primary prediction score (27.7) | top_negative_factor=Risk penalty (-4.7)\n핵심 driver: Primary prediction score (ret_score) contribution 27.7, score 83.8; Top-bucket probability score (prob_score) contribution 23.9, score 99.5; Tech flow score (tech_score) contribution 8.9, score 38.8\n리스크 요인: top_negative_factor=Risk penalty (-4.7); risk_penalty 11.7\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도",
-        "highlights": [
-          "요약: live_score 75.5 | live_score_source=final_score | regime=bull | dominant_driver=ret (Primary prediction score 27.7) | top_positive_factor=Primary prediction score (27.7) | top_negative_factor=Risk penalty (-4.7)\n핵심 driver: Primary prediction score (ret_score) contribution 27.7, score 83.8; Top-bucket probability score (prob_score) contribution 23.9, score 99.5; Tech flow score (tech_score) contribution 8.9, score 38.8\n리스크 요인: top_negative_factor=Risk penalty (-4.7); risk_penalty 11.7\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도."
-        ]
-      }
-    },
-    {
-      "recommendation_id": "2026-06-02:5:2:083650",
-      "asof_date": "2026-06-02",
-      "target_bucket": 5,
-      "buy_rank": 2,
-      "rank_source": 2,
       "security": {
         "code": "083650",
         "name": "비에이치아이",
@@ -115,47 +33,48 @@
         "dominant_theme": "전력설비"
       },
       "scores": {
-        "final_score": 74.90121859748346,
-        "confidence_score": 79.94104249883293,
+        "final_score": 74.62998338229475,
+        "confidence_score": 80.41271421312888,
         "liquidity_score": 42.15686274509804,
-        "theme_score": 24.25,
-        "raw_confidence_v2": 74.1139930156563,
+        "theme_score": 18.75,
+        "raw_confidence_v2": 73.7407667065269,
         "alpha_confidence": 100.0,
-        "execution_confidence": 50.694023034957695,
-        "stability_confidence": 69.52893052584497,
+        "execution_confidence": 48.47001454862985,
+        "stability_confidence": 70.99881170968972,
         "calibration_confidence": 50.0,
-        "confidence_state_v2": "TRUSTED",
-        "latest_snapshot_final_score": 72.95492497104449,
-        "latest_snapshot_confidence_score": 79.64954753724041,
-        "score_drift_vs_latest_snapshot": -1.9462936264389725
+        "confidence_state_v2": "PROVISIONAL",
+        "latest_snapshot_final_score": 74.62998338229475,
+        "latest_snapshot_confidence_score": 80.41271421312888,
+        "score_drift_vs_latest_snapshot": 0.0
       },
       "market_signals": {
-        "trading_value": 23550082400.0,
-        "ret_5d": -0.165432098765432,
-        "ret_10d": -0.1539424280350437,
-        "mom_20": -0.3066666666666666,
-        "rsi_14": 28.136239577918616,
-        "pred_return_60d": 0.7708486011011717,
-        "prob_top20_60d": 0.2128741929172373,
-        "pred_mdd_60d": -0.2163291749305386,
-        "regime": "bull",
-        "regime_reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03,volatility_risk_flag_false; true_count=4; breadth_20d=0.284; recent_20d_return=0.3338; ma60=6486.24; volatility_risk_flag=False"
+        "trading_value": 15634059200.0,
+        "ret_5d": -0.0893098782138024,
+        "ret_10d": -0.0780821917808218,
+        "mom_20": -0.3188259109311741,
+        "rsi_14": 30.837574604245603,
+        "pred_return_60d": 0.6457755116036146,
+        "prob_top20_60d": 0.197429906542056,
+        "pred_mdd_60d": -0.2082213645071864,
+        "regime": "neutral",
+        "regime_reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03; true_count=3; breadth_20d=0.275; recent_20d_return=0.1051; ma60=6585.63; volatility_risk_flag=True"
       },
       "buy_eligibility": {
         "status": "WATCH",
-        "score": 75.53,
-        "regime_multiplier": 1.0,
+        "score": 63.07,
+        "regime_multiplier": 0.85,
         "hard_block_reasons": [],
         "caution_reasons": [
-          "pred_mdd_60d worse than preferred -20%"
+          "pred_mdd_60d worse than preferred -20%",
+          "market regime neutral"
         ],
         "component_scores": {
           "pred_return_60d": 100.0,
-          "prob_top20_60d": 56.437096458618655,
-          "pred_mdd_60d": 46.48379170525633,
-          "confidence_score": 83.13680832944308
+          "prob_top20_60d": 48.714953271028,
+          "pred_mdd_60d": 50.98813082934088,
+          "confidence_score": 84.70904737709627
         },
-        "summary": "return 77.1%, prob 21.3%, mdd -21.6%, confidence 79.9, regime bull"
+        "summary": "return 64.6%, prob 19.7%, mdd -20.8%, confidence 80.4, regime neutral"
       },
       "selection": {
         "selection_stage": "strict",
@@ -165,30 +84,196 @@
         "latest_snapshot_rank": 1,
         "buyability_status": "WATCHLIST",
         "buyability_watchlist_tier": "MONITOR",
-        "buyability_promotion_readiness_score": 68.52480261578476,
+        "buyability_promotion_readiness_score": 62.80084865509457,
         "buyability_expected_action": "watch_only_until_walkforward_upgrade",
         "buyability_supporting_reasons": [
           "high_return_signal",
           "high_top20_probability",
-          "confidence_trusted"
+          "confidence_provisional"
         ],
         "buyability_blocking_reasons": [
           "walkforward_soft_rejected"
         ]
       },
       "score_explanations": {
-        "summary_text": "요약: live_score 74.9 | live_score_source=final_score | regime=bull | dominant_driver=ret (Primary prediction score 32.3) | top_positive_factor=Primary prediction score (32.3) | top_negative_factor=Risk penalty (-3.4)\n핵심 driver: Primary prediction score (ret_score) contribution 32.3, score 97.8; Top-bucket probability score (prob_score) contribution 23.6, score 98.5; Tech flow score (tech_score) contribution 6.7, score 29.1\n리스크 요인: top_negative_factor=Risk penalty (-3.4); risk_penalty 8.5\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도",
+        "summary_text": "요약: live_score 74.6 | live_score_source=final_score | regime=neutral | dominant_driver=ret (Primary prediction score 27.4) | top_positive_factor=Primary prediction score (27.4) | top_negative_factor=Risk penalty (-5.7)\n핵심 driver: Primary prediction score (ret_score) contribution 27.4, score 97.8; Top-bucket probability score (prob_score) contribution 22.7, score 98.5; Financial quality score (qual_score) contribution 13.8, score 76.9\n리스크 요인: top_negative_factor=Risk penalty (-5.7); risk_penalty 8.7\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도",
         "highlights": [
-          "요약: live_score 74.9 | live_score_source=final_score | regime=bull | dominant_driver=ret (Primary prediction score 32.3) | top_positive_factor=Primary prediction score (32.3) | top_negative_factor=Risk penalty (-3.4)\n핵심 driver: Primary prediction score (ret_score) contribution 32.3, score 97.8; Top-bucket probability score (prob_score) contribution 23.6, score 98.5; Tech flow score (tech_score) contribution 6.7, score 29.1\n리스크 요인: top_negative_factor=Risk penalty (-3.4); risk_penalty 8.5\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도."
+          "요약: live_score 74.6 | live_score_source=final_score | regime=neutral | dominant_driver=ret (Primary prediction score 27.4) | top_positive_factor=Primary prediction score (27.4) | top_negative_factor=Risk penalty (-5.7)\n핵심 driver: Primary prediction score (ret_score) contribution 27.4, score 97.8; Top-bucket probability score (prob_score) contribution 22.7, score 98.5; Financial quality score (qual_score) contribution 13.8, score 76.9\n리스크 요인: top_negative_factor=Risk penalty (-5.7); risk_penalty 8.7\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도."
         ]
       }
     },
     {
-      "recommendation_id": "2026-06-02:5:3:078930",
-      "asof_date": "2026-06-02",
+      "recommendation_id": "2026-06-05:5:2:237690",
+      "asof_date": "2026-06-05",
+      "target_bucket": 5,
+      "buy_rank": 2,
+      "rank_source": 2,
+      "security": {
+        "code": "237690",
+        "name": "에스티팜",
+        "market": "KOSDAQ",
+        "sector": "제약",
+        "dominant_theme": "바이오"
+      },
+      "scores": {
+        "final_score": 66.54077509508016,
+        "confidence_score": 81.36425573972451,
+        "liquidity_score": 10.294117647058822,
+        "theme_score": 72.140625,
+        "raw_confidence_v2": 66.82476129993759,
+        "alpha_confidence": 97.11274509803921,
+        "execution_confidence": 28.84920820286445,
+        "stability_confidence": 71.62450399931292,
+        "calibration_confidence": 50.0,
+        "confidence_state_v2": "PROVISIONAL",
+        "latest_snapshot_final_score": 66.54077509508016,
+        "latest_snapshot_confidence_score": 81.36425573972451,
+        "score_drift_vs_latest_snapshot": 0.0
+      },
+      "market_signals": {
+        "trading_value": 14250136000.0,
+        "ret_5d": -0.1174298375184638,
+        "ret_10d": -0.0424679487179486,
+        "mom_20": -0.2033333333333333,
+        "rsi_14": 34.245786798747304,
+        "pred_return_60d": 0.3317732234367687,
+        "prob_top20_60d": 0.1534926470588235,
+        "pred_mdd_60d": -0.1809914024051199,
+        "regime": "neutral",
+        "regime_reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03; true_count=3; breadth_20d=0.275; recent_20d_return=0.1051; ma60=6585.63; volatility_risk_flag=True"
+      },
+      "buy_eligibility": {
+        "status": "WATCH",
+        "score": 59.94,
+        "regime_multiplier": 0.85,
+        "hard_block_reasons": [],
+        "caution_reasons": [
+          "prob_top20_60d below preferred 18%",
+          "market regime neutral"
+        ],
+        "component_scores": {
+          "pred_return_60d": 100.0,
+          "prob_top20_60d": 26.746323529411754,
+          "pred_mdd_60d": 66.11588755271116,
+          "confidence_score": 87.88085246574838
+        },
+        "summary": "return 33.2%, prob 15.3%, mdd -18.1%, confidence 81.4, regime neutral"
+      },
+      "selection": {
+        "selection_stage": "strict",
+        "selection_notes": "selected under strict rules",
+        "recent_surge_soft_flag": false,
+        "entry_rule_pass": false,
+        "latest_snapshot_rank": 2,
+        "buyability_status": "WATCHLIST",
+        "buyability_watchlist_tier": "MONITOR",
+        "buyability_promotion_readiness_score": 54.20599365529587,
+        "buyability_expected_action": "watch_only_until_walkforward_upgrade",
+        "buyability_supporting_reasons": [
+          "high_return_signal",
+          "high_top20_probability",
+          "confidence_provisional"
+        ],
+        "buyability_blocking_reasons": [
+          "walkforward_soft_rejected"
+        ]
+      },
+      "score_explanations": {
+        "summary_text": "요약: live_score 66.5 | live_score_source=final_score | regime=neutral | dominant_driver=ret (Primary prediction score 23.5) | top_positive_factor=Primary prediction score (23.5) | top_negative_factor=Risk penalty (-3.4)\n핵심 driver: Primary prediction score (ret_score) contribution 23.5, score 84.0; Top-bucket probability score (prob_score) contribution 19.3, score 84.1; Financial quality score (qual_score) contribution 15.0, score 83.4\n리스크 요인: top_negative_factor=Risk penalty (-3.4); risk_penalty 5.3\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도",
+        "highlights": [
+          "요약: live_score 66.5 | live_score_source=final_score | regime=neutral | dominant_driver=ret (Primary prediction score 23.5) | top_positive_factor=Primary prediction score (23.5) | top_negative_factor=Risk penalty (-3.4)\n핵심 driver: Primary prediction score (ret_score) contribution 23.5, score 84.0; Top-bucket probability score (prob_score) contribution 19.3, score 84.1; Financial quality score (qual_score) contribution 15.0, score 83.4\n리스크 요인: top_negative_factor=Risk penalty (-3.4); risk_penalty 5.3\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도."
+        ]
+      }
+    },
+    {
+      "recommendation_id": "2026-06-05:5:3:058470",
+      "asof_date": "2026-06-05",
       "target_bucket": 5,
       "buy_rank": 3,
       "rank_source": 3,
+      "security": {
+        "code": "058470",
+        "name": "리노공업",
+        "market": "KOSDAQ",
+        "sector": "반도체와반도체장비",
+        "dominant_theme": "반도체장비"
+      },
+      "scores": {
+        "final_score": 64.69508842345076,
+        "confidence_score": 76.91431619695798,
+        "liquidity_score": 65.68627450980392,
+        "theme_score": 62.765625,
+        "raw_confidence_v2": 71.06345251499704,
+        "alpha_confidence": 82.2107843137255,
+        "execution_confidence": 71.23127352313892,
+        "stability_confidence": 59.048783662825805,
+        "calibration_confidence": 50.0,
+        "confidence_state_v2": "PROVISIONAL",
+        "latest_snapshot_final_score": 64.69508842345076,
+        "latest_snapshot_confidence_score": 76.91431619695798,
+        "score_drift_vs_latest_snapshot": 0.0
+      },
+      "market_signals": {
+        "trading_value": 76835284800.0,
+        "ret_5d": -0.0504540867810292,
+        "ret_10d": -0.0268872802481903,
+        "mom_20": -0.1936589545844044,
+        "rsi_14": 40.47550329932033,
+        "pred_return_60d": 0.1915699944287174,
+        "prob_top20_60d": 0.1884471776850428,
+        "pred_mdd_60d": -0.2234631355746247,
+        "regime": "neutral",
+        "regime_reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03; true_count=3; breadth_20d=0.275; recent_20d_return=0.1051; ma60=6585.63; volatility_risk_flag=True"
+      },
+      "buy_eligibility": {
+        "status": "WATCH",
+        "score": 58.87,
+        "regime_multiplier": 0.85,
+        "hard_block_reasons": [],
+        "caution_reasons": [
+          "pred_mdd_60d worse than preferred -20%",
+          "market regime neutral"
+        ],
+        "component_scores": {
+          "pred_return_60d": 100.0,
+          "prob_top20_60d": 44.2235888425214,
+          "pred_mdd_60d": 42.520480236319614,
+          "confidence_score": 73.04772065652662
+        },
+        "summary": "return 19.2%, prob 18.8%, mdd -22.3%, confidence 76.9, regime neutral"
+      },
+      "selection": {
+        "selection_stage": "strict",
+        "selection_notes": "selected under strict rules",
+        "recent_surge_soft_flag": false,
+        "entry_rule_pass": true,
+        "latest_snapshot_rank": 3,
+        "buyability_status": "WATCHLIST",
+        "buyability_watchlist_tier": "MONITOR",
+        "buyability_promotion_readiness_score": 63.7285288752785,
+        "buyability_expected_action": "watch_only_until_walkforward_upgrade",
+        "buyability_supporting_reasons": [
+          "high_top20_probability",
+          "confidence_provisional",
+          "execution_quality_supported"
+        ],
+        "buyability_blocking_reasons": [
+          "walkforward_soft_rejected"
+        ]
+      },
+      "score_explanations": {
+        "summary_text": "요약: live_score 64.7 | live_score_source=final_score | regime=neutral | dominant_driver=prob (Top-bucket probability score 22.4) | top_positive_factor=Top-bucket probability score (22.4) | top_negative_factor=Risk penalty (-6.9)\n핵심 driver: Top-bucket probability score (prob_score) contribution 22.4, score 97.5; Financial quality score (qual_score) contribution 17.8, score 99.0; Primary prediction score (ret_score) contribution 11.4, score 40.6\n리스크 요인: top_negative_factor=Risk penalty (-6.9); risk_penalty 10.7\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도",
+        "highlights": [
+          "요약: live_score 64.7 | live_score_source=final_score | regime=neutral | dominant_driver=prob (Top-bucket probability score 22.4) | top_positive_factor=Top-bucket probability score (22.4) | top_negative_factor=Risk penalty (-6.9)\n핵심 driver: Top-bucket probability score (prob_score) contribution 22.4, score 97.5; Financial quality score (qual_score) contribution 17.8, score 99.0; Primary prediction score (ret_score) contribution 11.4, score 40.6\n리스크 요인: top_negative_factor=Risk penalty (-6.9); risk_penalty 10.7\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도."
+        ]
+      }
+    },
+    {
+      "recommendation_id": "2026-06-05:5:4:078930",
+      "asof_date": "2026-06-05",
+      "target_bucket": 5,
+      "buy_rank": 4,
+      "rank_source": 5,
       "security": {
         "code": "078930",
         "name": "GS",
@@ -197,62 +282,62 @@
         "dominant_theme": "(none)"
       },
       "scores": {
-        "final_score": 71.0037959795441,
-        "confidence_score": 82.13028126700245,
+        "final_score": 60.22795779509149,
+        "confidence_score": 85.54989689065025,
         "liquidity_score": 30.88235294117647,
         "theme_score": 0.0,
-        "raw_confidence_v2": 73.52743122593596,
-        "alpha_confidence": 100.0,
-        "execution_confidence": 42.76518015065835,
-        "stability_confidence": 78.48938590369227,
+        "raw_confidence_v2": 69.33657556126064,
+        "alpha_confidence": 90.3627450980392,
+        "execution_confidence": 41.22939156415816,
+        "stability_confidence": 79.11330026398758,
         "calibration_confidence": 50.0,
         "confidence_state_v2": "PROVISIONAL",
-        "latest_snapshot_final_score": 62.19895456032501,
-        "latest_snapshot_confidence_score": 81.92577738693613,
-        "score_drift_vs_latest_snapshot": -8.804841419219088
+        "latest_snapshot_final_score": 60.22795779509149,
+        "latest_snapshot_confidence_score": 85.54989689065025,
+        "score_drift_vs_latest_snapshot": 0.0
       },
       "market_signals": {
-        "trading_value": 19004719800.0,
-        "ret_5d": -0.0571428571428571,
-        "ret_10d": -0.0294117647058823,
-        "mom_20": -0.1135531135531136,
-        "rsi_14": 45.385145101997935,
-        "pred_return_60d": 0.4246191421003631,
-        "prob_top20_60d": 0.1635276532137518,
-        "pred_mdd_60d": -0.2121153431045801,
-        "regime": "bull",
-        "regime_reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03,volatility_risk_flag_false; true_count=4; breadth_20d=0.284; recent_20d_return=0.3338; ma60=6486.24; volatility_risk_flag=False"
+        "trading_value": 14321825700.0,
+        "ret_5d": 0.0,
+        "ret_10d": 0.0027063599458727,
+        "mom_20": -0.0364109232769831,
+        "rsi_14": 48.98998312714973,
+        "pred_return_60d": 0.3091216411562723,
+        "prob_top20_60d": 0.1462715727775969,
+        "pred_mdd_60d": -0.2250477039153926,
+        "regime": "neutral",
+        "regime_reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03; true_count=3; breadth_20d=0.275; recent_20d_return=0.1051; ma60=6585.63; volatility_risk_flag=True"
       },
       "buy_eligibility": {
         "status": "WATCH",
-        "score": 69.94,
-        "regime_multiplier": 1.0,
+        "score": 57.96,
+        "regime_multiplier": 0.85,
         "hard_block_reasons": [],
         "caution_reasons": [
           "prob_top20_60d below preferred 18%",
-          "pred_mdd_60d worse than preferred -20%"
+          "pred_mdd_60d worse than preferred -20%",
+          "market regime neutral"
         ],
         "component_scores": {
           "pred_return_60d": 100.0,
-          "prob_top20_60d": 31.763826606875895,
-          "pred_mdd_60d": 48.824809386344384,
-          "confidence_score": 90.43427089000815
+          "prob_top20_60d": 23.135786388798447,
+          "pred_mdd_60d": 41.640164491448544,
+          "confidence_score": 100.0
         },
-        "summary": "return 42.5%, prob 16.4%, mdd -21.2%, confidence 82.1, regime bull"
+        "summary": "return 30.9%, prob 14.6%, mdd -22.5%, confidence 85.5, regime neutral"
       },
       "selection": {
         "selection_stage": "strict",
         "selection_notes": "selected under strict rules",
         "recent_surge_soft_flag": false,
         "entry_rule_pass": true,
-        "latest_snapshot_rank": 18,
+        "latest_snapshot_rank": 5,
         "buyability_status": "WATCHLIST",
         "buyability_watchlist_tier": "MONITOR",
-        "buyability_promotion_readiness_score": 61.27863908933577,
+        "buyability_promotion_readiness_score": 57.08135591321468,
         "buyability_expected_action": "watch_only_until_walkforward_upgrade",
         "buyability_supporting_reasons": [
           "high_return_signal",
-          "high_top20_probability",
           "confidence_provisional"
         ],
         "buyability_blocking_reasons": [
@@ -260,173 +345,93 @@
         ]
       },
       "score_explanations": {
-        "summary_text": "요약: live_score 71.0 | live_score_source=final_score | regime=bull | dominant_driver=ret (Primary prediction score 29.7) | top_positive_factor=Primary prediction score (29.7) | top_negative_factor=Risk penalty (-4.0)\n핵심 driver: Primary prediction score (ret_score) contribution 29.7, score 89.9; Top-bucket probability score (prob_score) contribution 21.4, score 89.2; Tech flow score (tech_score) contribution 12.8, score 55.6\n리스크 요인: top_negative_factor=Risk penalty (-4.0); risk_penalty 10.1\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도",
+        "summary_text": "요약: live_score 60.2 | live_score_source=final_score | regime=neutral | dominant_driver=ret (Primary prediction score 22.5) | top_positive_factor=Primary prediction score (22.5) | top_negative_factor=Risk penalty (-6.4)\n핵심 driver: Primary prediction score (ret_score) contribution 22.5, score 80.5; Top-bucket probability score (prob_score) contribution 16.1, score 70.1; Tech flow score (tech_score) contribution 12.7, score 60.7\n리스크 요인: top_negative_factor=Risk penalty (-6.4); risk_penalty 9.9\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도",
         "highlights": [
-          "요약: live_score 71.0 | live_score_source=final_score | regime=bull | dominant_driver=ret (Primary prediction score 29.7) | top_positive_factor=Primary prediction score (29.7) | top_negative_factor=Risk penalty (-4.0)\n핵심 driver: Primary prediction score (ret_score) contribution 29.7, score 89.9; Top-bucket probability score (prob_score) contribution 21.4, score 89.2; Tech flow score (tech_score) contribution 12.8, score 55.6\n리스크 요인: top_negative_factor=Risk penalty (-4.0); risk_penalty 10.1\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도."
+          "요약: live_score 60.2 | live_score_source=final_score | regime=neutral | dominant_driver=ret (Primary prediction score 22.5) | top_positive_factor=Primary prediction score (22.5) | top_negative_factor=Risk penalty (-6.4)\n핵심 driver: Primary prediction score (ret_score) contribution 22.5, score 80.5; Top-bucket probability score (prob_score) contribution 16.1, score 70.1; Tech flow score (tech_score) contribution 12.7, score 60.7\n리스크 요인: top_negative_factor=Risk penalty (-6.4); risk_penalty 9.9\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도."
         ]
       }
     },
     {
-      "recommendation_id": "2026-06-02:5:4:010950",
-      "asof_date": "2026-06-02",
-      "target_bucket": 5,
-      "buy_rank": 4,
-      "rank_source": 4,
-      "security": {
-        "code": "010950",
-        "name": "S-Oil",
-        "market": "KOSPI",
-        "sector": "석유와가스",
-        "dominant_theme": "(none)"
-      },
-      "scores": {
-        "final_score": 69.01924290149884,
-        "confidence_score": 76.61700812833108,
-        "liquidity_score": 46.07843137254902,
-        "theme_score": 0.0,
-        "raw_confidence_v2": 77.23590121575867,
-        "alpha_confidence": 99.31372549019608,
-        "execution_confidence": 58.316369931818684,
-        "stability_confidence": 75.0775002006732,
-        "calibration_confidence": 50.0,
-        "confidence_state_v2": "TRUSTED",
-        "latest_snapshot_final_score": 67.3392997948853,
-        "latest_snapshot_confidence_score": 75.9840446292173,
-        "score_drift_vs_latest_snapshot": -1.6799431066135355
-      },
-      "market_signals": {
-        "trading_value": 62164849800.0,
-        "ret_5d": -0.0163487738419618,
-        "ret_10d": -0.0286995515695067,
-        "mom_20": -0.1947955390334572,
-        "rsi_14": 44.0843785953819,
-        "pred_return_60d": 0.4282667572136018,
-        "prob_top20_60d": 0.1635276532137518,
-        "pred_mdd_60d": -0.1898194444832664,
-        "regime": "bull",
-        "regime_reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03,volatility_risk_flag_false; true_count=4; breadth_20d=0.284; recent_20d_return=0.3338; ma60=6486.24; volatility_risk_flag=False"
-      },
-      "buy_eligibility": {
-        "status": "WATCH",
-        "score": 68.12,
-        "regime_multiplier": 1.0,
-        "hard_block_reasons": [],
-        "caution_reasons": [
-          "prob_top20_60d below preferred 18%"
-        ],
-        "component_scores": {
-          "pred_return_60d": 100.0,
-          "prob_top20_60d": 31.763826606875895,
-          "pred_mdd_60d": 61.21141973151866,
-          "confidence_score": 72.0566937611036
-        },
-        "summary": "return 42.8%, prob 16.4%, mdd -19.0%, confidence 76.6, regime bull"
-      },
-      "selection": {
-        "selection_stage": "strict",
-        "selection_notes": "selected under strict rules",
-        "recent_surge_soft_flag": false,
-        "entry_rule_pass": true,
-        "latest_snapshot_rank": 8,
-        "buyability_status": "WATCHLIST",
-        "buyability_watchlist_tier": "MONITOR",
-        "buyability_promotion_readiness_score": 71.69799312808529,
-        "buyability_expected_action": "watch_only_until_walkforward_upgrade",
-        "buyability_supporting_reasons": [
-          "high_return_signal",
-          "high_top20_probability",
-          "confidence_trusted"
-        ],
-        "buyability_blocking_reasons": [
-          "walkforward_soft_rejected"
-        ]
-      },
-      "score_explanations": {
-        "summary_text": "요약: live_score 69.0 | live_score_source=final_score | regime=bull | dominant_driver=ret (Primary prediction score 28.1) | top_positive_factor=Primary prediction score (28.1) | top_negative_factor=Risk penalty (-3.0)\n핵심 driver: Primary prediction score (ret_score) contribution 28.1, score 85.3; Top-bucket probability score (prob_score) contribution 21.4, score 89.2; Tech flow score (tech_score) contribution 12.7, score 55.3\n리스크 요인: top_negative_factor=Risk penalty (-3.0); risk_penalty 7.6\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도",
-        "highlights": [
-          "요약: live_score 69.0 | live_score_source=final_score | regime=bull | dominant_driver=ret (Primary prediction score 28.1) | top_positive_factor=Primary prediction score (28.1) | top_negative_factor=Risk penalty (-3.0)\n핵심 driver: Primary prediction score (ret_score) contribution 28.1, score 85.3; Top-bucket probability score (prob_score) contribution 21.4, score 89.2; Tech flow score (tech_score) contribution 12.7, score 55.3\n리스크 요인: top_negative_factor=Risk penalty (-3.0); risk_penalty 7.6\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도."
-        ]
-      }
-    },
-    {
-      "recommendation_id": "2026-06-02:5:5:000880",
-      "asof_date": "2026-06-02",
+      "recommendation_id": "2026-06-05:5:5:035720",
+      "asof_date": "2026-06-05",
       "target_bucket": 5,
       "buy_rank": 5,
-      "rank_source": 13,
+      "rank_source": 6,
       "security": {
-        "code": "000880",
-        "name": "한화",
+        "code": "035720",
+        "name": "카카오",
         "market": "KOSPI",
-        "sector": "복합기업",
-        "dominant_theme": "방산"
+        "sector": "양방향미디어와서비스",
+        "dominant_theme": "Digital Platform Ecosystem"
       },
       "scores": {
-        "final_score": 62.557836865269415,
-        "confidence_score": 83.2128744091255,
-        "liquidity_score": 30.392156862745097,
-        "theme_score": 16.734375,
-        "raw_confidence_v2": 69.41167250301012,
-        "alpha_confidence": 91.60049019607843,
-        "execution_confidence": 45.82585204024625,
-        "stability_confidence": 70.11860406252441,
+        "final_score": 60.22221604018437,
+        "confidence_score": 80.09223697655376,
+        "liquidity_score": 87.74509803921569,
+        "theme_score": 65.08749999999999,
+        "raw_confidence_v2": 81.75789915522414,
+        "alpha_confidence": 90.52941176470588,
+        "execution_confidence": 84.63336648788064,
+        "stability_confidence": 75.78062251488794,
         "calibration_confidence": 50.0,
-        "confidence_state_v2": "PROVISIONAL",
-        "latest_snapshot_final_score": null,
-        "latest_snapshot_confidence_score": null,
-        "score_drift_vs_latest_snapshot": null
+        "confidence_state_v2": "TRUSTED",
+        "latest_snapshot_final_score": 60.22221604018437,
+        "latest_snapshot_confidence_score": 80.09223697655376,
+        "score_drift_vs_latest_snapshot": 0.0
       },
       "market_signals": {
-        "trading_value": 35256941400.0,
-        "ret_5d": -0.1977058029689609,
-        "ret_10d": -0.0578446909667195,
-        "mom_20": -0.108695652173913,
-        "rsi_14": 39.4190810454956,
-        "pred_return_60d": 0.4268520433075584,
-        "prob_top20_60d": 0.1420370674102017,
-        "pred_mdd_60d": -0.2030445400178079,
-        "regime": "bull",
-        "regime_reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03,volatility_risk_flag_false; true_count=4; breadth_20d=0.284; recent_20d_return=0.3338; ma60=6486.24; volatility_risk_flag=False"
+        "trading_value": 79232728750.0,
+        "ret_5d": 0.0037406483790523,
+        "ret_10d": 0.0024906600249066,
+        "mom_20": -0.1306695464362851,
+        "rsi_14": 37.07326223991648,
+        "pred_return_60d": 0.343832034630996,
+        "prob_top20_60d": 0.1462715727775969,
+        "pred_mdd_60d": -0.2010940370967109,
+        "regime": "neutral",
+        "regime_reason": "met_conditions=close_gt_ma20,ma20_gt_ma60,recent_20d_return_gt_0.03; true_count=3; breadth_20d=0.275; recent_20d_return=0.1051; ma60=6585.63; volatility_risk_flag=True"
       },
       "buy_eligibility": {
         "status": "WATCH",
-        "score": 68.19,
-        "regime_multiplier": 1.0,
+        "score": 56.87,
+        "regime_multiplier": 0.85,
         "hard_block_reasons": [],
         "caution_reasons": [
           "prob_top20_60d below preferred 18%",
-          "pred_mdd_60d worse than preferred -20%"
+          "pred_mdd_60d worse than preferred -20%",
+          "market regime neutral"
         ],
         "component_scores": {
           "pred_return_60d": 100.0,
-          "prob_top20_60d": 21.018533705100847,
-          "pred_mdd_60d": 53.864144434551164,
-          "confidence_score": 94.04291469708501
+          "prob_top20_60d": 23.135786388798447,
+          "pred_mdd_60d": 54.94775716849395,
+          "confidence_score": 83.64078992184588
         },
-        "summary": "return 42.7%, prob 14.2%, mdd -20.3%, confidence 83.2, regime bull"
+        "summary": "return 34.4%, prob 14.6%, mdd -20.1%, confidence 80.1, regime neutral"
       },
       "selection": {
         "selection_stage": "strict",
         "selection_notes": "selected under strict rules",
         "recent_surge_soft_flag": false,
         "entry_rule_pass": true,
-        "latest_snapshot_rank": null,
+        "latest_snapshot_rank": 6,
         "buyability_status": "WATCHLIST",
-        "buyability_watchlist_tier": "MONITOR",
-        "buyability_promotion_readiness_score": 58.5118136756318,
+        "buyability_watchlist_tier": "PROMOTION_READY",
+        "buyability_promotion_readiness_score": 78.5552785947622,
         "buyability_expected_action": "watch_only_until_walkforward_upgrade",
         "buyability_supporting_reasons": [
           "high_return_signal",
-          "confidence_provisional"
+          "confidence_trusted",
+          "execution_quality_supported"
         ],
         "buyability_blocking_reasons": [
           "walkforward_soft_rejected"
         ]
       },
       "score_explanations": {
-        "summary_text": "요약: live_score 62.6 | live_score_source=final_score | regime=bull | dominant_driver=ret (Primary prediction score 28.4) | top_positive_factor=Primary prediction score (28.4) | top_negative_factor=Risk penalty (-3.3)\n핵심 driver: Primary prediction score (ret_score) contribution 28.4, score 86.1; Top-bucket probability score (prob_score) contribution 16.5, score 68.6; Tech flow score (tech_score) contribution 9.2, score 40.2\n리스크 요인: top_negative_factor=Risk penalty (-3.3); risk_penalty 8.3\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도",
+        "summary_text": "요약: live_score 60.2 | live_score_source=final_score | regime=neutral | dominant_driver=ret (Primary prediction score 22.7) | top_positive_factor=Primary prediction score (22.7) | top_negative_factor=Risk penalty (-5.6)\n핵심 driver: Primary prediction score (ret_score) contribution 22.7, score 81.1; Top-bucket probability score (prob_score) contribution 16.1, score 70.1; Tech flow score (tech_score) contribution 12.2, score 58.3\n리스크 요인: top_negative_factor=Risk penalty (-5.6); risk_penalty 8.6\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도",
         "highlights": [
-          "요약: live_score 62.6 | live_score_source=final_score | regime=bull | dominant_driver=ret (Primary prediction score 28.4) | top_positive_factor=Primary prediction score (28.4) | top_negative_factor=Risk penalty (-3.3)\n핵심 driver: Primary prediction score (ret_score) contribution 28.4, score 86.1; Top-bucket probability score (prob_score) contribution 16.5, score 68.6; Tech flow score (tech_score) contribution 9.2, score 40.2\n리스크 요인: top_negative_factor=Risk penalty (-3.3); risk_penalty 8.3\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도."
+          "요약: live_score 60.2 | live_score_source=final_score | regime=neutral | dominant_driver=ret (Primary prediction score 22.7) | top_positive_factor=Primary prediction score (22.7) | top_negative_factor=Risk penalty (-5.6)\n핵심 driver: Primary prediction score (ret_score) contribution 22.7, score 81.1; Top-bucket probability score (prob_score) contribution 16.1, score 70.1; Tech flow score (tech_score) contribution 12.2, score 58.3\n리스크 요인: top_negative_factor=Risk penalty (-5.6); risk_penalty 8.6\n운영 상태: theme_overlay: disabled (operational config); confidence: 모델 메타 점수 (calibration 미완), score=NA, label=Experimental, live_score 비반영, research/reference 용도."
         ]
       }
     }

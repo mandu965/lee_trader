@@ -1,7 +1,7 @@
 """시장 급락 감시 서비스 — 1회 실행형.
 
 스케줄러에서 하루 2회 호출:
-  09:10 (장 시작 직후) / 14:00 (오후 점검)
+  09:10 (오전 BUY 전 점검) / 15:40 (장마감 후 다음 거래일 보호)
 
 감지 조건 충족 시:
   - KR: data/market_guard_kill.json 파일 생성 → common_live_risk_guard.py가 읽어 매수 차단
@@ -23,7 +23,7 @@ if str(_ROOT / "python") not in sys.path:
     sys.path.insert(0, str(_ROOT / "python"))
 
 from market_guard.config import load_config
-from market_guard.detector import get_snapshot, evaluate
+from market_guard.detector import data_quality_to_dict, evaluate, evaluate_data_quality, get_snapshot
 from market_guard.kill_switch import activate_kr, deactivate_kr, is_kr_active, activate_us, deactivate_us
 from market_guard.notifier import send_alert, send_recovery
 
@@ -68,17 +68,36 @@ def main() -> int:
         recovery_1d_threshold=cfg.recovery_1d_threshold,
         recovery_5d_threshold=cfg.recovery_5d_threshold,
     )
+    data_quality = evaluate_data_quality(snapshot)
+    logger.info(
+        "DATA_QUALITY | status=%s can_activate=%s warnings=%s",
+        data_quality.status,
+        data_quality.can_activate,
+        data_quality.warnings,
+    )
 
     currently_active = is_kr_active(cfg.guard_file_path)
 
     # 3. CRITICAL → 차단 활성화
     if result.alert_level == "CRITICAL":
-        kr_ok = activate_kr(cfg.guard_file_path, reason="; ".join(result.triggered_conditions), dry_run=cfg.dry_run)
-        us_ok = activate_us(cfg.us_account_id, reason="; ".join(result.triggered_conditions), dry_run=cfg.dry_run)
+        guard_reason = "; ".join(result.triggered_conditions)
+        if not data_quality.can_activate:
+            logger.warning(
+                "CRITICAL detected but kill switch activation skipped by data quality guard: %s",
+                "; ".join(data_quality.warnings),
+            )
+            kr_ok = False
+            us_ok = False
+        else:
+            kr_ok = activate_kr(cfg.guard_file_path, reason=guard_reason, dry_run=cfg.dry_run)
+            us_ok = activate_us(cfg.us_account_id, reason=guard_reason, dry_run=cfg.dry_run)
         send_alert(
             level="CRITICAL",
             summary=result.summary,
-            conditions=result.triggered_conditions,
+            conditions=[
+                *result.triggered_conditions,
+                *([f"DATA_QUALITY={data_quality.status}: " + "; ".join(data_quality.warnings)] if data_quality.warnings else []),
+            ],
             kr_activated=kr_ok,
             us_activated=us_ok,
             dry_run=cfg.dry_run,
@@ -124,6 +143,7 @@ def main() -> int:
             "triggered_conditions": result.triggered_conditions,
             "kill_switch_active": is_kr_active(cfg.guard_file_path),
             "dry_run": cfg.dry_run,
+            "data_quality": data_quality_to_dict(data_quality),
         }, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

@@ -41,6 +41,7 @@ __pycache__/
 *.so
 .Python
 .venv/
+.venv_research/
 venv/
 env/
 .eggs/

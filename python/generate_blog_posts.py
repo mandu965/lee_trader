@@ -24,6 +24,10 @@ import sys
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blog_variation import VariationPicker  # noqa: E402
@@ -38,6 +42,11 @@ PLATFORM_EXT = {"naver": "txt", "tistory": "md"}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("blog_gen")
+
+
+def _load_env() -> None:
+    if load_dotenv:
+        load_dotenv(ROOT / ".env", override=False)
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +306,51 @@ def build_riser_commentary(r: dict, picker: VariationPicker, formal: bool) -> st
     return body
 
 
+def build_riser_commentary_5d(r: dict, picker: VariationPicker, formal: bool) -> str:
+    """화면의 5영업일 전 비교 기준과 맞춘 TYPE_B 요약 문장."""
+    name = r["name"]
+    nm = josa(name, "는", "은")
+    ending = "입니다" if formal else "이다"
+    v = picker.choice_index(5, "riser_comment_5d", r["code"])
+    if v == 0:
+        body = (
+            f"{nm} 5영업일 전 {r['prev_rank']}위에서 오늘 {r['rank']}위로 {r['rank_gain']}계단 "
+            + ("올라섰습니다." if formal else "올라섰다.")
+        )
+        body += f" AI 종합점수는 {r['final_score']}점{ending}."
+    elif v == 1:
+        body = (
+            f"{r['prev_rank']}위였던 {nm} 최근 5영업일 동안 {r['rank']}위까지 {r['rank_gain']}계단 "
+            + ("뛰었습니다." if formal else "뛰었다.")
+        )
+        body += f" 현재 AI 점수는 {r['final_score']}점{ending}."
+    elif v == 2:
+        body = (
+            f"오늘 {nm} {r['rank_gain']}계단 올라 {r['rank']}위를 "
+            + ("기록했습니다." if formal else "기록했다.")
+        )
+        body += (
+            f" AI 점수 {r['final_score']}점으로 최근 5영업일 기준 상승 모멘텀이 "
+            + ("확인됩니다." if formal else "확인된다.")
+        )
+    elif v == 3:
+        body = f"AI 랭킹 {r['prev_rank']}위에서 {r['rank']}위로, {r['rank_gain']}계단 급등{ending}."
+        body += (
+            f" {r['final_score']}점의 AI 종합점수로 오늘 상위권에 "
+            + ("진입했습니다." if formal else "진입했다.")
+        )
+    else:
+        body = (
+            f"5영업일 전 대비 {r['rank_gain']}계단 상승하며 {r['rank']}위에 "
+            + ("오른 종목입니다." if formal else "오른 종목이다.")
+        )
+        body += (
+            f" AI 종합점수는 {r['final_score']}점으로 단기 상승 흐름이 "
+            + ("감지됩니다." if formal else "감지된다.")
+        )
+    return body
+
+
 def build_market_commentary_c(ms: dict, regime_word: str, picker: VariationPicker, formal: bool) -> str:
     """TYPE_C용 시장 지표 산문 해설."""
     s = []
@@ -328,7 +382,10 @@ def build_context_b(rc: dict, source_date: str, picker: VariationPicker) -> dict
     formal = picker.platform == "naver"
     risers = rc.get("risers", [])
     for r in risers:
-        r["commentary"] = build_riser_commentary(r, picker, formal)
+        r["commentary"] = build_riser_commentary_5d(r, picker, formal)
+    title_text = f"{korean_date(source_date)} 최근 5영업일 랭킹 급상승 종목 — 변화 분석"
+    intro_text = "5영업일 전 대비 AI 랭킹이 크게 상승한 종목들을 정리했습니다. 화면의 랭킹 변화 기준과 같은 비교 구간을 사용합니다."
+    riser_intro_text = "5영업일 전 대비 상승폭이 크고, 현재 50위 이내에 들어온 종목들입니다."
     ctx = {
         "source_date": source_date,
         "date_display": korean_date(source_date),
@@ -336,6 +393,9 @@ def build_context_b(rc: dict, source_date: str, picker: VariationPicker) -> dict
         "count": len(risers),
         "risers": risers,
         "skin": picker.choice_index(2, "section_skin"),
+        "title_text": title_text,
+        "intro_text": intro_text,
+        "riser_intro_text": riser_intro_text,
     }
     ctx.update(picker.as_jinja_globals())
     return ctx
@@ -465,6 +525,7 @@ def generate_for_type(content_type: str, data: dict, source_date: str,
 
 
 def main() -> int:
+    _load_env()
     ap = argparse.ArgumentParser(description="블로그 글 초안 생성")
     ap.add_argument("--type", default="A", choices=["A", "B", "C", "all"],
                     help="콘텐츠 유형 (all = A·B·C 일괄)")
@@ -515,6 +576,24 @@ def main() -> int:
     return 0
 
 
+def _resolve_draft_db_targets() -> list[tuple[str, str]]:
+    """초안 저장 대상 DB 목록을 반환한다.
+
+    - local/runtime DB: DATABASE_URL
+    - web DB: WEB_DATABASE_URL
+    같은 URL이면 중복 저장하지 않는다.
+    """
+    seen: set[str] = set()
+    targets: list[tuple[str, str]] = []
+    for label, env_name in (("local", "DATABASE_URL"), ("web", "WEB_DATABASE_URL")):
+        url = str(os.environ.get(env_name, "")).strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        targets.append((label, url))
+    return targets
+
+
 def save_drafts_to_db(source_date: str, types: list[str], platforms: list[str]) -> None:
     """생성된 초안을 research.app_payload_store에 upsert (실패 시 로그만 출력)."""
     try:
@@ -522,9 +601,9 @@ def save_drafts_to_db(source_date: str, types: list[str], platforms: list[str]) 
     except ImportError:
         log.warning("psycopg2 없음 — DB 저장 건너뜀")
         return
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        log.warning("DATABASE_URL 없음 — DB 저장 건너뜀")
+    targets = _resolve_draft_db_targets()
+    if not targets:
+        log.warning("DATABASE_URL/WEB_DATABASE_URL 없음 — DB 저장 건너뜀")
         return
 
     drafts = []
@@ -546,25 +625,27 @@ def save_drafts_to_db(source_date: str, types: list[str], platforms: list[str]) 
 
     payload_key = f"blog_drafts_{source_date}"
     payload = {"asof_date": source_date, "drafts": drafts}
-    try:
-        conn = psycopg2.connect(db_url)
-        cur = conn.cursor()
-        cur.execute(
-            """
-            INSERT INTO research.app_payload_store
-              (payload_key, payload_json, asof_date, generated_at, updated_at)
-            VALUES (%s, %s::jsonb, %s, now(), now())
-            ON CONFLICT (payload_key) DO UPDATE
-            SET payload_json = EXCLUDED.payload_json, updated_at = now()
-            """,
-            [payload_key, json.dumps(payload, ensure_ascii=False), source_date],
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-        log.info("DB 저장 완료: %s (%d건)", payload_key, len(drafts))
-    except Exception as exc:  # noqa: BLE001
-        log.warning("DB 저장 실패 (계속 진행): %s", exc)
+    payload_json = json.dumps(payload, ensure_ascii=False)
+    for label, db_url in targets:
+        try:
+            conn = psycopg2.connect(db_url)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO research.app_payload_store
+                  (payload_key, payload_json, asof_date, generated_at, updated_at)
+                VALUES (%s, %s::jsonb, %s, now(), now())
+                ON CONFLICT (payload_key) DO UPDATE
+                SET payload_json = EXCLUDED.payload_json, updated_at = now()
+                """,
+                [payload_key, payload_json, source_date],
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+            log.info("DB 저장 완료(%s): %s (%d건)", label, payload_key, len(drafts))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("DB 저장 실패(%s, 계속 진행): %s", label, exc)
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@
   <title>회사 소개 | Lee Trader Lab</title>
   <meta name="description" content="Lee Trader Lab의 운영 목적, 콘텐츠 원칙, 공개 범위, 독자 대상에 대한 소개 페이지입니다.">
   <link rel="icon" href="/og-image.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/site.css">
+  <link rel="stylesheet" href="/site.css?v=20260605-about">
 </head>
 <body class="site-body">
   <header class="site-header">
@@ -75,6 +75,109 @@
         <article class="site-card">
           <h3>업데이트 원칙</h3>
           <p>시장 요약과 리포트는 최신 운영 산출물 기준으로 갱신하고, 블로그와 정책 문서는 표현 오류, 최신화 누락, 운영 논리 변경이 있으면 순차 수정합니다.</p>
+        </article>
+      </section>
+
+      <section class="section about-distinctive">
+        <div class="section__head">
+          <div>
+            <p class="section__eyebrow">Why Different</p>
+            <h2 class="section__title">이 서비스만의 차별점</h2>
+            <p class="section__desc">Lee Trader Lab은 단일 예측값보다 모델 점수, 신호 일치도, 데이터 성숙도, 시장 레짐, 리스크 게이트를 함께 봅니다. 공개 페이지에는 판단 구조와 데이터 갱신 흐름을 설명하되, 전략 노출 위험이 큰 운영 세부 파라미터는 공개하지 않습니다.</p>
+          </div>
+        </div>
+
+        <article class="signal-card">
+          <div class="signal-card__icon" aria-hidden="true">LT</div>
+          <div>
+            <h3>운영 신뢰도 지수</h3>
+            <p>각 종목은 <code>confidence_score</code>와 <code>confidence_label</code>로 신뢰 구간을 표시합니다. 이 값은 단순 확률이 아니라 데이터 커버리지, 데이터 성숙도, 모델 안정성, 신호 일치도, 현재 시장 레짐 적합도를 종합해 “지금 이 점수를 얼마나 보수적으로 읽어야 하는가”를 알려주는 보조 지표입니다.</p>
+            <div class="confidence-row" aria-label="운영 신뢰도 범례">
+              <span class="confidence-pill confidence-pill--high">신뢰도 높음 · 데이터/신호 양호</span>
+              <span class="confidence-pill confidence-pill--medium">신뢰도 보통 · 일부 조건 혼재</span>
+              <span class="confidence-pill confidence-pill--low">신뢰도 낮음 · 결손/레짐 주의</span>
+            </div>
+          </div>
+        </article>
+
+        <div class="model-showcase">
+          <article class="model-card model-card--wide">
+            <div>
+              <span class="model-card__kicker">Core Engine</span>
+              <h3>LightGBM 43피처 예측 모델</h3>
+              <p>204개 내외 국내 종목의 가격·수급·재무·리스크 피처로 60/90일 기대수익률, 최대낙폭, Top20 확률을 추정합니다.</p>
+            </div>
+            <div class="model-card__stat">
+              <strong>v9_flow</strong>
+              <span>레짐 인식 점수</span>
+            </div>
+          </article>
+          <article class="model-card">
+            <span class="weight-badge">ret</span>
+            <h3>수익률 축</h3>
+            <p><code>pred_return_60d</code>, <code>pred_return_90d</code> 기반으로 상방 기대를 점수화합니다.</p>
+          </article>
+          <article class="model-card">
+            <span class="weight-badge">prob</span>
+            <h3>확률 축</h3>
+            <p><code>prob_top20_60d</code> 등 상위권 진입 가능성을 반영합니다.</p>
+          </article>
+          <article class="model-card">
+            <span class="weight-badge">tech/flow</span>
+            <h3>기술·수급 축</h3>
+            <p>RSI, 이동평균, 거래량, 외국인·기관 순매수 흐름을 함께 봅니다.</p>
+          </article>
+          <article class="model-card">
+            <span class="weight-badge">qual</span>
+            <h3>재무 품질 축</h3>
+            <p>재무 건전성, 수익성, 품질 점수를 방어적 레짐에서 더 중요하게 반영합니다.</p>
+          </article>
+          <article class="model-card">
+            <span class="weight-badge">risk</span>
+            <h3>리스크 페널티</h3>
+            <p>예상 최대낙폭, 변동성, 과열 위험이 높으면 최종 점수를 보수적으로 낮춥니다.</p>
+          </article>
+          <article class="model-card">
+            <span class="weight-badge weight-badge--muted">OOF</span>
+            <h3>신뢰도 보정</h3>
+            <p>OOF calibration으로 과대평가를 줄이고, 신호 일치·데이터 성숙도를 함께 표시합니다.</p>
+          </article>
+        </div>
+
+        <article class="process-card">
+          <div class="process-card__head">
+            <div>
+              <span class="model-card__kicker">Public Refresh</span>
+              <h3>공개 데이터 갱신 프로세스</h3>
+            </div>
+            <p>KST 기준이며, 공개 스케줄은 데이터 갱신과 검증 흐름 중심으로 안내합니다.</p>
+          </div>
+          <ol class="process-timeline">
+            <li>
+              <time>장 마감 후</time>
+              <span>KRX·DART·증권사 OpenAPI 데이터 확인, 가격·수급·재무 입력값 정리</span>
+            </li>
+            <li>
+              <time>12:00</time>
+              <span>장중 복구성 점검 및 누락 데이터 보완 확인</span>
+            </li>
+            <li>
+              <time>18:10</time>
+              <span>종가 배치 시작: 데이터 수집, 피처 생성, 라벨 정리, 모델 재학습</span>
+            </li>
+            <li>
+              <time>18:20 전후</time>
+              <span>LightGBM 예측값 생성 및 <code>ranking_builder_v9_flow</code> 기준 랭킹 산출</span>
+            </li>
+            <li>
+              <time>18:30 전후</time>
+              <span>운영 신뢰도, market_guard 상태, 후보 설명 문구, 웹 표시 데이터 동기화</span>
+            </li>
+            <li>
+              <time>영업일 중</time>
+              <span>계좌 동기화와 리스크 상태 점검은 운영 화면에서 확인하되, 공개 페이지에는 세부 운영 파라미터를 노출하지 않습니다.</span>
+            </li>
+          </ol>
         </article>
       </section>
 

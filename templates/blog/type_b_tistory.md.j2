@@ -1,12 +1,12 @@
 ---
-title: {{ pick("title_b").replace("{date}", date_display) }}
+title: {{ title_text }}
 category: AI 자동매매
 tags: [AI주식, 자동매매, 한국주식, 랭킹, 종목분석]
 ---
 
-# {{ pick("title_b").replace("{date}", date_display) }}
+# {{ title_text }}
 
-{{ pick("intro_b") }}
+{{ intro_text }}
 
 > 기준일: **{{ date_display }}** | 비교 기준: **{{ prev_display }}**
 
@@ -14,7 +14,7 @@ tags: [AI주식, 자동매매, 한국주식, 랭킹, 종목분석]
 
 ## 오늘의 랭킹 급상승 종목 TOP{{ count }}
 
-{{ pick("riser_intro") }}
+{{ riser_intro_text }}
 
 {% if skin == 0 %}
 ### 종목별 상세

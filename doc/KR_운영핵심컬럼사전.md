@@ -224,7 +224,7 @@
 | `qty` | 주문 수량 | 실제 주문 크기 |
 | `price` 또는 `price_ref` | 주문 기준 가격 | 시장가/기준가 판단 |
 | `policy_status` | 정책 허용 상태 | ALLOW / BLOCK 등 |
-| `blocked_reason` 또는 `policy_reason` | 차단 사유 | 왜 주문이 막혔는지 |
+| `blocked_reason` 또는 `policy_reason` | 제출 보류/차단 사유 | 왜 주문이 나가지 않았는지 |
 | `confidence_score` | 신뢰도 | 주문 강도 판단 |
 | `ranking_rank` | 순위 | 왜 선택됐는지 |
 | `action_note` | 실행 메모 | 운영 해석 보조 |
@@ -242,6 +242,7 @@
 
 - `policy_status=BLOCK`면 랭킹이 높아도 주문하면 안 된다.
 - BUY 프리뷰는 `AUTO_TRADE_ALLOW_BUY`와 별개로 정책 차단 여부를 먼저 본다.
+- `blocked_reason=trim_ratio_zero`는 장애성 차단이 아니다. 현재 비중과 목표 비중이 같거나 목표가 더 높아 계산상 매도수량이 0주인 TRIM 안전 스킵이다.
 
 ---
 

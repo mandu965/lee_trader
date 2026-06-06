@@ -787,6 +787,7 @@ function renderVisitorAnalytics(analytics) {
   renderChipRow("visitorChipRow", [
     { label: `오늘 PV ${fmtNum(summary.today_pageviews)}`, kind: "INFO" },
     { label: `오늘 UV ${fmtNum(summary.today_unique_visitors)}`, kind: "INFO" },
+    { label: `${summary.timezone || "Asia/Seoul"} ${summary.day_boundary || "00:00"} 기준`, kind: "INFO" },
     { label: summary.available === false ? "tracking unavailable" : "tracking active", kind: summary.available === false ? "ALERT" : "GOOD" },
   ]);
   renderKv("visitorKv", [

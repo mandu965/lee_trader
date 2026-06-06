@@ -78,6 +78,7 @@ const opsToneClass = (kind) => {
 
 const orderStateChip = (row) => {
   if (row.executable_now) return `<span class="chip good">제출 가능</span>`;
+  if (row.blocked_reason === "trim_ratio_zero") return `<span class="chip watch">감량 불필요</span>`;
   if (row.blocked_reason) return `<span class="chip bad">차단됨</span>`;
   return `<span class="chip warn">초안</span>`;
 };
@@ -694,6 +695,7 @@ function renderIntents(intents) {
 // ── Order preview table ───────────────────────
 function describePreviewExecutionRisk(row, runtime) {
   const blockedReason = String(row?.blocked_reason || "").trim();
+  if (blockedReason === "trim_ratio_zero") return "현재 비중이 목표 비중과 같아 매도수량 0주 — 안전 스킵";
   if (blockedReason) return blockedReason;
   const side = String(row?.side || "").toUpperCase();
   if (side === "BUY" && !runtime?.policy?.auto_trade_execute) return "execute 스위치 OFF — 실주문 미시도";
@@ -743,7 +745,11 @@ function translateBlockedReason(row) {
 
 function buildPreviewBlockDetail(row) {
   const parts = [];
-  if (row.blocked_reason) parts.push(`차단: ${row.blocked_reason}`);
+  if (row.blocked_reason === "trim_ratio_zero") {
+    parts.push(`스킵: ${translateBlockedReason(row)}`);
+  } else if (row.blocked_reason) {
+    parts.push(`차단: ${row.blocked_reason}`);
+  }
   if (row.entry_price_gate_reason && row.entry_price_gate_reason !== row.blocked_reason)
     parts.push(`진입게이트: ${row.entry_price_gate_reason}`);
   const gapPct = Number(row.entry_price_gap_pct);

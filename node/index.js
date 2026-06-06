@@ -84,6 +84,7 @@ const pool = new Pool({
 });
 const VISITOR_COOKIE_NAME = "lt_visitor_id";
 const VISITOR_COOKIE_MAX_AGE_SEC = 60 * 60 * 24 * 365;
+const VISITOR_ANALYTICS_TIMEZONE = "Asia/Seoul";
 const ANALYTICS_ROUTE_EXCLUDE_PREFIXES = ["/api", "/assets"];
 const ANALYTICS_EXTENSIONS_EXCLUDE = new Set([
   ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".map", ".txt", ".xml", ".json", ".woff", ".woff2",
@@ -2736,18 +2737,24 @@ async function buildVisitorAnalyticsSummary() {
     const [todayRows, recentRows, trendRows, topPagesRows] = await Promise.all([
       queryRows(
         `
+        WITH bounds AS (
+          SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul') AS today_start
+        )
         SELECT COUNT(*)::int AS pageviews,
                COUNT(DISTINCT visitor_id)::int AS unique_visitors
-        FROM public.page_view_events
-        WHERE created_at >= date_trunc('day', now())
+        FROM public.page_view_events, bounds
+        WHERE created_at >= bounds.today_start
         `
       ),
       queryRows(
         `
+        WITH bounds AS (
+          SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul') AS today_start
+        )
         SELECT COUNT(*)::int AS pageviews,
                COUNT(DISTINCT visitor_id)::int AS unique_visitors
-        FROM public.page_view_events
-        WHERE created_at >= date_trunc('day', now()) - interval '6 day'
+        FROM public.page_view_events, bounds
+        WHERE created_at >= bounds.today_start - interval '6 day'
         `
       ),
       queryRows(
@@ -2756,11 +2763,12 @@ async function buildVisitorAnalyticsSummary() {
                pageviews,
                unique_visitors
         FROM (
-          SELECT date_trunc('day', created_at) AS day_bucket,
+          SELECT date_trunc('day', created_at AT TIME ZONE 'Asia/Seoul') AS day_bucket,
                  COUNT(*)::int AS pageviews,
                  COUNT(DISTINCT visitor_id)::int AS unique_visitors
-          FROM public.page_view_events
-          WHERE created_at >= date_trunc('day', now()) - interval '6 day'
+          FROM public.page_view_events,
+               (SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul') AS today_start) bounds
+          WHERE created_at >= bounds.today_start - interval '6 day'
           GROUP BY 1
         ) ranked
         ORDER BY day_bucket ASC
@@ -2768,11 +2776,14 @@ async function buildVisitorAnalyticsSummary() {
       ),
       queryRows(
         `
+        WITH bounds AS (
+          SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul') AS today_start
+        )
         SELECT path,
                COUNT(*)::int AS pageviews,
                COUNT(DISTINCT visitor_id)::int AS unique_visitors
-        FROM public.page_view_events
-        WHERE created_at >= date_trunc('day', now()) - interval '6 day'
+        FROM public.page_view_events, bounds
+        WHERE created_at >= bounds.today_start - interval '6 day'
         GROUP BY path
         ORDER BY pageviews DESC, unique_visitors DESC, path ASC
         LIMIT 5
@@ -2783,6 +2794,8 @@ async function buildVisitorAnalyticsSummary() {
     const recent = recentRows[0] || {};
     return {
       available: true,
+      timezone: VISITOR_ANALYTICS_TIMEZONE,
+      day_boundary: "00:00",
       today_pageviews: toNum(today.pageviews) || 0,
       today_unique_visitors: toNum(today.unique_visitors) || 0,
       last_7d_pageviews: toNum(recent.pageviews) || 0,
@@ -5456,6 +5469,89 @@ app.post("/api/meaningfulness-outcomes", async (req, res) => {
   }
 });
 
+// 코호트 누적 성과: 과거 분석일별 Top-N의 순방향 결과를 집계.
+// 성숙도가 다른 날짜를 한눈에 비교하고, 가장 성숙한 코호트(기본 표시일)를 찾는다.
+let _cohortCache = { key: "", at: 0, payload: null };
+app.get("/api/meaningfulness-cohorts", async (req, res) => {
+  try {
+    const topN = Math.min(Math.max(parseInt(req.query.top, 10) || 20, 5), 50);
+    const cacheKey = `top:${topN}`;
+    const TTL_MS = 10 * 60 * 1000;
+    if (_cohortCache.payload && _cohortCache.key === cacheKey && Date.now() - _cohortCache.at < TTL_MS) {
+      return res.json(_cohortCache.payload);
+    }
+
+    const dateRows = await queryRows("SELECT DISTINCT date::text AS d FROM daily_ranking ORDER BY d ASC");
+    const allDates = dateRows.map((r) => r.d).filter(Boolean);
+    if (!allDates.length) {
+      return res.json({ top_n: topN, cohorts: [], overall: null, most_matured_date: null, latest_date: null });
+    }
+
+    // 코호트 수를 ~10개로 제한(가장 오래된/최신은 항상 포함, 나머지는 균등 샘플).
+    const MAX_COHORTS = 10;
+    let sampled = allDates;
+    if (allDates.length > MAX_COHORTS) {
+      const step = (allDates.length - 1) / (MAX_COHORTS - 1);
+      const idx = new Set();
+      for (let i = 0; i < MAX_COHORTS; i += 1) idx.add(Math.round(i * step));
+      sampled = [...idx].sort((a, b) => a - b).map((i) => allDates[i]);
+    }
+
+    const cohorts = [];
+    for (const d of sampled) {
+      const r = await getRanking(d);
+      if (!r || !Array.isArray(r.rows) || !r.rows.length) continue;
+      const codes = r.rows.slice(0, topN).map((x) => String(x.code || "").trim()).filter(Boolean);
+      if (!codes.length) continue;
+      const outcomes = await buildMeaningfulnessOutcomes({ analysisDate: d, codes });
+      const rets = outcomes.map((o) => o.latest_return).filter((v) => v != null && Number.isFinite(v));
+      const obs = outcomes.map((o) => o.observed_days || 0);
+      const maxObs = obs.length ? Math.max(...obs) : 0;
+      if (!rets.length) {
+        cohorts.push({ date: d, n: 0, avg_return: null, hit_rate: null, avg_observed_days: 0, max_observed_days: maxObs });
+        continue;
+      }
+      const n = rets.length;
+      cohorts.push({
+        date: d,
+        n,
+        avg_return: rets.reduce((a, b) => a + b, 0) / n,
+        hit_rate: rets.filter((v) => v > 0).length / n,
+        avg_observed_days: obs.reduce((a, b) => a + b, 0) / obs.length,
+        max_observed_days: maxObs,
+      });
+    }
+
+    // 성숙 코호트(최대 관찰 20거래일 이상)만 누적 요약에 반영.
+    const matured = cohorts.filter((c) => c.n > 0 && c.max_observed_days >= 20);
+    const overall = matured.length
+      ? {
+          cohorts: matured.length,
+          avg_return: matured.reduce((a, c) => a + c.avg_return, 0) / matured.length,
+          hit_rate: matured.reduce((a, c) => a + c.hit_rate, 0) / matured.length,
+        }
+      : null;
+
+    const mostMatured = cohorts.reduce(
+      (best, c) => (c.max_observed_days > (best ? best.max_observed_days : -1) ? c : best),
+      null
+    );
+
+    const payload = {
+      top_n: topN,
+      cohorts,
+      overall,
+      most_matured_date: (mostMatured && mostMatured.date) || allDates[0],
+      latest_date: allDates[allDates.length - 1],
+    };
+    _cohortCache = { key: cacheKey, at: Date.now(), payload };
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/meaningfulness-cohorts error", e);
+    res.status(500).json({ error: "meaningfulness_cohorts_failed" });
+  }
+});
+
 // Market status
 app.get("/api/market/status", async (req, res) => {
   try {
@@ -8074,31 +8170,53 @@ app.get("/api/ops-readiness/blog-drafts", operatorAccess.apiGuard, async (req, r
     const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
     const blogDir = path.join(OUTPUTS_DIR, "blog_drafts");
     const payloadKey = `blog_drafts_${today}`;
+    const slimDrafts = (drafts = []) => drafts.map((d) => ({
+      type: d.type,
+      naver: d.naver ? { title: d.naver.title, char_count: d.naver.char_count } : null,
+      tistory: d.tistory ? { title: d.tistory.title, char_count: d.tistory.char_count } : null,
+    }));
 
-    // DB 우선 조회
-    let dbRows = [];
+    // DB 우선 조회: 오늘 키 -> 최신 블로그 초안 키
+    let cachedPayload = null;
     try {
-      dbRows = await queryRows(
+      const dbRows = await queryRows(
         `SELECT payload_json FROM research.app_payload_store WHERE payload_key = $1`,
         [payloadKey]
       );
+      if (dbRows.length && dbRows[0].payload_json) {
+        cachedPayload = typeof dbRows[0].payload_json === "string"
+          ? JSON.parse(dbRows[0].payload_json)
+          : dbRows[0].payload_json;
+      }
     } catch (_) { /* DB 없으면 파일 폴백 */ }
 
-    if (dbRows.length && dbRows[0].payload_json) {
-      const cached = typeof dbRows[0].payload_json === "string"
-        ? JSON.parse(dbRows[0].payload_json)
-        : dbRows[0].payload_json;
+    if (!cachedPayload) {
+      try {
+        const latestRows = await queryRows(
+          `SELECT payload_json
+             FROM research.app_payload_store
+            WHERE payload_key LIKE 'blog_drafts_%'
+            ORDER BY asof_date DESC NULLS LAST, updated_at DESC NULLS LAST
+            LIMIT 1`
+        );
+        if (latestRows.length && latestRows[0].payload_json) {
+          cachedPayload = typeof latestRows[0].payload_json === "string"
+            ? JSON.parse(latestRows[0].payload_json)
+            : latestRows[0].payload_json;
+        }
+      } catch (_) { /* DB 없으면 파일 폴백 */ }
+    }
+
+    if (cachedPayload) {
       // key 쿼리: 특정 초안 콘텐츠만 요청
       if (req.query.key) {
-        return res.json({ drafts: cached.drafts || [] });
+        return res.json({ drafts: cachedPayload.drafts || [] });
       }
       // 목록 조회: content 제외하고 반환
-      const slim = (cached.drafts || []).map((d) => ({
-        type: d.type,
-        naver:   d.naver   ? { title: d.naver.title,   char_count: d.naver.char_count   } : null,
-        tistory: d.tistory ? { title: d.tistory.title, char_count: d.tistory.char_count } : null,
-      }));
-      return res.json({ asof_date: cached.asof_date || today, drafts: slim });
+      return res.json({
+        asof_date: cachedPayload.asof_date || today,
+        drafts: slimDrafts(cachedPayload.drafts || []),
+      });
     }
 
     // 파일 폴백 — 오늘 파일 없으면 가장 최근 날짜 사용
@@ -8141,12 +8259,7 @@ app.get("/api/ops-readiness/blog-drafts", operatorAccess.apiGuard, async (req, r
     if (req.query.key) {
       return res.json({ drafts });
     }
-    const slim = drafts.map((d) => ({
-      type: d.type,
-      naver:   d.naver   ? { title: d.naver.title,   char_count: d.naver.char_count   } : null,
-      tistory: d.tistory ? { title: d.tistory.title, char_count: d.tistory.char_count } : null,
-    }));
-    res.json({ asof_date: targetDate, drafts: slim });
+    res.json({ asof_date: targetDate, drafts: slimDrafts(drafts) });
   } catch (e) {
     console.error("GET /api/ops-readiness/blog-drafts error", e);
     res.status(500).json({ error: "internal error" });

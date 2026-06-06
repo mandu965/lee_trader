@@ -1,6 +1,6 @@
 """AI 포지션 상태 파일 갱신 스크립트.
 
-sync_live_account_holdings 완료 후 run_live_auto_trade_cycle.py에서 호출된다.
+sync_live_account_holdings 완료 후 자동매매/계좌 동기화 흐름에서 호출된다.
 live_account_holdings.csv를 읽어 outputs/ai_position_state.json을 갱신한다.
 """
 from __future__ import annotations

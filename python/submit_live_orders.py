@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +55,7 @@ RUN_LOG_JSONL = OUTPUT_DIR / "live_auto_trade_run_log.jsonl"
 LIVE_BALANCE_SUMMARY_JSON = OUTPUT_DIR / "live_account_balance_summary.json"
 LIVE_ORDER_FILLS_JSON = OUTPUT_DIR / "live_order_fills.json"
 MARKET_STATUS_CSV = DATA_DIR / "market_status.csv"
+TRADING_CALENDAR_JSON = ROOT / "config" / "trading_calendar_kr.json"
 
 
 def _load_env() -> None:
@@ -97,6 +98,106 @@ def _safe_read_json(path: Path) -> dict[str, Any]:
     if not resolved.exists():
         return {}
     return json.loads(resolved.read_text(encoding="utf-8-sig"))
+
+
+def _date_or_none(value: object) -> date | None:
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
+
+
+def _max_date_from_frame(frame: pd.DataFrame, columns: tuple[str, ...]) -> date | None:
+    if frame.empty:
+        return None
+    dates: list[date] = []
+    for col in columns:
+        if col not in frame.columns:
+            continue
+        parsed = pd.to_datetime(frame.get(col), errors="coerce").dropna()
+        if parsed.empty:
+            continue
+        dates.append(parsed.max().date())
+    return max(dates) if dates else None
+
+
+def _latest_market_status_date(path: Path = MARKET_STATUS_CSV) -> date | None:
+    resolved = _resolve(path)
+    if not resolved.exists():
+        return None
+    try:
+        frame = pd.read_csv(resolved, low_memory=False)
+    except Exception:
+        return None
+    return _max_date_from_frame(frame, ("date", "asof_date"))
+
+
+def _load_kr_trading_calendar(path: Path = TRADING_CALENDAR_JSON) -> tuple[set[str], set[str]]:
+    payload = _safe_read_json(path)
+    closed = {str(item).strip() for item in payload.get("closed_dates") or [] if str(item).strip()}
+    opened = {str(item).strip() for item in payload.get("open_dates") or [] if str(item).strip()}
+    return closed, opened
+
+
+def _is_kr_trading_day(day: date, *, closed_dates: set[str], open_dates: set[str]) -> bool:
+    text = day.isoformat()
+    if text in open_dates:
+        return True
+    if text in closed_dates:
+        return False
+    return day.weekday() < 5
+
+
+def _previous_kr_trading_day(day: date) -> date:
+    closed_dates, open_dates = _load_kr_trading_calendar()
+    cursor = day - timedelta(days=1)
+    for _ in range(14):
+        if _is_kr_trading_day(cursor, closed_dates=closed_dates, open_dates=open_dates):
+            return cursor
+        cursor -= timedelta(days=1)
+    return day - timedelta(days=1)
+
+
+def build_signal_freshness(
+    *,
+    intents_payload: dict[str, Any],
+    ranking: pd.DataFrame,
+    market_status_csv: Path = MARKET_STATUS_CSV,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Check whether order intents use the latest available signal date."""
+    now = now or datetime.now()
+    asof = _date_or_none(intents_payload.get("asof_date"))
+    ranking_latest = _max_date_from_frame(ranking, ("asof_date", "date"))
+    market_latest = _latest_market_status_date(market_status_csv)
+    available_dates = [item for item in (ranking_latest, market_latest) if item is not None]
+    expected = max(available_dates) if available_dates else _previous_kr_trading_day(now.date())
+    stale_days = (expected - asof).days if asof is not None and expected is not None else None
+    is_current = bool(asof is not None and expected is not None and asof >= expected)
+    block_on_stale = _env_flag("AUTO_TRADE_BLOCK_BUY_ON_STALE_SIGNAL", True)
+    block_buy = bool(block_on_stale and not is_current)
+    reason = ""
+    if asof is None:
+        reason = "signal_asof_date_missing"
+    elif expected is None:
+        reason = "signal_expected_date_unavailable"
+    elif asof < expected:
+        reason = "signal_data_stale"
+    elif asof > expected:
+        reason = "signal_asof_date_ahead_of_expected"
+    else:
+        reason = "signal_data_current"
+    return {
+        "asof_date": asof.isoformat() if asof else None,
+        "expected_signal_date": expected.isoformat() if expected else None,
+        "ranking_latest_date": ranking_latest.isoformat() if ranking_latest else None,
+        "market_status_latest_date": market_latest.isoformat() if market_latest else None,
+        "is_current": is_current,
+        "stale_days": stale_days,
+        "block_buy": block_buy,
+        "block_on_stale": block_on_stale,
+        "reason": reason,
+    }
 
 
 def _json_default(value: object) -> object:
@@ -261,6 +362,10 @@ def _preview_expected_hold_reason(*, side: str, blocked_reason: str | None, fina
     blocked = str(blocked_reason or "").strip()
     if blocked == "buy_context_unavailable":
         return "Live BUY context is unavailable, so the order stays on preview only."
+    if blocked == "signal_data_stale":
+        return "BUY signal data is older than the latest available ranking/market-status date, so BUY submission is held."
+    if blocked == "signal_asof_date_missing":
+        return "BUY signal date is missing, so BUY submission is held."
     if blocked == "buy_qty_zero":
         return "Final BUY quantity is zero, so nothing will be submitted."
     if blocked == "buy_qty_zero_budget_below_one_share":
@@ -310,12 +415,18 @@ def build_order_requests(
     run_id = str(intents_payload.get("run_id") or "").strip() or generate_run_id()
     intents = pd.DataFrame(intents_payload.get("intents") or [])
     intents = intents.loc[intents.get("executable", False).fillna(False)].copy() if not intents.empty else pd.DataFrame()
+    signal_freshness = build_signal_freshness(
+        intents_payload=intents_payload,
+        ranking=ranking,
+        market_status_csv=MARKET_STATUS_CSV,
+    )
     if intents.empty:
         return {
             "run_id": run_id,
             "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "asof_date": intents_payload.get("asof_date"),
             "gate_status": intents_payload.get("gate_status"),
+            "signal_freshness": signal_freshness,
             "env_dv": None,
             "cash_summary": {},
             "items": [],
@@ -330,7 +441,11 @@ def build_order_requests(
 
     ranking_lookup = ranking.drop_duplicates("code").set_index("code") if not ranking.empty else pd.DataFrame()
     holdings_lookup = holdings.drop_duplicates("code").set_index("code") if not holdings.empty else pd.DataFrame()
-    has_buy_intents = intents.get("intent_type", pd.Series(dtype="object")).astype(str).str.upper().eq("BUY").any()
+    signal_block_reason = str(signal_freshness.get("reason") or "").strip() if signal_freshness.get("block_buy") else ""
+    has_buy_intents = (
+        intents.get("intent_type", pd.Series(dtype="object")).astype(str).str.upper().eq("BUY").any()
+        and not signal_block_reason
+    )
     client = None
     account = None
     cash_summary: dict[str, Any] = {}
@@ -402,8 +517,8 @@ def build_order_requests(
         reserved_buy_cash_amount = 0.0
 
         if side == "BUY":
-            if client is None or account is None:
-                blocked_reason = "buy_context_unavailable"
+            if signal_block_reason or client is None or account is None:
+                blocked_reason = signal_block_reason or "buy_context_unavailable"
                 final_qty = 0
                 planned_qty = 0
                 allowed_qty = 0
@@ -431,6 +546,7 @@ def build_order_requests(
                         "common_risk_allowed": common_risk_allowed,
                         "common_risk_block_reasons": common_risk_block_reasons,
                         "common_risk_snapshot": common_risk_snapshot,
+                        "signal_freshness": signal_freshness,
                         "planned_qty": 0,
                         "allowed_qty": 0,
                         "final_request_qty": 0,
@@ -603,6 +719,7 @@ def build_order_requests(
                 "common_risk_allowed": common_risk_allowed,
                 "common_risk_block_reasons": common_risk_block_reasons,
                 "common_risk_snapshot": common_risk_snapshot,
+                "signal_freshness": signal_freshness,
                 "planned_qty": int(planned_qty) if pd.notna(planned_qty) else None,
                 "allowed_qty": int(allowed_qty) if pd.notna(allowed_qty) else None,
                 "final_request_qty": int(final_qty) if final_qty is not None else None,
@@ -635,6 +752,7 @@ def build_order_requests(
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "asof_date": intents_payload.get("asof_date"),
         "gate_status": intents_payload.get("gate_status"),
+        "signal_freshness": signal_freshness,
         "env_dv": account.env_dv if account is not None else None,
         "cash_summary": cash_summary,
         "buy_cash_remaining_after_reservations": buy_cash_remaining,
@@ -816,6 +934,8 @@ def execute_order_requests(
     submit_interval_sec = max(_env_float("AUTO_TRADE_ORDER_SUBMIT_INTERVAL_SEC", 1.1), 0.0)
     rate_limit_retry_sec = max(_env_float("AUTO_TRADE_ORDER_RATE_LIMIT_RETRY_SEC", submit_interval_sec), submit_interval_sec)
     last_submit_at: float | None = None
+    signal_freshness = preview_payload.get("signal_freshness") or {}
+    signal_block_reason = str(signal_freshness.get("reason") or "").strip() if signal_freshness.get("block_buy") else ""
 
     results: list[dict[str, Any]] = []
     for item in preview_payload.get("items") or []:
@@ -844,6 +964,7 @@ def execute_order_requests(
             "common_risk_allowed": item.get("common_risk_allowed"),
             "common_risk_block_reasons": item.get("common_risk_block_reasons"),
             "common_risk_snapshot": item.get("common_risk_snapshot"),
+            "signal_freshness": item.get("signal_freshness") or signal_freshness,
             "final_request_qty": int(qty) if pd.notna(qty) else None,
             "reserved_buy_cash_before": item.get("reserved_buy_cash_before"),
             "reserved_buy_cash_amount": item.get("reserved_buy_cash_amount"),
@@ -873,6 +994,10 @@ def execute_order_requests(
 
         if blocked_reason:
             result["skip_reason"] = blocked_reason
+            results.append(result)
+            continue
+        if side == "BUY" and signal_block_reason:
+            result["skip_reason"] = signal_block_reason
             results.append(result)
             continue
         if side == "BUY" and str(item.get("policy_status") or "").upper() == "BLOCK":
@@ -1030,6 +1155,7 @@ def execute_order_requests(
         "executed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "asof_date": preview_payload.get("asof_date"),
         "gate_status": preview_payload.get("gate_status"),
+        "signal_freshness": signal_freshness,
         "env_dv": account.env_dv,
         "allow_buy": bool(args.allow_buy),
         "buy_approval_required": bool(buy_approval_required),
@@ -1045,6 +1171,7 @@ def execute_order_requests(
             "skipped_count": sum(1 for item in results if item["submission_status"] == "skipped"),
             "broker_rejected_count": sum(1 for item in results if item.get("broker_result") == "REJECTED"),
             "policy_blocked_count": sum(1 for item in results if str(item.get("policy_status") or "").upper() == "BLOCK"),
+            "signal_stale_blocked_count": sum(1 for item in results if str(item.get("skip_reason") or "") in {"signal_data_stale", "signal_asof_date_missing"}),
         },
     }
 
@@ -1055,6 +1182,8 @@ def render_preview_markdown(payload: dict[str, Any]) -> str:
         "",
         f"- generated_at: {payload['generated_at']}",
         f"- asof_date: {payload.get('asof_date') or 'NA'}",
+        f"- signal_expected_date: {(payload.get('signal_freshness') or {}).get('expected_signal_date') or 'NA'}",
+        f"- signal_freshness: {(payload.get('signal_freshness') or {}).get('reason') or 'NA'}",
         f"- gate_status: {payload.get('gate_status') or 'NA'}",
         f"- env_dv: {payload.get('env_dv') or 'NA'}",
         f"- request_count: {payload['summary']['request_count']}",
@@ -1078,6 +1207,8 @@ def render_execution_markdown(payload: dict[str, Any]) -> str:
         "",
         f"- executed_at: {payload['executed_at']}",
         f"- asof_date: {payload.get('asof_date') or 'NA'}",
+        f"- signal_expected_date: {(payload.get('signal_freshness') or {}).get('expected_signal_date') or 'NA'}",
+        f"- signal_freshness: {(payload.get('signal_freshness') or {}).get('reason') or 'NA'}",
         f"- gate_status: {payload.get('gate_status') or 'NA'}",
         f"- env_dv: {payload.get('env_dv') or 'NA'}",
         f"- allow_buy: {'Y' if payload.get('allow_buy') else 'N'}",
@@ -1199,24 +1330,25 @@ def main() -> int:
     if not intents_payload:
         raise FileNotFoundError("trade intents payload not found")
 
-    asof_date = intents_payload.get("asof_date")
-    if asof_date:
-        market_date = datetime.now().strftime("%Y-%m-%d")
-        try:
-            data_age = (datetime.strptime(market_date, "%Y-%m-%d") - datetime.strptime(asof_date, "%Y-%m-%d")).days
-            logging.info(
-                f"Order execution using ranking data from {asof_date}. "
-                f"Market date: {market_date}. Data freshness: {data_age} days behind"
-            )
-        except Exception:
-            logging.info(f"Order execution using ranking data from {asof_date}")
-    else:
-        logging.warning("Order execution: asof_date not available in ranking payload")
-
     holdings = load_live_holdings(args.live_holdings_csv)
     ranking = merge_ranking_with_prices(
         load_ranking(args.ranking_csv),
         load_price_fallback(args.price_fallback_csv),
+    )
+    signal_freshness = build_signal_freshness(
+        intents_payload=intents_payload,
+        ranking=ranking,
+        market_status_csv=MARKET_STATUS_CSV,
+    )
+    log_level = logging.warning if signal_freshness.get("block_buy") else logging.info
+    log_level(
+        "Order signal freshness: asof_date=%s expected=%s ranking_latest=%s market_latest=%s reason=%s block_buy=%s",
+        signal_freshness.get("asof_date"),
+        signal_freshness.get("expected_signal_date"),
+        signal_freshness.get("ranking_latest_date"),
+        signal_freshness.get("market_status_latest_date"),
+        signal_freshness.get("reason"),
+        signal_freshness.get("block_buy"),
     )
     preview_payload = build_order_requests(
         intents_payload=intents_payload,

@@ -30,7 +30,7 @@ def _load_fixture(name: str) -> dict:
 # TYPE_B: 랭킹 급상승
 # ---------------------------------------------------------------------------
 def get_ranking_change(date: str | None, top_n: int = 5) -> dict:
-    """직전 영업일 대비 순위 상승폭 상위 종목.
+    """5영업일 전 대비 순위 상승폭 상위 종목.
 
     반환: {"today": d, "prev": d, "risers": [{code,name,sector,rank,prev_rank,rank_gain,final_score}, ...]}
     """
@@ -51,14 +51,15 @@ def _compute_risers(rows_today: list[dict], prev_map: dict[str, int], top_n: int
         if code not in prev_map:
             continue  # 신규 진입은 별도 취급(여기서는 제외)
         prev_rank = prev_map[code]
-        gain = prev_rank - int(r["rank_final"])
-        if gain <= 0:
+        rank_today = int(r["rank_final"])
+        gain = prev_rank - rank_today
+        if rank_today > 50 or gain < 10:
             continue
         risers.append({
             "code": code,
             "name": r.get("name", "-"),
             "sector": r.get("sector", "-"),
-            "rank": int(r["rank_final"]),
+            "rank": rank_today,
             "prev_rank": prev_rank,
             "rank_gain": gain,
             "final_score": round(float(r.get("final_score", 0)), 1),
@@ -79,22 +80,32 @@ def _get_ranking_change_db(date: str | None, top_n: int) -> dict:
     conn = db.raw_psycopg2_conn()
     try:
         with conn.cursor() as cur:
-            # 대상일(미지정 시 최신), 직전 영업일 자동 결정
+            # 대상일(미지정 시 최신), 비교일은 화면과 동일하게 최근 5개 거래일 중 5번째 날짜 사용
             if date:
                 cur.execute("SELECT max(date) FROM public.daily_ranking WHERE date <= %s", (date,))
             else:
                 cur.execute("SELECT max(date) FROM public.daily_ranking")
             today = cur.fetchone()[0]
-            cur.execute("SELECT max(date) FROM public.daily_ranking WHERE date < %s", (today,))
-            prev = cur.fetchone()[0]
+            cur.execute(
+                """
+                SELECT DISTINCT date
+                FROM public.daily_ranking
+                WHERE date <= %s
+                ORDER BY date DESC
+                LIMIT 10
+                """,
+                (today,),
+            )
+            recent_dates = [row[0] for row in cur.fetchall()]
+            prev = recent_dates[4] if len(recent_dates) >= 5 else (recent_dates[-1] if recent_dates else today)
             cur.execute(
                 """
                 WITH latest AS (
-                  SELECT code, name, sector, rank_final, final_score
+                  SELECT code, name, sector, COALESCE(live_rank, rank_final) AS rank_final, final_score
                   FROM public.daily_ranking WHERE date = %s
                 ),
                 pv AS (
-                  SELECT code, rank_final AS prev_rank
+                  SELECT code, COALESCE(live_rank, rank_final) AS prev_rank
                   FROM public.daily_ranking WHERE date = %s
                 )
                 SELECT l.code, l.name, l.sector, l.rank_final, p.prev_rank, l.final_score

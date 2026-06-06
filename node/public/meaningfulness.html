@@ -222,6 +222,15 @@
     <div id="gateContent"><div class="loading">로딩 중…</div></div>
   </div>
 
+  <!-- 코호트 누적 성과 -->
+  <div class="panel" id="cohortSection">
+    <div class="panel-title">
+      <span class="kicker">Track Record</span>
+      코호트 누적 성과
+    </div>
+    <div id="cohortContent"><div class="loading">로딩 중…</div></div>
+  </div>
+
   <!-- AI 예측 성과 -->
   <div class="panel">
     <div class="panel-title">
@@ -232,7 +241,7 @@
       <label>기준일</label>
       <input type="date" id="perfDate" onchange="loadPerformance()" />
       <label>Top</label>
-      <input type="number" id="topN" value="20" min="5" max="50" onchange="loadPerformance()" />
+      <input type="number" id="topN" value="20" min="5" max="50" onchange="onTopNChange()" />
     </div>
     <div id="perfStats"></div>
     <div id="perfTable"></div>
@@ -480,9 +489,10 @@ function renderStats(rows, el) {
   const matured60 = withOutcome.filter(r => (r.outcome.observed_days || 0) >= 60).length;
   const matured20 = withOutcome.filter(r => (r.outcome.observed_days || 0) >= 20).length;
   const sampleReady = matured60 >= Math.min(10, withOutcome.length);
+  const daysToMature = Math.max(0, 60 - maxDays);
   const sampleNote = sampleReady
-    ? `60일 이상 관찰 ${matured60}종목입니다. 평균 성과를 참고 지표로 볼 수 있습니다.`
-    : `현재 최대 관찰 ${maxDays}일입니다. 20일 이상 ${matured20}종목, 60일 이상 ${matured60}종목이라 아직 성과 판정이 아니라 추적 상태로 보는 구간입니다.`;
+    ? `60거래일 이상 관찰 ${matured60}종목입니다. 평균 성과를 참고 지표로 볼 수 있습니다.`
+    : `데이터 축적 중 · 최대 D+${maxDays}거래일 (60거래일 만기까지 ${daysToMature}일 남음). 20일↑ ${matured20}종목 · 60일↑ ${matured60}종목. 더 성숙한 날짜는 위 '코호트 누적 성과'에서 볼 수 있습니다.`;
 
   el.innerHTML = `
     <div class="sample-note ${sampleReady ? "sample-note--ok" : ""}">
@@ -491,7 +501,7 @@ function renderStats(rows, el) {
     <div class="stats-row">
       <div class="stat-card">
         <div class="stat-card__label">표본 상태</div>
-        <div class="stat-card__value ${sampleReady ? 'ret--pos' : 'ret--zero'}" style="font-size:16px;">${sampleReady ? "참고 가능" : "판단 보류"}</div>
+        <div class="stat-card__value ${sampleReady ? 'ret--pos' : 'ret--zero'}" style="font-size:16px;">${sampleReady ? "참고 가능" : `축적 중 D+${maxDays}`}</div>
       </div>
       <div class="stat-card">
         <div class="stat-card__label">히트율 (양수수익)</div>
@@ -567,27 +577,121 @@ function renderTable(rows, el) {
   `;
 }
 
+async function loadCohorts(topN) {
+  const el = document.getElementById("cohortContent");
+  if (!el) return null;
+  try {
+    const res = await fetch(`/api/meaningfulness-cohorts?top=${topN || 20}`);
+    if (!res.ok) throw new Error("api error " + res.status);
+    const data = await res.json();
+    renderCohorts(data, el);
+    return data;
+  } catch (e) {
+    el.innerHTML = `<div class="error-msg">코호트 성과 로드 실패: ${esc(e.message)}</div>`;
+    return null;
+  }
+}
+
+function renderCohorts(data, el) {
+  const cohorts = Array.isArray(data && data.cohorts) ? data.cohorts : [];
+  if (!cohorts.length) {
+    el.innerHTML = `<div class="empty">아직 누적된 코호트 데이터가 없습니다.</div>`;
+    return;
+  }
+  const overall = data.overall || null;
+  const overallBlock = overall ? `
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-card__label">성숙 코호트 평균 수익률</div>
+        <div class="stat-card__value ${retClass(overall.avg_return)}">${fmtPct(overall.avg_return)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">성숙 코호트 평균 히트율</div>
+        <div class="stat-card__value ${overall.hit_rate >= 0.5 ? 'ret--pos' : 'ret--neg'}">${Math.round(overall.hit_rate * 100)}%</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card__label">집계 코호트 수</div>
+        <div class="stat-card__value">${overall.cohorts}</div>
+      </div>
+    </div>` : `
+    <div class="sample-note">아직 20거래일 이상 성숙한 코호트가 없어 누적 평균은 보류합니다. 아래 표에서 날짜별 진행 상황을 확인하세요.</div>`;
+
+  const sorted = [...cohorts].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const tbody = sorted.map((c) => {
+    const matured = c.max_observed_days >= 20;
+    return `
+      <tr>
+        <td class="td-name">${esc(c.date)}</td>
+        <td><span class="days-badge">${Math.round(c.max_observed_days)}일</span></td>
+        <td>${c.n}</td>
+        <td><span class="ret ${c.hit_rate == null ? 'ret--zero' : (c.hit_rate >= 0.5 ? 'ret--pos' : 'ret--neg')}">${c.hit_rate == null ? '—' : Math.round(c.hit_rate * 100) + '%'}</span></td>
+        <td><span class="ret ${retClass(c.avg_return)}">${fmtPct(c.avg_return)}</span></td>
+        <td>${matured ? '<span class="ret--pos">성숙</span>' : '<span class="ret--zero">축적 중</span>'}</td>
+      </tr>`;
+  }).join("");
+
+  el.innerHTML = `
+    ${overallBlock}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>분석일</th>
+            <th>최대 관찰</th>
+            <th>종목수</th>
+            <th>히트율</th>
+            <th>평균 수익률</th>
+            <th>상태</th>
+          </tr>
+        </thead>
+        <tbody>${tbody}</tbody>
+      </table>
+    </div>
+    <div class="transition-note">
+      각 분석일의 Top-${data.top_n || 20} 종목을 그날부터 추적한 결과입니다.
+      관찰 20거래일 이상을 '성숙'으로 보고, 60거래일에 도달하면 정식 성과로 확정합니다.
+    </div>
+  `;
+}
+
+function onTopNChange() {
+  const topN = parseInt(document.getElementById("topN").value, 10) || 20;
+  loadCohorts(topN);
+  loadPerformance();
+}
+
 // Init
 (async () => {
-  const gate = await loadGateStatus();
   const dateInput = document.getElementById("perfDate");
+  const topN = parseInt(document.getElementById("topN").value, 10) || 20;
 
-  try {
-    const meaningRes = await fetch("/api/top20-meaningfulness");
-    if (meaningRes.ok) {
-      const meaningData = await meaningRes.json();
-      const payloadDate = String(
-        meaningData?.meta?.analysis_date ||
-        meaningData?.meta?.latest_date_in_file ||
-        ""
-      ).trim();
-      if (payloadDate) {
-        dateInput.value = payloadDate;
-        dateInput.max = payloadDate;
+  // Gate 상태와 코호트 누적을 병렬 로드.
+  const [, cohortData] = await Promise.all([loadGateStatus(), loadCohorts(topN)]);
+
+  // 기본 표시일: 전부 0인 최신일 대신 '가장 성숙한 코호트'. 최댓값은 최신 분석일.
+  if (cohortData && cohortData.most_matured_date) {
+    dateInput.value = cohortData.most_matured_date;
+    dateInput.max = cohortData.latest_date || cohortData.most_matured_date;
+  }
+
+  if (!dateInput.value) {
+    try {
+      const meaningRes = await fetch("/api/top20-meaningfulness");
+      if (meaningRes.ok) {
+        const meaningData = await meaningRes.json();
+        const payloadDate = String(
+          meaningData?.meta?.analysis_date ||
+          meaningData?.meta?.latest_date_in_file ||
+          ""
+        ).trim();
+        if (payloadDate) {
+          dateInput.value = payloadDate;
+          dateInput.max = payloadDate;
+        }
       }
+    } catch (e) {
+      // Fall through to ranking latest lookup below.
     }
-  } catch (e) {
-    // Fall through to ranking latest lookup below.
   }
 
   if (!dateInput.value) {

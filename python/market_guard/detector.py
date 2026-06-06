@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -18,6 +20,7 @@ class MarketSnapshot:
     ret_1d: float | None    # 당일 수익률
     ret_5d: float | None    # 5영업일 누적
     ret_10d: float | None   # 10영업일 누적
+    row_count: int = 0
 
 
 @dataclass
@@ -27,6 +30,17 @@ class DetectionResult:
     triggered_conditions: list[str]
     is_recovery: bool       # CRITICAL → NONE 해제 조건 충족 여부
     summary: str
+
+
+@dataclass
+class DataQualityResult:
+    status: str              # "OK" | "WARNING" | "BLOCK"
+    can_activate: bool
+    source: str
+    latest_trade_date: str
+    internal_latest_date: str | None
+    row_count: int
+    warnings: list[str]
 
 
 def _fetch_kospi(lookback_days: int = 30) -> pd.Series:
@@ -75,7 +89,108 @@ def get_snapshot() -> MarketSnapshot:
         ret_1d=ret_1d,
         ret_5d=ret_5d,
         ret_10d=ret_10d,
+        row_count=int(len(closes)),
     )
+
+
+def _latest_internal_market_date(path: Path) -> date | None:
+    if not path.exists():
+        return None
+    try:
+        frame = pd.read_csv(path, usecols=lambda col: col in {"date", "asof_date"})
+    except Exception as exc:
+        LOGGER.warning("market_status read failed for data quality check: %s", exc)
+        return None
+    if frame.empty:
+        return None
+    date_columns = [col for col in ("date", "asof_date") if col in frame.columns]
+    if not date_columns:
+        return None
+    values = []
+    for col in date_columns:
+        parsed = pd.to_datetime(frame[col], errors="coerce")
+        values.extend(parsed.dropna().dt.date.tolist())
+    return max(values) if values else None
+
+
+def _market_status_close(path: Path, trade_date: date) -> float | None:
+    if not path.exists():
+        return None
+    try:
+        frame = pd.read_csv(path)
+    except Exception:
+        return None
+    if frame.empty or "date" not in frame.columns or "kospi_close" not in frame.columns:
+        return None
+    parsed = pd.to_datetime(frame["date"], errors="coerce").dt.date
+    matched = frame.loc[parsed == trade_date, "kospi_close"]
+    if matched.empty:
+        return None
+    numeric = pd.to_numeric(matched.iloc[-1], errors="coerce")
+    if pd.isna(numeric):
+        return None
+    return float(numeric)
+
+
+def evaluate_data_quality(
+    snapshot: MarketSnapshot,
+    *,
+    market_status_csv: str | Path = "data/market_status.csv",
+    min_row_count: int = 11,
+    max_abs_daily_return: float = 0.20,
+    close_mismatch_warn_pct: float = 0.02,
+    close_mismatch_block_pct: float = 0.05,
+) -> DataQualityResult:
+    """Check whether the market snapshot is reliable enough to activate kill switch."""
+    market_status_path = Path(market_status_csv)
+    warnings: list[str] = []
+    block_reasons: list[str] = []
+
+    if snapshot.row_count < min_row_count:
+        block_reasons.append(f"insufficient_rows:{snapshot.row_count}<{min_row_count}")
+    if snapshot.kospi_close <= 0:
+        block_reasons.append("invalid_kospi_close")
+    if snapshot.ret_1d is not None and abs(snapshot.ret_1d) > max_abs_daily_return:
+        block_reasons.append(f"daily_return_outlier:{snapshot.ret_1d:.2%}")
+
+    internal_latest_date = _latest_internal_market_date(market_status_path)
+    if internal_latest_date is None:
+        warnings.append("internal_market_status_date_unavailable")
+    elif snapshot.trade_date < internal_latest_date:
+        block_reasons.append(f"source_stale:{snapshot.trade_date.isoformat()}<internal:{internal_latest_date.isoformat()}")
+    elif snapshot.trade_date > internal_latest_date:
+        warnings.append(f"internal_market_status_lag:{internal_latest_date.isoformat()}<source:{snapshot.trade_date.isoformat()}")
+
+    internal_close = _market_status_close(market_status_path, snapshot.trade_date)
+    if internal_close is not None and internal_close > 0 and snapshot.kospi_close > 0:
+        mismatch = abs(snapshot.kospi_close / internal_close - 1.0)
+        if mismatch > close_mismatch_block_pct:
+            block_reasons.append(f"close_mismatch:{mismatch:.2%}")
+        elif mismatch > close_mismatch_warn_pct:
+            warnings.append(f"close_mismatch:{mismatch:.2%}")
+
+    status = "BLOCK" if block_reasons else "WARNING" if warnings else "OK"
+    return DataQualityResult(
+        status=status,
+        can_activate=not block_reasons,
+        source=f"yfinance:{KOSPI_TICKER}",
+        latest_trade_date=snapshot.trade_date.isoformat(),
+        internal_latest_date=internal_latest_date.isoformat() if internal_latest_date else None,
+        row_count=snapshot.row_count,
+        warnings=[*block_reasons, *warnings],
+    )
+
+
+def data_quality_to_dict(result: DataQualityResult) -> dict[str, Any]:
+    return {
+        "status": result.status,
+        "can_activate": result.can_activate,
+        "source": result.source,
+        "latest_trade_date": result.latest_trade_date,
+        "internal_latest_date": result.internal_latest_date,
+        "row_count": result.row_count,
+        "warnings": result.warnings,
+    }
 
 
 def evaluate(

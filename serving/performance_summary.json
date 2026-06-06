@@ -1,6 +1,6 @@
 {
   "entity": "performance_summary",
-  "generated_at": "2026-06-03 09:32:11",
+  "generated_at": "2026-06-06 09:30:55",
   "versions": {
     "score_formula_version": "ranking_builder_v8_return_prob_tech_regime",
     "candidate_selection_version": "buy_candidate_builder_v1",
@@ -11,29 +11,29 @@
   },
   "paper_trading": {
     "available": true,
-    "latest_date": "2026-06-02",
-    "latest_nav": 985498.5854180342,
-    "cumulative_return": -0.0145014145819657,
-    "drawdown": -0.050731790048752
+    "latest_date": "2026-06-05",
+    "latest_nav": 990825.273306522,
+    "cumulative_return": -0.0091747266934779,
+    "drawdown": -0.0456009809571701
   },
   "live_account": {
     "available": true,
-    "generated_at": "2026-06-03 09:30:22",
+    "generated_at": "2026-06-06 09:30:14",
     "env_dv": "real",
-    "holding_count": 8,
+    "holding_count": 10,
     "cash_summary": {
-      "dnca_tot_amt": 1696818.0,
-      "tot_evlu_amt": 3861825.0,
-      "tot_pfls": 48450.0
+      "dnca_tot_amt": 1287525.0,
+      "tot_evlu_amt": 3851322.0,
+      "tot_pfls": 34165.0
     },
     "holdings_path": "data/live_account_holdings.csv",
     "summary_path": "outputs/live_account_balance_summary.json",
     "order_preview_path": "outputs/live_order_preview.json",
-    "order_preview_count": 2,
+    "order_preview_count": 1,
     "gate_status_for_preview": "PILOT",
-    "gate_source_status_for_preview": "WATCH",
+    "gate_source_status_for_preview": "PILOT",
     "gate_runtime_status_for_preview": "PILOT",
-    "gate_display_status_for_preview": "WATCH (runtime PILOT override)"
+    "gate_display_status_for_preview": "PILOT"
   },
   "benchmark_summary": {
     "source_path": "outputs/benchmark_comparison.csv",
@@ -111,17 +111,17 @@
   "score_kpi_monitor": {
     "summary": {
       "overall_status": "ALERT",
-      "latest_date": "2026-06-02",
+      "latest_date": "2026-06-05",
       "top_n": 20,
       "walkforward_horizon": 60,
-      "top20_mean_final_score": 65.26336023142646
+      "top20_mean_final_score": 60.02936877569037
     },
     "top_metrics": [
       {
         "category": "ranking",
         "metric": "overlap_final_ret_top20",
-        "value": 0.4,
-        "value_display": "0.4000",
+        "value": 0.3,
+        "value_display": "0.3000",
         "good_threshold": "0.5000",
         "watch_threshold": "0.4200",
         "direction": "higher_better",
@@ -130,18 +130,18 @@
       {
         "category": "ranking",
         "metric": "overlap_final_prob_top20",
-        "value": 0.55,
-        "value_display": "0.5500",
+        "value": 0.3,
+        "value_display": "0.3000",
         "good_threshold": "0.4500",
         "watch_threshold": "0.3500",
         "direction": "higher_better",
-        "status": "GOOD"
+        "status": "ALERT"
       },
       {
         "category": "ranking",
         "metric": "overlap_final_tech_top20",
-        "value": 0.1,
-        "value_display": "0.1000",
+        "value": 0.15,
+        "value_display": "0.1500",
         "good_threshold": "0.2500",
         "watch_threshold": "0.1800",
         "direction": "higher_better",
@@ -150,8 +150,8 @@
       {
         "category": "ranking",
         "metric": "corr_final_risk_penalty_abs",
-        "value": 0.375574815944673,
-        "value_display": "0.3756",
+        "value": 0.43564899407646923,
+        "value_display": "0.4356",
         "good_threshold": "0.5000",
         "watch_threshold": "0.6000",
         "direction": "lower_better",
@@ -160,8 +160,8 @@
       {
         "category": "ranking",
         "metric": "corr_final_safety_abs",
-        "value": 0.3309123507673538,
-        "value_display": "0.3309",
+        "value": 0.35307028177324756,
+        "value_display": "0.3531",
         "good_threshold": "0.3000",
         "watch_threshold": "0.4000",
         "direction": "lower_better",
@@ -170,18 +170,18 @@
       {
         "category": "ranking",
         "metric": "corr_final_ret_score",
-        "value": 0.712069394979319,
-        "value_display": "0.7121",
+        "value": 0.6647556997762155,
+        "value_display": "0.6648",
         "good_threshold": "0.8000",
         "watch_threshold": "0.7000",
         "direction": "higher_better",
-        "status": "WATCH"
+        "status": "ALERT"
       },
       {
         "category": "ranking",
         "metric": "corr_final_prob_score",
-        "value": 0.6643920349572202,
-        "value_display": "0.6644",
+        "value": 0.6641900895303178,
+        "value_display": "0.6642",
         "good_threshold": "0.6500",
         "watch_threshold": "0.5500",
         "direction": "higher_better",
@@ -190,8 +190,8 @@
       {
         "category": "ranking",
         "metric": "corr_final_tech_score",
-        "value": -0.0664633927462532,
-        "value_display": "-0.0665",
+        "value": -0.057686109807670354,
+        "value_display": "-0.0577",
         "good_threshold": "0.1000",
         "watch_threshold": "0.0300",
         "direction": "higher_better",
@@ -200,8 +200,8 @@
       {
         "category": "ranking",
         "metric": "top20_mean_confidence_score",
-        "value": 73.76305094702262,
-        "value_display": "73.76",
+        "value": 77.48183461796242,
+        "value_display": "77.48",
         "good_threshold": "80.0000",
         "watch_threshold": "72.0000",
         "direction": "higher_better",
@@ -210,12 +210,12 @@
       {
         "category": "ranking",
         "metric": "top20_top_driver_share",
-        "value": 0.35714285714285715,
-        "value_display": "0.3571",
+        "value": 0.2711864406779661,
+        "value_display": "0.2712",
         "good_threshold": "0.3200",
         "watch_threshold": "0.4000",
         "direction": "lower_better",
-        "status": "WATCH"
+        "status": "GOOD"
       },
       {
         "category": "walkforward",
@@ -241,7 +241,7 @@
   },
   "confidence_calibration": {
     "summary": {
-      "generated_at": "2026-06-02 18:52:33",
+      "generated_at": "2026-06-05 18:29:01",
       "source_mode": "walkforward_provisional",
       "source_label": "walk-forward backtest rows (unavailable)",
       "confidence_calibration_version": "confidence_four_axis_v1",
@@ -350,13 +350,13 @@
   },
   "confidence_score_v2": {
     "row_count": 204,
-    "mean_raw_confidence_v2": 57.706910438998904,
-    "trusted_ratio_top20": 0.6,
-    "provisional_or_better_ratio_top20": 0.9,
+    "mean_raw_confidence_v2": 57.65817927032055,
+    "trusted_ratio_top20": 0.45,
+    "provisional_or_better_ratio_top20": 0.95,
     "state_counts": {
-      "WEAK": 123,
-      "PROVISIONAL": 45,
-      "TRUSTED": 20,
+      "WEAK": 119,
+      "PROVISIONAL": 51,
+      "TRUSTED": 18,
       "BLOCKED": 16
     },
     "live_grade_counts": {
@@ -417,20 +417,19 @@
   "top20_buyability": {
     "top_n": 20,
     "buyability_counts": {
-      "WATCHLIST": 18,
-      "PAPER_ONLY": 1,
+      "WATCHLIST": 19,
       "BLOCK": 1
     },
     "watchlist_tier_counts": {
       "MONITOR": 11,
-      "PROMOTION_READY": 7,
-      "(none)": 2
+      "PROMOTION_READY": 8,
+      "(none)": 1
     },
-    "gate_overall_status": "WATCH",
+    "gate_overall_status": "PILOT",
     "walkforward_acceptance_status": "REJECTED"
   },
   "walkforward_acceptance": {
-    "generated_at": "2026-06-02 18:52:36",
+    "generated_at": "2026-06-05 18:29:02",
     "status": "REJECTED",
     "reason_codes": [
       "top20_excess_return_positive",
