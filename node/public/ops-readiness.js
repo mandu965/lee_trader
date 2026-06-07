@@ -304,9 +304,10 @@ function renderBlogDrafts(container, drafts) {
 
 function blogPlatformRow(abbr, name, cls, plat, key) {
   const ext = key.endsWith("_tistory") ? "md" : "txt";
+  const label = plat.polished ? `${abbr} ${name} 최종본` : `${abbr} ${name}`;
   return `
     <div class="blog-platform-row">
-      <span class="blog-platform-label ${cls}">${abbr} ${name}</span>
+      <span class="blog-platform-label ${cls}">${label}</span>
       <span class="blog-char-count">${plat.char_count?.toLocaleString()}자</span>
       <div class="blog-actions">
         <button class="blog-btn blog-btn-copy" onclick="blogCopy(this, '${key}')">복사</button>
@@ -327,7 +328,8 @@ async function _ensureBlogContent(key) {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   const [type, platform] = key.split("_");
-  const content = data.drafts?.find(d => d.type === type)?.[platform]?.content || "";
+  const platformDraft = data.drafts?.find(d => d.type === type)?.[platform] || {};
+  const content = platformDraft.polished?.content || platformDraft.content || "";
   _blogContentCache[key] = content;
   return content;
 }

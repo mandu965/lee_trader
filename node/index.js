@@ -3,6 +3,7 @@ const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 require("dotenv").config();
 const { Pool, types: pgTypes } = require("pg");
 // pg converts DATE columns to JS Date objects using local timezone, causing off-by-one in KST.
@@ -23,8 +24,8 @@ const ADSENSE_CLIENT_ID = (process.env.ADSENSE_CLIENT_ID || "ca-pub-975053398824
 function resolveDataDir() {
   const candidates = [
     "/app/data",
-    path.join(__dirname, "data"),
     path.join(__dirname, "..", "data"),
+    path.join(__dirname, "data"),
     path.join(process.cwd(), "data"),
   ];
   for (const p of candidates) {
@@ -40,8 +41,8 @@ console.log("[DATA_DIR]", DATA_DIR);
 function resolveOutputsDir() {
   const candidates = [
     "/app/outputs",
-    path.join(__dirname, "outputs"),
     path.join(__dirname, "..", "outputs"),
+    path.join(__dirname, "outputs"),
     path.join(process.cwd(), "outputs"),
   ];
   for (const p of candidates) {
@@ -57,8 +58,8 @@ console.log("[OUTPUTS_DIR]", OUTPUTS_DIR);
 function resolveServingDir() {
   const candidates = [
     "/app/serving",
-    path.join(__dirname, "serving"),
     path.join(__dirname, "..", "serving"),
+    path.join(__dirname, "serving"),
     path.join(process.cwd(), "serving"),
   ];
   for (const p of candidates) {
@@ -431,7 +432,16 @@ function readMarkdownEntries(sectionDir, section) {
         featured: Boolean(attributes.featured),
         body: renderedBody,
       };
-    });
+    })
+    .filter((entry) => !isLikelyMojibake([entry.title, entry.excerpt, entry.body].join(" ")));
+}
+
+function isLikelyMojibake(value) {
+  const text = stripHtml(value || "");
+  if (!text) return false;
+  const suspiciousMatches = text.match(/(?:먯|섏|쒖|꾨|댁|湲|醫|媛|釉|吏|蹂|댁|낅|덈|룄|쨌|룻|퀎|땲|뒿|덉)/g) || [];
+  const replacementMatches = text.match(/\?/g) || [];
+  return suspiciousMatches.length + replacementMatches.length > 12;
 }
 
 function readSiteLibrary() {
@@ -4251,15 +4261,30 @@ async function getFeatureStatsForCodes(codes) {
     rsi14.set(current, toNum(last.rsi_14));
     if (buffer.length >= 60) {
       const prev = buffer[buffer.length - 60];
-      const prevClose = toNum(prev.close);
+      const prevCloseValue = toNum(prev.close);
       const lastClose = toNum(last.close);
-      if (Number.isFinite(prevClose) && Number.isFinite(lastClose) && prevClose !== 0) {
-        ret3m.set(current, lastClose / prevClose - 1);
+      if (Number.isFinite(prevCloseValue) && Number.isFinite(lastClose) && prevCloseValue !== 0) {
+        ret3m.set(current, lastClose / prevCloseValue - 1);
       } else {
         ret3m.set(current, null);
       }
     } else {
       ret3m.set(current, null);
+    }
+    if (buffer.length >= 2) {
+      const prevDay = buffer[buffer.length - 2];
+      const prevDayClose = toNum(prevDay.close);
+      const lastClose = toNum(last.close);
+      prevClose.set(current, Number.isFinite(prevDayClose) ? prevDayClose : null);
+      change1d.set(
+        current,
+        Number.isFinite(prevDayClose) && Number.isFinite(lastClose) && prevDayClose !== 0
+          ? lastClose / prevDayClose - 1
+          : null
+      );
+    } else {
+      prevClose.set(current, null);
+      change1d.set(current, null);
     }
     buffer = [];
   };
@@ -4274,7 +4299,7 @@ async function getFeatureStatsForCodes(codes) {
     buffer.push(row);
   }
   flush();
-  return { latestClose, ret3m, ret5d, ret10d, mom20, rsi14 };
+  return { latestClose, prevClose, change1d, ret3m, ret5d, ret10d, mom20, rsi14 };
 }
 
 // ---------------------
@@ -4958,25 +4983,6 @@ app.get("/reports", (req, res) => sendPublicPage(res, "content-list.html"));
 app.get("/blog", (req, res) => sendPublicPage(res, "content-list.html"));
 app.get("/robots.txt", (req, res) => {
   const disallowPaths = [
-    "/app",
-    "/index.html",
-    "/detail.html",
-    "/ranking.html",
-    "/meaningfulness.html",
-    "/ops-readiness.html",
-    "/score-check",
-    "/manual-trading.html",
-    "/holdings.html",
-    "/holdingsDetail.html",
-    "/paper-trading.html",
-    "/trade-history.html",
-    "/live-auto-trading.html",
-    "/rule-auto-trading.html",
-    "/us-ranking.html",
-    "/us-trading.html",
-    "/alerts.html",
-    "/operator-login",
-    "/admin_db.html",
     "/api/",
   ];
   res.type("text/plain").send(`User-agent: *\nAllow: /\n${disallowPaths.map((path) => `Disallow: ${path}`).join("\n")}\n\nSitemap: ${buildAbsoluteUrl("/sitemap.xml")}\n`);
@@ -8170,10 +8176,19 @@ app.get("/api/ops-readiness/blog-drafts", operatorAccess.apiGuard, async (req, r
     const today = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Seoul" });
     const blogDir = path.join(OUTPUTS_DIR, "blog_drafts");
     const payloadKey = `blog_drafts_${today}`;
+    const platformSummary = (item) => {
+      if (!item) return null;
+      const finalItem = item.polished || item;
+      return {
+        title: finalItem.title || item.title,
+        char_count: finalItem.char_count || item.char_count,
+        polished: Boolean(item.polished),
+      };
+    };
     const slimDrafts = (drafts = []) => drafts.map((d) => ({
       type: d.type,
-      naver: d.naver ? { title: d.naver.title, char_count: d.naver.char_count } : null,
-      tistory: d.tistory ? { title: d.tistory.title, char_count: d.tistory.char_count } : null,
+      naver: platformSummary(d.naver),
+      tistory: platformSummary(d.tistory),
     }));
 
     // DB 우선 조회: 오늘 키 -> 최신 블로그 초안 키

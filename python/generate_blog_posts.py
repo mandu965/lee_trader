@@ -20,8 +20,10 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 try:
@@ -36,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SERVING_DIR = ROOT / "serving"
 TEMPLATE_DIR = ROOT / "templates" / "blog"
 OUTPUT_DIR = ROOT / "outputs" / "blog_drafts"
+POLISHED_DIR = ROOT / "outputs" / "blog_polished"
 LOG_DIR = ROOT / "logs"
 
 PLATFORM_EXT = {"naver": "txt", "tistory": "md"}
@@ -534,6 +537,21 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=5, help="종목 수 (기본 5)")
     ap.add_argument("--force", action="store_true", help="기존 파일 덮어쓰기")
     ap.add_argument("--strict", action="store_true", help="요청 날짜와 데이터 asof_date 불일치 시 중단")
+    ap.add_argument(
+        "--polish-ollama",
+        action="store_true",
+        help="초안 생성 후 로컬 Ollama로 본문 문단을 다듬은 최종본도 생성",
+    )
+    ap.add_argument(
+        "--polish-model",
+        default=os.environ.get("BLOG_POLISH_OLLAMA_MODEL", "qwen2.5:7b"),
+        help="Ollama polishing 모델명",
+    )
+    ap.add_argument(
+        "--keep-latest-only",
+        action="store_true",
+        help="생성 완료 후 outputs/blog_drafts, outputs/blog_polished에서 기준일 외 파일 삭제",
+    )
     args = ap.parse_args()
 
     data = load_recommendations()
@@ -569,11 +587,148 @@ def main() -> int:
 
     log.info("요약: types=%s, source_date=%s, 생성=%d건, 실패=%s",
              ",".join(types), source_date, total, ",".join(failures) or "없음")
+    polish_enabled = args.polish_ollama or str(os.environ.get("BLOG_POLISH_OLLAMA_ENABLED", "")).strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+    if polish_enabled:
+        polish_drafts_with_ollama(source_date, types, platforms, args.force, args.polish_model)
     save_drafts_to_db(source_date, types, platforms)
+    keep_latest_only = args.keep_latest_only or str(os.environ.get("BLOG_OUTPUT_KEEP_LATEST_ONLY", "")).strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+    if keep_latest_only:
+        prune_blog_outputs(source_date)
+        prune_blog_payloads_from_db(source_date)
     # all 모드에서 일부만 실패하면 0(성공), 전부 실패하면 1
     if failures and len(failures) == len(types):
         return 1
     return 0
+
+
+def prune_blog_outputs(source_date: str) -> None:
+    """기준일 외 블로그 산출물을 삭제한다.
+
+    명시 옵션/환경변수로만 실행된다. 파일명 앞 10자리가 YYYY-MM-DD인 블로그 산출물만
+    대상으로 삼아 다른 outputs 파일을 건드리지 않는다.
+    """
+    pattern = re.compile(r"^\d{4}-\d{2}-\d{2}_type[A-Z]_.+")
+    for directory in (OUTPUT_DIR, POLISHED_DIR):
+        if not directory.exists():
+            continue
+        removed = 0
+        for path in directory.iterdir():
+            if not path.is_file() or not pattern.match(path.name):
+                continue
+            if path.name.startswith(source_date):
+                continue
+            try:
+                path.unlink()
+                removed += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning("오래된 블로그 산출물 삭제 실패(%s): %s", path, exc)
+        if removed:
+            log.info("오래된 블로그 산출물 삭제: %s (%d개)", directory, removed)
+
+
+def prune_blog_payloads_from_db(source_date: str) -> None:
+    """DB의 과거 블로그 payload 키를 삭제한다.
+
+    --keep-latest-only 또는 BLOG_OUTPUT_KEEP_LATEST_ONLY=1일 때만 호출된다.
+    """
+    try:
+        import psycopg2  # noqa: PLC0415
+    except ImportError:
+        log.warning("psycopg2 없음 — DB 블로그 payload 정리 건너뜀")
+        return
+
+    targets = _resolve_draft_db_targets()
+    if not targets:
+        return
+
+    keep_keys = [f"blog_drafts_{source_date}", f"blog_polished_{source_date}"]
+    for label, db_url in targets:
+        try:
+            conn = psycopg2.connect(db_url)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                DELETE FROM research.app_payload_store
+                 WHERE (payload_key LIKE 'blog_drafts_%' OR payload_key LIKE 'blog_polished_%')
+                   AND payload_key <> ALL(%s)
+                """,
+                [keep_keys],
+            )
+            removed = cur.rowcount
+            conn.commit()
+            cur.close()
+            conn.close()
+            if removed:
+                log.info("오래된 블로그 DB payload 삭제(%s): %d개", label, removed)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("DB 블로그 payload 정리 실패(%s, 계속 진행): %s", label, exc)
+
+
+def polish_drafts_with_ollama(
+    source_date: str,
+    types: list[str],
+    platforms: list[str],
+    force: bool,
+    model: str,
+) -> int:
+    """생성된 초안을 로컬 Ollama 후처리기로 다듬어 outputs/blog_polished에 저장한다."""
+    try:
+        import polish_blog_drafts_ollama as polisher  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Ollama 후처리 모듈 로드 실패 — 최종본 생성 건너뜀: %s", exc)
+        return 0
+
+    generated = 0
+    for ct in types:
+        for platform in platforms:
+            ext = PLATFORM_EXT[platform]
+            input_path = OUTPUT_DIR / f"{source_date}_type{ct.upper()}_{platform}.{ext}"
+            output_path = POLISHED_DIR / f"{source_date}_type{ct.upper()}_{platform}_ollama_polished.{ext}"
+            if not input_path.exists():
+                continue
+            if output_path.exists() and not force:
+                log.info("Ollama 최종본 이미 존재 — 건너뜀: %s", output_path)
+                continue
+            try:
+                ns = SimpleNamespace(
+                    input=str(input_path),
+                    output=str(output_path),
+                    date=source_date,
+                    type=ct.upper(),
+                    platform=platform,
+                    model=model,
+                    ollama_url=os.environ.get("BLOG_POLISH_OLLAMA_URL", "http://localhost:11434"),
+                    temperature=float(os.environ.get("BLOG_POLISH_TEMPERATURE", "0.55")),
+                    timeout=int(os.environ.get("BLOG_POLISH_TIMEOUT_SEC", "120")),
+                    style=os.environ.get(
+                        "BLOG_POLISH_STYLE",
+                        "템플릿 문장처럼 보이지 않게, 설명은 조금 더 부드럽고 구체적으로 쓴다.",
+                    ),
+                    max_paragraphs=0,
+                    force=force,
+                )
+                text = input_path.read_text(encoding="utf-8")
+                polished, results = polisher.polish_text(text, ns)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(polished, encoding="utf-8")
+                report_path = polisher.write_report(output_path, results)
+                changed = sum(1 for r in results if r.changed)
+                fallback = sum(1 for r in results if not r.changed)
+                generated += 1
+                log.info(
+                    "Ollama 최종본 생성: %s (changed=%d fallback=%d report=%s)",
+                    output_path,
+                    changed,
+                    fallback,
+                    report_path,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Ollama 최종본 생성 실패(%s/%s, 계속 진행): %s", ct, platform, exc)
+    return generated
 
 
 def _resolve_draft_db_targets() -> list[tuple[str, str]]:
@@ -594,6 +749,20 @@ def _resolve_draft_db_targets() -> list[tuple[str, str]]:
     return targets
 
 
+def _read_blog_payload_item(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    content = path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    title = next((l.lstrip("# ").strip() for l in lines if l.strip()), "")
+    return {"title": title, "char_count": len(content), "content": content}
+
+
+def _polished_path(source_date: str, content_type: str, platform: str) -> Path:
+    ext = PLATFORM_EXT[platform]
+    return POLISHED_DIR / f"{source_date}_type{content_type.upper()}_{platform}_ollama_polished.{ext}"
+
+
 def save_drafts_to_db(source_date: str, types: list[str], platforms: list[str]) -> None:
     """생성된 초안을 research.app_payload_store에 upsert (실패 시 로그만 출력)."""
     try:
@@ -607,25 +776,34 @@ def save_drafts_to_db(source_date: str, types: list[str], platforms: list[str]) 
         return
 
     drafts = []
+    polished_drafts = []
     for ct in types:
         entry: dict = {"type": ct}
+        polished_entry: dict = {"type": ct}
         for platform in platforms:
             ext = PLATFORM_EXT[platform]
             fp = OUTPUT_DIR / f"{source_date}_type{ct.upper()}_{platform}.{ext}"
-            if fp.exists():
-                content = fp.read_text(encoding="utf-8")
-                lines = content.splitlines()
-                title = next((l.lstrip("# ").strip() for l in lines if l.strip()), "")
-                entry[platform] = {"title": title, "char_count": len(content), "content": content}
+            original_item = _read_blog_payload_item(fp)
+            if original_item:
+                final_item = _read_blog_payload_item(_polished_path(source_date, ct, platform))
+                if final_item:
+                    original_item["polished"] = final_item
+                    polished_entry[platform] = final_item
+                entry[platform] = original_item
         if len(entry) > 1:
             drafts.append(entry)
+        if len(polished_entry) > 1:
+            polished_drafts.append(polished_entry)
 
     if not drafts:
         return
 
     payload_key = f"blog_drafts_{source_date}"
     payload = {"asof_date": source_date, "drafts": drafts}
+    polished_payload_key = f"blog_polished_{source_date}"
+    polished_payload = {"asof_date": source_date, "drafts": polished_drafts, "source": payload_key}
     payload_json = json.dumps(payload, ensure_ascii=False)
+    polished_payload_json = json.dumps(polished_payload, ensure_ascii=False)
     for label, db_url in targets:
         try:
             conn = psycopg2.connect(db_url)
@@ -640,10 +818,23 @@ def save_drafts_to_db(source_date: str, types: list[str], platforms: list[str]) 
                 """,
                 [payload_key, payload_json, source_date],
             )
+            if polished_drafts:
+                cur.execute(
+                    """
+                    INSERT INTO research.app_payload_store
+                      (payload_key, payload_json, asof_date, generated_at, updated_at)
+                    VALUES (%s, %s::jsonb, %s, now(), now())
+                    ON CONFLICT (payload_key) DO UPDATE
+                    SET payload_json = EXCLUDED.payload_json, updated_at = now()
+                    """,
+                    [polished_payload_key, polished_payload_json, source_date],
+                )
             conn.commit()
             cur.close()
             conn.close()
             log.info("DB 저장 완료(%s): %s (%d건)", label, payload_key, len(drafts))
+            if polished_drafts:
+                log.info("DB 저장 완료(%s): %s (%d건)", label, polished_payload_key, len(polished_drafts))
         except Exception as exc:  # noqa: BLE001
             log.warning("DB 저장 실패(%s, 계속 진행): %s", label, exc)
 

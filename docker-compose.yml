@@ -202,6 +202,7 @@ services:
       context: .
       dockerfile: ./node/Dockerfile
     container_name: lee_trader_api
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
