@@ -3895,6 +3895,204 @@ async function getRanking(targetDate) {
   }
 }
 
+function normalizeRankingChangeRow(row) {
+  if (!row) return null;
+  const code = String(row.code || "").trim();
+  if (!code) return null;
+  return {
+    date: toIsoDate(row.date) || String(row.date || "").trim() || null,
+    code,
+    name: cleanDisplayText(row.name) || getName(code),
+    market: cleanDisplayText(row.market) || getMarket(code),
+    sector: cleanDisplayText(row.sector) || getSector(code),
+    rank: getLiveRank(row),
+    score: getLiveScore(row),
+    final_score: toNum(row.final_score),
+    risk_penalty: toNum(row.risk_penalty),
+    flow_foreign_net_5d: toNum(row.flow_foreign_net_5d),
+    flow_inst_net_5d: toNum(row.flow_inst_net_5d),
+    top_driver_1: cleanDisplayText(row.top_driver_1),
+    risk_factor_1: cleanDisplayText(row.risk_factor_1),
+    score_explain_summary: cleanDisplayText(row.score_explain_summary),
+  };
+}
+
+async function getRecentRankingChangeSnapshots(targetDate = null) {
+  const requestedDate = targetDate && isIsoDateString(targetDate) ? targetDate : null;
+  try {
+    const dateRows = await queryRows(
+      requestedDate
+        ? "SELECT DISTINCT date::text AS d FROM daily_ranking WHERE date <= $1 ORDER BY d DESC LIMIT 2"
+        : "SELECT DISTINCT date::text AS d FROM daily_ranking ORDER BY d DESC LIMIT 2",
+      requestedDate ? [requestedDate] : []
+    );
+    const dates = dateRows.map((row) => toIsoDate(row.d)).filter(Boolean);
+    if (dates.length >= 2) {
+      const [currentDate, previousDate] = dates;
+      const rows = await queryRows(
+        `
+        SELECT *
+        FROM daily_ranking
+        WHERE date = ANY($1::date[])
+        ORDER BY date DESC, COALESCE(live_score, final_score) DESC NULLS LAST, code ASC
+        `,
+        [[currentDate, previousDate]]
+      );
+      const currentRows = [];
+      const previousRows = [];
+      rows.forEach((row) => {
+        const date = toIsoDate(row.date);
+        const normalized = normalizeRankingChangeRow(row);
+        if (!normalized) return;
+        if (date === currentDate) currentRows.push(normalized);
+        if (date === previousDate) previousRows.push(normalized);
+      });
+      if (currentRows.length && previousRows.length) {
+        return { currentDate, previousDate, currentRows, previousRows, source: "db" };
+      }
+    }
+  } catch (e) {
+    console.warn("[ranking changes] DB load fail:", e.message);
+  }
+
+  const historyDir = path.join(DATA_DIR, "history", "ranking");
+  let files = [];
+  try {
+    files = fs
+      .readdirSync(historyDir)
+      .filter((name) => /^\d{8}_ranking_final\.csv$/.test(name))
+      .map((name) => {
+        const token = name.slice(0, 8);
+        const date = `${token.slice(0, 4)}-${token.slice(4, 6)}-${token.slice(6, 8)}`;
+        return { name, date, filePath: path.join(historyDir, name) };
+      })
+      .filter((item) => !requestedDate || item.date <= requestedDate)
+      .sort((a, b) => b.date.localeCompare(a.date));
+  } catch (e) {
+    console.warn("[ranking changes] history dir load fail:", e.message);
+  }
+
+  if (files.length < 2) return null;
+  const current = files[0];
+  const previous = files[1];
+  const currentRows = (readCsv(current.filePath) || []).map(normalizeRankingChangeRow).filter(Boolean);
+  const previousRows = (readCsv(previous.filePath) || []).map(normalizeRankingChangeRow).filter(Boolean);
+  if (!currentRows.length || !previousRows.length) return null;
+  return {
+    currentDate: current.date,
+    previousDate: previous.date,
+    currentRows,
+    previousRows,
+    source: "csv_history",
+  };
+}
+
+function rankingBand(rank) {
+  const value = toNum(rank);
+  if (!Number.isFinite(value)) return { key: "unknown", label: "순위 없음", weight: 5 };
+  if (value <= 20) return { key: "top20", label: "Top20", weight: 1 };
+  if (value <= 50) return { key: "top50", label: "Top50", weight: 2 };
+  if (value <= 100) return { key: "top100", label: "Top100", weight: 3 };
+  return { key: "watch", label: "100위 밖", weight: 4 };
+}
+
+function buildMeaningfulRankingChanges(snapshot) {
+  const previousByCode = new Map((snapshot.previousRows || []).map((row) => [row.code, row]));
+  const changes = (snapshot.currentRows || [])
+    .map((current) => {
+      const previous = previousByCode.get(current.code) || null;
+      const previousRank = previous?.rank ?? null;
+      const currentRank = current.rank ?? null;
+      const previousScore = previous?.score ?? null;
+      const currentScore = current.score ?? null;
+      const previousRisk = previous?.risk_penalty ?? null;
+      const currentRisk = current.risk_penalty ?? null;
+      const rankDelta = Number.isFinite(previousRank) && Number.isFinite(currentRank) ? previousRank - currentRank : null;
+      const scoreDelta = Number.isFinite(previousScore) && Number.isFinite(currentScore) ? currentScore - previousScore : null;
+      const riskDelta = Number.isFinite(previousRisk) && Number.isFinite(currentRisk) ? currentRisk - previousRisk : null;
+      const previousBand = rankingBand(previousRank);
+      const currentBand = rankingBand(currentRank);
+      const isNewTop20 = Number.isFinite(currentRank) && currentRank <= 20 && (!Number.isFinite(previousRank) || previousRank > 20);
+      const isCoreScoreJump = Number.isFinite(scoreDelta) && scoreDelta >= 5;
+      const isScoreJump = Number.isFinite(scoreDelta) && scoreDelta >= 3 && Number.isFinite(rankDelta) && rankDelta >= 10;
+      const isBandUp = currentBand.weight < previousBand.weight && Number.isFinite(scoreDelta) && scoreDelta >= 2;
+      const isRiskRelief = Number.isFinite(riskDelta) && riskDelta <= -3 && Number.isFinite(currentRank) && currentRank <= 100;
+      const isRankNoise = Number.isFinite(rankDelta) && Math.abs(rankDelta) >= 20 && Number.isFinite(scoreDelta) && Math.abs(scoreDelta) < 2;
+      const tags = [];
+      if (isNewTop20) tags.push("Top20 신규");
+      if (isCoreScoreJump) tags.push("점수 +5 이상");
+      else if (isScoreJump) tags.push("점수 개선");
+      if (isBandUp) tags.push(`${previousBand.label} → ${currentBand.label}`);
+      if (isRiskRelief) tags.push("리스크 완화");
+      if (!tags.length && isRankNoise) tags.push("순위 노이즈");
+      return {
+        code: current.code,
+        name: current.name,
+        market: current.market,
+        sector: current.sector,
+        rank: currentRank,
+        previous_rank: previousRank,
+        rank_delta: rankDelta,
+        score: currentScore,
+        previous_score: previousScore,
+        score_delta: scoreDelta,
+        risk_penalty: currentRisk,
+        previous_risk_penalty: previousRisk,
+        risk_delta: riskDelta,
+        previous_band: previousBand.label,
+        current_band: currentBand.label,
+        tags,
+        is_new_top20: isNewTop20,
+        is_score_jump: isCoreScoreJump || isScoreJump,
+        is_band_up: isBandUp,
+        is_risk_relief: isRiskRelief,
+        is_rank_noise: isRankNoise,
+        reason:
+          current.score_explain_summary ||
+          current.top_driver_1 ||
+          current.risk_factor_1 ||
+          "점수, 순위, 리스크 변화가 함께 관찰된 종목입니다.",
+      };
+    });
+
+  const meaningful = changes.filter((item) => item.is_new_top20 || item.is_score_jump || item.is_band_up || item.is_risk_relief);
+  const sortByCurrentRank = (a, b) => {
+    const ar = Number.isFinite(a.rank) ? a.rank : Infinity;
+    const br = Number.isFinite(b.rank) ? b.rank : Infinity;
+    if (ar !== br) return ar - br;
+    return (b.score_delta ?? -Infinity) - (a.score_delta ?? -Infinity);
+  };
+
+  const pick = (predicate, limit = 5) => meaningful.filter(predicate).sort(sortByCurrentRank).slice(0, limit);
+  const rankNoiseCount = changes.filter((item) => item.is_rank_noise).length;
+  return {
+    asof_date: snapshot.currentDate,
+    compare_date: snapshot.previousDate,
+    source: snapshot.source,
+    thresholds: {
+      score_jump: "score_delta >= 5 또는 score_delta >= 3 AND rank_delta >= 10",
+      band_up: "Top100/Top50/Top20 구간 상승 AND score_delta >= 2",
+      rank_noise: "abs(rank_delta) >= 20 AND abs(score_delta) < 2",
+    },
+    summary: {
+      row_count: snapshot.currentRows.length,
+      meaningful_count: meaningful.length,
+      new_top20_count: changes.filter((item) => item.is_new_top20).length,
+      score_jump_count: changes.filter((item) => item.is_score_jump).length,
+      band_up_count: changes.filter((item) => item.is_band_up).length,
+      risk_relief_count: changes.filter((item) => item.is_risk_relief).length,
+      rank_noise_count: rankNoiseCount,
+      rank_noise_ratio: changes.length ? rankNoiseCount / changes.length : null,
+    },
+    items: meaningful.sort(sortByCurrentRank),
+    featured: meaningful.sort(sortByCurrentRank).slice(0, 8),
+    new_top20: pick((item) => item.is_new_top20),
+    score_jumps: pick((item) => item.is_score_jump),
+    band_ups: pick((item) => item.is_band_up),
+    risk_reliefs: pick((item) => item.is_risk_relief),
+  };
+}
+
 async function getRankingLatestByCode() {
   const res = await getRanking();
   const map = new Map();
@@ -6171,6 +6369,19 @@ app.get("/api/ranking", async (req, res) => {
   } catch (e) {
     console.error("api/ranking error", e);
     res.status(500).json({ error: "failed to read ranking", detail: String(e) });
+  }
+});
+
+// Ranking meaningful changes — score-aware changes for the main dashboard.
+app.get("/api/ranking/meaningful-changes", async (req, res) => {
+  try {
+    const targetDate = (req.query.date || "").trim() || null;
+    const snapshot = await getRecentRankingChangeSnapshots(targetDate);
+    if (!snapshot) return res.status(404).json({ error: "ranking history not found" });
+    res.json(buildMeaningfulRankingChanges(snapshot));
+  } catch (e) {
+    console.error("api/ranking/meaningful-changes error", e);
+    res.status(500).json({ error: "failed to build ranking changes", detail: String(e) });
   }
 });
 

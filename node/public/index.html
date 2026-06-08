@@ -74,37 +74,27 @@
     </section>
 
     <section class="panel hero-panel" id="heroPanel">
-      <div class="hero-meta" id="heroMeta">
-        <div class="hero-block hero-block--primary">
-          <div class="hero-label">기준일</div>
-          <div class="hero-value" id="heroDate">-</div>
-          <div class="hero-detail" id="heroDateDetail">최신 추천이 반영된 기준일</div>
-        </div>
-        <div class="hero-block hero-block--primary">
-          <div class="hero-label hero-label--with-help">시장 흐름<button type="button" class="help-chip" aria-label="시장 흐름 설명" data-tooltip="지금이 공격적으로 볼 장인지, 보수적으로 선별할 장인지 짧게 요약합니다.">?</button></div>
-          <div class="hero-value" id="heroMarketState">-</div>
-          <div class="hero-detail" id="heroMarketDetail">오늘 추천을 어떤 톤으로 읽을지 요약합니다.</div>
-        </div>
-        <div class="hero-block hero-block--primary">
-          <div class="hero-label hero-label--with-help">수급 긍정 종목<button type="button" class="help-chip" aria-label="수급 긍정 종목 설명" data-tooltip="상위 20개 중 외국인·기관 5일 순매수가 모두 양(+)인 종목 수입니다. 많을수록 수급 환경이 우호적입니다.">?</button></div>
-          <div class="hero-value" id="heroFlowPositiveCount">-</div>
-          <div class="hero-detail" id="heroFlowPositiveDetail">외국인·기관 동시 순매수 방향 종목</div>
-        </div>
-        <div class="hero-block hero-block--secondary">
-          <div class="hero-label hero-label--with-help">점수 우수 후보<button type="button" class="help-chip" aria-label="점수 우수 후보 설명" data-tooltip="상위 20개 중 최종 점수 70점 이상인 종목 수입니다. 모델이 종합적으로 높게 평가한 후보입니다.">?</button></div>
-          <div class="hero-value" id="heroHighScoreCount">-</div>
-          <div class="hero-detail" id="heroHighScoreDetail">최종 점수 70점 이상 종목 수</div>
-        </div>
-        <div class="hero-block hero-block--secondary">
-          <div class="hero-label hero-label--with-help">리스크 주의<button type="button" class="help-chip" aria-label="리스크 주의 설명" data-tooltip="상위 20개 중 리스크 페널티가 높아 진입 전 추가 검토가 필요한 종목 수입니다. 많을수록 선별이 중요합니다.">?</button></div>
-          <div class="hero-value" id="heroRiskCount">-</div>
-          <div class="hero-detail" id="heroRiskDetail">리스크 페널티 높은 종목 수</div>
-        </div>
-      </div>
-      <button id="heroMetaToggleBtn" class="hero-meta-toggle" type="button" aria-expanded="false">요약 더보기</button>
-      <div class="ops-strip" id="opsStrip">
+      <div class="ops-strip ops-strip--hero" id="opsStrip">
         <div class="ops-strip__empty">추천 해석 정보를 불러오는 중입니다.</div>
       </div>
+    </section>
+
+    <section class="panel change-panel is-collapsed" id="meaningfulChangePanel" aria-label="오늘의 의미 있는 변화">
+      <div class="change-panel__head">
+        <div>
+          <div class="section-kicker">Daily Change</div>
+          <h2>오늘의 의미 있는 변화</h2>
+          <p id="meaningfulChangeMeta">순위 변동만 보지 않고 점수 상승, 구간 이동, 리스크 완화를 함께 확인합니다.</p>
+        </div>
+        <div class="change-panel__actions">
+          <button class="change-panel__toggle" id="meaningfulChangeToggle" type="button" aria-expanded="false">자세히</button>
+          <a class="change-panel__link" href="/ranking.html">랭킹 분석</a>
+        </div>
+      </div>
+      <div class="change-summary" id="meaningfulChangeSummary">
+        <div class="ops-strip__empty">변화 데이터를 불러오는 중입니다.</div>
+      </div>
+      <div class="change-list" id="meaningfulChangeList"></div>
     </section>
 
     <div class="panel table-panel">
@@ -188,6 +178,9 @@
     let flowHistoryMap = new Map();
     let scoreKpiMonitor = null;
     let manualTradingSummary = null;
+    let meaningfulChanges = null;
+    let meaningfulChangesExpanded = false;
+    let meaningfulChangeMap = new Map();
     let manualReviewMap = new Map();
     let alertHidden = false;
     let tradeCtx = { side: "BUY", code: "", name: "" };
@@ -550,6 +543,17 @@
       return `<span class="reason-chip ${cls}"${titleAttr}>${escapeHtml(label)}</span>`;
     }
 
+    function buildManualCautionBadge(code) {
+      const item = manualReviewMap.get(String(code || "").trim());
+      if (!item) return "";
+      const status = String(item.buyability_status || "").toUpperCase();
+      const expected = String(item.expected_action || "").toLowerCase();
+      const isCaution = ["WATCHLIST", "PAPER_ONLY", "BLOCK"].includes(status) || expected.includes("watch") || expected.includes("paper");
+      if (!isCaution) return "";
+      const title = item.name ? `${item.name} · 우선 매수보다 관찰이 필요한 운영 검토 종목입니다.` : "우선 매수보다 관찰이 필요한 운영 검토 종목입니다.";
+      return `<span class="reason-chip info" title="${escapeHtml(title)}">주의관찰</span>`;
+    }
+
     function buildRank(rows) {
       const arr = rows.filter((r) => Number.isFinite(+r.final_score) || Number.isFinite(+r.score)).sort((a, b) => (Number.isFinite(+b.final_score) ? +b.final_score : -Infinity) - (Number.isFinite(+a.final_score) ? +a.final_score : -Infinity));
       rankMap = new Map();
@@ -725,24 +729,32 @@
       const baseDate = displayBaseDate(getBaseDate(rows));
       const regime = getRegimeMeta(rows[0] || {});
       const top20 = rows.slice(0, 20);
-      const flowPositiveCount = top20.filter((r) => (toNum(r.flow_foreign_net_5d) || 0) > 0 && (toNum(r.flow_inst_net_5d) || 0) > 0).length;
       const highScoreCount = top20.filter((r) => (toNum(r.final_score) || 0) >= 70).length;
-      const riskAlertCount = top20.filter((r) => getRiskSummary(r).cls === "bad").length;
       const marketActionGuide = marketStatus?.market_up === true ? "상방 후보 일부 허용" : "보수 대응 권장";
-      $("#heroDate").textContent = baseDate;
-      $("#heroDateDetail").textContent = `${rows.length}개 추천 종목 기준입니다.`;
-      $("#heroMarketState").textContent = marketStatus ? `${regime.label} 장세 · ${marketActionGuide}` : "시장 상태 정보 없음";
-      $("#heroMarketDetail").textContent = marketStatus?.regime_reason || "오늘은 공격보다 선별이 우선인지 보여줍니다.";
-      $("#heroFlowPositiveCount").textContent = `${flowPositiveCount}개`;
-      $("#heroFlowPositiveCount").className = `hero-value ${flowPositiveCount >= 8 ? "hero-value--good" : flowPositiveCount >= 4 ? "hero-value--warn" : "hero-value--soft"}`;
-      $("#heroFlowPositiveDetail").textContent = `상위 20개 중 ${flowPositiveCount}개가 외국인·기관 모두 순매수 방향입니다.`;
-      $("#heroHighScoreCount").textContent = `${highScoreCount}개`;
-      $("#heroHighScoreCount").className = `hero-value ${highScoreCount >= 10 ? "hero-value--good" : highScoreCount >= 5 ? "hero-value--warn" : "hero-value--soft"}`;
-      $("#heroHighScoreDetail").textContent = highScoreCount === 0 ? "오늘 점수 우수 후보가 없습니다." : `상위 20개 중 점수 70점 이상이 ${highScoreCount}개입니다.`;
-      $("#heroRiskCount").textContent = `${riskAlertCount}개`;
-      $("#heroRiskCount").className = `hero-value ${riskAlertCount <= 1 ? "hero-value--good" : riskAlertCount <= 4 ? "hero-value--warn" : "hero-value--bad"}`;
-      $("#heroRiskDetail").textContent = `상위 20개 중 리스크 주의 종목이 ${riskAlertCount}개입니다. 많을수록 선별이 필요합니다.`;
-      renderOpsStrip(rows);
+      const summary = getScoreKpiMeta();
+      const overall = summary ? getMonitorStatusLabel(summary.overall_status) : "해석 준비 중";
+      const riskHighCount = rows.filter((r) => (toNum(r.risk_penalty) || 0) >= 12).length;
+      const priority = manualTradingSummary?.priority_candidates || [];
+      const caution = manualTradingSummary?.caution_candidates || [];
+      const gateStatus = manualTradingSummary?.gate_status || manualTradingSummary?.execution_basis?.gate_status || "";
+      const stale = manualTradingSummary?.recommendations_stale === true;
+      const staleText = stale ? "추천 stale" : `랭킹 ${manualTradingSummary?.ranking_latest_date || getBaseDate(rows) || "-"}`;
+      const cautionNames = caution
+        .slice(0, 5)
+        .map((item) => item?.name || item?.code)
+        .filter(Boolean)
+        .join(", ");
+      const operationDetail = cautionNames
+        ? `주의 관찰: ${cautionNames}`
+        : `우선 검토 ${priority.length}개 · 주의 관찰 ${caution.length}개`;
+      const box = $("#opsStrip");
+      if (!box) return;
+      box.innerHTML = [
+        `<div class="ops-card is-${opsCardClass(summary?.overall_status)}"><div class="ops-card__label">시장 흐름</div><div class="ops-card__value">${escapeHtml(regime.label)} · ${escapeHtml(marketActionGuide)}</div><div class="ops-card__detail">${escapeHtml(baseDate)} 기준 · ${escapeHtml(marketStatus?.regime_reason || `${rows.length}개 추천 종목 기준입니다.`)}</div></div>`,
+        `<div class="ops-card is-${highScoreCount ? "watch" : "alert"}"><div class="ops-card__label">상위 20 점수</div><div class="ops-card__value">${fmtScore(summary?.top20_mean_final_score)}</div><div class="ops-card__detail">70점 이상 ${highScoreCount}개 · 없으면 강한 확신보다 선별 중심입니다.</div></div>`,
+        `<div class="ops-card is-${riskHighCount > rows.length * 0.5 ? "alert" : "watch"}"><div class="ops-card__label">리스크 밀도</div><div class="ops-card__value">${riskHighCount}/${rows.length}</div><div class="ops-card__detail">risk penalty 12 이상 종목 수입니다.</div></div>`,
+        `<div class="ops-card is-info"><div class="ops-card__label">운영 검토</div><div class="ops-card__value">${priority.length} / ${caution.length}</div><div class="ops-card__detail">${escapeHtml(operationDetail)}</div></div>`,
+      ].join("");
     }
 
     function opsCardClass(status) {
@@ -753,34 +765,127 @@
       return "";
     }
 
-    function renderOpsStrip(rows = []) {
-      const box = $("#opsStrip");
-      if (!box) return;
-      const summary = getScoreKpiMeta();
-      if (!summary && !rows.length) {
-        box.innerHTML = `<div class="ops-strip__empty">추천 해석 지표를 준비하고 있습니다.</div>`;
+    const fmtSigned = (value, digits = 1) => {
+      const n = toNum(value);
+      if (n === null) return "-";
+      const sign = n > 0 ? "+" : "";
+      return `${sign}${n.toFixed(digits)}`;
+    };
+
+    function changeTone(value, positiveGood = true) {
+      const n = toNum(value);
+      if (n === null || n === 0) return "muted";
+      const good = positiveGood ? n > 0 : n < 0;
+      return good ? "good" : "bad";
+    }
+
+    function renderMeaningfulChanges(payload = meaningfulChanges) {
+      const panel = $("#meaningfulChangePanel");
+      const summary = $("#meaningfulChangeSummary");
+      const list = $("#meaningfulChangeList");
+      const meta = $("#meaningfulChangeMeta");
+      const toggle = $("#meaningfulChangeToggle");
+      if (!panel || !summary || !list || !meta) return;
+      panel.classList.toggle("is-collapsed", !meaningfulChangesExpanded);
+      if (toggle) {
+        toggle.setAttribute("aria-expanded", meaningfulChangesExpanded ? "true" : "false");
+        toggle.textContent = meaningfulChangesExpanded ? "접기" : "자세히";
+      }
+      if (!payload) {
+        summary.innerHTML = `<div class="ops-strip__empty">변화 데이터를 불러오는 중입니다.</div>`;
+        list.innerHTML = "";
         return;
       }
-      const top20 = rows.slice(0, 20);
-      const overall = summary ? getMonitorStatusLabel(summary.overall_status) : "해석 준비 중";
-      const highScoreCount = top20.filter((r) => (toNum(r.final_score) || 0) >= 70).length;
-      const riskHighCount = rows.filter((r) => (toNum(r.risk_penalty) || 0) >= 12).length;
-      const priority = manualTradingSummary?.priority_candidates || [];
-      const caution = manualTradingSummary?.caution_candidates || [];
-      const topPriority = priority[0] || caution[0] || null;
-      const gateStatus = manualTradingSummary?.gate_status || manualTradingSummary?.execution_basis?.gate_status || "";
-      const stale = manualTradingSummary?.recommendations_stale === true;
-      const staleText = stale ? "추천 산출물 stale" : `랭킹 ${manualTradingSummary?.ranking_latest_date || getBaseDate(rows) || "-"}`;
-      const priorityDetail = topPriority
-        ? `${topPriority.name || topPriority.code} · ${topPriority.buyability_status || topPriority.expected_action || "검토"}`
-        : "운영 후보 요약이 아직 없습니다.";
+      if (payload.error) {
+        summary.innerHTML = `<div class="ops-strip__empty">${escapeHtml(payload.error)}</div>`;
+        list.innerHTML = "";
+        meta.textContent = "전일 비교 데이터가 준비되면 이 영역에 표시됩니다.";
+        return;
+      }
 
-      box.innerHTML = [
-        `<div class="ops-card is-${opsCardClass(summary?.overall_status)}"><div class="ops-card__label">운용 톤</div><div class="ops-card__value">${escapeHtml(overall)}</div><div class="ops-card__detail">Score KPI 기준 ${escapeHtml(getMonitorSourceLabel(summary?.source_mode))}</div></div>`,
-        `<div class="ops-card is-${highScoreCount ? "watch" : "alert"}"><div class="ops-card__label">상위 20 점수</div><div class="ops-card__value">${fmtScore(summary?.top20_mean_final_score)}</div><div class="ops-card__detail">70점 이상 ${highScoreCount}개 · 없으면 강한 확신보다 선별 중심입니다.</div></div>`,
-        `<div class="ops-card is-${riskHighCount > rows.length * 0.5 ? "alert" : "watch"}"><div class="ops-card__label">리스크 밀도</div><div class="ops-card__value">${riskHighCount}/${rows.length}</div><div class="ops-card__detail">risk penalty 12 이상 종목 수입니다.</div></div>`,
-        `<div class="ops-card is-${opsCardClass(gateStatus || topPriority?.buy_eligibility_status)}"><div class="ops-card__label">운영 후보</div><div class="ops-card__value">${priority.length}/${caution.length}</div><div class="ops-card__detail">${escapeHtml(priorityDetail)} · ${escapeHtml(staleText)}</div></div>`,
+      const s = payload.summary || {};
+      const sourceNote = payload.source === "csv_history" ? "스냅샷" : "DB";
+      const levelText = (count, high, mid) => {
+        const n = Number(count || 0);
+        if (n >= high) return "많음";
+        if (n >= mid) return "보통";
+        return "적음";
+      };
+      meta.textContent = `현재 순위순 · 새 Top20 ${fmtPrice(s.new_top20_count || 0)}개 · 점수 개선 ${levelText(s.score_jump_count, 40, 15)} · 순위 노이즈 ${fmtPrice(s.rank_noise_count || 0)}개 제외 참고`;
+      summary.innerHTML = [
+        `<div class="change-summary-card"><span>새로 볼 후보</span><strong>${fmtPrice(s.new_top20_count || 0)}개</strong><em>Top20에 새로 들어온 종목</em></div>`,
+        `<div class="change-summary-card"><span>점수 개선 강도</span><strong>${levelText(s.score_jump_count, 40, 15)}</strong><em>점수 상승 종목 ${fmtPrice(s.score_jump_count || 0)}개</em></div>`,
+        `<div class="change-summary-card"><span>관심권 진입</span><strong>${levelText(s.band_up_count, 25, 10)}</strong><em>순위 구간이 올라간 종목 ${fmtPrice(s.band_up_count || 0)}개</em></div>`,
+        `<div class="change-summary-card"><span>부담 완화</span><strong>${fmtPrice(s.risk_relief_count || 0)}개</strong><em>리스크 점수가 낮아진 종목</em></div>`,
+        `<div class="change-summary-card is-muted"><span>해석 제외 참고</span><strong>${fmtPrice(s.rank_noise_count || 0)}개</strong><em>점수 변화보다 순위만 흔들린 종목</em></div>`,
       ].join("");
+
+      const items = Array.isArray(payload.featured) ? payload.featured.slice(0, 6) : [];
+      if (!items.length) {
+        list.innerHTML = `<div class="ops-strip__empty">오늘은 점수와 구간이 함께 움직인 변화가 많지 않습니다.</div>`;
+        return;
+      }
+      list.innerHTML = items.map((item) => {
+        const tags = Array.isArray(item.tags) ? item.tags : [];
+        const rankDelta = toNum(item.rank_delta);
+        const scoreDelta = toNum(item.score_delta);
+        const riskDelta = toNum(item.risk_delta);
+        const link = `./detail.html?code=${encodeURIComponent(item.code || "")}`;
+        return `<article class="change-card" tabindex="0" onclick="location.href='${link}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${link}';}">
+          <div class="change-card__top">
+            <div>
+              <div class="change-card__name">${escapeHtml(item.name || item.code || "-")}</div>
+              <div class="change-card__sub">${escapeHtml(item.code || "-")} · ${escapeHtml(item.sector || "섹터 정보 없음")}</div>
+            </div>
+            <div class="change-card__rank">${fmtPrice(item.rank)}위</div>
+          </div>
+          <div class="change-card__tags">${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+          <div class="change-card__metrics">
+            <span>순위 <strong class="${changeTone(rankDelta)}">${rankDelta === null ? "-" : `${rankDelta > 0 ? "+" : ""}${rankDelta}위`}</strong></span>
+            <span>점수 <strong class="${changeTone(scoreDelta)}">${fmtSigned(scoreDelta)}</strong></span>
+            <span>리스크 <strong class="${changeTone(riskDelta, false)}">${fmtSigned(riskDelta)}</strong></span>
+          </div>
+          <p>${escapeHtml(item.reason || "점수와 구간 변화가 함께 관찰된 종목입니다.")}</p>
+        </article>`;
+      }).join("");
+    }
+
+    async function fetchMeaningfulChanges(dateValue = "") {
+      meaningfulChanges = null;
+      meaningfulChangeMap = new Map();
+      renderMeaningfulChanges();
+      try {
+        const params = new URLSearchParams();
+        if (dateValue) params.set("date", dateValue);
+        const suffix = params.toString() ? `?${params.toString()}` : "";
+        const res = await fetch(api(`/api/ranking/meaningful-changes${suffix}`));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        meaningfulChanges = await res.json();
+        const items = Array.isArray(meaningfulChanges.items) ? meaningfulChanges.items : [];
+        meaningfulChangeMap = new Map(items.map((item) => [String(item.code || "").trim(), item]));
+      } catch (e) {
+        console.warn("meaningful changes fetch failed", e);
+        meaningfulChanges = { error: "오늘의 변화 데이터를 불러오지 못했습니다." };
+        meaningfulChangeMap = new Map();
+      }
+      renderMeaningfulChanges();
+      render();
+    }
+
+    function buildMeaningfulChangeBadges(code) {
+      const item = meaningfulChangeMap.get(String(code || "").trim());
+      if (!item) return "";
+      const tags = Array.isArray(item.tags) ? item.tags : [];
+      const priority = ["Top20 신규", "점수 +5 이상", "점수 개선", "Top50 → Top20", "Top100 → Top20", "100위 밖 → Top50", "리스크 완화"];
+      const picked = [];
+      priority.forEach((label) => {
+        if (tags.includes(label) && picked.length < 2) picked.push(label);
+      });
+      tags.forEach((label) => {
+        if (!picked.includes(label) && picked.length < 2) picked.push(label);
+      });
+      if (!picked.length) return "";
+      return `<span class="change-mini-badges">${picked.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}</span>`;
     }
 
     function syncMobileFilterState(forceOpen) {
@@ -866,7 +971,7 @@
         const reviewFlagChip = buildReviewFlagChip(r);
         const actionLine = (r.action_note || "").trim();
         const manualLine = buildManualReviewLine(r);
-        return `<tr class="stock-row" data-code="${escapeHtml(r.code)}" tabindex="0" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 추천 상세" onclick="location.href='${link}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${link}';}"><td class="rank col-rank">${rankMap.get(r.code) ?? "-"}</td><td class="col-name"><div class="cell-name compact"><div class="name">${escapeHtml(displayField(r.name || r.code, "종목명 정보 없음"))} ${buildRecentSurgeBadge(r)}</div><div class="code">${escapeHtml(displayField(r.code, "코드 정보 없음"))}</div></div></td><td class="col-sector"><div class="cell-sector"><div class="sector-main">${escapeHtml(displayField(r.sector, "-"))}</div><div class="sector-sub">${escapeHtml((r.market || "").toUpperCase() || "-")} · ${escapeHtml(regime.label)}</div></div></td><td class="col-price"><div class="price-main">${fmtPrice(close)}</div><div class="${displayPctClass(change1d)}">${change1d !== null ? fmtPct(change1d) : "기준 " + escapeHtml(baseDate)}</div></td><td class="col-score"><div class="score-primary score-primary--${getScoreTone(r.final_score)}">${fmtScore(r.final_score)}</div></td><td class="col-confidence">${buildFlowDirectionBadge(r.code)}</td><td class="col-ret60"><span class="${displayPctClass(pred60)}">${fmtPct(pred60)}</span></td><td class="col-ret3m"><span class="${displayPctClass(ret3m)}">${fmtPct(ret3m)}</span></td><td class="col-mdd"><span class="${displayPctClass(mdd)}">${fmtPct(mdd)}</span><div class="risk-badge-wrap">${buildRiskBadge(r)}</div></td><td class="col-reason"><div class="table-headline"><div class="table-headline__top"><span class="reason-chip ${escapeHtml(reasonChipClass)}" title="${escapeHtml(buildCompactHeadlineTitle(r))}">${escapeHtml(reasonLine)}</span>${reviewFlagChip}</div><div class="table-headline__summary">${escapeHtml((r.score_explain_risks || "").trim() || getActionState(r).detail)}</div></div></td></tr>`;
+        return `<tr class="stock-row" data-code="${escapeHtml(r.code)}" tabindex="0" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 추천 상세" onclick="location.href='${link}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${link}';}"><td class="rank col-rank">${rankMap.get(r.code) ?? "-"}</td><td class="col-name"><div class="cell-name compact"><div class="name">${escapeHtml(displayField(r.name || r.code, "종목명 정보 없음"))} ${buildRecentSurgeBadge(r)}${buildMeaningfulChangeBadges(r.code)}${buildManualCautionBadge(r.code)}</div><div class="code">${escapeHtml(displayField(r.code, "코드 정보 없음"))}</div></div></td><td class="col-sector"><div class="cell-sector"><div class="sector-main">${escapeHtml(displayField(r.sector, "-"))}</div><div class="sector-sub">${escapeHtml((r.market || "").toUpperCase() || "-")} · ${escapeHtml(regime.label)}</div></div></td><td class="col-price"><div class="price-main">${fmtPrice(close)}</div><div class="${displayPctClass(change1d)}">${change1d !== null ? fmtPct(change1d) : "기준 " + escapeHtml(baseDate)}</div></td><td class="col-score"><div class="score-primary score-primary--${getScoreTone(r.final_score)}">${fmtScore(r.final_score)}</div></td><td class="col-confidence">${buildFlowDirectionBadge(r.code)}</td><td class="col-ret60"><span class="${displayPctClass(pred60)}">${fmtPct(pred60)}</span></td><td class="col-ret3m"><span class="${displayPctClass(ret3m)}">${fmtPct(ret3m)}</span></td><td class="col-mdd"><span class="${displayPctClass(mdd)}">${fmtPct(mdd)}</span><div class="risk-badge-wrap">${buildRiskBadge(r)}</div></td><td class="col-reason"><div class="table-headline"><div class="table-headline__top"><span class="reason-chip ${escapeHtml(reasonChipClass)}" title="${escapeHtml(buildCompactHeadlineTitle(r))}">${escapeHtml(reasonLine)}</span>${reviewFlagChip}</div><div class="table-headline__summary">${escapeHtml((r.score_explain_risks || "").trim() || getActionState(r).detail)}</div></div></td></tr>`;
       }).join("");
 
       if (!isMobile) {
@@ -886,7 +991,7 @@
         const manualLine = buildManualReviewLine(r);
         const reasonChipClass = getReasonChipClass(r);
         const reviewFlagChip = buildReviewFlagChip(r);
-        return `<article class="stock-card" tabindex="0" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 추천 카드" onclick="location.href='${link}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${link}';}"><div class="stock-card-header"><span class="rank-badge">${rankMap.get(r.code) ?? "-"}위</span><span class="market-tag">${escapeHtml((r.market || "").toUpperCase() || "-")}</span><span class="market-state-pill ${regime.cls}">${regime.label}</span></div><div class="stock-name">${escapeHtml(displayField(r.name || r.code, "종목명 정보 없음"))} ${buildRecentSurgeBadge(r)}</div><div class="stock-code">${escapeHtml(displayField(r.code, "코드 정보 없음"))}</div><div class="stock-card-sub">${escapeHtml(displayField(r.sector, "섹터 정보 없음"))} / 기준일 ${escapeHtml(displayBaseDate(r.date || r.as_of_date || marketStatus?.status_date || ""))}</div><div class="mobile-score-summary"><div><div class="hero-label">최종 점수</div><div class="score-primary score-primary--${getScoreTone(r.final_score)}">${fmtScore(r.final_score)}</div></div></div><div class="stock-card-badges">${buildFlowDirectionBadge(r.code)}${buildRiskBadge(r)}</div><div class="reason-chips"><span class="reason-chip ${escapeHtml(reasonChipClass)}" title="${escapeHtml(buildCompactHeadlineTitle(r))}">${escapeHtml(buildCompactHeadline(r))}</span>${reviewFlagChip}${r.risk_factor_1 ? `<span class="reason-chip warn">${escapeHtml(r.risk_factor_1)}</span>` : ""}</div><div class="card-metrics compact"><div class="metric"><div class="metric-label">현재가</div><div class="metric-val">${fmtPrice(close)}</div>${change1d !== null ? `<div class="metric-sub ${displayPctClass(change1d)}">${fmtPct(change1d)}</div>` : ""}</div><div class="metric"><div class="metric-label">기대수익(60d)</div><div class="metric-val ${displayPctClass(pred60)}">${fmtPct(pred60)}</div></div></div><details class="card-more" onclick="event.stopPropagation()"><summary>추가 정보</summary><div class="card-more__body"><div class="card-metrics compact"><div class="metric"><div class="metric-label">최근 3개월</div><div class="metric-val ${displayPctClass(ret3m)}">${fmtPct(ret3m)}</div></div><div class="metric"><div class="metric-label">예상 MDD</div><div class="metric-val ${displayPctClass(mdd)}">${fmtPct(mdd)}</div></div><div class="metric"><div class="metric-label">운영 메모</div><div class="metric-val">${escapeHtml((r.score_explain_risks || "").trim() || getActionState(r).detail)}</div></div></div></div></details></article>`;
+        return `<article class="stock-card" tabindex="0" aria-label="${escapeHtml(displayField(r.name || r.code, "종목"))} 추천 카드" onclick="location.href='${link}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${link}';}"><div class="stock-card-header"><span class="rank-badge">${rankMap.get(r.code) ?? "-"}위</span><span class="market-tag">${escapeHtml((r.market || "").toUpperCase() || "-")}</span><span class="market-state-pill ${regime.cls}">${regime.label}</span></div><div class="stock-name">${escapeHtml(displayField(r.name || r.code, "종목명 정보 없음"))} ${buildRecentSurgeBadge(r)}${buildMeaningfulChangeBadges(r.code)}${buildManualCautionBadge(r.code)}</div><div class="stock-code">${escapeHtml(displayField(r.code, "코드 정보 없음"))}</div><div class="stock-card-sub">${escapeHtml(displayField(r.sector, "섹터 정보 없음"))} / 기준일 ${escapeHtml(displayBaseDate(r.date || r.as_of_date || marketStatus?.status_date || ""))}</div><div class="mobile-score-summary"><div><div class="hero-label">최종 점수</div><div class="score-primary score-primary--${getScoreTone(r.final_score)}">${fmtScore(r.final_score)}</div></div></div><div class="stock-card-badges">${buildFlowDirectionBadge(r.code)}${buildRiskBadge(r)}</div><div class="reason-chips"><span class="reason-chip ${escapeHtml(reasonChipClass)}" title="${escapeHtml(buildCompactHeadlineTitle(r))}">${escapeHtml(buildCompactHeadline(r))}</span>${reviewFlagChip}${r.risk_factor_1 ? `<span class="reason-chip warn">${escapeHtml(r.risk_factor_1)}</span>` : ""}</div><div class="card-metrics compact"><div class="metric"><div class="metric-label">현재가</div><div class="metric-val">${fmtPrice(close)}</div>${change1d !== null ? `<div class="metric-sub ${displayPctClass(change1d)}">${fmtPct(change1d)}</div>` : ""}</div><div class="metric"><div class="metric-label">기대수익(60d)</div><div class="metric-val ${displayPctClass(pred60)}">${fmtPct(pred60)}</div></div></div><details class="card-more" onclick="event.stopPropagation()"><summary>추가 정보</summary><div class="card-more__body"><div class="card-metrics compact"><div class="metric"><div class="metric-label">최근 3개월</div><div class="metric-val ${displayPctClass(ret3m)}">${fmtPct(ret3m)}</div></div><div class="metric"><div class="metric-label">예상 MDD</div><div class="metric-val ${displayPctClass(mdd)}">${fmtPct(mdd)}</div></div><div class="metric"><div class="metric-label">운영 메모</div><div class="metric-val">${escapeHtml((r.score_explain_risks || "").trim() || getActionState(r).detail)}</div></div></div></div></details></article>`;
       }).join("");
       applyOperatorUi();
     }
@@ -937,6 +1042,7 @@
         render();
         $("#status").textContent = universe.length ? `총 ${universe.length}종목` : "추천 데이터 없음";
         fetchFlowHistory();
+        fetchMeaningfulChanges(getBaseDate(universe));
       } catch (e) {
         console.error(e);
         universe = [];
@@ -1256,6 +1362,10 @@
       setAlertHidden(false);
       syncSortAria();
       bindHelpTooltips();
+      $("#meaningfulChangeToggle")?.addEventListener("click", () => {
+        meaningfulChangesExpanded = !meaningfulChangesExpanded;
+        renderMeaningfulChanges();
+      });
     })();
   </script>
 </body>
