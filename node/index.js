@@ -91,6 +91,7 @@ const ANALYTICS_EXTENSIONS_EXCLUDE = new Set([
   ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".map", ".txt", ".xml", ".json", ".woff", ".woff2",
 ]);
 let pageViewSchemaReady = null;
+let interactionEventSchemaReady = null;
 let meaningfulnessReviewSchemaReady = null;
 let liveTradeReviewSchemaReady = null;
 
@@ -2571,6 +2572,33 @@ async function ensurePageViewSchema() {
   return pageViewSchemaReady;
 }
 
+async function ensureInteractionEventSchema() {
+  if (interactionEventSchemaReady) return interactionEventSchemaReady;
+  interactionEventSchemaReady = (async () => {
+    await queryRows(`
+      CREATE TABLE IF NOT EXISTS public.interaction_events (
+        id BIGSERIAL PRIMARY KEY,
+        visitor_id TEXT NOT NULL,
+        event_name TEXT NOT NULL,
+        path TEXT NULL,
+        code TEXT NULL,
+        metadata JSONB NULL,
+        user_agent TEXT NULL,
+        ip_hash TEXT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await queryRows("CREATE INDEX IF NOT EXISTS idx_interaction_events_created_at ON public.interaction_events(created_at DESC)");
+    await queryRows("CREATE INDEX IF NOT EXISTS idx_interaction_events_name_created_at ON public.interaction_events(event_name, created_at DESC)");
+    await queryRows("CREATE INDEX IF NOT EXISTS idx_interaction_events_visitor_created_at ON public.interaction_events(visitor_id, created_at DESC)");
+    await queryRows("CREATE INDEX IF NOT EXISTS idx_interaction_events_code_created_at ON public.interaction_events(code, created_at DESC)");
+  })().catch((error) => {
+    interactionEventSchemaReady = null;
+    throw error;
+  });
+  return interactionEventSchemaReady;
+}
+
 async function ensureLiveTradeReviewSchema() {
   if (liveTradeReviewSchemaReady) return liveTradeReviewSchemaReady;
   liveTradeReviewSchemaReady = (async () => {
@@ -2741,9 +2769,26 @@ async function recordPageView(req, res) {
   }
 }
 
+function appendInteractionEventFallback(event) {
+  try {
+    const dir = path.join(DATA_DIR, "analytics");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(
+      path.join(dir, "interaction_events.jsonl"),
+      `${JSON.stringify({ ...event, created_at: new Date().toISOString() })}\n`,
+      "utf8"
+    );
+    return true;
+  } catch (error) {
+    console.warn("interaction event fallback write error", error.message);
+    return false;
+  }
+}
+
 async function buildVisitorAnalyticsSummary() {
   try {
     await ensurePageViewSchema();
+    await ensureInteractionEventSchema();
     const [todayRows, recentRows, trendRows, topPagesRows] = await Promise.all([
       queryRows(
         `
@@ -2800,6 +2845,26 @@ async function buildVisitorAnalyticsSummary() {
         `
       ),
     ]);
+    let interactionRows = [];
+    try {
+      interactionRows = await queryRows(
+        `
+        WITH bounds AS (
+          SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul') AS today_start
+        )
+        SELECT event_name,
+               COUNT(*)::int AS events,
+               COUNT(DISTINCT visitor_id)::int AS unique_visitors
+        FROM public.interaction_events, bounds
+        WHERE created_at >= bounds.today_start - interval '6 day'
+        GROUP BY event_name
+        ORDER BY events DESC, unique_visitors DESC, event_name ASC
+        LIMIT 20
+        `
+      );
+    } catch (error) {
+      console.warn("interaction analytics summary error", error.message);
+    }
     const today = todayRows[0] || {};
     const recent = recentRows[0] || {};
     return {
@@ -2820,6 +2885,11 @@ async function buildVisitorAnalyticsSummary() {
         pageviews: toNum(row.pageviews) || 0,
         unique_visitors: toNum(row.unique_visitors) || 0,
       })),
+      interaction_events_7d: interactionRows.map((row) => ({
+        event_name: row.event_name || "",
+        events: toNum(row.events) || 0,
+        unique_visitors: toNum(row.unique_visitors) || 0,
+      })),
     };
   } catch (error) {
     console.warn("buildVisitorAnalyticsSummary error", error.message);
@@ -2831,6 +2901,177 @@ async function buildVisitorAnalyticsSummary() {
       last_7d_unique_visitors: 0,
       trend_7d: [],
       top_pages_7d: [],
+      interaction_events_7d: [],
+      error: error.message,
+    };
+  }
+}
+
+async function buildChangeBadgeAnalyticsSummary(days = 7) {
+  const windowDays = Math.max(1, Math.min(30, Number.parseInt(days, 10) || 7));
+  try {
+    await ensureInteractionEventSchema();
+    await ensurePageViewSchema();
+    const [eventRows, badgeViewRows, badgeClickRows, codeRows, detailFocusRows] = await Promise.all([
+      queryRows(
+        `
+        SELECT event_name,
+               COUNT(*)::int AS events,
+               COUNT(DISTINCT visitor_id)::int AS unique_visitors
+        FROM public.interaction_events
+        WHERE created_at >= now() - make_interval(days => $1::int)
+          AND event_name IN ('main_change_badge_view', 'main_change_badge_click')
+        GROUP BY event_name
+        ORDER BY event_name ASC
+        `,
+        [windowDays]
+      ),
+      queryRows(
+        `
+        WITH expanded AS (
+          SELECT visitor_id,
+                 code,
+                 jsonb_array_elements_text(
+                   CASE
+                     WHEN jsonb_typeof(metadata->'tags') = 'array' THEN metadata->'tags'
+                     ELSE '[]'::jsonb
+                   END
+                 ) AS badge
+          FROM public.interaction_events
+          WHERE created_at >= now() - make_interval(days => $1::int)
+            AND event_name = 'main_change_badge_view'
+        )
+        SELECT badge,
+               COUNT(*)::int AS views,
+               COUNT(DISTINCT visitor_id)::int AS unique_visitors,
+               COUNT(DISTINCT code)::int AS unique_codes
+        FROM expanded
+        WHERE badge <> ''
+        GROUP BY badge
+        ORDER BY views DESC, unique_visitors DESC, badge ASC
+        `,
+        [windowDays]
+      ),
+      queryRows(
+        `
+        SELECT COALESCE(NULLIF(metadata->>'badge', ''), 'unknown') AS badge,
+               COALESCE(NULLIF(metadata->>'focus', ''), 'unknown') AS focus,
+               COUNT(*)::int AS clicks,
+               COUNT(DISTINCT visitor_id)::int AS unique_visitors,
+               COUNT(DISTINCT code)::int AS unique_codes
+        FROM public.interaction_events
+        WHERE created_at >= now() - make_interval(days => $1::int)
+          AND event_name = 'main_change_badge_click'
+        GROUP BY badge, focus
+        ORDER BY clicks DESC, unique_visitors DESC, badge ASC
+        `,
+        [windowDays]
+      ),
+      queryRows(
+        `
+        SELECT code,
+               COUNT(*) FILTER (WHERE event_name = 'main_change_badge_view')::int AS view_events,
+               COUNT(*) FILTER (WHERE event_name = 'main_change_badge_click')::int AS click_events,
+               COUNT(DISTINCT visitor_id)::int AS unique_visitors
+        FROM public.interaction_events
+        WHERE created_at >= now() - make_interval(days => $1::int)
+          AND event_name IN ('main_change_badge_view', 'main_change_badge_click')
+          AND code IS NOT NULL
+          AND code <> ''
+        GROUP BY code
+        HAVING COUNT(*) FILTER (WHERE event_name = 'main_change_badge_view') > 0
+            OR COUNT(*) FILTER (WHERE event_name = 'main_change_badge_click') > 0
+        ORDER BY click_events DESC, view_events DESC, unique_visitors DESC, code ASC
+        LIMIT 20
+        `,
+        [windowDays]
+      ),
+      queryRows(
+        `
+        SELECT COALESCE(NULLIF(substring(path from '[?&]focus=([^&]+)'), ''), 'none') AS focus,
+               COUNT(*)::int AS pageviews,
+               COUNT(DISTINCT visitor_id)::int AS unique_visitors
+        FROM public.page_view_events
+        WHERE created_at >= now() - make_interval(days => $1::int)
+          AND path LIKE '%source=main_change_badge%'
+        GROUP BY focus
+        ORDER BY pageviews DESC, unique_visitors DESC, focus ASC
+        `,
+        [windowDays]
+      ),
+    ]);
+
+    const viewsByBadge = new Map();
+    badgeViewRows.forEach((row) => {
+      viewsByBadge.set(row.badge || "unknown", {
+        badge: row.badge || "unknown",
+        views: toNum(row.views) || 0,
+        unique_viewers: toNum(row.unique_visitors) || 0,
+        unique_codes: toNum(row.unique_codes) || 0,
+      });
+    });
+    const clicksByBadge = new Map();
+    badgeClickRows.forEach((row) => {
+      const badge = row.badge || "unknown";
+      const prev = clicksByBadge.get(badge) || { clicks: 0, unique_clickers: 0 };
+      prev.clicks += toNum(row.clicks) || 0;
+      prev.unique_clickers += toNum(row.unique_visitors) || 0;
+      clicksByBadge.set(badge, prev);
+    });
+    const clickRates = [...viewsByBadge.values()].map((view) => {
+      const click = clicksByBadge.get(view.badge) || {};
+      const clicks = toNum(click.clicks) || 0;
+      const rate = view.views > 0 ? clicks / view.views : 0;
+      return {
+        badge: view.badge,
+        views: view.views,
+        clicks,
+        click_rate: Number(rate.toFixed(4)),
+      };
+    }).sort((a, b) => b.clicks - a.clicks || b.views - a.views || a.badge.localeCompare(b.badge));
+
+    return {
+      available: true,
+      timezone: VISITOR_ANALYTICS_TIMEZONE,
+      window_days: windowDays,
+      events: eventRows.map((row) => ({
+        event_name: row.event_name || "",
+        events: toNum(row.events) || 0,
+        unique_visitors: toNum(row.unique_visitors) || 0,
+      })),
+      badge_views: [...viewsByBadge.values()],
+      badge_clicks: badgeClickRows.map((row) => ({
+        badge: row.badge || "unknown",
+        focus: row.focus || "unknown",
+        clicks: toNum(row.clicks) || 0,
+        unique_visitors: toNum(row.unique_visitors) || 0,
+        unique_codes: toNum(row.unique_codes) || 0,
+      })),
+      click_rate_by_badge: clickRates,
+      top_codes: codeRows.map((row) => ({
+        code: row.code || "",
+        view_events: toNum(row.view_events) || 0,
+        click_events: toNum(row.click_events) || 0,
+        unique_visitors: toNum(row.unique_visitors) || 0,
+      })),
+      detail_focus_entries: detailFocusRows.map((row) => ({
+        focus: row.focus || "none",
+        pageviews: toNum(row.pageviews) || 0,
+        unique_visitors: toNum(row.unique_visitors) || 0,
+      })),
+    };
+  } catch (error) {
+    console.warn("buildChangeBadgeAnalyticsSummary error", error.message);
+    return {
+      available: false,
+      timezone: VISITOR_ANALYTICS_TIMEZONE,
+      window_days: windowDays,
+      events: [],
+      badge_views: [],
+      badge_clicks: [],
+      click_rate_by_badge: [],
+      top_codes: [],
+      detail_focus_entries: [],
       error: error.message,
     };
   }
@@ -4671,6 +4912,62 @@ async function listTrades() {
   }));
 }
 
+function buildOpenLotMetaByCode(trades = []) {
+  const lotsByCode = new Map();
+  const sorted = (Array.isArray(trades) ? trades : [])
+    .slice()
+    .sort((a, b) => {
+      const dateCompare = String(a.date || "").localeCompare(String(b.date || ""));
+      if (dateCompare !== 0) return dateCompare;
+      return (Number(a.trade_id) || 0) - (Number(b.trade_id) || 0);
+    });
+
+  sorted.forEach((trade) => {
+    const code = String(trade.code || "").trim().padStart(6, "0");
+    if (!code) return;
+    const qty = Number(trade.qty) || 0;
+    if (qty <= 0) return;
+    if (!lotsByCode.has(code)) lotsByCode.set(code, []);
+    const lots = lotsByCode.get(code);
+    const side = String(trade.side || "").toUpperCase();
+    if (side === "BUY") {
+      lots.push({ date: toIsoDate(trade.date) || String(trade.date || "").slice(0, 10), qty });
+      return;
+    }
+    if (side !== "SELL") return;
+    let remaining = qty;
+    while (remaining > 0 && lots.length) {
+      const lot = lots[0];
+      const used = Math.min(Number(lot.qty) || 0, remaining);
+      lot.qty = (Number(lot.qty) || 0) - used;
+      remaining -= used;
+      if ((Number(lot.qty) || 0) <= 0.000001) lots.shift();
+    }
+  });
+
+  const result = new Map();
+  lotsByCode.forEach((lots, code) => {
+    const openLots = lots.filter((lot) => (Number(lot.qty) || 0) > 0);
+    const first = openLots.find((lot) => lot.date);
+    if (!first) return;
+    result.set(code, {
+      first_buy_date: first.date,
+      open_qty_from_trades: openLots.reduce((sum, lot) => sum + (Number(lot.qty) || 0), 0),
+    });
+  });
+  return result;
+}
+
+function daysBetweenIsoDates(startDate, endDate) {
+  const start = toIsoDate(startDate);
+  const end = toIsoDate(endDate);
+  if (!start || !end) return null;
+  const startMs = Date.parse(`${start}T00:00:00Z`);
+  const endMs = Date.parse(`${end}T00:00:00Z`);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  return Math.floor((endMs - startMs) / 86400000);
+}
+
 async function insertTrade(payload) {
   await ensureTradesTable();
   const {
@@ -5225,6 +5522,66 @@ app.get("/api/homepage-content", async (req, res) => {
 app.get("/api/operator-auth/status", operatorAccess.status);
 app.post("/api/operator-auth/login", operatorAccess.login);
 app.post("/api/operator-auth/logout", operatorAccess.logout);
+app.post("/api/interaction-events", async (req, res) => {
+  try {
+    const allowedEvents = new Set([
+      "main_change_summary_view",
+      "main_change_expand_click",
+      "main_change_card_click",
+      "main_change_badge_view",
+      "main_change_badge_click",
+      "ranking_row_click",
+      "stock_detail_view",
+      "stock_factor_expand",
+      "stock_compare_add",
+      "auto_decision_log_view",
+      "manual_precheck_view",
+      "performance_case_view",
+      "watchlist_add",
+    ]);
+    const eventName = String(req.body?.event_name || "").trim();
+    if (!allowedEvents.has(eventName)) {
+      return res.status(400).json({ error: "unsupported event_name" });
+    }
+    const visitorId = ensureVisitorId(req, res);
+    const metadata = req.body?.metadata && typeof req.body.metadata === "object" ? req.body.metadata : {};
+    const metadataText = JSON.stringify(metadata);
+    const metadataForDb = metadataText.length <= 8000
+      ? metadataText
+      : JSON.stringify({ truncated: true, keys: Object.keys(metadata).slice(0, 50) });
+    const code = String(req.body?.code || metadata.code || "").trim().slice(0, 20) || null;
+    const pathValue = String(req.body?.path || "").trim().slice(0, 500) || null;
+    const userAgent = String(req.get("user-agent") || "").slice(0, 500) || null;
+    const ipHash = hashIp(req.ip || req.headers["x-forwarded-for"] || "");
+    try {
+      await ensureInteractionEventSchema();
+      await queryRows(
+        `
+        INSERT INTO public.interaction_events (visitor_id, event_name, path, code, metadata, user_agent, ip_hash)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+        `,
+        [visitorId, eventName, pathValue, code, metadataForDb, userAgent, ipHash]
+      );
+      return res.json({ ok: true, storage: "db" });
+    } catch (dbError) {
+      console.warn("interaction event DB write failed", dbError.message);
+      const fallbackOk = appendInteractionEventFallback({
+        visitor_id: visitorId,
+        event_name: eventName,
+        path: pathValue,
+        code,
+        metadata,
+        user_agent: userAgent,
+        ip_hash: ipHash,
+      });
+      if (fallbackOk) return res.json({ ok: true, storage: "file" });
+      throw dbError;
+    }
+  } catch (error) {
+    console.error("POST /api/interaction-events error", error);
+    res.status(500).json({ error: "failed to record interaction event" });
+  }
+});
 app.get("/reports/:slug", (req, res) => {
   const item = readSiteLibrary().find((entry) => entry.section === "report" && entry.slug === req.params.slug);
   if (!item) return res.status(404).sendFile(path.join(PUBLIC_DIR, "content-detail.html"));
@@ -6977,6 +7334,7 @@ app.get("/api/rule-holdings", async (req, res) => {
 
     const latestRankByCode = await getRankingLatestByCode();
     const today = new Date().toISOString().slice(0, 10);
+    const tradeLotMetaByCode = buildOpenLotMetaByCode(await listTrades());
 
     let totalValue = 0;
     let totalCost = 0;
@@ -7009,8 +7367,11 @@ app.get("/api/rule-holdings", async (req, res) => {
         const riskPenalty = toNum(rankRow.risk_penalty);
         const confidenceScore = toNum(rankRow.confidence_score) ?? toNum(rankRow.raw_confidence_v2) ?? null;
 
-        // 보유일: csv에 first_buy_date 없으므로 0일로 처리 (신규 유예 없음)
-        const holdingDays = null;
+        const explicitFirstBuyDate = toIsoDate(r.first_buy_date || r.entry_date || r.buy_date || "");
+        const lotMeta = tradeLotMetaByCode.get(code) || {};
+        const firstBuyDate = explicitFirstBuyDate || lotMeta.first_buy_date || null;
+        const holdingDays = firstBuyDate ? daysBetweenIsoDates(firstBuyDate, today) : null;
+        const holdingDaysSource = explicitFirstBuyDate ? "rule_account_holdings" : (lotMeta.first_buy_date ? "trades_fifo" : null);
 
         // 20% 목표가
         const targetPrice = avgBuyPrice != null ? avgBuyPrice * 1.2 : null;
@@ -7046,19 +7407,68 @@ app.get("/api/rule-holdings", async (req, res) => {
         if (Number.isFinite(unrealizedPct) && unrealizedPct >= 15 && priority < 3) setReview("profit_above_15pct");
         if (!reasons.length) pushReason("holding_support_maintained");
 
+        const sellPriorityFactors = [];
+        const addPriorityFactor = (label, points, detail = "") => {
+          if (!Number.isFinite(points) || points === 0) return;
+          sellPriorityFactors.push({ label, points, detail });
+        };
         let sellPriorityScore = 22;
-        if (status === "REVIEW") sellPriorityScore = 58;
-        if (status === "EXIT_REVIEW") sellPriorityScore = 82;
-        if (Number.isFinite(unrealizedPct) && unrealizedPct >= 15) sellPriorityScore += 6;
-        if (Number.isFinite(unrealizedPct) && unrealizedPct <= -8) sellPriorityScore += 10;
-        if (Number.isFinite(finalScore) && finalScore < 45) sellPriorityScore += 10;
-        if (currentPrice == null || !latestRankDate) sellPriorityScore += 6;
-        if (Number.isFinite(confidenceScore) && confidenceScore < 70) sellPriorityScore += 5;
-        if (Number.isFinite(retScore) && retScore < 55) sellPriorityScore += 4;
-        if (Number.isFinite(probScore) && probScore < 55) sellPriorityScore += 4;
-        if (Number.isFinite(riskPenalty) && riskPenalty >= 3) sellPriorityScore += 4;
-        if (Number.isFinite(scoreDelta) && scoreDelta <= -5) sellPriorityScore += 4;
+        addPriorityFactor("기본 점검", 22, "보유 종목은 매일 최소 점검 대상으로 봅니다.");
+        if (status === "REVIEW") {
+          sellPriorityScore = 58;
+          sellPriorityFactors.length = 0;
+          addPriorityFactor("점검필요 기본", 58, "모델, 수익률, 리스크 중 점검 조건이 있습니다.");
+        }
+        if (status === "EXIT_REVIEW") {
+          sellPriorityScore = 82;
+          sellPriorityFactors.length = 0;
+          addPriorityFactor("매도검토 기본", 82, "손실 또는 모델 약화로 매도 검토 상태입니다.");
+        }
+        if (Number.isFinite(unrealizedPct) && unrealizedPct >= 15) {
+          sellPriorityScore += 6;
+          addPriorityFactor("수익 보호", 6, `수익률 ${unrealizedPct.toFixed(1)}%`);
+        }
+        if (Number.isFinite(unrealizedPct) && unrealizedPct <= -8) {
+          sellPriorityScore += 10;
+          addPriorityFactor("손실 기준 이탈", 10, `수익률 ${unrealizedPct.toFixed(1)}%`);
+        }
+        if (Number.isFinite(finalScore) && finalScore < 45) {
+          sellPriorityScore += 10;
+          addPriorityFactor("최종점수 약화", 10, `모델 ${finalScore.toFixed(1)}`);
+        }
+        if (currentPrice == null || !latestRankDate) {
+          sellPriorityScore += 6;
+          addPriorityFactor("가격 데이터 확인", 6, "현재가 또는 랭킹 기준일 확인 필요");
+        }
+        if (Number.isFinite(confidenceScore) && confidenceScore < 70) {
+          sellPriorityScore += 5;
+          addPriorityFactor("신뢰도 낮음", 5, `신뢰도 ${Math.round(confidenceScore)}`);
+        }
+        if (Number.isFinite(retScore) && retScore < 55) {
+          sellPriorityScore += 4;
+          addPriorityFactor("수익 기대 약화", 4, `ret ${retScore.toFixed(1)}`);
+        }
+        if (Number.isFinite(probScore) && probScore < 55) {
+          sellPriorityScore += 4;
+          addPriorityFactor("상위권 확률 약화", 4, `prob ${probScore.toFixed(1)}`);
+        }
+        if (Number.isFinite(riskPenalty) && riskPenalty >= 3) {
+          sellPriorityScore += 4;
+          addPriorityFactor("리스크 높음", 4, `risk ${riskPenalty.toFixed(1)}`);
+        }
+        if (Number.isFinite(scoreDelta) && scoreDelta <= -5) {
+          sellPriorityScore += 4;
+          addPriorityFactor("점수 하락", 4, `변화 ${scoreDelta.toFixed(1)}`);
+        }
+        const sellPriorityRawScore = sellPriorityScore;
         sellPriorityScore = Math.max(0, Math.min(99, sellPriorityScore));
+        if (sellPriorityRawScore !== sellPriorityScore) {
+          sellPriorityFactors.push({
+            label: "상한 적용",
+            points: 0,
+            detail: `원점수 ${sellPriorityRawScore.toFixed(0)} → 표시점수 ${sellPriorityScore.toFixed(0)}`,
+          });
+        }
 
         const hasReason = (c) => reasons.includes(c);
         let actionNote = "보유 근거가 유지되고 있습니다.";
@@ -7098,12 +7508,17 @@ app.get("/api/rule-holdings", async (req, res) => {
           risk_penalty: riskPenalty,
           confidence_score: confidenceScore,
           latest_rank_date: latestRankDate,
+          first_buy_date: firstBuyDate,
           holding_days: holdingDays,
+          holding_days_source: holdingDaysSource,
+          open_qty_from_trades: lotMeta.open_qty_from_trades ?? null,
           live_score_source: getLiveScoreSource(rankRow),
           system_review_status: status,
           system_review_label: label,
           system_review_priority: priority,
           sell_priority_score: sellPriorityScore,
+          sell_priority_raw_score: sellPriorityRawScore,
+          sell_priority_factors: sellPriorityFactors,
           system_review_reasons: reasons,
           system_action_note: actionNote,
         };
@@ -8508,6 +8923,16 @@ app.get("/api/analytics/summary", operatorAccess.apiGuard, async (req, res) => {
     res.json(payload);
   } catch (e) {
     console.error("GET /api/analytics/summary error", e);
+    res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.get("/api/analytics/change-badges", operatorAccess.apiGuard, async (req, res) => {
+  try {
+    const payload = await buildChangeBadgeAnalyticsSummary(req.query.days);
+    res.json(payload);
+  } catch (e) {
+    console.error("GET /api/analytics/change-badges error", e);
     res.status(500).json({ error: "internal error" });
   }
 });

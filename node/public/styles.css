@@ -893,19 +893,47 @@ button:active,
   vertical-align: middle;
 }
 
-.change-mini-badges span {
+.change-mini-badges span,
+.change-mini-badges a {
   display: inline-flex;
   align-items: center;
   min-height: 20px;
   padding: 2px 6px;
-  border: 1px solid rgba(52, 211, 153, 0.24);
+  border: 1px solid rgba(96, 165, 250, 0.22);
   border-radius: 999px;
-  color: #86efac;
-  background: rgba(16, 185, 129, 0.08);
+  color: #bfdbfe;
+  background: rgba(96, 165, 250, 0.08);
   font-size: 10px;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
+  text-decoration: none;
+}
+
+.change-mini-badges span.is-score-jump,
+.change-mini-badges a.is-score-jump {
+  border-color: rgba(96, 165, 250, 0.24);
+  color: #bfdbfe;
+  background: rgba(96, 165, 250, 0.08);
+}
+
+.change-mini-badges span.is-watch-entry,
+.change-mini-badges a.is-watch-entry {
+  border-color: rgba(52, 211, 153, 0.24);
+  color: #86efac;
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.change-mini-badges span.is-risk-relief,
+.change-mini-badges a.is-risk-relief {
+  border-color: rgba(45, 212, 191, 0.24);
+  color: #99f6e4;
+  background: rgba(20, 184, 166, 0.08);
+}
+
+.change-mini-badges a:hover {
+  border-color: rgba(191, 219, 254, 0.42);
+  background: rgba(96, 165, 250, 0.14);
 }
 
 .table-panel { overflow-x: auto; }

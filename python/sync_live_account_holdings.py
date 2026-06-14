@@ -308,7 +308,7 @@ def _weekly_loss_context(
 def normalize_holdings(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(
-            columns=["code", "name", "qty", "avg_price", "current_price", "eval_amount", "pnl_amount", "pnl_pct"]
+            columns=["code", "name", "qty", "avg_price", "current_price", "eval_amount", "pnl_amount", "pnl_pct", "first_buy_date"]
         )
     work = df.copy()
     rename_map = {
@@ -320,6 +320,9 @@ def normalize_holdings(df: pd.DataFrame) -> pd.DataFrame:
         "evlu_amt": "eval_amount",
         "evlu_pfls_amt": "pnl_amount",
         "evlu_pfls_rt": "pnl_pct",
+        "frst_bltn_date": "first_buy_date",
+        "frst_buy_date": "first_buy_date",
+        "ord_dt": "first_buy_date",
     }
     work = work.rename(columns=rename_map)
     for col in ["code", "name"]:
@@ -332,14 +335,24 @@ def normalize_holdings(df: pd.DataFrame) -> pd.DataFrame:
     work = work[work["qty"].fillna(0) > 0].copy()
     if work.empty:
         return pd.DataFrame(
-            columns=["code", "name", "qty", "avg_price", "current_price", "eval_amount", "pnl_amount", "pnl_pct", "weight", "status"]
+            columns=["code", "name", "qty", "avg_price", "current_price", "eval_amount", "pnl_amount", "pnl_pct", "weight", "status", "first_buy_date"]
         )
     # KIS returns evaluation PnL rate in percentage points (for example 3.99),
     # while the UI formatter expects ratio values (0.0399 -> 3.99%).
     work["pnl_pct"] = (work["pnl_pct"] / 100.0).round(6)
     work["weight"] = work["eval_amount"] / work["eval_amount"].sum() if work["eval_amount"].notna().any() and work["eval_amount"].sum() else pd.NA
     work["status"] = "OPEN"
-    return work[["code", "name", "qty", "avg_price", "current_price", "eval_amount", "pnl_amount", "pnl_pct", "weight", "status"]].sort_values(["eval_amount", "code"], ascending=[False, True]).reset_index(drop=True)
+    if "first_buy_date" in work.columns:
+        work["first_buy_date"] = (
+            work["first_buy_date"]
+            .fillna("")
+            .astype(str)
+            .str.replace(r"[^0-9]", "", regex=True)
+            .str.replace(r"^([0-9]{4})([0-9]{2})([0-9]{2})$", r"\1-\2-\3", regex=True)
+        )
+    else:
+        work["first_buy_date"] = ""
+    return work[["code", "name", "qty", "avg_price", "current_price", "eval_amount", "pnl_amount", "pnl_pct", "weight", "status", "first_buy_date"]].sort_values(["eval_amount", "code"], ascending=[False, True]).reset_index(drop=True)
 
 
 def main() -> int:

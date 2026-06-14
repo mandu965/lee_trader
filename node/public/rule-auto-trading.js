@@ -103,6 +103,32 @@ function reasonChip(code) {
   return `<span class="chip warn">${esc(label)}</span>`;
 }
 
+function formatHoldingDays(item) {
+  const days = Number(item?.holding_days);
+  if (!Number.isFinite(days)) return "보유일 미확인";
+  const start = item?.first_buy_date ? `${item.first_buy_date} · ` : "";
+  return `${start}${fmtNum(days)}일 보유`;
+}
+
+function buildPriorityFactors(item) {
+  const factors = Array.isArray(item?.sell_priority_factors) ? item.sell_priority_factors : [];
+  if (!factors.length) return "";
+  const rows = factors.slice(0, 8).map((factor) => {
+    const points = Number(factor.points);
+    const pointText = Number.isFinite(points) ? `+${fmtNum(points)}` : "";
+    const detail = factor.detail ? `<span>${esc(factor.detail)}</span>` : "";
+    return `<div class="priority-factor-row">
+      <strong>${esc(factor.label || "근거")}</strong>
+      ${detail}
+      <em>${esc(pointText)}</em>
+    </div>`;
+  }).join("");
+  return `<details class="priority-factors" onclick="event.stopPropagation()">
+    <summary>우선순위 산출 근거</summary>
+    <div class="priority-factor-list">${rows}</div>
+  </details>`;
+}
+
 const fmtWonPlain = (v) => {
   const n = Number(v);
   if (!Number.isFinite(n)) return "-";
@@ -482,6 +508,7 @@ function renderHoldingsList(data) {
           <div class="holding-stock">
             <div class="holding-stock-name">${esc(h.name || h.code)}</div>
             <div class="holding-stock-meta">${esc(h.code)} · ${esc(h.market || "")} · ${esc(h.sector || "")} · ${fmtNum(h.current_qty)}주</div>
+            <div class="holding-stock-meta">${esc(formatHoldingDays(h))}</div>
             <div class="holding-badges">
               <span class="review-badge ${statusCls}">${esc(statusLabel)}</span>
               ${Number.isFinite(score) ? `<span class="score-badge">모델 ${score.toFixed(1)}</span>` : ""}
@@ -533,6 +560,7 @@ function renderHoldingsList(data) {
         </div>
         <div class="holding-reasons">${reasonsHtml}</div>
         ${buildCompactDecisionSummary(h, pct, priorityValue)}
+        ${buildPriorityFactors(h)}
         ${h.system_action_note ? `<div class="holding-action">${esc(h.system_action_note)}</div>` : ""}
       </div>`;
   }).join("");
@@ -544,11 +572,25 @@ function renderFlowHistory(flowData, holdingItems) {
   if (!el) return;
 
   const byCode = {};
-  const rows = Array.isArray(flowData?.items) ? flowData.items : Array.isArray(flowData) ? flowData : [];
-  rows.forEach((r) => {
-    if (!byCode[r.code]) byCode[r.code] = [];
-    byCode[r.code].push(r);
-  });
+  const rawItems = flowData?.items ?? flowData;
+  const addRow = (code, row) => {
+    const safeCode = String(row?.code || code || "").trim();
+    if (!safeCode) return;
+    if (!byCode[safeCode]) byCode[safeCode] = [];
+    byCode[safeCode].push({
+      ...row,
+      code: safeCode,
+      foreign_net: Number(row?.foreign_net ?? row?.flow_foreign_net_5d ?? row?.foreign_5d ?? 0),
+      inst_net: Number(row?.inst_net ?? row?.flow_inst_net_5d ?? row?.institution_5d ?? 0),
+    });
+  };
+  if (Array.isArray(rawItems)) {
+    rawItems.forEach((row) => addRow(row?.code, row));
+  } else if (rawItems && typeof rawItems === "object") {
+    Object.entries(rawItems).forEach(([code, rows]) => {
+      (Array.isArray(rows) ? rows : []).forEach((row) => addRow(code, row));
+    });
+  }
 
   const codes = (holdingItems || []).map((h) => h.code);
   if (!codes.length) {
@@ -556,11 +598,14 @@ function renderFlowHistory(flowData, holdingItems) {
     return;
   }
 
-  const fmtShares = (v) => {
+  const fmtFlowAmount = (v) => {
     const n = Number(v);
     if (!Number.isFinite(n)) return "-";
-    if (Math.abs(n) >= 10000) return `${(n / 10000).toFixed(1)}만주`;
-    return `${Math.round(n).toLocaleString()}주`;
+    const abs = Math.abs(n);
+    const sign = n > 0 ? "+" : n < 0 ? "-" : "";
+    if (abs >= 100_000_000) return `${sign}${(abs / 100_000_000).toFixed(1)}억`;
+    if (abs >= 10_000) return `${sign}${Math.round(abs / 10_000).toLocaleString()}만`;
+    return `${sign}${Math.round(abs).toLocaleString()}원`;
   };
 
   const panels = codes.map((code) => {
@@ -573,16 +618,16 @@ function renderFlowHistory(flowData, holdingItems) {
     }
 
     const latest = history[history.length - 1];
-    const fNet5 = Number(latest?.flow_foreign_net_5d);
-    const iNet5 = Number(latest?.flow_inst_net_5d);
+    const fNet = Number(latest?.foreign_net);
+    const iNet = Number(latest?.inst_net);
 
     const rowsHtml = history.map((r) => {
-      const fVal = Number(r.flow_foreign_net_5d);
-      const iVal = Number(r.flow_inst_net_5d);
+      const fVal = Number(r.foreign_net);
+      const iVal = Number(r.inst_net);
       return `<div style="display:flex;gap:8px;font-size:12px;padding:3px 0;border-bottom:1px solid rgba(30,41,59,.4);">
         <span style="width:88px;color:var(--color-text-secondary);">${esc(r.date)}</span>
-        <span style="width:80px;text-align:right;color:${fVal >= 0 ? "#4ade80" : "#f87171"};">${fmtShares(fVal)}</span>
-        <span style="width:80px;text-align:right;color:${iVal >= 0 ? "#60a5fa" : "#fbbf24"};">${fmtShares(iVal)}</span>
+        <span style="width:88px;text-align:right;color:${fVal >= 0 ? "#4ade80" : "#f87171"};">${fmtFlowAmount(fVal)}</span>
+        <span style="width:88px;text-align:right;color:${iVal >= 0 ? "#60a5fa" : "#fbbf24"};">${fmtFlowAmount(iVal)}</span>
       </div>`;
     }).join("");
 
@@ -590,11 +635,11 @@ function renderFlowHistory(flowData, holdingItems) {
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
         <strong style="font-size:13px;">${esc(code)} ${esc(name)}</strong>
         <span style="font-size:11px;color:var(--color-text-secondary);">
-          5일 외국인 <span style="color:${fNet5 >= 0 ? "#4ade80" : "#f87171"}">${fmtShares(fNet5)}</span>
-          · 기관 <span style="color:${iNet5 >= 0 ? "#60a5fa" : "#fbbf24"}">${fmtShares(iNet5)}</span>
+          최근일 외국인 <span style="color:${fNet >= 0 ? "#4ade80" : "#f87171"}">${fmtFlowAmount(fNet)}</span>
+          · 기관 <span style="color:${iNet >= 0 ? "#60a5fa" : "#fbbf24"}">${fmtFlowAmount(iNet)}</span>
         </span>
       </div>
-      <div style="font-size:10px;color:var(--color-text-secondary);margin-bottom:4px;">날짜 / 외국인(초록=매수·빨강=매도) / 기관(파랑=매수·노랑=매도)</div>
+      <div style="font-size:10px;color:var(--color-text-secondary);margin-bottom:4px;">날짜 / 외국인 순매수금액 / 기관 순매수금액 · 초록·파랑=순매수, 빨강·노랑=순매도</div>
       ${rowsHtml}
     </div>`;
   }).join("");
