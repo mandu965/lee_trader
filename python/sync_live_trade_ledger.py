@@ -1153,10 +1153,13 @@ def sync_position_snapshot(*, holdings_csv: Path, summary_payload: dict[str, Any
     with engine.begin() as conn:
         for row in holdings.where(pd.notna(holdings), None).to_dict(orient="records"):
             code = _none_if_blank(row.get("code"))
+            if code:
+                code = str(code).strip().zfill(6)
             qty = _num(row.get("qty"))
             if not code or qty is None:
                 continue
             payload = dict(row)
+            payload["code"] = code
             payload["summary"] = summary_payload
             conn.execute(
                 text(

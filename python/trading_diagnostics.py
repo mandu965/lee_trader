@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Any
 
 
 KST = ZoneInfo("Asia/Seoul")
+ROOT = Path(__file__).resolve().parents[1]
+TRADING_CALENDAR_JSON = ROOT / "config" / "trading_calendar_kr.json"
 
 
 def now_kst() -> datetime:
@@ -18,12 +22,32 @@ def generate_run_id(*, prefix: str = "live-auto", now: datetime | None = None) -
     return f"{prefix}-{ts.strftime('%Y%m%d-%H%M%S')}"
 
 
+def _load_kr_trading_calendar(path: Path = TRADING_CALENDAR_JSON) -> tuple[set[str], set[str]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except Exception:
+        return set(), set()
+    closed = {str(item).strip() for item in payload.get("closed_dates") or [] if str(item).strip()}
+    opened = {str(item).strip() for item in payload.get("open_dates") or [] if str(item).strip()}
+    return closed, opened
+
+
+def _is_kr_trading_day(kst_now: datetime) -> bool:
+    day_text = kst_now.strftime("%Y-%m-%d")
+    closed_dates, open_dates = _load_kr_trading_calendar()
+    if day_text in open_dates:
+        return True
+    if day_text in closed_dates:
+        return False
+    return kst_now.weekday() < 5
+
+
 def build_market_context(now: datetime | None = None) -> dict[str, Any]:
     kst_now = now.astimezone(KST) if now is not None and now.tzinfo else (now or now_kst())
     utc_now = kst_now.astimezone(UTC)
-    weekday = kst_now.weekday()
     hour_min = kst_now.hour * 60 + kst_now.minute
-    if weekday >= 5:
+    is_trading_day = _is_kr_trading_day(kst_now)
+    if not is_trading_day:
         status = "HOLIDAY"
         status_ko = "휴장"
     elif hour_min < 9 * 60:
@@ -35,10 +59,16 @@ def build_market_context(now: datetime | None = None) -> dict[str, Any]:
     else:
         status = "AFTER_HOURS"
         status_ko = "장후"
+    status_ko = {
+        "HOLIDAY": "\ud734\uc7a5",
+        "PREOPEN": "\uc7a5\uc804",
+        "OPEN": "\uc7a5\uc911",
+        "AFTER_HOURS": "\uc7a5\ud6c4",
+    }.get(status, status)
     return {
         "market_status": status,
         "market_status_ko": status_ko,
-        "is_trading_day": weekday < 5,
+        "is_trading_day": is_trading_day,
         "server_timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
         "utc_timestamp": utc_now.isoformat(timespec="seconds"),
         "kst_timestamp": kst_now.isoformat(timespec="seconds"),

@@ -188,10 +188,19 @@ def build_report(as_of_date: str | None) -> dict[str, Any]:
             latest_snapshot = _rows(
                 conn,
                 """
-                SELECT snapshot_date, COUNT(*) AS holding_count, MAX(snapshot_at) AS latest_snapshot_at
-                FROM research.live_position_snapshot
-                GROUP BY snapshot_date
-                ORDER BY snapshot_date DESC
+                WITH latest AS (
+                    SELECT snapshot_date, MAX(snapshot_at) AS latest_snapshot_at
+                    FROM research.live_position_snapshot
+                    GROUP BY snapshot_date
+                    ORDER BY snapshot_date DESC
+                    LIMIT 1
+                )
+                SELECT p.snapshot_date, COUNT(*) AS holding_count, latest.latest_snapshot_at
+                FROM research.live_position_snapshot p
+                JOIN latest
+                  ON p.snapshot_date = latest.snapshot_date
+                 AND p.snapshot_at = latest.latest_snapshot_at
+                GROUP BY p.snapshot_date, latest.latest_snapshot_at
                 LIMIT 1
                 """,
             )

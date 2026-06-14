@@ -184,6 +184,7 @@
     let meaningfulChangesExpanded = false;
     let meaningfulChangeMap = new Map();
     let manualReviewMap = new Map();
+    const seenChangeBadgeViews = new Set();
     let alertHidden = false;
     let tradeCtx = { side: "BUY", code: "", name: "" };
     let operatorAuth = { enabled: false, authorized: true };
@@ -212,6 +213,38 @@
       if (n < 0) return "neg";
       return "muted";
     };
+
+    function visitorId() {
+      const key = "lee_trader_visitor_id";
+      let id = localStorage.getItem(key);
+      if (!id) {
+        id = `v_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+        localStorage.setItem(key, id);
+      }
+      return id;
+    }
+
+    function trackInteraction(eventName, metadata = {}) {
+      const payload = {
+        visitor_id: visitorId(),
+        event_name: eventName,
+        path: location.pathname + location.search + location.hash,
+        metadata,
+      };
+      try {
+        const body = JSON.stringify(payload);
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(api("/api/interaction-events"), new Blob([body], { type: "application/json" }));
+          return;
+        }
+        fetch(api("/api/interaction-events"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        }).catch(() => {});
+      } catch (_) {}
+    }
 
     function getBaseDate(rows) {
       const first = rows.find((r) => r?.date || r?.as_of_date);
@@ -813,12 +846,12 @@
         if (n >= mid) return "보통";
         return "적음";
       };
-      meta.textContent = `현재 순위순 · 새 Top20 ${fmtPrice(s.new_top20_count || 0)}개 · 점수 개선 ${levelText(s.score_jump_count, 40, 15)} · 순위 노이즈 ${fmtPrice(s.rank_noise_count || 0)}개 제외 참고`;
+      meta.textContent = `현재 순위순 · 변화 뱃지 ${fmtPrice(s.meaningful_count || 0)}개 · 점수급등 ${fmtPrice(s.score_jump_count || 0)}개 · 관심권진입 ${fmtPrice(s.band_up_count || 0)}개 · 리스크완화 ${fmtPrice(s.risk_relief_count || 0)}개`;
       summary.innerHTML = [
-        `<div class="change-summary-card"><span>새로 볼 후보</span><strong>${fmtPrice(s.new_top20_count || 0)}개</strong><em>Top20에 새로 들어온 종목</em></div>`,
-        `<div class="change-summary-card"><span>점수 개선 강도</span><strong>${levelText(s.score_jump_count, 40, 15)}</strong><em>점수 상승 종목 ${fmtPrice(s.score_jump_count || 0)}개</em></div>`,
-        `<div class="change-summary-card"><span>관심권 진입</span><strong>${levelText(s.band_up_count, 25, 10)}</strong><em>순위 구간이 올라간 종목 ${fmtPrice(s.band_up_count || 0)}개</em></div>`,
-        `<div class="change-summary-card"><span>부담 완화</span><strong>${fmtPrice(s.risk_relief_count || 0)}개</strong><em>리스크 점수가 낮아진 종목</em></div>`,
+        `<div class="change-summary-card"><span>뱃지 대상</span><strong>${fmtPrice(s.meaningful_count || 0)}개</strong><em>전체의 ${fmtPct(s.badge_stock_ratio || 0, 1)} 수준</em></div>`,
+        `<div class="change-summary-card"><span>점수급등</span><strong>${fmtPrice(s.score_jump_count || 0)}개</strong><em>점수 +10 이상 · 60위 이내</em></div>`,
+        `<div class="change-summary-card"><span>관심권진입</span><strong>${fmtPrice(s.band_up_count || 0)}개</strong><em>50위 밖에서 Top20 진입</em></div>`,
+        `<div class="change-summary-card"><span>리스크완화</span><strong>${fmtPrice(s.risk_relief_count || 0)}개</strong><em>리스크 패널티 -4 이하</em></div>`,
         `<div class="change-summary-card is-muted"><span>해석 제외 참고</span><strong>${fmtPrice(s.rank_noise_count || 0)}개</strong><em>점수 변화보다 순위만 흔들린 종목</em></div>`,
       ].join("");
 
@@ -828,11 +861,12 @@
         return;
       }
       list.innerHTML = items.map((item) => {
-        const tags = Array.isArray(item.tags) ? item.tags : [];
+        const tags = Array.isArray(item.badges) && item.badges.length ? item.badges.map((badge) => badge.label) : (Array.isArray(item.tags) ? item.tags : []);
         const rankDelta = toNum(item.rank_delta);
         const scoreDelta = toNum(item.score_delta);
         const riskDelta = toNum(item.risk_delta);
-        const link = `./detail.html?code=${encodeURIComponent(item.code || "")}`;
+        const firstFocus = (Array.isArray(item.badges) && item.badges[0]?.focus) || "analysis-summary";
+        const link = `./detail.html?code=${encodeURIComponent(item.code || "")}&source=main_change_card&focus=${encodeURIComponent(firstFocus)}#${encodeURIComponent(firstFocus)}`;
         return `<article class="change-card" tabindex="0" onclick="location.href='${link}'" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();location.href='${link}';}">
           <div class="change-card__top">
             <div>
@@ -877,17 +911,41 @@
     function buildMeaningfulChangeBadges(code) {
       const item = meaningfulChangeMap.get(String(code || "").trim());
       if (!item) return "";
-      const tags = Array.isArray(item.tags) ? item.tags : [];
-      const priority = ["Top20 신규", "점수 +5 이상", "점수 개선", "Top50 → Top20", "Top100 → Top20", "100위 밖 → Top50", "리스크 완화"];
-      const picked = [];
-      priority.forEach((label) => {
-        if (tags.includes(label) && picked.length < 2) picked.push(label);
-      });
-      tags.forEach((label) => {
-        if (!picked.includes(label) && picked.length < 2) picked.push(label);
+      const badgeMeta = {
+        "점수급등": { cls: "is-score-jump", focus: "analysis-summary" },
+        "관심권진입": { cls: "is-watch-entry", focus: "analysis-summary" },
+        "리스크완화": { cls: "is-risk-relief", focus: "risk-summary" },
+      };
+      const badges = Array.isArray(item.badges) && item.badges.length
+        ? item.badges
+        : (Array.isArray(item.tags) ? item.tags : [])
+            .filter((label) => badgeMeta[label])
+            .map((label) => ({ label, ...badgeMeta[label] }));
+      const picked = badges
+        .map((badge) => ({
+          label: String(badge.label || "").trim(),
+          cls: String(badge.cls || badgeMeta[badge.label]?.cls || "").trim(),
+          focus: String(badge.focus || badgeMeta[badge.label]?.focus || "analysis-summary").trim(),
+        }))
+        .filter((badge) => badge.label && badgeMeta[badge.label])
+        .slice(0, 2);
+      picked.forEach((badge) => {
+        const viewKey = `${code}:${badge.label}`;
+        if (!seenChangeBadgeViews.has(viewKey)) {
+          seenChangeBadgeViews.add(viewKey);
+          trackInteraction("main_change_badge_view", {
+            code: String(code || ""),
+            badge: badge.label,
+            focus: badge.focus,
+            asof_date: meaningfulChanges?.asof_date || null,
+          });
+        }
       });
       if (!picked.length) return "";
-      return `<span class="change-mini-badges">${picked.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}</span>`;
+      return `<span class="change-mini-badges">${picked.map((badge) => {
+        const href = `./detail.html?code=${encodeURIComponent(code || "")}&source=main_change_badge&focus=${encodeURIComponent(badge.focus)}#${encodeURIComponent(badge.focus)}`;
+        return `<a class="${escapeHtml(badge.cls)}" href="${href}" onclick="event.stopPropagation(); trackInteraction('main_change_badge_click', { code: '${escapeJsString(code || "")}', badge: '${escapeJsString(badge.label)}', focus: '${escapeJsString(badge.focus)}', asof_date: meaningfulChanges?.asof_date || null });">${escapeHtml(badge.label)}</a>`;
+      }).join("")}</span>`;
     }
 
     function syncMobileFilterState(forceOpen) {

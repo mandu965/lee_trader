@@ -4254,17 +4254,21 @@ function buildMeaningfulRankingChanges(snapshot) {
       const previousBand = rankingBand(previousRank);
       const currentBand = rankingBand(currentRank);
       const isNewTop20 = Number.isFinite(currentRank) && currentRank <= 20 && (!Number.isFinite(previousRank) || previousRank > 20);
-      const isCoreScoreJump = Number.isFinite(scoreDelta) && scoreDelta >= 5;
-      const isScoreJump = Number.isFinite(scoreDelta) && scoreDelta >= 3 && Number.isFinite(rankDelta) && rankDelta >= 10;
-      const isBandUp = currentBand.weight < previousBand.weight && Number.isFinite(scoreDelta) && scoreDelta >= 2;
-      const isRiskRelief = Number.isFinite(riskDelta) && riskDelta <= -3 && Number.isFinite(currentRank) && currentRank <= 100;
+      const isScoreSurge = Number.isFinite(scoreDelta) && scoreDelta >= 10 && Number.isFinite(currentRank) && currentRank <= 60;
+      const isWatchEntry =
+        Number.isFinite(previousRank) &&
+        previousRank > 50 &&
+        Number.isFinite(currentRank) &&
+        currentRank <= 20;
+      const isRiskRelief = Number.isFinite(riskDelta) && riskDelta <= -4;
       const isRankNoise = Number.isFinite(rankDelta) && Math.abs(rankDelta) >= 20 && Number.isFinite(scoreDelta) && Math.abs(scoreDelta) < 2;
+      const badges = [];
       const tags = [];
+      if (isScoreSurge) badges.push({ label: "점수급등", cls: "is-score-jump", focus: "analysis-summary", priority: 1 });
+      if (isWatchEntry) badges.push({ label: "관심권진입", cls: "is-watch-entry", focus: "analysis-summary", priority: 2 });
+      if (isRiskRelief) badges.push({ label: "리스크완화", cls: "is-risk-relief", focus: "risk-summary", priority: 3 });
       if (isNewTop20) tags.push("Top20 신규");
-      if (isCoreScoreJump) tags.push("점수 +5 이상");
-      else if (isScoreJump) tags.push("점수 개선");
-      if (isBandUp) tags.push(`${previousBand.label} → ${currentBand.label}`);
-      if (isRiskRelief) tags.push("리스크 완화");
+      badges.forEach((badge) => tags.push(badge.label));
       if (!tags.length && isRankNoise) tags.push("순위 노이즈");
       return {
         code: current.code,
@@ -4283,9 +4287,10 @@ function buildMeaningfulRankingChanges(snapshot) {
         previous_band: previousBand.label,
         current_band: currentBand.label,
         tags,
+        badges,
         is_new_top20: isNewTop20,
-        is_score_jump: isCoreScoreJump || isScoreJump,
-        is_band_up: isBandUp,
+        is_score_jump: isScoreSurge,
+        is_band_up: isWatchEntry,
         is_risk_relief: isRiskRelief,
         is_rank_noise: isRankNoise,
         reason:
@@ -4296,7 +4301,7 @@ function buildMeaningfulRankingChanges(snapshot) {
       };
     });
 
-  const meaningful = changes.filter((item) => item.is_new_top20 || item.is_score_jump || item.is_band_up || item.is_risk_relief);
+  const meaningful = changes.filter((item) => (item.badges || []).length);
   const sortByCurrentRank = (a, b) => {
     const ar = Number.isFinite(a.rank) ? a.rank : Infinity;
     const br = Number.isFinite(b.rank) ? b.rank : Infinity;
@@ -4312,12 +4317,16 @@ function buildMeaningfulRankingChanges(snapshot) {
     source: snapshot.source,
     thresholds: {
       score_jump: "score_delta >= 5 또는 score_delta >= 3 AND rank_delta >= 10",
-      band_up: "Top100/Top50/Top20 구간 상승 AND score_delta >= 2",
+      main_badge_score_jump: "score_delta >= 10 AND current_rank <= 60",
+      main_badge_watch_entry: "previous_rank > 50 AND current_rank <= 20",
+      main_badge_risk_relief: "risk_delta <= -4",
+      band_up: "previous_rank > 50 AND current_rank <= 20",
       rank_noise: "abs(rank_delta) >= 20 AND abs(score_delta) < 2",
     },
     summary: {
       row_count: snapshot.currentRows.length,
       meaningful_count: meaningful.length,
+      badge_stock_ratio: changes.length ? meaningful.length / changes.length : null,
       new_top20_count: changes.filter((item) => item.is_new_top20).length,
       score_jump_count: changes.filter((item) => item.is_score_jump).length,
       band_up_count: changes.filter((item) => item.is_band_up).length,
@@ -8217,6 +8226,9 @@ app.get("/api/live-account/summary", async (req, res) => {
     const summary = await readJsonPayloadDbFirst("live_account_balance_summary", [path.join(OUTPUTS_DIR, "live_account_balance_summary.json")]);
     const preview = await readJsonPayloadDbFirst("live_order_preview", [path.join(OUTPUTS_DIR, "live_order_preview.json")]);
     const execution = await readJsonPayloadDbFirst("order_requests_execution", [path.join(OUTPUTS_DIR, "order_requests_execution.json")]);
+    const requestPreview = await readJsonPayloadDbFirst("order_requests_preview", [path.join(OUTPUTS_DIR, "order_requests_preview.json")]).catch(() => null);
+    const marketGuard = buildLiveOrderMarketGuard({ preview: requestPreview || preview, execution });
+    const guardedPreview = applyLiveOrderMarketGuardToPreview(requestPreview || preview, marketGuard);
     const holdingsPayload = await readJsonPayloadDbFirst("live_account_holdings");
     const holdings = Array.isArray(holdingsPayload?.items) ? holdingsPayload.items : (readCsv(path.join(DATA_DIR, "live_account_holdings.csv")) || []);
     const visibleHoldingCount = holdings.filter((row) => Number(toNum(row.qty)) > 0).length;
@@ -8226,7 +8238,10 @@ app.get("/api/live-account/summary", async (req, res) => {
     res.json({
       summary: summary || null,
       holding_count: visibleHoldingCount,
-      order_preview_count: Array.isArray(preview?.items) ? preview.items.length : 0,
+      order_preview_count: Array.isArray(guardedPreview?.items) ? guardedPreview.items.length : 0,
+      order_submit_allowed_count: Array.isArray(guardedPreview?.items)
+        ? guardedPreview.items.filter((item) => !!item.executable_now).length
+        : 0,
       preview_gate_status: preview?.gate_status || null,
       preview_gate_source_status: preview?.gate_source_status || null,
       preview_gate_runtime_status: preview?.gate_runtime_status || null,
@@ -8234,6 +8249,7 @@ app.get("/api/live-account/summary", async (req, res) => {
       order_execution_count: Array.isArray(execution?.items) ? execution.items.length : 0,
       last_execution_at: execution?.executed_at || null,
       last_execution_submitted_count: execution?.summary?.submitted_count ?? null,
+      market_order_guard: marketGuard,
     });
   } catch (e) {
     console.error("GET /api/live-account/summary error", e);
@@ -8260,10 +8276,106 @@ function classifyKstMarketStatus(now = new Date()) {
   return { market_status: "AFTER_HOURS", market_status_ko: "장후" };
 }
 
+function parseKstLikeDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const normalized = text.includes("T") ? text : text.replace(" ", "T");
+  const withTimezone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(normalized)
+    ? normalized
+    : `${normalized}+09:00`;
+  const parsed = new Date(withTimezone);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function classifyKstMarketStatusAt(value) {
+  const parsed = parseKstLikeDate(value);
+  if (!parsed) return { market_status: "UNKNOWN", market_status_ko: "확인불가", is_trading_day: null };
+  const kst = new Date(parsed.toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
+  const weekday = kst.getDay();
+  const minutes = kst.getHours() * 60 + kst.getMinutes();
+  if (weekday === 0 || weekday === 6) {
+    return { market_status: "HOLIDAY", market_status_ko: "휴장", is_trading_day: false };
+  }
+  if (minutes < 9 * 60) {
+    return { market_status: "PREOPEN", market_status_ko: "장전", is_trading_day: true };
+  }
+  if (minutes < 15 * 60 + 30) {
+    return { market_status: "OPEN", market_status_ko: "장중", is_trading_day: true };
+  }
+  return { market_status: "AFTER_HOURS", market_status_ko: "장후", is_trading_day: true };
+}
+
+function buildLiveOrderMarketGuard({ preview = {}, execution = {} } = {}) {
+  const previewGeneratedAt = preview?.generated_at || null;
+  const previewMarket = classifyKstMarketStatusAt(previewGeneratedAt);
+  const executionRows = Array.isArray(execution?.items) ? execution.items : [];
+  const rejectedByMarketDate = executionRows.filter((row) => {
+    const code = String(row?.broker_error_code || row?.broker_diagnostic?.broker_error_code || "").toUpperCase();
+    const message = String(row?.broker_error_message || row?.skip_reason || row?.broker_diagnostic?.raw_reason || "");
+    return code === "APBK0919" || message.includes("장운영일자") || row?.market_context?.is_trading_day === false;
+  });
+  const hasPreviewTimeBlock = previewGeneratedAt && previewMarket.market_status !== "OPEN";
+  if (!hasPreviewTimeBlock && !rejectedByMarketDate.length) {
+    return {
+      active: false,
+      market_status: previewMarket.market_status,
+      market_status_ko: previewMarket.market_status_ko,
+      preview_generated_at: previewGeneratedAt,
+      blocked_request_ids: [],
+    };
+  }
+  const requestIds = rejectedByMarketDate
+    .map((row) => String(row?.request_id || "").trim())
+    .filter(Boolean);
+  const statusKo = previewMarket.market_status_ko || rejectedByMarketDate[0]?.market_context?.market_status_ko || "장운영일 불일치";
+  return {
+    active: true,
+    block_type: "MARKET_DATE_GUARD",
+    severity: "ERROR",
+    market_status: previewMarket.market_status,
+    market_status_ko: statusKo,
+    preview_generated_at: previewGeneratedAt,
+    execution_asof_date: execution?.asof_date || null,
+    execution_at: execution?.executed_at || execution?.generated_at || null,
+    broker_error_code: rejectedByMarketDate[0]?.broker_error_code || rejectedByMarketDate[0]?.broker_diagnostic?.broker_error_code || null,
+    broker_error_message: rejectedByMarketDate[0]?.broker_error_message || rejectedByMarketDate[0]?.broker_diagnostic?.broker_error_message || null,
+    blocked_request_ids: [...new Set(requestIds)],
+    message_ko: hasPreviewTimeBlock
+      ? `주문 초안 생성시각이 ${statusKo} 상태입니다. 장중에 최신 계좌/가격 기준으로 다시 생성되기 전까지 제출 가능으로 보지 않습니다.`
+      : "최근 실행에서 장운영일자와 주문일자가 맞지 않아 증권사 주문이 거절되었습니다.",
+    recommended_action: "장중 KST 기준으로 계좌 동기화와 주문 초안을 재생성한 뒤 제출 가능 여부를 다시 확인하세요.",
+  };
+}
+
+function applyLiveOrderMarketGuardToPreview(preview = {}, guard = {}) {
+  if (!guard?.active || !Array.isArray(preview?.items)) return preview;
+  const targetIds = new Set(Array.isArray(guard.blocked_request_ids) ? guard.blocked_request_ids : []);
+  return {
+    ...preview,
+    market_order_guard: guard,
+    items: preview.items.map((row) => {
+      const shouldGuard = targetIds.size === 0 || targetIds.has(String(row?.request_id || ""));
+      if (!shouldGuard || !row?.executable_now) return row;
+      return {
+        ...row,
+        executable_now: false,
+        blocked_reason: row.blocked_reason || "market_date_guard",
+        block_type: guard.block_type,
+        severity: guard.severity,
+        market_order_guard: guard,
+        user_message_ko: guard.message_ko,
+        recommended_action: guard.recommended_action,
+      };
+    }),
+  };
+}
+
 function collectLiveAutoDiagnostics({ intents, preview, execution, runtime, refreshStatus }) {
     const intentRows = Array.isArray(intents?.intents) ? intents.intents : [];
-    const previewRows = Array.isArray(preview?.items) ? preview.items : [];
     const executionRows = Array.isArray(execution?.items) ? execution.items : [];
+    const marketOrderGuard = buildLiveOrderMarketGuard({ preview, execution });
+    const guardedPreview = applyLiveOrderMarketGuardToPreview(preview, marketOrderGuard);
+    const previewRows = Array.isArray(guardedPreview?.items) ? guardedPreview.items : [];
     const sellPreviewRows = previewRows.filter((row) => String(row.side || "").toUpperCase() === "SELL");
     const recommendationCount = new Set(
       intentRows
@@ -8287,6 +8399,22 @@ function collectLiveAutoDiagnostics({ intents, preview, execution, runtime, refr
     const schedulerFailedToday = String(scheduler.status || "").toLowerCase() === "error" &&
       String(scheduler.last_failure_at || "").startsWith(new Date().toISOString().slice(0, 10));
     const allDiagnostics = [];
+    if (marketOrderGuard.active) {
+      allDiagnostics.push({
+        type: marketOrderGuard.block_type,
+        severity: marketOrderGuard.severity,
+        message_ko: marketOrderGuard.message_ko,
+        raw_reason: marketOrderGuard.broker_error_message || marketOrderGuard.market_status || "market_date_guard",
+        recommended_action: marketOrderGuard.recommended_action,
+        broker_error_code: marketOrderGuard.broker_error_code,
+        broker_error_message: marketOrderGuard.broker_error_message,
+        inferred_causes: [
+          "주문 초안 생성시각이 장중이 아님",
+          "장운영일자와 주문일자 불일치 가능",
+          "장중 최신 계좌/가격 기준 재생성 필요",
+        ],
+      });
+    }
   for (const row of buyPreviewRows) {
     const policyDiagnostics = Array.isArray(row.policy_diagnostics) ? row.policy_diagnostics : [];
     for (const item of policyDiagnostics) {
@@ -8345,6 +8473,8 @@ function collectLiveAutoDiagnostics({ intents, preview, execution, runtime, refr
   const marketStatusKo = latestExecutionRow?.market_context?.market_status_ko || classifyKstMarketStatus().market_status_ko;
   return {
     run_id: preview?.run_id || intents?.run_id || execution?.run_id || null,
+    market_order_guard: marketOrderGuard,
+    preview: guardedPreview,
     summary: {
       recommendation_count: recommendationCount,
       order_candidate_count: buyPreviewRows.length,
@@ -8369,6 +8499,8 @@ function collectLiveAutoDiagnostics({ intents, preview, execution, runtime, refr
         refresh_status: refreshStatus?.status || null,
         refresh_failing_step: refreshStatus?.failing_step || null,
         refresh_failure_reason: refreshStatus?.failure_reason || null,
+        market_order_guard_active: Boolean(marketOrderGuard.active),
+        market_order_guard_message: marketOrderGuard.message_ko || null,
       },
       diagnostics: allDiagnostics,
     };
@@ -8399,7 +8531,8 @@ app.get("/api/live-account/holdings", async (req, res) => {
     const positions = posState?.positions || {};
     const todayMs = Date.now();
     const items = rows.map((row) => {
-      const code = String(row.code || "").trim();
+      const rawCode = String(row.code || "").trim();
+      const code = /^\d{1,6}$/.test(rawCode) ? rawCode.padStart(6, "0") : rawCode;
       const pos = positions[code] || {};
       const entryDate = pos.entry_date || null;
       let holdingDays = null;
@@ -8493,7 +8626,9 @@ app.get("/api/order-requests-preview", async (req, res) => {
     if (!payload) {
       return res.status(404).json({ error: "order requests preview not found" });
     }
-    res.json(payload);
+    const execution = await readJsonPayloadDbFirst("order_requests_execution", [path.join(OUTPUTS_DIR, "order_requests_execution.json")]).catch(() => null);
+    const guard = buildLiveOrderMarketGuard({ preview: payload, execution });
+    res.json(applyLiveOrderMarketGuardToPreview(payload, guard));
   } catch (e) {
     console.error("GET /api/order-requests-preview error", e);
     res.status(500).json({ error: "internal error" });

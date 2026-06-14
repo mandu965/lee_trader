@@ -66,7 +66,7 @@
       background: rgba(96,165,250,.10);
       color: #bfdbfe;
     }
-    .layout { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 16px; align-items: start; }
+    .layout { display: grid; grid-template-columns: minmax(420px, 480px) minmax(0, 1fr); gap: 16px; align-items: start; }
     .col { display: grid; gap: 16px; align-content: start; }
     .panel { background: linear-gradient(135deg, var(--s) 0, var(--s2) 100%); border: 1px solid rgba(255,255,255,.05); border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px rgba(2,6,23,.45); align-self: start; }
     .body { padding: 18px; }
@@ -237,6 +237,15 @@
     .delta-list { display: grid; gap: 8px; margin-top: 10px; }
     .delta-row { display: grid; grid-template-columns: 72px 1fr 48px; gap: 8px; align-items: center; font-size: 12px; }
     .delta-track { height: 7px; border-radius: 999px; background: rgba(255,255,255,.08); overflow: hidden; }
+    .focus-section {
+      scroll-margin-top: 88px;
+    }
+    .focus-section.is-focused {
+      outline: 2px solid rgba(96,165,250,.45);
+      box-shadow: 0 0 0 6px rgba(96,165,250,.10);
+      border-radius: 12px;
+      transition: outline-color .2s ease, box-shadow .2s ease;
+    }
     .delta-fill { height: 100%; border-radius: 999px; background: rgba(96,165,250,.7); }
     .delta-fill.negative { background: rgba(248,113,113,.72); }
     .structured-summary { display: grid; gap: 10px; }
@@ -247,6 +256,54 @@
     .summary-tag { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 9px; border-radius: 999px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); color: var(--ts); font-size: 12px; }
     .summary-tag.good { color: var(--success); border-color: rgba(34,197,94,.24); background: rgba(34,197,94,.08); }
     .summary-tag.bad { color: var(--danger); border-color: rgba(239,68,68,.24); background: rgba(239,68,68,.08); }
+    .ai-journey-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .ai-journey-card { padding: 12px 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,.06); background: rgba(255,255,255,.025); min-width: 0; }
+    .ai-journey-card.good { border-color: rgba(34,197,94,.22); background: rgba(34,197,94,.06); }
+    .ai-journey-card.warn { border-color: rgba(250,204,21,.22); background: rgba(250,204,21,.06); }
+    .ai-journey-card.bad { border-color: rgba(239,68,68,.22); background: rgba(239,68,68,.06); }
+    .ai-journey-title { color: var(--t); font-size: 13px; font-weight: 800; }
+    .ai-journey-body { margin-top: 8px; color: var(--ts); font-size: 12px; line-height: 1.55; }
+    .ai-journey-list { display: grid; gap: 6px; margin: 8px 0 0; padding-left: 16px; color: var(--ts); font-size: 12px; line-height: 1.5; }
+    .scenario-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .main-scenario-panel .scenario-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .scenario-card { padding: 13px 14px; border-radius: 12px; border: 1px solid var(--b); background: rgba(255,255,255,.025); min-width: 0; }
+    .scenario-card.good { border-color: rgba(34,197,94,.24); background: rgba(34,197,94,.06); }
+    .scenario-card.warn { border-color: rgba(250,204,21,.24); background: rgba(250,204,21,.06); }
+    .scenario-card.bad { border-color: rgba(239,68,68,.24); background: rgba(239,68,68,.06); }
+    .scenario-card__title { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: start; color: var(--t); font-size: 13px; font-weight: 800; line-height: 1.35; }
+    .scenario-card__grade { color: var(--ts); font-size: 11px; font-weight: 800; }
+    .scenario-card.good .scenario-card__grade { color: var(--success); }
+    .scenario-card.warn .scenario-card__grade { color: var(--warning); }
+    .scenario-card.bad .scenario-card__grade { color: var(--danger); }
+    .scenario-card__body { margin-top: 8px; color: var(--ts); font-size: 12px; line-height: 1.55; }
+    .scenario-card__checks { display: grid; gap: 5px; margin-top: 10px; }
+    .scenario-check { display: flex; gap: 6px; align-items: flex-start; color: var(--ts); font-size: 11px; line-height: 1.45; overflow-wrap: anywhere; }
+    .scenario-check::before { content: ""; width: 6px; height: 6px; margin-top: 5px; border-radius: 50%; background: rgba(148,163,184,.65); flex-shrink: 0; }
+    .scenario-check.pass::before { background: rgba(74,222,128,.85); }
+    .scenario-check.watch::before { background: rgba(250,204,21,.85); }
+    .scenario-check.fail::before { background: rgba(248,113,113,.85); }
+    .scenario-evidence { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 6px; }
+    .scenario-evidence span { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.03); color: var(--ts); font-size: 11px; }
+    .scenario-note { margin-top: 12px; padding: 10px 12px; border: 1px solid rgba(125,211,252,.20); border-radius: 10px; background: rgba(125,211,252,.07); color: var(--ts); font-size: 12px; line-height: 1.55; }
+    .scenario-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .scenario-action { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 0 11px; border-radius: 9px; border: 1px solid rgba(96,165,250,.24); background: rgba(96,165,250,.09); color: #bfdbfe; font-size: 12px; font-weight: 800; }
+    button.scenario-action { cursor: pointer; font-family: inherit; }
+    .scenario-action.good { border-color: rgba(34,197,94,.24); background: rgba(34,197,94,.08); color: #86efac; }
+    .scenario-action.warn { border-color: rgba(250,204,21,.24); background: rgba(250,204,21,.08); color: #fde68a; }
+    .scenario-action.is-added { border-color: rgba(34,197,94,.34); background: rgba(34,197,94,.14); color: #bbf7d0; }
+    .compare-panel { margin-top: 10px; border: 1px solid rgba(96,165,250,.18); border-radius: 12px; background: rgba(96,165,250,.055); overflow: hidden; }
+    .compare-panel[hidden] { display: none; }
+    .compare-panel__head { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .compare-panel__title { color: var(--t); font-size: 12px; font-weight: 800; }
+    .compare-panel__meta { color: var(--ts); font-size: 11px; }
+    .compare-list { display: grid; }
+    .compare-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 9px 12px; border-top: 1px solid rgba(255,255,255,.04); }
+    .compare-item:first-child { border-top: 0; }
+    .compare-item__name { color: var(--t); font-size: 12px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .compare-item__meta { margin-top: 2px; color: var(--ts); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .compare-item__link, .compare-item__remove { min-height: 28px; padding: 0 9px; border-radius: 8px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); color: #bfdbfe; font-size: 11px; font-weight: 800; }
+    .compare-item__remove { cursor: pointer; color: #fca5a5; border-color: rgba(248,113,113,.24); background: rgba(248,113,113,.08); font-family: inherit; }
+    .compare-empty { padding: 12px; color: var(--ts); font-size: 12px; }
     .flow-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
     .chart-shell { display: grid; gap: 10px; }
     .chart-copy { color: var(--ts); font-size: 12px; line-height: 1.55; }
@@ -291,7 +348,8 @@
     .ops-summary { cursor: pointer; color: var(--ts); font-size: 12px; font-weight: 600; padding: 6px 2px; list-style: none; user-select: none; }
     .ops-summary::-webkit-details-marker { display: none; }
     .ops-details[open] .ops-summary { color: var(--t); }
-    @media (max-width: 1080px) { .layout, .split, .reason-system, .score-explain-layout, .decision-grid, .decision-kpis, .quick-tech-grid, .raw-score-strip { grid-template-columns: 1fr; } }
+    @media (max-width: 1180px) { .main-scenario-panel .scenario-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 1080px) { .layout, .split, .reason-system, .score-explain-layout, .decision-grid, .decision-kpis, .quick-tech-grid, .raw-score-strip, .ai-journey-grid, .scenario-grid { grid-template-columns: 1fr; } }
     @media (max-width: 768px) {
       .container { padding: 0 12px 24px; }
       .top { margin-bottom: 14px; }
@@ -430,6 +488,22 @@
             <h2 class="pt">핵심 근거</h2>
             <div id="reasonChips" class="chips"></div>
 
+            <h2 class="pt focus-section" id="ai-summary" style="margin-top:16px;">AI 요약</h2>
+            <div id="aiJourneyPanel" class="ai-journey-grid">
+              <div class="ai-journey-card">
+                <div class="ai-journey-title">AI 요약</div>
+                <div class="ai-journey-body">종목 요약을 계산 중입니다.</div>
+              </div>
+              <div class="ai-journey-card">
+                <div class="ai-journey-title">추천 근거</div>
+                <div class="ai-journey-body">추천 근거를 계산 중입니다.</div>
+              </div>
+              <div class="ai-journey-card">
+                <div class="ai-journey-title">리스크 요인</div>
+                <div class="ai-journey-body">리스크 요인을 계산 중입니다.</div>
+              </div>
+            </div>
+
             <h2 class="pt">좋은 점과 주의할 점</h2>
             <div class="reason-system">
               <div class="reason-box positive">
@@ -442,7 +516,7 @@
               </div>
             </div>
 
-            <h2 class="pt">종합 해석</h2>
+            <h2 class="pt focus-section" id="analysis-summary">종합 해석</h2>
             <div id="scoreExplain" class="explain">설명 정보가 없습니다.</div>
             <details class="history-details" id="rawExplainDetails" style="margin-top:10px;display:none;">
               <summary class="history-summary">원문 산출 로그 펼쳐보기</summary>
@@ -451,13 +525,14 @@
               </div>
             </details>
 
-            <h2 class="pt">리스크 요약</h2>
+            <h2 class="pt focus-section" id="risk-summary">리스크 요약</h2>
             <div id="warningBox" class="risk-warning">
               <div class="sl">주의 신호</div>
               <div id="warningList" class="risk-warning__list">
                 <div class="risk-warning__item"><span class="risk-warning__dot"></span><span>경고 정보를 계산 중입니다.</span></div>
               </div>
             </div>
+
           </div>
         </article>
 
@@ -549,9 +624,20 @@
           </div>
         </article>
 
+        <article class="panel main-scenario-panel">
+          <div class="body">
+            <h2 class="pt focus-section" id="scenario-summary">시나리오 판단</h2>
+            <div id="scenarioPanel" class="structured-summary">
+              <div class="summary-block">
+                <div class="summary-block__body">가격, 수급, 리스크 기준으로 조건부 시나리오를 계산하는 중입니다.</div>
+              </div>
+            </div>
+          </div>
+        </article>
+
         <article class="panel">
           <div class="body">
-            <h2 class="pt">기술 상태와 가격 흐름</h2>
+            <h2 class="pt focus-section" id="price-flow">기술 상태와 가격 흐름</h2>
             <div class="quick-tech-grid" style="margin-bottom:12px">
               <div class="quick-tech">
                 <div class="sl">현재가</div>
@@ -604,7 +690,7 @@
         <!-- 수급 추이 패널 -->
         <article class="panel">
           <div class="body">
-            <h2 class="pt">외국인·기관 수급 추이 (최근 20일)</h2>
+            <h2 class="pt focus-section" id="flow-trend">외국인·기관 수급 추이 (최근 20일)</h2>
             <div id="flowHistoryDetailPanel">
               <div style="color:var(--ts);font-size:13px;">수급 데이터를 불러오는 중...</div>
             </div>
@@ -768,6 +854,7 @@
     };
     let confidenceCalibration = null;
     let scoreKpiMonitor = null;
+    const DETAIL_COMPARE_STORAGE_KEY = "leeTrader.detail.compareCandidates";
 
     function confidenceFallbackText(d) {
       const raw = String(d.confidence_explain_text || "").trim();
@@ -830,6 +917,39 @@
       if (sourceMode === "walkforward_provisional") return "WF 임시 보정";
       if (sourceMode === "snapshot_operational") return "일일 스냅샷";
       return sourceMode || "정보 없음";
+    }
+
+    function readCompareCandidates() {
+      try {
+        const raw = localStorage.getItem(DETAIL_COMPARE_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function saveCompareCandidate(item) {
+      const code = String(item?.code || "").trim();
+      if (!code) return { ok: false, count: readCompareCandidates().length };
+      const current = readCompareCandidates().filter((row) => String(row?.code || "").trim() !== code);
+      const next = [{
+        code,
+        name: item?.name || code,
+        market: item?.market || "",
+        sector: item?.sector || "",
+        added_at: new Date().toISOString(),
+        source: "detail_scenario",
+      }, ...current].slice(0, 12);
+      localStorage.setItem(DETAIL_COMPARE_STORAGE_KEY, JSON.stringify(next));
+      return { ok: true, count: next.length };
+    }
+
+    function removeCompareCandidate(code) {
+      const current = readCompareCandidates();
+      const next = current.filter((row) => String(row?.code || "").trim() !== String(code || "").trim());
+      localStorage.setItem(DETAIL_COMPARE_STORAGE_KEY, JSON.stringify(next));
+      return { ok: true, count: next.length };
     }
 
     function formatExplainText(raw) {
@@ -910,6 +1030,277 @@
           ${(regime || confidence) ? `<div class="summary-block"><div class="summary-block__title">운영 맥락</div><div class="summary-block__body">${escapeHtml([regime, confidence].filter(Boolean).join(" "))}</div></div>` : ""}
         </div>
       `;
+    }
+
+    function renderAiJourneyPanel(d) {
+      const root = $("#aiJourneyPanel");
+      if (!root) return;
+      const action = getActionState(d);
+      const reason = buildReasonSystem(d);
+      const riskItems = warns(d).map((item) => item.text).filter(Boolean);
+      const summary = String(d.score_explain_summary || d.action_note || buildDecisionLine(d) || action.detail || "").trim();
+      const positives = reason.positive.length ? reason.positive : ["품질, 수급, 확률 지표를 함께 확인해야 합니다."];
+      const cautions = riskItems.length ? riskItems : ["현재 큰 리스크 신호는 제한적이지만 가격 방어선은 계속 확인합니다."];
+      const badgeClass = action.cls === "review" ? "good" : action.cls === "hold" ? "bad" : "warn";
+      root.innerHTML = `
+        <div class="ai-journey-card ${badgeClass}">
+          <div class="ai-journey-title">AI 요약</div>
+          <div class="ai-journey-body">${escapeHtml(summary || "현재 점수와 리스크를 함께 본 요약 정보가 없습니다.")}</div>
+        </div>
+        <div class="ai-journey-card good">
+          <div class="ai-journey-title">추천 근거</div>
+          <ul class="ai-journey-list">
+            ${positives.slice(0, 4).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+        <div class="ai-journey-card bad">
+          <div class="ai-journey-title">리스크 요인</div>
+          <ul class="ai-journey-list">
+            ${cautions.slice(0, 4).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ul>
+        </div>
+      `;
+    }
+
+    function scenarioCheck(label, passed, detail = "", failLabel = "") {
+      const status = passed === true ? "pass" : passed === false ? "fail" : "watch";
+      return {
+        status,
+        label,
+        text: detail || (passed === true ? "충족" : passed === false ? (failLabel || "미충족") : "확인 필요"),
+      };
+    }
+
+    function scenarioQuality(d) {
+      const dataDates = d.data_dates || {};
+      const confidence = Number(d.confidence_score);
+      const hasPrice = Boolean(dataDates.price || d.latest?.date);
+      const hasRanking = Boolean(dataDates.ranking || d.rank_trend?.date);
+      const hasCore = [d.pred_return_60d, d.pred_mdd_60d, d.risk_penalty, d.flow_score]
+        .filter((value) => Number.isFinite(Number(value))).length;
+      if (hasPrice && hasRanking && hasCore >= 3 && Number.isFinite(confidence) && confidence >= 75) {
+        return { label: "근거 강함", cls: "good", detail: "가격·랭킹 기준일과 핵심 지표가 갖춰져 있습니다." };
+      }
+      if (hasPrice && hasRanking && hasCore >= 2) {
+        return { label: "근거 보통", cls: "warn", detail: "핵심 지표는 있으나 일부 보조 데이터는 제한적으로 해석합니다." };
+      }
+      return { label: "근거 제한", cls: "bad", detail: "일부 기준 데이터가 부족해 시나리오는 참고용으로만 봅니다." };
+    }
+
+    function buildScenarioView(d) {
+      const ret60 = Number(d.pred_return_60d);
+      const mdd60 = Number(d.pred_mdd_60d);
+      const risk = Number(d.risk_penalty);
+      const flow = Number(d.flow_score);
+      const confidence = Number(d.confidence_score);
+      const priceRisk = d.price_risk || {};
+      const ma20 = Number(priceRisk.close_vs_ma20);
+      const ma60 = Number(priceRisk.close_vs_ma60);
+      const drawdown = Number(priceRisk.drawdown_from_recent_high);
+      const ret10 = Number(priceRisk.return_10d ?? d.ret_10d ?? d.return_10d);
+      const trend = d.rank_trend || {};
+      const rank = Number(trend.rank_today ?? d.live_rank ?? d.rank_final);
+      const flowDelta = Number(trend.score_delta?.flow_score);
+
+      const riskOk = Number.isFinite(risk) ? risk < 10 : null;
+      const rewardOk = Number.isFinite(ret60) ? ret60 >= 0.10 : null;
+      const mddOk = Number.isFinite(mdd60) ? mdd60 > -0.20 : null;
+      const trendOk = Number.isFinite(ma20) && Number.isFinite(ma60) ? ma20 >= 0 && ma60 >= 0 : null;
+      const shortRecovery = Number.isFinite(ma20) ? ma20 >= 0 : null;
+      const flowOk = Number.isFinite(flow) ? flow >= 60 : null;
+      const confidenceOk = Number.isFinite(confidence) ? confidence >= 70 : null;
+      const rankOk = Number.isFinite(rank) ? rank <= 20 : null;
+
+      const upsideChecks = [
+        scenarioCheck("가격 추세", trendOk, `MA20 ${fmtPct(ma20)} · MA60 ${fmtPct(ma60)}`, "MA60 회복 전"),
+        scenarioCheck("수급", flowOk, `수급 점수 ${fmt1(flow)}${Number.isFinite(flowDelta) ? ` · 5일 변화 ${fmtSigned(flowDelta, 1)}` : ""}`, "수급 확인 필요"),
+        scenarioCheck("리스크", riskOk, `패널티 ${fmt1(risk)}`, "패널티 10 이상"),
+        scenarioCheck("기대수익", rewardOk, `60일 ${fmtPct(ret60)}`, "10% 미만"),
+      ];
+      const upsidePass = upsideChecks.filter((item) => item.status === "pass").length;
+      const upsideTone = upsidePass >= 3 ? "good" : upsidePass >= 2 ? "warn" : "bad";
+      const upsideText = upsidePass >= 3
+        ? "가격 추세와 수급, 손익비가 함께 유지될 때 상승 재평가가 가능한 구간입니다."
+        : "상승 여력은 보이지만 가격 추세, 수급, 리스크 중 일부 확인이 더 필요합니다.";
+
+      const baseChecks = [
+        scenarioCheck("상위권 유지", rankOk, Number.isFinite(rank) ? `현재 ${Math.round(rank)}위` : "순위 정보 없음", "Top20 밖"),
+        scenarioCheck("기대 손익비", rewardOk && (mddOk !== false), `기대수익 ${fmtPct(ret60)} · MDD ${fmtPct(mdd60)}`, "하락 부담 큼"),
+        scenarioCheck("신뢰도", confidenceOk, `신뢰도 ${fmt1(confidence)}`, "신뢰도 70 미만"),
+        scenarioCheck("단기 가격", shortRecovery, `MA20 ${fmtPct(ma20)} · 10일 수익률 ${fmtPct(ret10)}`, "MA20 아래"),
+      ];
+      const basePass = baseChecks.filter((item) => item.status === "pass").length;
+      const baseTone = basePass >= 3 && riskOk !== false ? "good" : basePass >= 2 ? "warn" : "bad";
+      const baseText = riskOk === false || mddOk === false
+        ? "기준 시나리오는 관찰 우선입니다. 기대수익보다 하락폭과 리스크 조건 확인이 먼저입니다."
+        : "기준 시나리오는 관심 유지입니다. 점수와 가격 조건이 유지되는지 추적합니다.";
+
+      const downsideChecks = [
+        scenarioCheck("리스크 과다", Number.isFinite(risk) ? risk >= 10 : null, `패널티 ${fmt1(risk)}`, "10 미만"),
+        scenarioCheck("예상 낙폭", Number.isFinite(mdd60) ? mdd60 <= -0.20 : null, `MDD ${fmtPct(mdd60)}`, "20% 이내"),
+        scenarioCheck("고점 대비", Number.isFinite(drawdown) ? drawdown <= -0.20 : null, `고점대비 ${fmtPct(drawdown)}`, "낙폭 제한"),
+        scenarioCheck("수급 약화", Number.isFinite(flow) ? flow < 50 : null, `수급 점수 ${fmt1(flow)}`, "50 이상"),
+      ];
+      const downsideRisk = downsideChecks.filter((item) => item.status === "pass").length;
+      const downsideTone = downsideRisk >= 3 ? "bad" : downsideRisk >= 1 ? "warn" : "good";
+      const downsideText = downsideRisk >= 2
+        ? "주의 조건이 겹칩니다. 방어선 이탈 또는 수급 악화가 지속되면 제외/축소 검토가 우선입니다."
+        : "즉시 제외 신호는 제한적입니다. 다만 리스크 조건이 새로 늘어나는지 확인합니다.";
+
+      return {
+        quality: scenarioQuality(d),
+        cards: [
+          { title: "상승 재평가 조건", grade: `${upsidePass}/4 충족`, tone: upsideTone, body: upsideText, checks: upsideChecks },
+          { title: "기준 시나리오", grade: `${basePass}/4 충족`, tone: baseTone, body: baseText, checks: baseChecks },
+          { title: "주의/제외 조건", grade: `${downsideRisk}/4 위험`, tone: downsideTone, body: downsideText, checks: downsideChecks },
+        ],
+        evidence: [
+          `기대수익 ${fmtPct(ret60)}`,
+          `예상 MDD ${fmtPct(mdd60)}`,
+          `리스크 ${fmt1(risk)}`,
+          `수급 ${fmt1(flow)}`,
+          `MA20 ${fmtPct(ma20)}`,
+          `MA60 ${fmtPct(ma60)}`,
+          `신뢰도 ${fmt1(confidence)}`,
+        ],
+      };
+    }
+
+    function renderScenarioPanel(d) {
+      const root = $("#scenarioPanel");
+      if (!root) return;
+      const view = buildScenarioView(d);
+      const code = String(d.code || q("code") || "").trim();
+      const manualHref = `/rule-auto-trading.html?code=${encodeURIComponent(code)}&source=detail_scenario`;
+      const renderCompareState = () => {
+        const candidates = readCompareCandidates();
+        const isAdded = candidates.some((item) => String(item?.code || "").trim() === code);
+        const addBtn = root.querySelector("#addCompareCandidateBtn");
+        const listBtn = root.querySelector("#toggleCompareCandidatesBtn");
+        const panel = root.querySelector("#compareCandidatePanel");
+        const list = root.querySelector("#compareCandidateList");
+        if (addBtn) {
+          addBtn.textContent = isAdded ? `비교 후보에 있음 (${candidates.length})` : "비교 후보 추가";
+          addBtn.classList.toggle("is-added", isAdded);
+        }
+        if (listBtn) listBtn.textContent = `비교 후보 보기 (${candidates.length})`;
+        if (!list || !panel) return;
+        if (!candidates.length) {
+          list.innerHTML = `<div class="compare-empty">저장된 비교 후보가 없습니다.</div>`;
+          return;
+        }
+        list.innerHTML = candidates.map((item) => {
+          const itemCode = String(item?.code || "").trim();
+          return `
+            <div class="compare-item" data-code="${escapeHtml(itemCode)}">
+              <div>
+                <div class="compare-item__name">${escapeHtml(item?.name || itemCode)}</div>
+                <div class="compare-item__meta">${escapeHtml(itemCode)} · ${escapeHtml(item?.market || "-")} · ${escapeHtml(item?.sector || "-")}</div>
+              </div>
+              <a class="compare-item__link" href="/detail.html?code=${encodeURIComponent(itemCode)}&source=compare_candidate">상세</a>
+              <button class="compare-item__remove" type="button" data-remove-code="${escapeHtml(itemCode)}">제거</button>
+            </div>
+          `;
+        }).join("");
+        list.querySelectorAll("[data-remove-code]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const removeCode = button.getAttribute("data-remove-code") || "";
+            const result = removeCompareCandidate(removeCode);
+            trackInteraction("stock_compare_add", {
+              code: removeCode,
+              action: "remove",
+              source: "detail_compare_panel",
+              count: result.count,
+            });
+            renderCompareState();
+          });
+        });
+      };
+
+      root.innerHTML = `
+        <div class="scenario-grid">
+          ${view.cards.map((card) => `
+            <div class="scenario-card ${card.tone}">
+              <div class="scenario-card__title">
+                <span>${escapeHtml(card.title)}</span>
+                <span class="scenario-card__grade">${escapeHtml(card.grade)}</span>
+              </div>
+              <div class="scenario-card__body">${escapeHtml(card.body)}</div>
+              <div class="scenario-card__checks">
+                ${card.checks.map((check) => `<div class="scenario-check ${check.status}"><span><strong>${escapeHtml(check.label)}</strong> · ${escapeHtml(check.text)}</span></div>`).join("")}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+        <div class="scenario-evidence">
+          ${view.evidence.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}
+        </div>
+        <div class="scenario-note">
+          <strong>${escapeHtml(view.quality.label)}</strong> · ${escapeHtml(view.quality.detail)}
+          이 시나리오는 현재 데이터 기준의 조건부 해석이며, 매수·매도 확정 신호가 아닙니다. 실제 판단은 가격 방어선, 수급 지속성, 리스크 패널티 변화를 함께 확인합니다.
+        </div>
+        <div class="scenario-actions">
+          <a class="scenario-action" href="#price-flow" data-detail-action="price">가격 방어선 확인</a>
+          <a class="scenario-action" href="#flow-trend" data-detail-action="flow">수급 확인</a>
+          <button class="scenario-action good" type="button" id="addCompareCandidateBtn">비교 후보 추가</button>
+          <button class="scenario-action" type="button" id="toggleCompareCandidatesBtn">비교 후보 보기 (0)</button>
+          <a class="scenario-action warn" href="${manualHref}" data-detail-action="manual">수동매매 점검</a>
+        </div>
+        <div id="compareCandidatePanel" class="compare-panel" hidden>
+          <div class="compare-panel__head">
+            <div>
+              <div class="compare-panel__title">비교 후보군</div>
+              <div class="compare-panel__meta">이 브라우저에 저장됩니다. 후보별 제거가 가능합니다.</div>
+            </div>
+          </div>
+          <div id="compareCandidateList" class="compare-list"></div>
+        </div>
+      `;
+      root.querySelector('[data-detail-action="price"]')?.addEventListener("click", () => {
+        trackInteraction("stock_factor_expand", { code, action: "price_flow_anchor", source: "detail_scenario" });
+      });
+      root.querySelector('[data-detail-action="flow"]')?.addEventListener("click", () => {
+        trackInteraction("stock_factor_expand", { code, action: "flow_anchor", source: "detail_scenario" });
+      });
+      root.querySelector('[data-detail-action="manual"]')?.addEventListener("click", () => {
+        trackInteraction("manual_precheck_view", { code, name: d.name || "", source: "detail_scenario" });
+      });
+      root.querySelector("#addCompareCandidateBtn")?.addEventListener("click", (event) => {
+        const button = event.currentTarget;
+        const result = saveCompareCandidate({
+          code,
+          name: d.name || code,
+          market: d.market || "",
+          sector: d.sector || "",
+        });
+        trackInteraction("stock_compare_add", {
+          code,
+          name: d.name || "",
+          source: "detail_scenario",
+          storage: result.ok ? "localStorage" : "failed",
+          count: result.count,
+        });
+        if (!result.ok) {
+          button.textContent = "저장 실패";
+          setTimeout(renderCompareState, 1200);
+          return;
+        }
+        renderCompareState();
+        const panel = root.querySelector("#compareCandidatePanel");
+        if (panel) panel.hidden = false;
+      });
+      root.querySelector("#toggleCompareCandidatesBtn")?.addEventListener("click", () => {
+        const panel = root.querySelector("#compareCandidatePanel");
+        if (!panel) return;
+        panel.hidden = !panel.hidden;
+        trackInteraction("stock_compare_add", {
+          code,
+          action: panel.hidden ? "hide_list" : "show_list",
+          source: "detail_compare_panel",
+          count: readCompareCandidates().length,
+        });
+      });
+      renderCompareState();
     }
 
     function renderRankSpark(history) {
@@ -1493,6 +1884,52 @@
       ctx.restore();
     }
 
+    function visitorId() {
+      const key = "lee_trader_visitor_id";
+      let id = localStorage.getItem(key);
+      if (!id) {
+        id = `v_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+        localStorage.setItem(key, id);
+      }
+      return id;
+    }
+
+    function trackInteraction(eventName, metadata = {}) {
+      const payload = {
+        visitor_id: visitorId(),
+        event_name: eventName,
+        path: location.pathname + location.search + location.hash,
+        metadata,
+      };
+      try {
+        const body = JSON.stringify(payload);
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon("/api/interaction-events", new Blob([body], { type: "application/json" }));
+          return;
+        }
+        fetch("/api/interaction-events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          keepalive: true,
+        }).catch(() => {});
+      } catch (_) {}
+    }
+
+    function focusDetailSection() {
+      const params = new URLSearchParams(location.search);
+      const focus = params.get("focus") || (location.hash || "").replace(/^#/, "");
+      if (!focus) return;
+      const id = decodeURIComponent(focus);
+      const el = document.getElementById(id);
+      if (!el) return;
+      setTimeout(() => {
+        el.classList.add("is-focused");
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        setTimeout(() => el.classList.remove("is-focused"), 2200);
+      }, 180);
+    }
+
     function renderChart(rows) {
       const c = $("#chart");
       if (!c || !rows.length) return;
@@ -1811,6 +2248,7 @@
         : '<span class="chip">추천 근거 데이터 없음</span>';
 
       renderReasonSystem(d);
+      renderAiJourneyPanel(d);
       const structuredSummary = renderStructuredSummary(d);
       $("#scoreExplain").innerHTML = structuredSummary || formatExplainText(
         hasExplainText
@@ -1822,6 +2260,7 @@
         rawDetails.style.display = hasExplainText && structuredSummary ? "" : "none";
         $("#rawScoreExplain").innerHTML = hasExplainText ? formatExplainText(explainText) : "원문 설명 정보가 없습니다.";
       }
+      renderScenarioPanel(d);
 
       const warningBox = $("#warningBox");
       const warningList = $("#warningList");
@@ -1912,6 +2351,12 @@
 
     (async function () {
       const code = q("code") || "005930";
+      const params = new URLSearchParams(location.search);
+      trackInteraction("stock_detail_view", {
+        code,
+        source: params.get("source") || "",
+        focus: params.get("focus") || (location.hash || "").replace(/^#/, ""),
+      });
       await fetchOperatorAuthStatus();
       $("#detailOperatorLoginBtn")?.addEventListener("click", () => {
         if (operatorAuth.authorized) {
@@ -1923,6 +2368,7 @@
       await fetchConfidenceCalibration();
       await fetchScoreKpiMonitor();
       renderDetail(await fetchDetail(code));
+      focusDetailSection();
       // 수급 추이 (비동기, 별도 로드)
       fetch(`/api/flow-history?codes=${encodeURIComponent(code)}&days=20`)
         .then((r) => r.ok ? r.json() : null)

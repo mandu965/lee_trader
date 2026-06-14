@@ -291,7 +291,7 @@ def _resolve_post_sync_steps() -> list[tuple[str, list[str]]]:
         return [
             ("generate_blog_posts",
              [sys.executable, str(ROOT / "python" / "generate_blog_posts.py"),
-              "--type", "all", "--force"]),
+              "--type", "all", "--force", "--keep-latest-only"]),
         ]
     if command_set == "rule_after_close":
         if not _should_sync_web_display():

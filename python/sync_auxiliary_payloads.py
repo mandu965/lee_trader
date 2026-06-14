@@ -54,9 +54,14 @@ def read_json(path: Path) -> dict[str, Any]:
 def read_csv_rows(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    df = pd.read_csv(path, encoding="utf-8-sig", low_memory=False)
+    df = pd.read_csv(path, encoding="utf-8-sig", dtype={"code": str, "pdno": str, "symbol": str}, low_memory=False)
     if df.empty:
         return []
+    for col in ("code", "pdno", "symbol"):
+        if col in df.columns:
+            df[col] = df[col].fillna("").astype(str).str.strip()
+            mask = df[col].str.fullmatch(r"\d{1,6}", na=False)
+            df.loc[mask, col] = df.loc[mask, col].str.zfill(6)
     return df.where(pd.notna(df), None).to_dict(orient="records")
 
 

@@ -162,9 +162,31 @@
       .table-wrap table { min-width: 900px; }
       .table-wrap table.holdings-table  { min-width: 1350px; }
       .table-wrap table.preview-table   { min-width: 1200px; }
-      .table-wrap table.intents-table   { min-width: 900px; }
+      .table-wrap table.intents-table   { min-width: 980px; }
       .table-wrap table.execution-table { min-width: 1000px; }
       .table-wrap table.status-table    { min-width: 700px; }
+      .intent-summary { min-width: 360px; max-width: 620px; }
+      .intent-summary-title { font-weight: 800; line-height: 1.45; }
+      .intent-summary-sub { margin-top: 5px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
+      .intent-detail { min-width: 68px; }
+      .intent-detail summary { white-space: nowrap; }
+      .intent-detail-list { display: grid; gap: 6px; margin-top: 8px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.55; }
+      .intent-detail-list div { display: grid; grid-template-columns: 92px 1fr; gap: 8px; }
+      .intent-detail-list strong { color: var(--color-text); }
+      .clickable-card { cursor: pointer; transition: border-color .18s ease, transform .18s ease, background .18s ease; }
+      .clickable-card:hover { border-color: rgba(96,165,250,0.46); background: rgba(96,165,250,0.06); transform: translateY(-1px); }
+      .focus-ring { outline: 1px solid rgba(96,165,250,0.7); box-shadow: 0 0 0 5px rgba(96,165,250,0.10); border-radius: var(--radius-lg); }
+      .decision-flow { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+      .flow-step { border: 1px solid var(--border); border-radius: var(--radius-lg); background: rgba(255,255,255,0.03); padding: 12px; cursor: pointer; color: var(--color-text); font: inherit; text-align: left; }
+      .flow-step:hover { border-color: rgba(96,165,250,0.44); background: rgba(96,165,250,0.06); }
+      .flow-step__label { color: var(--color-text-secondary); font-size: 11px; font-weight: 800; text-transform: uppercase; }
+      .flow-step__value { margin-top: 6px; font-size: 18px; font-weight: 900; }
+      .flow-step__detail { margin-top: 4px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.45; }
+      .analysis-interpretation { margin-top: 12px; }
+      .interpretation-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+      .interpretation-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px; background: rgba(255,255,255,0.03); }
+      .interpretation-card strong { display:block; margin-bottom: 6px; font-size: 13px; }
+      .interpretation-card p { margin: 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.6; }
 
       /* ── Misc ── */
       .empty-state {
@@ -192,7 +214,7 @@
       .muted { color: var(--color-text-secondary); }
 
       @media (max-width: 1100px) {
-        .decision-banner, .hero-grid, .account-grid, .board-grid, .kpi-grid, .diagnostic-grid, .analysis-summary-grid, .mini-stat-grid { grid-template-columns: 1fr; }
+        .decision-banner, .hero-grid, .account-grid, .board-grid, .kpi-grid, .diagnostic-grid, .analysis-summary-grid, .mini-stat-grid, .decision-flow, .interpretation-grid { grid-template-columns: 1fr; }
       }
       @media (max-width: 640px) {
         .live-page { padding: 18px 12px 36px; }
@@ -288,6 +310,11 @@
       ════════════════════════════════════════ -->
       <div id="tabOrders" class="tab-panel">
 
+        <!-- 단계별 판단 흐름 -->
+        <div class="section-block">
+          <div class="panel-card" id="decisionFlowPanel"></div>
+        </div>
+
         <!-- 진단 요약 + 왜 거래없음 -->
         <div class="section-block">
           <div class="diagnostic-grid">
@@ -301,7 +328,7 @@
           <div class="section-head">
             <div>
               <h2 class="section-title">Trade Intents</h2>
-              <div class="section-note">전략 판단 결과 — 실행 후보와 설명용 판단을 구분해서 봅니다.</div>
+              <div class="section-note">전략 판단, 주문 후보 여부, 품질 경고를 분리해서 봅니다.</div>
             </div>
           </div>
           <div class="table-wrap" id="intentsWrap">
@@ -311,10 +338,11 @@
                   <th>상태</th>
                   <th>코드</th>
                   <th>종목명</th>
-                  <th>판단유형</th>
-                  <th>우선순위</th>
+                  <th>판단</th>
+                  <th>주문대상</th>
                   <th class="right">목표비중</th>
-                  <th>사유</th>
+                  <th>운영 의미</th>
+                  <th>상세</th>
                 </tr>
               </thead>
               <tbody id="intentsTbody"></tbody>
@@ -405,6 +433,7 @@
         <!-- Live KPI + Quality Guard -->
         <div class="section-block">
           <div class="analysis-summary-grid" id="analysisSummaryGrid"></div>
+          <div class="panel-card analysis-interpretation" id="analysisInterpretationPanel"></div>
           <div class="kpi-grid">
             <div class="panel-card" id="liveKpiPanel"></div>
             <div class="panel-card" id="qualityGuardPanel"></div>
@@ -521,6 +550,6 @@
     </div><!-- /live-page -->
 
     <script src="./ops-unified-nav.js?v=20260603-bottom-nav"></script>
-    <script src="./live-auto-trading.js?v=20260527-analysis-ui"></script>
+    <script src="./live-auto-trading.js?v=20260613-intent-explain"></script>
   </body>
 </html>

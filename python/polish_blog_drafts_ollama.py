@@ -178,6 +178,8 @@ def validate_polished(original: str, polished: str) -> tuple[bool, str]:
         return False, "forbidden:" + ",".join(bad)
     if CHINESE_CHAR_RE.search(normalized):
         return False, "unexpected_chinese_chars"
+    if not re.search(r"[.!?。…]$", normalized):
+        return False, "incomplete_sentence"
     extra_upper = sorted(
         tok
         for tok in extract_required_tokens(normalized)

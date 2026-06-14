@@ -42,6 +42,8 @@ POLISHED_DIR = ROOT / "outputs" / "blog_polished"
 LOG_DIR = ROOT / "logs"
 
 PLATFORM_EXT = {"naver": "txt", "tistory": "md"}
+DEFAULT_GEMINI_TARGET_TYPES = "A"
+DEFAULT_GEMINI_TARGET_PLATFORMS = "tistory"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("blog_gen")
@@ -543,9 +545,23 @@ def main() -> int:
         help="초안 생성 후 로컬 Ollama로 본문 문단을 다듬은 최종본도 생성",
     )
     ap.add_argument(
+        "--polish-gemini",
+        action="store_true",
+        help="초안 생성 후 Google AI Studio/Gemini로 본문 문단을 다듬은 최종본도 생성",
+    )
+    ap.add_argument(
+        "--enrich-gemini",
+        action="store_true",
+        help="초안 생성 후 Gemini로 기업별 사업/산업 맥락을 보강한 최종본 생성",
+    )
+    ap.add_argument(
         "--polish-model",
-        default=os.environ.get("BLOG_POLISH_OLLAMA_MODEL", "qwen2.5:7b"),
-        help="Ollama polishing 모델명",
+        default=(
+            os.environ.get("BLOG_ENRICH_GEMINI_MODEL")
+            or os.environ.get("BLOG_POLISH_GEMINI_MODEL")
+            or os.environ.get("BLOG_POLISH_OLLAMA_MODEL", "qwen2.5:7b")
+        ),
+        help="polishing 모델명(Gemini 또는 Ollama)",
     )
     ap.add_argument(
         "--keep-latest-only",
@@ -587,10 +603,20 @@ def main() -> int:
 
     log.info("요약: types=%s, source_date=%s, 생성=%d건, 실패=%s",
              ",".join(types), source_date, total, ",".join(failures) or "없음")
-    polish_enabled = args.polish_ollama or str(os.environ.get("BLOG_POLISH_OLLAMA_ENABLED", "")).strip().lower() in {
+    enrich_gemini_enabled = args.enrich_gemini or str(os.environ.get("BLOG_ENRICH_GEMINI_ENABLED", "")).strip().lower() in {
         "1", "true", "yes", "on",
     }
-    if polish_enabled:
+    polish_gemini_enabled = args.polish_gemini or str(os.environ.get("BLOG_POLISH_GEMINI_ENABLED", "")).strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+    polish_ollama_enabled = args.polish_ollama or str(os.environ.get("BLOG_POLISH_OLLAMA_ENABLED", "")).strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+    if enrich_gemini_enabled:
+        enrich_drafts_with_gemini(source_date, types, platforms, args.force, args.polish_model)
+    elif polish_gemini_enabled:
+        polish_drafts_with_gemini(source_date, types, platforms, args.force, args.polish_model)
+    elif polish_ollama_enabled:
         polish_drafts_with_ollama(source_date, types, platforms, args.force, args.polish_model)
     save_drafts_to_db(source_date, types, platforms)
     keep_latest_only = args.keep_latest_only or str(os.environ.get("BLOG_OUTPUT_KEEP_LATEST_ONLY", "")).strip().lower() in {
@@ -645,7 +671,8 @@ def prune_blog_payloads_from_db(source_date: str) -> None:
     if not targets:
         return
 
-    keep_keys = [f"blog_drafts_{source_date}", f"blog_polished_{source_date}"]
+    keep_drafts_key = f"blog_drafts_{source_date}"
+    keep_polished_key = f"blog_polished_{source_date}"
     for label, db_url in targets:
         try:
             conn = psycopg2.connect(db_url)
@@ -653,10 +680,10 @@ def prune_blog_payloads_from_db(source_date: str) -> None:
             cur.execute(
                 """
                 DELETE FROM research.app_payload_store
-                 WHERE (payload_key LIKE 'blog_drafts_%' OR payload_key LIKE 'blog_polished_%')
-                   AND payload_key <> ALL(%s)
+                 WHERE (payload_key LIKE 'blog_drafts_%%' OR payload_key LIKE 'blog_polished_%%')
+                   AND payload_key NOT IN (%s, %s)
                 """,
-                [keep_keys],
+                [keep_drafts_key, keep_polished_key],
             )
             removed = cur.rowcount
             conn.commit()
@@ -731,6 +758,181 @@ def polish_drafts_with_ollama(
     return generated
 
 
+def polish_drafts_with_gemini(
+    source_date: str,
+    types: list[str],
+    platforms: list[str],
+    force: bool,
+    model: str,
+) -> int:
+    """생성된 초안을 Gemini 후처리기로 다듬어 outputs/blog_polished에 저장한다."""
+    try:
+        import polish_blog_drafts_gemini as polisher  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Gemini 후처리 모듈 로드 실패 — 최종본 생성 건너뜀: %s", exc)
+        return 0
+
+    target_types, target_platforms = _resolve_gemini_targets(types, platforms)
+    if not target_types or not target_platforms:
+        log.info("Gemini 문장 다듬기 대상 없음 — types=%s platforms=%s", types, platforms)
+        return 0
+
+    generated = 0
+    for ct in target_types:
+        for platform in target_platforms:
+            ext = PLATFORM_EXT[platform]
+            input_path = OUTPUT_DIR / f"{source_date}_type{ct.upper()}_{platform}.{ext}"
+            output_path = POLISHED_DIR / f"{source_date}_type{ct.upper()}_{platform}_gemini_polished.{ext}"
+            if not input_path.exists():
+                continue
+            if output_path.exists() and not force:
+                log.info("Gemini 최종본 이미 존재 — 건너뜀: %s", output_path)
+                continue
+            try:
+                ns = SimpleNamespace(
+                    input=str(input_path),
+                    output=str(output_path),
+                    date=source_date,
+                    type=ct.upper(),
+                    platform=platform,
+                    model=model if model and model != "qwen2.5:7b" else os.environ.get("BLOG_POLISH_GEMINI_MODEL", "gemini-2.5-flash"),
+                    api_base=os.environ.get("BLOG_POLISH_GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta"),
+                    temperature=float(os.environ.get("BLOG_POLISH_TEMPERATURE", "0.45")),
+                    timeout=int(os.environ.get("BLOG_POLISH_TIMEOUT_SEC", "120")),
+                    request_interval=float(os.environ.get("BLOG_POLISH_REQUEST_INTERVAL_SEC", "13")),
+                    style=os.environ.get(
+                        "BLOG_POLISH_STYLE",
+                        "템플릿 문장처럼 보이지 않게, 설명은 조금 더 부드럽고 구체적으로 쓴다.",
+                    ),
+                    max_paragraphs=0,
+                    force=force,
+                )
+                text = input_path.read_text(encoding="utf-8")
+                polished, results = polisher.polish_text(text, ns)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(polished, encoding="utf-8")
+                report_path = polisher.write_report(output_path, results)
+                changed = sum(1 for r in results if r.changed)
+                fallback = sum(1 for r in results if not r.changed)
+                generated += 1
+                log.info(
+                    "Gemini 최종본 생성: %s (changed=%d fallback=%d report=%s)",
+                    output_path,
+                    changed,
+                    fallback,
+                    report_path,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Gemini 최종본 생성 실패(%s/%s, 계속 진행): %s", ct, platform, exc)
+    return generated
+
+
+def enrich_drafts_with_gemini(
+    source_date: str,
+    types: list[str],
+    platforms: list[str],
+    force: bool,
+    model: str,
+) -> int:
+    """Gemini로 기업별 사업/산업 맥락을 보강한 최종본을 outputs/blog_polished에 저장한다."""
+    try:
+        import enrich_blog_draft_gemini as enricher  # noqa: PLC0415
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Gemini 보강 모듈 로드 실패 — 최종본 생성 건너뜀: %s", exc)
+        return 0
+
+    target_types, target_platforms = _resolve_gemini_targets(types, platforms)
+    if not target_types or not target_platforms:
+        log.info("Gemini 보강 대상 없음 — types=%s platforms=%s", types, platforms)
+        return 0
+
+    generated = 0
+    for ct in target_types:
+        for platform in target_platforms:
+            ext = PLATFORM_EXT[platform]
+            input_path = OUTPUT_DIR / f"{source_date}_type{ct.upper()}_{platform}.{ext}"
+            output_path = POLISHED_DIR / f"{source_date}_type{ct.upper()}_{platform}_gemini_polished.{ext}"
+            if not input_path.exists():
+                continue
+            if output_path.exists() and not force:
+                log.info("Gemini 보강 최종본 이미 존재 — 건너뜀: %s", output_path)
+                continue
+            try:
+                text = input_path.read_text(encoding="utf-8")
+                enriched = enricher.call_gemini(
+                    enricher.build_prompt(text),
+                    api_key=enricher.resolve_api_key(),
+                    api_base=os.environ.get("BLOG_POLISH_GEMINI_API_BASE", "https://generativelanguage.googleapis.com/v1beta"),
+                    model=model if model and model != "qwen2.5:7b" else os.environ.get("BLOG_ENRICH_GEMINI_MODEL", "gemini-3.1-flash-lite"),
+                    temperature=float(os.environ.get("BLOG_ENRICH_TEMPERATURE", "0.35")),
+                    timeout=int(os.environ.get("BLOG_POLISH_TIMEOUT_SEC", "180")),
+                )
+                ok, issues = enricher.validate_output(text, enriched)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(enriched, encoding="utf-8")
+                report_path = output_path.with_suffix(output_path.suffix + ".report.json")
+                report_path.write_text(
+                    json.dumps(
+                        {
+                            "input": str(input_path),
+                            "output": str(output_path),
+                            "ok": ok,
+                            "issues": issues,
+                            "original_len": len(text),
+                            "enriched_len": len(enriched),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                if ok:
+                    generated += 1
+                    log.info("Gemini 보강 최종본 생성: %s (report=%s)", output_path, report_path)
+                else:
+                    log.warning("Gemini 보강 최종본 검증 이슈(%s/%s): %s", ct, platform, issues)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Gemini 보강 최종본 생성 실패(%s/%s, 계속 진행): %s", ct, platform, exc)
+    return generated
+
+
+def _split_env_csv(name: str, default: str) -> list[str]:
+    raw = str(os.environ.get(name, default)).strip()
+    if not raw:
+        return []
+    return [part.strip() for part in raw.split(",") if part.strip()]
+
+
+def _resolve_gemini_targets(types: list[str], platforms: list[str]) -> tuple[list[str], list[str]]:
+    """Gemini 후처리 대상을 무료 티어 친화적으로 제한한다.
+
+    기본값은 type A + tistory 1건이다. 원본 초안은 A/B/C와 네이버/티스토리를
+    모두 만들 수 있지만, Gemini API 호출은 대표 글 1개에만 쓰는 운영을 기본으로 둔다.
+    """
+    requested_types = {ct.upper() for ct in types}
+    requested_platforms = {platform.lower() for platform in platforms}
+    allowed_types = {ct.upper() for ct in _split_env_csv("BLOG_GEMINI_TARGET_TYPES", DEFAULT_GEMINI_TARGET_TYPES)}
+    allowed_platforms = {
+        platform.lower()
+        for platform in _split_env_csv("BLOG_GEMINI_TARGET_PLATFORMS", DEFAULT_GEMINI_TARGET_PLATFORMS)
+    }
+
+    target_types = [ct for ct in types if ct.upper() in requested_types and ct.upper() in allowed_types]
+    target_platforms = [
+        platform
+        for platform in platforms
+        if platform.lower() in requested_platforms and platform.lower() in allowed_platforms
+    ]
+    log.info(
+        "Gemini 적용 범위: types=%s platforms=%s (allowed_types=%s allowed_platforms=%s)",
+        ",".join(target_types) or "없음",
+        ",".join(target_platforms) or "없음",
+        ",".join(sorted(allowed_types)) or "없음",
+        ",".join(sorted(allowed_platforms)) or "없음",
+    )
+    return target_types, target_platforms
+
+
 def _resolve_draft_db_targets() -> list[tuple[str, str]]:
     """초안 저장 대상 DB 목록을 반환한다.
 
@@ -760,7 +962,15 @@ def _read_blog_payload_item(path: Path) -> dict | None:
 
 def _polished_path(source_date: str, content_type: str, platform: str) -> Path:
     ext = PLATFORM_EXT[platform]
-    return POLISHED_DIR / f"{source_date}_type{content_type.upper()}_{platform}_ollama_polished.{ext}"
+    base = f"{source_date}_type{content_type.upper()}_{platform}"
+    preferred = str(os.environ.get("BLOG_POLISH_PROVIDER", "")).strip().lower()
+    provider_order = [preferred] if preferred in {"gemini", "ollama"} else []
+    provider_order.extend(provider for provider in ("gemini", "ollama") if provider not in provider_order)
+    for provider in provider_order:
+        path = POLISHED_DIR / f"{base}_{provider}_polished.{ext}"
+        if path.exists():
+            return path
+    return POLISHED_DIR / f"{base}_{provider_order[0]}_polished.{ext}"
 
 
 def save_drafts_to_db(source_date: str, types: list[str], platforms: list[str]) -> None:

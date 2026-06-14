@@ -420,6 +420,8 @@ def build_order_requests(
         ranking=ranking,
         market_status_csv=MARKET_STATUS_CSV,
     )
+    market_context = build_market_context()
+    market_date_guard = _build_market_date_guard(market_context)
     if intents.empty:
         return {
             "run_id": run_id,
@@ -427,6 +429,7 @@ def build_order_requests(
             "asof_date": intents_payload.get("asof_date"),
             "gate_status": intents_payload.get("gate_status"),
             "signal_freshness": signal_freshness,
+            "market_order_guard": market_date_guard,
             "env_dv": None,
             "cash_summary": {},
             "items": [],
@@ -436,6 +439,7 @@ def build_order_requests(
                 "sell_count": 0,
                 "policy_blocked_count": 0,
                 "submit_allowed_count": 0,
+                "market_date_guard_blocked_count": 0,
             },
         }
 
@@ -445,6 +449,7 @@ def build_order_requests(
     has_buy_intents = (
         intents.get("intent_type", pd.Series(dtype="object")).astype(str).str.upper().eq("BUY").any()
         and not signal_block_reason
+        and not market_date_guard.get("active")
     )
     client = None
     account = None
@@ -452,7 +457,6 @@ def build_order_requests(
     available_cash = None
     buy_cash_remaining = None
     total_assets = None
-    market_context = build_market_context()
     entry_gate_config = _entry_price_gate_config()
     if has_buy_intents:
         client = KISClient.from_env()
@@ -747,12 +751,14 @@ def build_order_requests(
             }
         )
 
+    items = [_apply_market_date_guard_to_item(item, market_date_guard) for item in items]
     return {
         "run_id": run_id,
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "asof_date": intents_payload.get("asof_date"),
         "gate_status": intents_payload.get("gate_status"),
         "signal_freshness": signal_freshness,
+        "market_order_guard": market_date_guard,
         "env_dv": account.env_dv if account is not None else None,
         "cash_summary": cash_summary,
         "buy_cash_remaining_after_reservations": buy_cash_remaining,
@@ -763,6 +769,9 @@ def build_order_requests(
             "sell_count": sum(1 for item in items if item["side"] == "SELL"),
             "policy_blocked_count": sum(1 for item in items if str(item.get("policy_status") or "").upper() == "BLOCK"),
             "submit_allowed_count": sum(1 for item in items if item.get("executable_now")),
+            "market_date_guard_blocked_count": sum(
+                1 for item in items if (item.get("market_order_guard") or {}).get("active")
+            ),
         },
     }
 
@@ -809,6 +818,45 @@ def _entry_price_gate_config() -> dict[str, object]:
 def _use_kis_previous_close_for_entry_gate(market_context: dict[str, Any] | None) -> bool:
     status = str((market_context or {}).get("market_status") or "").upper()
     return status == "OPEN"
+
+
+def _build_market_date_guard(market_context: dict[str, Any] | None = None) -> dict[str, Any]:
+    context = market_context or build_market_context()
+    status = str(context.get("market_status") or "").upper()
+    active = status != "OPEN"
+    status_ko = str(context.get("market_status_ko") or status or "UNKNOWN")
+    message = (
+        f"{status_ko} 상태이므로 자동 주문 제출을 차단합니다. "
+        "장중 최신 계좌/가격 기준으로 주문 초안을 다시 생성하세요."
+        if active
+        else "장중 주문 가능 상태입니다."
+    )
+    return {
+        "active": active,
+        "block_type": "MARKET_DATE_GUARD",
+        "blocked_reason": "market_date_guard" if active else None,
+        "severity": "ERROR" if active else "INFO",
+        "message_ko": message,
+        "market_status": status,
+        "market_status_ko": status_ko,
+        "market_context": context,
+    }
+
+
+def _apply_market_date_guard_to_item(item: dict[str, Any], guard: dict[str, Any]) -> dict[str, Any]:
+    if not guard.get("active"):
+        item["market_order_guard"] = guard
+        return item
+    item["blocked_reason"] = "market_date_guard"
+    item["block_type"] = "MARKET_DATE_GUARD"
+    item["severity"] = "ERROR"
+    item["user_message_ko"] = guard.get("message_ko") or item.get("user_message_ko")
+    item["recommended_action"] = (
+        "장중 최신 계좌/가격 기준으로 주문 초안을 재생성한 뒤 제출 가능 여부를 다시 확인하세요."
+    )
+    item["executable_now"] = False
+    item["market_order_guard"] = guard
+    return item
 
 
 def _fetch_live_price_snapshot(client: KISClient, code: str) -> dict[str, object]:
@@ -927,9 +975,13 @@ def execute_order_requests(
     previous_success_ids = set() if args.force_resubmit else _load_previous_success_ids(_resolve(args.out_exec_json))
     buy_approval_required = _env_flag("AUTO_TRADE_BUY_APPROVAL_REQUIRED", False)
     approved_request_ids = _load_approved_request_ids(args.approval_json) if buy_approval_required else set()
-    client = KISClient.from_env()
-    client.issue_access_token()
+    market_context = build_market_context()
+    market_date_guard = _build_market_date_guard(market_context)
     account = resolve_account_env()
+    client = None
+    if not market_date_guard.get("active"):
+        client = KISClient.from_env()
+        client.issue_access_token()
     entry_gate_config = _entry_price_gate_config()
     submit_interval_sec = max(_env_float("AUTO_TRADE_ORDER_SUBMIT_INTERVAL_SEC", 1.1), 0.0)
     rate_limit_retry_sec = max(_env_float("AUTO_TRADE_ORDER_RATE_LIMIT_RETRY_SEC", submit_interval_sec), submit_interval_sec)
@@ -943,7 +995,8 @@ def execute_order_requests(
         side = str(item.get("side") or "").strip().upper()
         qty = pd.to_numeric(item.get("final_request_qty"), errors="coerce")
         blocked_reason = str(item.get("blocked_reason") or "").strip()
-        market_context = build_market_context()
+        if market_date_guard.get("active"):
+            blocked_reason = "market_date_guard"
 
         result: dict[str, Any] = {
             "run_id": run_id,
@@ -979,6 +1032,7 @@ def execute_order_requests(
             "policy_diagnostics": item.get("policy_diagnostics"),
             "market_status": market_context.get("market_status"),
             "market_context": market_context,
+            "market_order_guard": item.get("market_order_guard") or market_date_guard,
             "submit_attempted": False,
             "submitted_at": None,
             "submission_status": "skipped",
@@ -1156,6 +1210,7 @@ def execute_order_requests(
         "asof_date": preview_payload.get("asof_date"),
         "gate_status": preview_payload.get("gate_status"),
         "signal_freshness": signal_freshness,
+        "market_order_guard": market_date_guard,
         "env_dv": account.env_dv,
         "allow_buy": bool(args.allow_buy),
         "buy_approval_required": bool(buy_approval_required),
@@ -1172,6 +1227,7 @@ def execute_order_requests(
             "broker_rejected_count": sum(1 for item in results if item.get("broker_result") == "REJECTED"),
             "policy_blocked_count": sum(1 for item in results if str(item.get("policy_status") or "").upper() == "BLOCK"),
             "signal_stale_blocked_count": sum(1 for item in results if str(item.get("skip_reason") or "") in {"signal_data_stale", "signal_asof_date_missing"}),
+            "market_date_guard_blocked_count": sum(1 for item in results if str(item.get("skip_reason") or "") == "market_date_guard"),
         },
     }
 
@@ -1184,6 +1240,8 @@ def render_preview_markdown(payload: dict[str, Any]) -> str:
         f"- asof_date: {payload.get('asof_date') or 'NA'}",
         f"- signal_expected_date: {(payload.get('signal_freshness') or {}).get('expected_signal_date') or 'NA'}",
         f"- signal_freshness: {(payload.get('signal_freshness') or {}).get('reason') or 'NA'}",
+        f"- market_order_guard: {'ON' if (payload.get('market_order_guard') or {}).get('active') else 'OFF'}",
+        f"- market_status: {(payload.get('market_order_guard') or {}).get('market_status') or 'NA'}",
         f"- gate_status: {payload.get('gate_status') or 'NA'}",
         f"- env_dv: {payload.get('env_dv') or 'NA'}",
         f"- request_count: {payload['summary']['request_count']}",
@@ -1209,6 +1267,8 @@ def render_execution_markdown(payload: dict[str, Any]) -> str:
         f"- asof_date: {payload.get('asof_date') or 'NA'}",
         f"- signal_expected_date: {(payload.get('signal_freshness') or {}).get('expected_signal_date') or 'NA'}",
         f"- signal_freshness: {(payload.get('signal_freshness') or {}).get('reason') or 'NA'}",
+        f"- market_order_guard: {'ON' if (payload.get('market_order_guard') or {}).get('active') else 'OFF'}",
+        f"- market_status: {(payload.get('market_order_guard') or {}).get('market_status') or 'NA'}",
         f"- gate_status: {payload.get('gate_status') or 'NA'}",
         f"- env_dv: {payload.get('env_dv') or 'NA'}",
         f"- allow_buy: {'Y' if payload.get('allow_buy') else 'N'}",
