@@ -776,7 +776,8 @@ body.site-body {
   margin: 0 0 16px;
 }
 
-.article-body ul {
+.article-body ul,
+.article-body ol {
   margin: 0 0 18px;
   padding-left: 20px;
 }
@@ -784,6 +785,49 @@ body.site-body {
 .article-body h2 {
   margin: 32px 0 14px;
   font-size: 26px;
+}
+
+.article-body .article-table-wrap {
+  margin: 22px 0;
+  overflow-x: auto;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 14px;
+}
+
+.article-body table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+}
+
+.article-body th,
+.article-body td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  text-align: left;
+  vertical-align: top;
+}
+
+.article-body th {
+  background: rgba(91, 141, 239, 0.1);
+  color: #f8fbff;
+}
+
+.article-body blockquote {
+  margin: 22px 0;
+  padding: 14px 18px;
+  border-left: 4px solid #5b8def;
+  background: rgba(91, 141, 239, 0.08);
+  color: #b9c7d9;
+}
+
+.article-body pre {
+  margin: 22px 0;
+  padding: 16px;
+  overflow-x: auto;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 12px;
+  background: #0b1220;
 }
 
 .reading-strip,

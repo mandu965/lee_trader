@@ -176,6 +176,11 @@ function renderMarkdown(markdown) {
   const html = [];
   let paragraph = [];
   let listItems = [];
+  let listType = "ul";
+  let blockquote = [];
+  let codeLines = [];
+  let codeLanguage = "";
+  let inCodeBlock = false;
 
   function flushParagraph() {
     if (!paragraph.length) return;
@@ -185,36 +190,114 @@ function renderMarkdown(markdown) {
 
   function flushList() {
     if (!listItems.length) return;
-    html.push(`<ul>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
+    html.push(`<${listType}>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${listType}>`);
     listItems = [];
   }
 
-  lines.forEach((line) => {
+  function flushBlockquote() {
+    if (!blockquote.length) return;
+    html.push(`<blockquote>${renderInlineMarkdown(blockquote.join(" "))}</blockquote>`);
+    blockquote = [];
+  }
+
+  function flushCodeBlock() {
+    if (!codeLines.length && !inCodeBlock) return;
+    const languageClass = codeLanguage ? ` class="language-${escapeHtml(codeLanguage)}"` : "";
+    html.push(`<pre><code${languageClass}>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    codeLines = [];
+    codeLanguage = "";
+  }
+
+  function flushAll() {
+    flushParagraph();
+    flushList();
+    flushBlockquote();
+  }
+
+  function parseTableRow(line) {
+    return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((cell) => cell.trim());
+  }
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
     const text = line.trim();
+    const fence = text.match(/^```([a-z0-9_-]*)$/i);
+    if (fence) {
+      if (inCodeBlock) {
+        inCodeBlock = false;
+        flushCodeBlock();
+      } else {
+        flushAll();
+        inCodeBlock = true;
+        codeLanguage = fence[1] || "";
+      }
+      continue;
+    }
+    if (inCodeBlock) {
+      codeLines.push(line);
+      continue;
+    }
     if (!text) {
-      flushParagraph();
-      flushList();
-      return;
+      flushAll();
+      continue;
+    }
+
+    const nextLine = lines[index + 1]?.trim() || "";
+    if (text.includes("|") && /^\|?\s*:?-{3,}/.test(nextLine)) {
+      flushAll();
+      const headers = parseTableRow(text);
+      const rows = [];
+      index += 2;
+      while (index < lines.length && lines[index].trim().includes("|")) {
+        rows.push(parseTableRow(lines[index]));
+        index += 1;
+      }
+      index -= 1;
+      html.push(
+        `<div class="article-table-wrap"><table><thead><tr>${headers.map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("")}</tr></thead>` +
+        `<tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+      );
+      continue;
     }
     const heading = text.match(/^(#{1,3})\s+(.*)$/);
     if (heading) {
-      flushParagraph();
-      flushList();
+      flushAll();
       const level = Math.min(heading[1].length + 1, 4);
       html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
-      return;
+      continue;
+    }
+    const quote = text.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      blockquote.push(quote[1]);
+      continue;
     }
     const bullet = text.match(/^[-*]\s+(.*)$/);
     if (bullet) {
       flushParagraph();
+      flushBlockquote();
+      if (listItems.length && listType !== "ul") flushList();
+      listType = "ul";
       listItems.push(bullet[1]);
-      return;
+      continue;
     }
+    const ordered = text.match(/^\d+[.)]\s+(.*)$/);
+    if (ordered) {
+      flushParagraph();
+      flushBlockquote();
+      if (listItems.length && listType !== "ol") flushList();
+      listType = "ol";
+      listItems.push(ordered[1]);
+      continue;
+    }
+    flushBlockquote();
+    flushList();
     paragraph.push(text);
-  });
+  }
 
-  flushParagraph();
-  flushList();
+  if (inCodeBlock) flushCodeBlock();
+  flushAll();
   return html.join("");
 }
 
@@ -691,16 +774,18 @@ function renderNaverAnalyticsSnippet() {
   </script>`;
 }
 
-function renderAdSenseSnippet() {
+function renderAdSenseSnippet(includeScript = true) {
   if (!ADSENSE_CLIENT_ID) return "";
   const client = escapeHtml(ADSENSE_CLIENT_ID);
   return `
-  <meta name="google-adsense-account" content="${client}">
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}" crossorigin="anonymous"></script>`;
+  <meta name="google-adsense-account" content="${client}">${includeScript
+    ? `\n  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}" crossorigin="anonymous"></script>`
+    : ""}`;
 }
 
-function renderAnalyticsHeadSnippet() {
-  return `${renderGoogleAnalyticsSnippet()}${renderNaverAnalyticsSnippet()}${renderAdSenseSnippet()}`;
+function renderAnalyticsHeadSnippet(options = {}) {
+  const includeAdSenseScript = options.includeAdSenseScript !== false;
+  return `${renderGoogleAnalyticsSnippet()}${renderNaverAnalyticsSnippet()}${renderAdSenseSnippet(includeAdSenseScript)}`;
 }
 
 function injectHeadSnippet(html, snippet) {
@@ -744,6 +829,101 @@ function renderOpsUnifiedNavSnippet(fileName, html = "") {
   if (selfManagedTargets.has(fileName)) return "";
   if (String(html).includes("ops-unified-nav.js")) return "";
   return '<script src="/ops-unified-nav.js?v=20260505-operator-nav-v2"></script>';
+}
+
+function renderCollectionCard(item) {
+  const href = item.section === "report" ? `/reports/${item.slug}` : `/blog/${item.slug}`;
+  const sectionLabel = item.section === "report" ? "시장 해설" : "블로그";
+  const toneClass = item.section === "report" ? "article-card--report" : "article-card--blog";
+  return `<article class="article-card ${toneClass}">
+    ${item.featured ? '<span class="article-card__badge">추천 글</span>' : ""}
+    <div class="article-card__meta">
+      <span>${sectionLabel}</span>
+      <span>${escapeHtml(item.category || "일반")}</span>
+      <span>${escapeHtml(item.date || "-")}</span>
+    </div>
+    <h3><a href="${escapeHtml(href)}">${escapeHtml(item.title)}</a></h3>
+    <p class="article-card__excerpt">${escapeHtml(item.excerpt || "")}</p>
+    <div class="article-card__footer">
+      <span class="article-card__time">${escapeHtml(item.readingTime || "읽는 시간 미정")}</span>
+      <a class="article-card__link" href="${escapeHtml(href)}">자세히 읽기</a>
+    </div>
+  </article>`;
+}
+
+function renderFeaturedCollectionLink(item) {
+  const href = item.section === "report" ? `/reports/${item.slug}` : `/blog/${item.slug}`;
+  return `<a class="featured-mini" href="${escapeHtml(href)}">
+    <span class="featured-mini__section">${item.section === "report" ? "시장 해설" : "블로그"}</span>
+    <strong>${escapeHtml(item.title)}</strong>
+    <span>${escapeHtml(item.category || "일반")} · ${escapeHtml(item.readingTime || "-")}</span>
+  </a>`;
+}
+
+function replaceElementContentsById(html, id, contents) {
+  const pattern = new RegExp(`(<([a-z0-9]+)[^>]*\\bid=["']${id}["'][^>]*>)[\\s\\S]*?(</\\2>)`, "i");
+  return html.replace(pattern, `$1${contents}$3`);
+}
+
+function renderCollectionPageShell(html, pathname) {
+  const section = pathname === "/reports" ? "report" : "blog";
+  const scopedItems = readSiteLibrary().filter((item) => item.section === section);
+  const categories = [...new Set(scopedItems.map((item) => item.category).filter(Boolean))];
+  const starterSlugs = section === "report"
+    ? ["weekly-market-regime-neutral-example", "what-walkforward-acceptance-means", "case-study-good-score-but-no-entry"]
+    : ["how-this-site-analyzes-korean-stocks", "why-score-is-not-buy-signal", "difference-between-watchlist-and-buy-allowed"];
+  const starters = starterSlugs.map((slug) => scopedItems.find((item) => item.slug === slug)).filter(Boolean);
+  const categoryCounts = categories
+    .map((category) => [category, scopedItems.filter((item) => item.category === category).length])
+    .sort((a, b) => b[1] - a[1]);
+  const averageMinutes = scopedItems.length
+    ? Math.round(scopedItems.reduce((sum, item) => sum + (Number.parseInt(item.readingTime, 10) || 0), 0) / scopedItems.length)
+    : 0;
+
+  let next = html.replace('data-page-type=""', `data-page-type="${section}"`);
+  const labels = section === "report"
+    ? {
+        eyebrow: "Market Briefs", title: "시장 해설",
+        lead: "국내 주식 시장의 현재 국면, 수급, 변동성, 리스크를 실제 운영 데이터와 함께 설명합니다.",
+        primary: "시장 맥락 해설", secondary: "국면·수급·리스크", tertiary: "운영 데이터 기반",
+        focus: "오늘 시장의 맥락 읽기", starterTitle: "처음 읽을 시장 해설",
+        starterDesc: "시장 국면, 검증 지표, 실제 운영 사례를 함께 읽으면 오늘의 맥락을 더 정확히 이해할 수 있습니다.",
+      }
+    : {
+        eyebrow: "Blog", title: "블로그",
+        lead: "투자 기초, 리스크 관리, 데이터 읽기와 서비스 운영 원칙을 실제 사례 중심으로 설명합니다.",
+        primary: "투자 기초 설명", secondary: "초보자용 해설", tertiary: "장기 참고 가이드",
+        focus: "판단 기준과 배경 이해", starterTitle: "처음 읽을 블로그",
+        starterDesc: "점수 읽는 법, 리스크 관리, 서비스 목적을 먼저 이해하면 나머지 콘텐츠도 쉽게 읽을 수 있습니다.",
+      };
+
+  [
+    ["listEyebrow", labels.eyebrow], ["listTitle", labels.title], ["listLead", labels.lead],
+    ["listChipPrimary", labels.primary], ["listChipSecondary", labels.secondary], ["listChipTertiary", labels.tertiary],
+    ["heroTotalCount", `${scopedItems.length}개`],
+    ["heroTopCategory", categoryCounts.length ? `${categoryCounts[0][0]} ${categoryCounts[0][1]}건` : "-"],
+    ["heroFocusText", labels.focus], ["starterTitle", labels.starterTitle], ["starterDesc", labels.starterDesc],
+    ["listTitleNote", `${scopedItems.length}개 글 · 평균 읽는 시간 ${averageMinutes || "-"}분`],
+  ].forEach(([id, value]) => {
+    next = replaceElementContentsById(next, id, escapeHtml(value));
+  });
+
+  const filterMarkup = ['<button class="filter-pill is-active" data-filter="all">전체</button>']
+    .concat(categories.map((category) => `<button class="filter-pill" data-filter="${escapeHtml(category)}">${escapeHtml(category)}</button>`))
+    .join("");
+  next = replaceElementContentsById(next, "listFilters", filterMarkup);
+  next = replaceElementContentsById(next, "starterStrip", starters.map(renderFeaturedCollectionLink).join(""));
+  next = replaceElementContentsById(next, "contentList", scopedItems.map(renderCollectionCard).join(""));
+  return next;
+}
+
+function renderLandingPageShell(html) {
+  const items = readSiteLibrary();
+  const reports = items.filter((item) => item.section === "report").slice(0, 3);
+  const posts = items.filter((item) => item.section === "blog").slice(0, 3);
+  let next = replaceElementContentsById(html, "latestReports", reports.map(renderCollectionCard).join(""));
+  next = replaceElementContentsById(next, "studyPosts", posts.map(renderCollectionCard).join(""));
+  return next;
 }
 
 function renderArticlePage(item, section) {
@@ -5446,11 +5626,19 @@ function sendPublicPage(res, fileName) {
   const filePath = path.join(PUBLIC_DIR, fileName);
   try {
     const requestPath = res.req?.path || "/";
-    let html = applyPublicPageMeta(fs.readFileSync(filePath, "utf-8"), requestPath);
+    let html = fs.readFileSync(filePath, "utf-8");
+    if (fileName === "content-list.html") {
+      html = renderCollectionPageShell(html, requestPath);
+    } else if (fileName === "landing.html") {
+      html = renderLandingPageShell(html);
+    }
+    html = applyPublicPageMeta(html, requestPath);
     if (NOINDEX_PUBLIC_PATHS.has(requestPath) || NOINDEX_PUBLIC_PATHS.has(`/${fileName}`)) {
       html = injectRobotsMeta(html);
     }
-    const withHead = injectHeadSnippet(html, renderAnalyticsHeadSnippet());
+    const withHead = injectHeadSnippet(html, renderAnalyticsHeadSnippet({
+      includeAdSenseScript: !html.includes("pagead2.googlesyndication.com/pagead/js/adsbygoogle.js"),
+    }));
     res.set("Cache-Control", "no-cache");
     return res.type("html").send(injectBodySnippet(withHead, renderOpsUnifiedNavSnippet(fileName, withHead)));
   } catch (e) {
