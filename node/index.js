@@ -512,7 +512,7 @@ function readMarkdownEntries(sectionDir, section) {
         title,
         excerpt,
         date: attributes.date || stat.mtime.toISOString().slice(0, 10),
-        modified: attributes.modified || stat.mtime.toISOString().slice(0, 10),
+        modified: attributes.modified || attributes.date || null,
         readingTime: attributes.readingTime || estimateReadingTime(renderedBody),
         featured: Boolean(attributes.featured),
         indexable: attributes.indexable !== false,
@@ -5692,28 +5692,19 @@ app.get("/robots.txt", (req, res) => {
 });
 app.get("/sitemap.xml", (req, res) => {
   const items = readSiteLibrary().filter((item) => item.indexable !== false);
-  const publicLastmod = (fileName) => {
-    const filePath = path.join(PUBLIC_DIR, fileName);
-    return fs.existsSync(filePath)
-      ? fs.statSync(filePath).mtime.toISOString().slice(0, 10)
-      : null;
-  };
   const staticUrls = [
-    { path: "/", fileName: "landing.html", priority: "1.0" },
-    { path: "/about", fileName: "about.html", priority: "0.8" },
-    { path: "/methodology", fileName: "methodology.html", priority: "0.7" },
-    { path: "/glossary", fileName: "glossary.html", priority: "0.7" },
-    { path: "/operator-note", fileName: "operator-note.html", priority: "0.6" },
-    { path: "/contact", fileName: "contact.html", priority: "0.5" },
-    { path: "/privacy", fileName: "privacy.html", priority: "0.3" },
-    { path: "/terms", fileName: "terms.html", priority: "0.3" },
-    { path: "/disclaimer", fileName: "disclaimer.html", priority: "0.3" },
-    { path: "/reports", fileName: "content-list.html", priority: "0.9" },
-    { path: "/blog", fileName: "content-list.html", priority: "0.9" },
-  ].map((entry) => ({
-    ...entry,
-    lastmod: publicLastmod(entry.fileName),
-  }));
+    { path: "/", priority: "1.0" },
+    { path: "/about", priority: "0.8" },
+    { path: "/methodology", priority: "0.7" },
+    { path: "/glossary", priority: "0.7" },
+    { path: "/operator-note", priority: "0.6" },
+    { path: "/contact", priority: "0.5" },
+    { path: "/privacy", priority: "0.3" },
+    { path: "/terms", priority: "0.3" },
+    { path: "/disclaimer", priority: "0.3" },
+    { path: "/reports", priority: "0.9" },
+    { path: "/blog", priority: "0.9" },
+  ];
   const contentUrls = items.map((item) => ({
     path: `/${item.section === "report" ? "reports" : "blog"}/${item.slug}`,
     lastmod: item.modified || item.date || null,
