@@ -1,6 +1,7 @@
 ---
 title: MDD(최대 낙폭)란 무엇인가 — 리스크를 숫자로 이해하는 법
 slug: what-is-maximum-drawdown
+indexable: false
 category: 리스크 관리
 excerpt: MDD는 고점 대비 최저점까지의 하락 폭입니다. 기대수익률만큼 중요한 이 지표를 LeeTrader에서 어떻게 활용하는지 설명합니다.
 date: 2026-06-02

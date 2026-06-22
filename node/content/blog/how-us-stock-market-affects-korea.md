@@ -3,6 +3,7 @@ title: "미국 증시는 한국 시장에 어떻게 영향을 주나"
 description: "미국 증시 흐름이 국내 지수와 업종 심리에 어떤 경로로 전달되는지, 그리고 그대로 따라 해석하면 안 되는 이유를 설명합니다."
 date: "2026-05-23"
 slug: "how-us-stock-market-affects-korea"
+indexable: false
 category: "시장분석"
 tags: ["미국증시", "코스피", "시장분석", "해외변수"]
 featured: false

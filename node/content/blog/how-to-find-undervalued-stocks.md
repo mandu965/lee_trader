@@ -3,6 +3,7 @@ title: "저평가 종목은 어떻게 찾아야 하나"
 description: "저평가 종목을 찾을 때 숫자만 보는 실수를 피하고 무엇을 함께 봐야 하는지 설명합니다."
 date: "2026-05-23"
 slug: "how-to-find-undervalued-stocks"
+indexable: false
 category: "종목선택"
 tags: ["저평가", "가치주", "PER", "PBR", "종목선택"]
 featured: false

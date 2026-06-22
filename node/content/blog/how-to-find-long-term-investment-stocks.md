@@ -3,6 +3,7 @@ title: "장기투자용 종목은 어떻게 찾아야 하나"
 description: "장기 보유에 적합한 기업을 찾을 때 어떤 요소를 먼저 봐야 하는지 설명합니다."
 date: "2026-05-23"
 slug: "how-to-find-long-term-investment-stocks"
+indexable: false
 category: "주식기초"
 tags: ["장기투자", "종목선택", "기업분석", "투자기초"]
 featured: false

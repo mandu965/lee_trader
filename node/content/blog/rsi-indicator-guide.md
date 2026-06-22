@@ -1,6 +1,7 @@
 ---
 title: RSI 지표 완전 정복 — 과매수·과매도 기준과 실전 활용법
 slug: rsi-indicator-guide
+indexable: false
 category: 기술적 분석
 excerpt: RSI가 70 이상이면 팔고 30 이하면 사라는 말, 실전에서 왜 통하지 않는지와 제대로 쓰는 법을 설명합니다.
 date: 2026-05-27

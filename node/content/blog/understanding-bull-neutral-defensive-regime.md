@@ -1,6 +1,7 @@
 ---
 title: 시장 국면(레짐)이란 — Bull·Neutral·Defensive를 구분하는 5가지 조건
 slug: understanding-bull-neutral-defensive-regime
+indexable: false
 category: 시장 분석
 excerpt: LeeTrader AI는 매일 시장을 Bull·Neutral·Defensive 3단계로 자동 분류합니다. 5가지 조건이 무엇인지, 국면에 따라 어떻게 투자 전략이 달라지는지 설명합니다.
 date: 2026-06-02

@@ -1,6 +1,7 @@
 ---
 title: AI 점수는 어떻게 계산되나요 — 6개 축과 43개 지표 완전 해설
 slug: how-ai-score-is-calculated
+indexable: false
 category: AI 분석
 excerpt: LeeTrader가 매일 종목을 평가하는 AI 점수의 구성 원리를 6개 축과 43개 지표 기준으로 풀어봅니다.
 date: 2026-06-02

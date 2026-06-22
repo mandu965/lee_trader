@@ -1,6 +1,7 @@
 ---
 title: 리스크 페널티란 무엇인가 — AI 점수를 낮추는 3가지 위험 신호
 slug: how-to-use-risk-penalty
+indexable: false
 category: 리스크 관리
 excerpt: LeeTrader AI 점수에서 리스크 페널티가 높은 종목은 어떤 의미인지, 3가지 주요 패널티 요인과 활용법을 설명합니다.
 date: 2026-06-02

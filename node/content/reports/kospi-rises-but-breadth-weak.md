@@ -1,6 +1,7 @@
 ---
 title: KOSPI가 올라도 체감장이 약할 수 있는 이유
 slug: kospi-rises-but-breadth-weak
+indexable: false
 category: 시장 국면
 excerpt: 지수 상승과 실제 종목 체감이 다를 때 breadth, 대형주 쏠림, 업종 확산을 함께 확인해야 하는 이유를 설명합니다.
 date: 2026-05-28

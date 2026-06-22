@@ -1,6 +1,7 @@
 ---
 title: AI 예측 기대수익률이란 — 60일 수익 예측을 올바르게 해석하는 법
 slug: what-is-predicted-return-60d
+indexable: false
 category: AI 분석
 excerpt: LeeTrader의 기대수익(60d)은 AI가 통계적으로 추정한 값입니다. 이 숫자가 무엇을 의미하는지, 어떻게 활용해야 하는지 설명합니다.
 date: 2026-06-02

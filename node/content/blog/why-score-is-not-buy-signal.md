@@ -1,6 +1,7 @@
 ---
 title: 점수가 높아도 바로 매수 신호가 아닌 이유
 slug: why-score-is-not-buy-signal
+indexable: false
 category: 투자 기초
 excerpt: 랭킹 점수와 실제 행동 판단은 다릅니다. 점수를 어떻게 읽고 어떤 조건을 추가로 확인해야 하는지 설명합니다.
 date: 2026-06-07

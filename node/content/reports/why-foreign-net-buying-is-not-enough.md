@@ -1,6 +1,7 @@
 ---
 title: 외국인 순매수만으로 시장을 낙관하면 안 되는 이유
 slug: why-foreign-net-buying-is-not-enough
+indexable: false
 category: 수급 해석
 excerpt: 외국인 순매수는 중요한 신호지만 업종 분포, 지속성, 선물 흐름, breadth와 함께 읽어야 합니다.
 date: 2026-05-28

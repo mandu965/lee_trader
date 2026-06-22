@@ -3,6 +3,7 @@ title: "손절은 언제 해야 하나"
 description: "손절을 실패가 아니라 리스크 관리로 이해하고, 초보 투자자가 무엇을 기준으로 정리해야 하는지 설명합니다."
 date: "2026-05-23"
 slug: "when-to-cut-loss-stock-guide"
+indexable: false
 category: "주식기초"
 tags: ["손절", "리스크관리", "주식기초", "투자원칙"]
 featured: false

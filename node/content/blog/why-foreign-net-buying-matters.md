@@ -3,6 +3,7 @@ title: "외국인 순매수는 왜 중요한가"
 description: "외국인 순매수가 지수 방향과 종목 체력 해석에 왜 자주 쓰이는지, 그리고 맹신하면 안 되는 이유를 설명합니다."
 date: "2026-05-23"
 slug: "why-foreign-net-buying-matters"
+indexable: false
 category: "시장분석"
 tags: ["외국인순매수", "수급", "코스피", "시장분석"]
 featured: false

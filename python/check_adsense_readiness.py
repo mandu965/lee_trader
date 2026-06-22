@@ -7,6 +7,8 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 PUBLIC_DIR = ROOT / "node" / "public"
 CONTENT_DIRS = [ROOT / "node" / "content" / "blog", ROOT / "node" / "content" / "reports"]
+MIN_INDEXABLE_WORDS = 500
+MIN_INDEXABLE_CONTENT_FILES = 10
 
 REQUIRED_PUBLIC_FILES = [
     "landing.html",
@@ -32,6 +34,18 @@ def has_frontmatter(text: str) -> bool:
     return text.startswith("---\n") and "\n---\n" in text[4:]
 
 
+def frontmatter_value(text: str, key: str) -> str | None:
+    if not has_frontmatter(text):
+        return None
+    header = text.split("\n---\n", 1)[0][4:]
+    match = re.search(rf"(?mi)^{re.escape(key)}:\s*(.+?)\s*$", header)
+    return match.group(1).strip().strip("\"'") if match else None
+
+
+def content_body(text: str) -> str:
+    return text.split("\n---\n", 1)[1] if has_frontmatter(text) else text
+
+
 def main() -> int:
     problems: list[str] = []
 
@@ -51,6 +65,7 @@ def main() -> int:
     if len(content_files) < 20:
         problems.append(f"too few public content files: {len(content_files)}")
 
+    indexable_content_count = 0
     for path in content_files:
         text = read(path)
         if not has_frontmatter(text):
@@ -59,6 +74,21 @@ def main() -> int:
         replacement = text.count("�")
         if suspicious > 12 or replacement:
             problems.append(f"possible mojibake: {path.relative_to(ROOT)}")
+        indexable = str(frontmatter_value(text, "indexable") or "true").lower() != "false"
+        word_count = len(re.findall(r"\S+", content_body(text)))
+        if indexable:
+            indexable_content_count += 1
+        if indexable and word_count < MIN_INDEXABLE_WORDS:
+            problems.append(
+                f"thin indexable content ({word_count} words < {MIN_INDEXABLE_WORDS}): "
+                f"{path.relative_to(ROOT)}"
+            )
+
+    if indexable_content_count < MIN_INDEXABLE_CONTENT_FILES:
+        problems.append(
+            f"too few indexable content files: {indexable_content_count} "
+            f"< {MIN_INDEXABLE_CONTENT_FILES}"
+        )
 
     ads_txt = read(PUBLIC_DIR / "ads.txt") if (PUBLIC_DIR / "ads.txt").exists() else ""
     if "google.com, pub-" not in ads_txt:
@@ -76,6 +106,7 @@ def main() -> int:
 
     print("AdSense readiness check: PASS")
     print(f"- content files: {len(content_files)}")
+    print(f"- indexable content files: {indexable_content_count}")
     print(f"- required public files: {len(REQUIRED_PUBLIC_FILES)}")
     return 0
 

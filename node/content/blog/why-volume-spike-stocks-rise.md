@@ -3,6 +3,7 @@ title: "거래량 급증은 어떻게 읽어야 하나"
 description: "거래량이 갑자기 늘어난 종목을 볼 때 무엇을 확인해야 하는지 설명합니다."
 date: "2026-05-23"
 slug: "why-volume-spike-stocks-rise"
+indexable: false
 category: "주식기초"
 tags: ["거래량", "차트기초", "수급", "주식기초"]
 featured: false

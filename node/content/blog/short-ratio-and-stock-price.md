@@ -1,6 +1,7 @@
 ---
 title: 공매도 비율이란 — 주가에 미치는 영향과 투자 활용법
 slug: short-ratio-and-stock-price
+indexable: false
 category: 리스크 관리
 excerpt: 공매도 비율이 높은 종목은 어떤 의미인지, LeeTrader AI가 공매도 데이터를 피처로 활용하는 이유를 설명합니다.
 date: 2026-06-02

@@ -1,6 +1,7 @@
 ---
 title: WATCHLIST와 BUY_ALLOWED의 차이
 slug: difference-between-watchlist-and-buy-allowed
+indexable: false
 category: 투자 기초
 excerpt: 관찰 후보와 신규 진입 가능 상태는 서로 다릅니다. 두 상태를 구분해야 추격 매수 실수를 줄일 수 있습니다.
 date: 2026-06-07

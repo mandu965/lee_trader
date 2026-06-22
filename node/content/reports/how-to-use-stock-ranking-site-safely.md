@@ -1,6 +1,7 @@
 ---
 title: 주식 랭킹 사이트를 안전하게 사용하는 방법
 slug: how-to-use-stock-ranking-site-safely
+indexable: false
 category: 사이트 이용법
 excerpt: 랭킹과 점수를 참고하되 과신하지 않기 위한 실전 이용 원칙입니다.
 date: 2026-06-07

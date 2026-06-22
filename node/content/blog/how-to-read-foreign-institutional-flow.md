@@ -1,6 +1,7 @@
 ---
 title: 외국인·기관 수급 읽는 법 — 순매수가 왜 중요한가
 slug: how-to-read-foreign-institutional-flow
+indexable: false
 category: 수급 분석
 excerpt: 외국인과 기관의 순매수·순매도가 주가에 왜 영향을 미치는지, HTS에서 어떻게 확인하는지, 어떤 함정을 조심해야 하는지 설명합니다.
 date: 2026-05-27

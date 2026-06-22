@@ -1,6 +1,7 @@
 ---
 title: Lee Trader Lab은 한국 주식을 어떻게 분석하나요
 slug: how-this-site-analyzes-korean-stocks
+indexable: false
 category: 사이트 이용법
 excerpt: 이 사이트가 가격, 수급, 재무 품질, 리스크를 어떤 순서로 해석하는지 안내합니다.
 date: 2026-06-07

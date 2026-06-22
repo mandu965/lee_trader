@@ -3,6 +3,7 @@ title: "성장주와 가치주는 어떻게 구분해야 하나"
 description: "성장주와 가치주의 차이를 단순 비교가 아니라 시장 국면과 기대의 차이로 설명합니다."
 date: "2026-05-23"
 slug: "growth-vs-value-stocks-guide"
+indexable: false
 category: "종목선택"
 tags: ["성장주", "가치주", "종목선택", "투자기초"]
 featured: false

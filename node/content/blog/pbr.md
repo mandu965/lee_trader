@@ -3,6 +3,7 @@ title: "PBR는 어떻게 읽어야 하나"
 description: "PBR의 뜻과 한계, 그리고 자산가치 지표를 실전에서 어떻게 보수적으로 읽어야 하는지 설명합니다."
 date: "2026-05-23"
 slug: "pbr"
+indexable: false
 category: "주식기초"
 tags: ["PBR", "밸류에이션", "주식기초", "기업분석"]
 featured: false

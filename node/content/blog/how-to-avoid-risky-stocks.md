@@ -1,6 +1,7 @@
 ---
 title: 위험한 종목을 피하기 위한 기본 체크리스트
 slug: how-to-avoid-risky-stocks
+indexable: false
 category: 리스크 관리
 excerpt: 초보 투자자가 급등주와 저유동성 종목에서 자주 겪는 손실을 줄이기 위한 점검 기준입니다.
 date: 2026-06-07

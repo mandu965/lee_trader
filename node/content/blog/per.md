@@ -3,6 +3,7 @@ title: "PER는 어떻게 읽어야 하나"
 description: "PER의 뜻과 한계, 그리고 초보 투자자가 PER를 현재 시장 해석과 함께 어떻게 읽어야 하는지 설명합니다."
 date: "2026-05-23"
 slug: "per"
+indexable: false
 category: "주식기초"
 tags: ["PER", "밸류에이션", "주식기초", "기업분석"]
 featured: false

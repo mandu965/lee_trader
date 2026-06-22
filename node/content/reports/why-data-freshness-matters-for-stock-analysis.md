@@ -1,6 +1,7 @@
 ---
 title: 주식 분석에서 데이터 최신성이 중요한 이유
 slug: why-data-freshness-matters-for-stock-analysis
+indexable: false
 category: 데이터 품질
 excerpt: 오래된 데이터는 좋은 모델도 잘못된 결론으로 이끌 수 있습니다. 최신성 점검의 중요성을 설명합니다.
 date: 2026-06-07

@@ -1,6 +1,7 @@
 ---
 title: 코스피 vs 코스닥 — 차이점과 투자할 때 알아야 할 것들
 slug: kospi-vs-kosdaq-difference
+indexable: false
 category: 주식 기초
 excerpt: 코스피와 코스닥은 같은 한국 주식시장이지만 성격이 전혀 다릅니다. 어떤 차이가 있는지, 투자할 때 무엇을 다르게 봐야 하는지 설명합니다.
 date: 2026-05-27

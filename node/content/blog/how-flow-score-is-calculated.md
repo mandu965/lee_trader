@@ -1,6 +1,7 @@
 ---
 title: 수급 점수(flow_score)란 — 외국인·기관 데이터가 AI 점수에 반영되는 방법
 slug: how-flow-score-is-calculated
+indexable: false
 category: AI 분석
 excerpt: LeeTrader AI 점수의 수급 축(flow_score)이 어떻게 계산되는지, 단순한 외국인 순매수와 무엇이 다른지 설명합니다.
 date: 2026-06-02

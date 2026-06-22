@@ -512,8 +512,10 @@ function readMarkdownEntries(sectionDir, section) {
         title,
         excerpt,
         date: attributes.date || stat.mtime.toISOString().slice(0, 10),
+        modified: attributes.modified || stat.mtime.toISOString().slice(0, 10),
         readingTime: attributes.readingTime || estimateReadingTime(renderedBody),
         featured: Boolean(attributes.featured),
+        indexable: attributes.indexable !== false,
         body: renderedBody,
       };
     })
@@ -867,7 +869,9 @@ function replaceElementContentsById(html, id, contents) {
 
 function renderCollectionPageShell(html, pathname) {
   const section = pathname === "/reports" ? "report" : "blog";
-  const scopedItems = readSiteLibrary().filter((item) => item.section === section);
+  const scopedItems = readSiteLibrary().filter(
+    (item) => item.section === section && item.indexable !== false
+  );
   const categories = [...new Set(scopedItems.map((item) => item.category).filter(Boolean))];
   const starterSlugs = section === "report"
     ? ["weekly-market-regime-neutral-example", "what-walkforward-acceptance-means", "case-study-good-score-but-no-entry"]
@@ -918,7 +922,7 @@ function renderCollectionPageShell(html, pathname) {
 }
 
 function renderLandingPageShell(html) {
-  const items = readSiteLibrary();
+  const items = readSiteLibrary().filter((item) => item.indexable !== false);
   const reports = items.filter((item) => item.section === "report").slice(0, 3);
   const posts = items.filter((item) => item.section === "blog").slice(0, 3);
   let next = replaceElementContentsById(html, "latestReports", reports.map(renderCollectionCard).join(""));
@@ -928,7 +932,12 @@ function renderLandingPageShell(html) {
 
 function renderArticlePage(item, section) {
   const related = readSiteLibrary()
-    .filter((entry) => entry.slug !== item.slug && entry.section === item.section)
+    .filter(
+      (entry) =>
+        entry.slug !== item.slug
+        && entry.section === item.section
+        && entry.indexable !== false
+    )
     .slice(0, 4);
   const canonicalPath = `/${section}/${item.slug}`;
   const title = `${item.title} | Lee Trader Lab`;
@@ -942,7 +951,7 @@ function renderArticlePage(item, section) {
     description,
     image: ogImageUrl,
     datePublished: item.date || undefined,
-    dateModified: item.date || undefined,
+    dateModified: item.modified || item.date || undefined,
     mainEntityOfPage: canonicalUrl,
     author: {
       "@type": "Organization",
@@ -968,6 +977,7 @@ function renderArticlePage(item, section) {
   <title>${escapeHtml(title)}</title>
   <meta name="description" content="${escapeHtml(description)}">
   <link rel="canonical" href="${escapeHtml(canonicalUrl)}">
+  ${item.indexable === false ? '<meta name="robots" content="noindex, follow">' : ""}
   <meta property="og:type" content="article">
   <meta property="og:title" content="${escapeHtml(item.title)}">
   <meta property="og:description" content="${escapeHtml(description)}">
@@ -986,7 +996,7 @@ function renderArticlePage(item, section) {
   <link rel="dns-prefetch" href="//www.googletagmanager.com">
   <link rel="stylesheet" href="/site.css">
   ${renderJsonLd(articleSchema)}
-${renderAnalyticsHeadSnippet()}
+${renderAnalyticsHeadSnippet({ includeAdSenseScript: item.indexable !== false })}
 </head>
 <body class="site-body">
   <header class="site-header">
@@ -5677,37 +5687,47 @@ app.get("/robots.txt", (req, res) => {
   const disallowPaths = [
     "/api/",
   ];
+  res.set("Cache-Control", "public, max-age=3600");
   res.type("text/plain").send(`User-agent: *\nAllow: /\n${disallowPaths.map((path) => `Disallow: ${path}`).join("\n")}\n\nSitemap: ${buildAbsoluteUrl("/sitemap.xml")}\n`);
 });
 app.get("/sitemap.xml", (req, res) => {
-  const items = readSiteLibrary();
-  const today = new Date().toISOString().slice(0, 10);
+  const items = readSiteLibrary().filter((item) => item.indexable !== false);
+  const publicLastmod = (fileName) => {
+    const filePath = path.join(PUBLIC_DIR, fileName);
+    return fs.existsSync(filePath)
+      ? fs.statSync(filePath).mtime.toISOString().slice(0, 10)
+      : null;
+  };
   const staticUrls = [
-    { path: "/", priority: "1.0" },
-    { path: "/about", priority: "0.8" },
-    { path: "/methodology", priority: "0.7" },
-    { path: "/glossary", priority: "0.7" },
-    { path: "/operator-note", priority: "0.6" },
-    { path: "/contact", priority: "0.5" },
-    { path: "/privacy", priority: "0.3" },
-    { path: "/terms", priority: "0.3" },
-    { path: "/disclaimer", priority: "0.3" },
-    { path: "/reports", priority: "0.9" },
-    { path: "/blog", priority: "0.9" },
-  ];
+    { path: "/", fileName: "landing.html", priority: "1.0" },
+    { path: "/about", fileName: "about.html", priority: "0.8" },
+    { path: "/methodology", fileName: "methodology.html", priority: "0.7" },
+    { path: "/glossary", fileName: "glossary.html", priority: "0.7" },
+    { path: "/operator-note", fileName: "operator-note.html", priority: "0.6" },
+    { path: "/contact", fileName: "contact.html", priority: "0.5" },
+    { path: "/privacy", fileName: "privacy.html", priority: "0.3" },
+    { path: "/terms", fileName: "terms.html", priority: "0.3" },
+    { path: "/disclaimer", fileName: "disclaimer.html", priority: "0.3" },
+    { path: "/reports", fileName: "content-list.html", priority: "0.9" },
+    { path: "/blog", fileName: "content-list.html", priority: "0.9" },
+  ].map((entry) => ({
+    ...entry,
+    lastmod: publicLastmod(entry.fileName),
+  }));
   const contentUrls = items.map((item) => ({
     path: `/${item.section === "report" ? "reports" : "blog"}/${item.slug}`,
-    lastmod: item.date || today,
+    lastmod: item.modified || item.date || null,
     priority: item.featured ? "0.8" : "0.7",
   }));
   const allUrls = [...staticUrls, ...contentUrls];
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${allUrls.map(({ path, lastmod, priority }) => `  <url>
-    <loc>${escapeHtml(buildAbsoluteUrl(path))}</loc>${lastmod ? `\n    <lastmod>${escapeHtml(lastmod)}</lastmod>` : `\n    <lastmod>${today}</lastmod>`}
+${allUrls.map(({ path: urlPath, lastmod, priority }) => `  <url>
+    <loc>${escapeHtml(buildAbsoluteUrl(urlPath))}</loc>${lastmod ? `\n    <lastmod>${escapeHtml(lastmod)}</lastmod>` : ""}
     <priority>${priority}</priority>
   </url>`).join("\n")}
 </urlset>`;
+  res.set("Cache-Control", "public, max-age=3600");
   res.type("application/xml").send(xml);
 });
 app.get("/api/site-library", (req, res) => {

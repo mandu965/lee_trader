@@ -1,6 +1,7 @@
 ---
 title: 점수는 좋지만 진입하지 않는 경우
 slug: case-study-good-score-but-no-entry
+indexable: false
 category: 운영 사례
 excerpt: 상위권 후보라도 가격 위치, 변동성, 검증 상태가 약하면 관찰만 하는 것이 더 합리적일 수 있습니다.
 date: 2026-06-07

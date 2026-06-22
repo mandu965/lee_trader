@@ -3,6 +3,7 @@ title: "이동평균선은 어떻게 읽어야 하나"
 description: "20일선, 60일선 같은 이동평균선을 초보 투자자가 어떻게 해석해야 하는지 설명합니다."
 date: "2026-05-23"
 slug: "moving-average-guide"
+indexable: false
 category: "주식기초"
 tags: ["이동평균선", "차트기초", "20일선", "60일선", "기술적분석"]
 featured: false

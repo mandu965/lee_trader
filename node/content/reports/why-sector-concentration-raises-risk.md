@@ -1,6 +1,7 @@
 ---
 title: 상위 후보가 한 업종에 몰릴 때 리스크가 커지는 이유
 slug: why-sector-concentration-raises-risk
+indexable: false
 category: 리스크 관리
 excerpt: 랭킹 상위 후보가 특정 업종에 집중되면 같은 재료와 같은 하락 위험을 공유할 수 있어 비중 관리가 중요합니다.
 date: 2026-05-28

@@ -1,6 +1,7 @@
 ---
 title: AI 주식 점수를 읽기 전에 확인할 5가지
 slug: five-checkpoints-before-reading-ai-stock-score
+indexable: false
 category: 점수 해석
 excerpt: AI 점수는 후보를 좁히는 도구이며 시장 국면, 가격 위치, 리스크, 검증 상태와 함께 읽어야 합니다.
 date: 2026-05-28

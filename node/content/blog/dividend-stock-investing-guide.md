@@ -3,6 +3,7 @@ title: "배당주 투자는 어떻게 읽어야 하나"
 description: "배당주 투자의 장점과 한계, 그리고 배당만 보고 판단하면 안 되는 이유를 설명합니다."
 date: "2026-05-23"
 slug: "dividend-stock-investing-guide"
+indexable: false
 category: "주식기초"
 tags: ["배당주", "배당수익률", "장기투자", "주식기초"]
 featured: false

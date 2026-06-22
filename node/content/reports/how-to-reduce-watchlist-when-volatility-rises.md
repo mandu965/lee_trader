@@ -1,6 +1,7 @@
 ---
 title: 변동성이 커질 때 관찰 후보를 줄이는 기준
 slug: how-to-reduce-watchlist-when-volatility-rises
+indexable: false
 category: 리스크 관리
 excerpt: 변동성이 커지는 구간에서는 후보 수를 줄이고 가격 위치, 손절 기준, 수급 지속성을 더 엄격하게 확인해야 합니다.
 date: 2026-05-28

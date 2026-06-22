@@ -1,6 +1,7 @@
 ---
 title: Walk-forward acceptance는 무엇을 뜻하나요
 slug: what-walkforward-acceptance-means
+indexable: false
 category: 검증 지표
 excerpt: 과거 데이터에만 맞춘 모델을 피하기 위해 사용하는 검증 개념을 쉬운 말로 설명합니다.
 date: 2026-06-07

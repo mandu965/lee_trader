@@ -1,6 +1,7 @@
 ---
 title: 중립 시장에서는 어떻게 종목을 읽어야 하나요
 slug: weekly-market-regime-neutral-example
+indexable: false
 category: 시장 국면
 excerpt: 강세도 방어도 아닌 중립 시장에서는 점수보다 선별과 비중 관리가 중요합니다.
 date: 2026-06-07

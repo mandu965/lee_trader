@@ -1,6 +1,7 @@
 ---
 title: LightGBM이란 무엇인가 — 주식 AI 분석에 쓰이는 기계학습 모델
 slug: what-is-lightgbm-stock-model
+indexable: false
 category: AI 분석
 excerpt: LeeTrader가 종목 점수를 계산할 때 사용하는 LightGBM이 무엇인지, 왜 주식 분석에 적합한지를 쉽게 설명합니다.
 date: 2026-06-02

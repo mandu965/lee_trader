@@ -1,6 +1,7 @@
 ---
 title: AI 종목 추천을 믿어도 될까요
 slug: can-you-trust-ai-stock-picks
+indexable: false
 category: AI 분석
 excerpt: AI 점수는 유용하지만 완벽하지 않습니다. 신뢰할 부분과 조심할 부분을 구분해 설명합니다.
 date: 2026-06-07

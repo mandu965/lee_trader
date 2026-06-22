@@ -1,6 +1,7 @@
 ---
 title: 랭킹 1위가 즉시 진입을 뜻하지 않는 이유
 slug: why-ranking-top-does-not-mean-immediate-entry
+indexable: false
 category: 리스크 관리
 excerpt: 상위 랭킹은 비교 우위일 뿐입니다. 실제 진입 전에는 가격과 리스크 조건을 따로 봐야 합니다.
 date: 2026-06-07

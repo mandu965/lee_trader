@@ -1,6 +1,7 @@
 ---
 title: 종목 선택보다 시장 국면을 먼저 읽어야 하는 이유
 slug: how-to-read-market-regime-before-stock-selection
+indexable: false
 category: 시장 국면
 excerpt: 같은 종목 점수라도 시장 국면에 따라 의미가 달라지므로 지수, breadth, 변동성, 수급을 먼저 확인해야 합니다.
 date: 2026-05-28

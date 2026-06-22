@@ -1,6 +1,7 @@
 ---
 title: 좋은 종목을 고를 때 확인할 7가지 기준
 slug: how-to-pick-good-stocks-7-rules
+indexable: false
 category: 투자 기초
 excerpt: 가격, 수급, 품질, 리스크를 균형 있게 확인하는 기본 종목 선택 기준입니다.
 date: 2026-06-07

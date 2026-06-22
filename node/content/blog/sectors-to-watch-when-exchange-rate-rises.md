@@ -3,6 +3,7 @@ title: "환율 상승은 어떤 업종에 영향을 주나"
 description: "원달러 환율 상승이 수출주, 수입 의존 업종, 시장 심리에 어떻게 다르게 작용하는지 설명합니다."
 date: "2026-05-23"
 slug: "sectors-to-watch-when-exchange-rate-rises"
+indexable: false
 category: "시장분석"
 tags: ["환율", "원달러", "수출주", "시장분석"]
 featured: false
