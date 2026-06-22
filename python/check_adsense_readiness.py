@@ -13,6 +13,7 @@ MIN_INDEXABLE_CONTENT_FILES = 10
 REQUIRED_PUBLIC_FILES = [
     "landing.html",
     "about.html",
+    "editorial-policy.html",
     "contact.html",
     "privacy.html",
     "terms.html",

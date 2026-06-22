@@ -644,6 +644,17 @@ function buildPublicPageMeta(pathname) {
       description: "점수, 시장 국면, 리스크 관리, 운영 가드, 검증 절차를 설명하는 방법론 페이지입니다.",
       canonicalPath: "/methodology",
     },
+    "/editorial-policy": {
+      title: "편집·정정 정책 | Lee Trader Lab",
+      description: "Lee Trader Lab의 작성 주체, 자료 검토, AI 보조 사용, 이해상충, 수정·정정 절차를 안내합니다.",
+      canonicalPath: "/editorial-policy",
+      structuredData: {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        name: "편집·정정 정책",
+        url: buildAbsoluteUrl("/editorial-policy"),
+      },
+    },
     "/glossary": {
       title: "용어 해설 | Lee Trader Lab",
       description: "Lee Trader Lab 공개 페이지에서 사용하는 핵심 투자·운영 용어를 쉬운 말로 풀이합니다.",
@@ -1040,7 +1051,7 @@ ${renderAnalyticsHeadSnippet({ includeAdSenseScript: item.indexable !== false })
             <div class="article-byline" style="display:flex;align-items:center;gap:12px;padding:14px 16px;margin:18px 0 24px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(255,255,255,0.02);">
               <div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#5b8def,#7ad3ff);display:flex;align-items:center;justify-content:center;font-weight:700;color:#0b1220;font-size:14px;">LT</div>
               <div style="font-size:14px;line-height:1.5;">
-                <div style="font-weight:600;color:#e6edf6;">Lee Trader Lab 편집팀</div>
+                <div style="font-weight:600;color:#e6edf6;"><a class="text-link" href="/about#operator">Lee Trader Lab 운영자</a></div>
                 <div style="color:#8a99b5;">데이터·운영 로그 기반 콘텐츠 · 발행일 ${escapeHtml(item.date || "-")}</div>
               </div>
             </div>
@@ -1049,6 +1060,7 @@ ${renderAnalyticsHeadSnippet({ includeAdSenseScript: item.indexable !== false })
               본 글은 Lee Trader Lab 운영팀이 작성한 정보 제공 콘텐츠이며, 특정 종목의 매수·매도를 권유하는 투자 자문이 아닙니다.
               실제 투자 판단과 손익 책임은 이용자 본인에게 있습니다.
               자세한 기준은 <a class="text-link" href="/disclaimer">면책조항</a>과 <a class="text-link" href="/methodology">방법론</a>을 참고하세요.
+              작성·검토·정정 기준은 <a class="text-link" href="/editorial-policy">편집·정정 정책</a>에 공개합니다.
             </div>
           </article>
         </div>
@@ -1073,6 +1085,7 @@ ${renderAnalyticsHeadSnippet({ includeAdSenseScript: item.indexable !== false })
               <li><a class="text-link" href="/methodology">방법론 읽기</a></li>
               <li><a class="text-link" href="/glossary">용어 해설 보기</a></li>
               <li><a class="text-link" href="/about">회사 소개 보기</a></li>
+              <li><a class="text-link" href="/editorial-policy">편집·정정 정책 보기</a></li>
               <li><a class="text-link" href="/disclaimer">면책조항 확인</a></li>
               <li><a class="text-link" href="/operator-note">운영 안내 보기</a></li>
             </ul>
@@ -5675,6 +5688,7 @@ app.get("/", (req, res) => sendPublicPage(res, "landing.html"));
 app.get("/app", (req, res) => sendPublicPage(res, "index.html"));
 app.get("/about", (req, res) => sendPublicPage(res, "about.html"));
 app.get("/methodology", (req, res) => sendPublicPage(res, "methodology.html"));
+app.get("/editorial-policy", (req, res) => sendPublicPage(res, "editorial-policy.html"));
 app.get("/glossary", (req, res) => sendPublicPage(res, "glossary.html"));
 app.get("/operator-note", (req, res) => sendPublicPage(res, "operator-note.html"));
 app.get("/contact", (req, res) => sendPublicPage(res, "contact.html"));
@@ -5696,6 +5710,7 @@ app.get("/sitemap.xml", (req, res) => {
     { path: "/", priority: "1.0" },
     { path: "/about", priority: "0.8" },
     { path: "/methodology", priority: "0.7" },
+    { path: "/editorial-policy", priority: "0.6" },
     { path: "/glossary", priority: "0.7" },
     { path: "/operator-note", priority: "0.6" },
     { path: "/contact", priority: "0.5" },
