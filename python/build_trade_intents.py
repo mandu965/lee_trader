@@ -453,6 +453,8 @@ def build_ai_buy_intents(
         if queue_row.empty:
             continue
         item = queue_row.iloc[0]
+        if not bool(item.get("entry_eligible")):
+            continue
         ranking = ranking_context.get(code, {})
         ai_filtered = ai_filtered_context.get(code, {})
         target_weight_value = pd.to_numeric(item.get("target_weight"), errors="coerce")
