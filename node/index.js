@@ -17,6 +17,9 @@ const SITE_BASE_URL = (process.env.SITE_BASE_URL || "http://localhost:3000").rep
 const GA_MEASUREMENT_ID = (process.env.GA_MEASUREMENT_ID || "G-TSJDVJKDFQ").trim();
 const NAVER_ANALYTICS_WA = (process.env.NAVER_ANALYTICS_WA || "1680ec0ed78cdb0").trim();
 const ADSENSE_CLIENT_ID = (process.env.ADSENSE_CLIENT_ID || "ca-pub-9750533988242312").trim();
+const VISITOR_ANALYTICS_ENABLED = String(process.env.VISITOR_ANALYTICS_ENABLED || "1")
+  .trim()
+  .toLowerCase() !== "0";
 
 // ---------------------
 // Env / Postgres Pool
@@ -2952,6 +2955,7 @@ async function buildMeaningfulnessOutcomes({ analysisDate, codes }) {
 }
 
 async function recordPageView(req, res) {
+  if (!VISITOR_ANALYTICS_ENABLED) return;
   if (!shouldTrackPageView(req)) return;
   try {
     const visitorId = ensureVisitorId(req, res);
